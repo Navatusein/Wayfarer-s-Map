@@ -440,8 +440,12 @@ public final class IsoMapRenderer {
             List<Map.Entry<Key, Tile>> entries = new ArrayList<>(tiles.entrySet());
             entries.sort((a, b) -> Long.compare(a.getValue().lastUsed, b.getValue().lastUsed));
             for (int i = 0; i < entries.size() - MAX_TILES; i++) {
-                delete(entries.get(i).getValue());
-                tiles.remove(entries.get(i).getKey());
+                delete(
+                    entries.get(i)
+                        .getValue());
+                tiles.remove(
+                    entries.get(i)
+                        .getKey());
             }
         }
     }

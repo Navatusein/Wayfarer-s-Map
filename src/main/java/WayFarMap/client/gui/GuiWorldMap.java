@@ -223,8 +223,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton,
-            rotateButton, mobsButton, teamButton };
+        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, rotateButton,
+            mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -561,18 +561,7 @@ public class GuiWorldMap extends ScaledScreen {
             drawFlatLayers(dimension, dimensionId, otherDimension, mouseX, mouseY, partialTicks);
         }
         // Teammates always, also in another dimension being looked at.
-        MapDrawer.drawTeammates(
-            mc,
-            dimensionId,
-            this::toScreen,
-            scale,
-            0,
-            0,
-            width,
-            height,
-            partialTicks,
-            8f,
-            true);
+        MapDrawer.drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
 
@@ -592,8 +581,7 @@ public class GuiWorldMap extends ScaledScreen {
                 // Where one block ahead of the player lands on the screen gives the arrow's direction.
                 double r = Math.toRadians(yaw);
                 double[] ahead = toScreen(px - Math.sin(r), py, pz + Math.cos(r));
-                yaw = (float) Math
-                    .toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
+                yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
             }
             MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
         }
@@ -601,8 +589,8 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** The flat map and everything drawn on it (not in 3D). */
-    private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX,
-        int mouseY, float partialTicks) {
+    private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX, int mouseY,
+        float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
         boolean prospecting = Mods.isVisualProspectingLoaded();
         // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
@@ -1538,8 +1526,7 @@ public class GuiWorldMap extends ScaledScreen {
             double halfWidth = width / 2.0 / scale, halfHeight = height / 2.0 / scale;
             // World box on the screen: in 3D all the ground that can show up, at any height.
             double[] box = isoShown() ? isoView().visibleBounds(0, 0, width, height)
-                : new double[] { centerX - halfWidth, centerZ - halfHeight, centerX + halfWidth,
-                    centerZ + halfHeight };
+                : new double[] { centerX - halfWidth, centerZ - halfHeight, centerX + halfWidth, centerZ + halfHeight };
             MapManager.INSTANCE.trimForView(
                 mc.thePlayer,
                 (MathHelper.floor_double(box[0]) >> MapRegion.SHIFT) - 1,
