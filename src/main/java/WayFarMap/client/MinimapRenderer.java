@@ -255,7 +255,7 @@ public class MinimapRenderer {
     private static final String[] COMPASS_LETTERS = { "N", "E", "S", "W" };
     private static final double[][] COMPASS_DIRECTIONS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 
-    /** N, E, S and W on the edge of the minimap, turning with it; north stands out in red. */
+    /** N, E, S and W on the edge of the minimap, in white, turning with it. */
     private static void drawCompass(FontRenderer font, double cx, double cy, double half, boolean round,
         float rotation) {
         double edge = half - 5;
@@ -270,7 +270,7 @@ public class MinimapRenderer {
                 cx + direction[0] * reach - font.getStringWidth(letter) / 2.0 + 1,
                 cy + direction[1] * reach - 3,
                 0);
-            font.drawStringWithShadow(letter, 0, 0, i == 0 ? 0xFF5555 : 0xFFFFFF);
+            font.drawStringWithShadow(letter, 0, 0, 0xFFFFFF);
             GL11.glPopMatrix();
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

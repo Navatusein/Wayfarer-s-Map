@@ -57,10 +57,6 @@ public class Config {
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean chunkGrid = false;
-    /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
-    public static boolean isometric = false;
-    /** Side the isometric view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
-    public static int isoRotation = 0;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -174,22 +170,6 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
-        bool(
-            c,
-            "isometric",
-            "Show the world map in 3D (isometric, like Dynmap) instead of from above.",
-            false,
-            () -> isometric,
-            v -> isometric = v);
-        choice(
-            c,
-            "isoRotation",
-            "Side the 3D world map is looked at from: 0 = south-east, 1 = north-east, 2 = north-west, "
-                + "3 = south-west.",
-            0,
-            new String[] { "se", "ne", "nw", "sw" },
-            () -> isoRotation,
-            v -> isoRotation = v);
         bool(
             c,
             "oreVeins",
@@ -481,17 +461,6 @@ public class Config {
         boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
         showPassiveMobs = friendly;
         showOtherEntities = friendly;
-        save();
-    }
-
-    public static void toggleIsometric() {
-        isometric = !isometric;
-        save();
-    }
-
-    /** Turns the 3D view by a quarter: +1 or -1. */
-    public static void rotateIso(int quarters) {
-        isoRotation = Math.floorMod(isoRotation + quarters, 4);
         save();
     }
 

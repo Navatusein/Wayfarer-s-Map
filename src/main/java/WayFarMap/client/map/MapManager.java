@@ -422,11 +422,6 @@ public class MapManager implements IResourceManagerReloadListener {
         return layer >= 0 ? viewed.cave(layer) : viewed.surface;
     }
 
-    /** Surface map of the dimension shown on the world map (its heights make the 3D view). */
-    public MapDimension getViewSurfaceMap() {
-        return viewed != null ? viewed.surface : surface;
-    }
-
     /** Biome map of the dimension shown on the world map. */
     public MapDimension getViewBiomeMap() {
         return viewed != null ? viewed.biomes : biomes;

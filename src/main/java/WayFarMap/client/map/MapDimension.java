@@ -135,11 +135,6 @@ public class MapDimension {
         return region;
     }
 
-    /** True once the region is known to have no file (nothing explored there), as opposed to still loading. */
-    public boolean isKnownMissing(int rx, int rz) {
-        return missing.contains(key(rx, rz));
-    }
-
     /**
      * Makes the region ready to be written to without blocking the game: true if it is in memory (or doesn't exist
      * yet and will be created), false while it is still being read from disk in the background.

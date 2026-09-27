@@ -40,8 +40,6 @@ import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
-import WayFarMap.client.map.IsoMapRenderer;
-import WayFarMap.client.map.IsoView;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
@@ -62,7 +60,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_ROTATE = 16;
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14;
     /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3;
     private static final int SLIDER_WIDTH = 10;
@@ -73,10 +71,6 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
-    /** How fast the 3D view turns to a new side. */
-    private static final double ROTATE_SPEED = 12.0;
-    /** Angle the 3D view is shown at; turns towards {@link Config#isoRotation}'s. NaN until first shown. */
-    private static double isoAngle = Double.NaN;
 
     private double centerX;
     private double centerZ;
@@ -94,9 +88,6 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton biomeButton;
     private IconButton gridButton;
     private IconButton mobsButton;
-    /** 3D (isometric) view on or off, and turning it by a quarter while on. */
-    private IconButton isoButton;
-    private IconButton rotateButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
     private IconButton addonsButton;
     /** Online teammates, to jump to them; shown only while there are some. */
@@ -161,7 +152,8 @@ public class GuiWorldMap extends ScaledScreen {
             initialized = true;
             MapManager.INSTANCE.stopViewing();
             if (!restoreView()) {
-                centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+                centerX = mc.thePlayer.posX;
+                centerZ = mc.thePlayer.posZ;
             }
             if (Mods.isVisualProspectingLoaded()) {
                 ProspectingLayer.onOpenMap();
@@ -191,14 +183,18 @@ public class GuiWorldMap extends ScaledScreen {
         biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
-        isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
-        rotateButton = new IconButton(ID_ROTATE, 0, 4, Icons.ROTATE, I18n.format("wayfarmap.gui.iso_rotate"));
-        teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
-        teamButton.visible = !TeamMates.INSTANCE.all()
-            .isEmpty();
-        for (IconButton button : rightButtons()) {
+        for (IconButton button : new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton,
+            mobsButton }) {
+            right -= button.getWidth();
+            button.xPosition = right;
+            right -= 3;
             buttonList.add(button);
         }
+        teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
+        teamButton.xPosition = right - teamButton.getWidth();
+        teamButton.visible = !TeamMates.INSTANCE.all()
+            .isEmpty();
+        buttonList.add(teamButton);
         updateLightButtons();
         menu = null;
         dimensionList = null;
@@ -221,87 +217,9 @@ public class GuiWorldMap extends ScaledScreen {
         applySearch();
     }
 
-    /** Buttons on the right of the header, from the right edge to the left. */
-    private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, rotateButton,
-            mobsButton, teamButton };
-    }
-
-    /** Places the right header buttons next to each other, leaving out hidden ones. */
-    private void layoutRightButtons() {
-        int right = width - 34;
-        for (IconButton button : rightButtons()) {
-            if (!button.visible) {
-                continue;
-            }
-            right -= button.getWidth();
-            button.xPosition = right;
-            right -= 3;
-        }
-    }
-
-    // ---------------------------------------------------------------- 3D view
-
-    /** True when the map is drawn in 3D: surface and biome views (cave layers have no heights, they stay flat). */
-    private boolean isoShown() {
-        return Config.isometric && (biomeViewShown() || MapManager.INSTANCE.getViewCaveLayer() < 0);
-    }
-
-    private static double isoAngle() {
-        if (Double.isNaN(isoAngle)) {
-            isoAngle = IsoView.angleOf(Config.isoRotation);
-        }
-        return isoAngle;
-    }
-
-    private IsoView isoView() {
-        return new IsoView(centerX, centerZ, scale, isoAngle(), width / 2.0, height / 2.0);
-    }
-
-    /** World move {dx, dz} that shows as the screen move (ox, oy), in 3D on the ground plane. */
-    private double[] screenToWorldOffset(double ox, double oy) {
-        return isoShown() ? isoView().groundOffset(ox, oy) : new double[] { ox / scale, oy / scale };
-    }
-
-    /** Screen position {x, y} of a world point. */
-    private double[] toScreen(double x, double y, double z) {
-        if (isoShown()) {
-            return isoView().project(x, y, z);
-        }
-        return new double[] { width / 2.0 + (x - centerX) * scale, height / 2.0 + (z - centerZ) * scale };
-    }
-
-    /** Block column {x, z} under the screen point; in 3D the ground seen there. */
-    private int[] blockAt(int mouseX, int mouseY) {
-        if (isoShown()) {
-            IsoView view = isoView();
-            MapDimension surface = MapManager.INSTANCE.getViewSurfaceMap();
-            int[] hit = surface == null ? null : view.pick(mouseX, mouseY, IsoMapRenderer.heightsOf(surface));
-            if (hit != null) {
-                return new int[] { hit[0], hit[1] };
-            }
-            double[] ground = view.unproject(mouseX, mouseY, IsoView.REFERENCE_Y);
-            return new int[] { MathHelper.floor_double(ground[0]), MathHelper.floor_double(ground[1]) };
-        }
-        return new int[] { MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale),
-            MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) };
-    }
-
-    /** Puts a world point in the middle of the screen (in 3D the point itself, not the ground below it). */
-    private void centerOn(double x, double y, double z) {
-        if (isoShown()) {
-            double[] center = IsoView.centerFor(x, y, z, isoAngle());
-            centerX = center[0];
-            centerZ = center[1];
-        } else {
-            centerX = x;
-            centerZ = z;
-        }
-    }
-
-    /** The search field shows up in biome view and with the ore vein or fluid layer (not in 3D). */
+    /** The search field shows up in biome view and with the ore vein or fluid layer. */
     private boolean searchAvailable() {
-        return !isoShown() && (biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown());
+        return biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown();
     }
 
     private static boolean nodesShown() {
@@ -420,9 +338,6 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.tooltip = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
-        isoButton.active = Config.isometric;
-        rotateButton.visible = Config.isometric;
-        layoutRightButtons();
         // Mobs: highlighted while some are hidden, the dot tells which kind is left.
         int mobFilter = Config.getMobFilter();
         mobsButton.active = mobFilter != Config.MOBS_ALL;
@@ -448,11 +363,6 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
-        } else if (button.id == ID_ISO) {
-            Config.toggleIsometric();
-            updateLightButtons();
-        } else if (button.id == ID_ROTATE) {
-            Config.rotateIso(1);
         } else if (button.id == ID_BIOMES) {
             Config.toggleBiomeView();
             updateLightButtons();
@@ -491,12 +401,11 @@ public class GuiWorldMap extends ScaledScreen {
                 double dy = -(rawY - lastRawMouseY) * (double) height / mc.displayHeight;
                 lastRawMouseX = rawX;
                 lastRawMouseY = rawY;
-                double[] move = screenToWorldOffset(dx, dy);
-                centerX -= move[0];
-                centerZ -= move[1];
+                centerX -= dx / scale;
+                centerZ -= dy / scale;
                 if (zooming) {
-                    anchorWorldX -= move[0];
-                    anchorWorldZ -= move[1];
+                    anchorWorldX -= dx / scale;
+                    anchorWorldZ -= dy / scale;
                 }
             }
         }
@@ -511,21 +420,8 @@ public class GuiWorldMap extends ScaledScreen {
                 scale = target;
                 zooming = false;
             }
-            double[] offset = screenToWorldOffset(anchorScreenX - width / 2.0, anchorScreenY - height / 2.0);
-            centerX = anchorWorldX - offset[0];
-            centerZ = anchorWorldZ - offset[1];
-        }
-
-        // The 3D view turns smoothly to its new side, the shorter way round.
-        double target = IsoView.angleOf(Config.isoRotation);
-        double angle = isoAngle();
-        if (angle != target) {
-            double diff = ((target - angle) % 360 + 540) % 360 - 180;
-            if (Math.abs(diff) < 0.2) {
-                isoAngle = target;
-            } else {
-                isoAngle = angle + diff * (1.0 - Math.exp(-ROTATE_SPEED * seconds));
-            }
+            centerX = anchorWorldX - (anchorScreenX - width / 2.0) / scale;
+            centerZ = anchorWorldZ - (anchorScreenY - height / 2.0) / scale;
         }
     }
 
@@ -539,58 +435,13 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         // Teammates come and go while the map is open.
-        boolean teammates = !TeamMates.INSTANCE.all()
+        teamButton.visible = !TeamMates.INSTANCE.all()
             .isEmpty();
-        if (teammates != teamButton.visible) {
-            teamButton.visible = teammates;
-            layoutRightButtons();
-        }
         if (!teamButton.visible && menuKind == MENU_TEAM) {
             menu = null;
         }
 
         updateView();
-        // The dimension shown: the player's, or another one picked from the title.
-        int dimensionId = viewDimension();
-        boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
-        boolean iso = isoShown();
-        if (iso) {
-            // 3D: the terrain only; the add-on layers, the grid and mobs are drawn on the flat map.
-            IsoMapRenderer.draw(isoView(), dimension, MapManager.INSTANCE.getViewSurfaceMap(), 0, 0, width, height);
-        } else {
-            drawFlatLayers(dimension, dimensionId, otherDimension, mouseX, mouseY, partialTicks);
-        }
-        // Teammates always, also in another dimension being looked at.
-        MapDrawer.drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
-
-        drawWaypoints(mouseX, mouseY);
-
-        double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
-        double py = mc.thePlayer.prevPosY + (mc.thePlayer.posY - mc.thePlayer.prevPosY) * partialTicks
-            - mc.thePlayer.yOffset;
-        double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
-        double[] playerScreen = toScreen(px, py, pz);
-        double playerScreenX = playerScreen[0], playerScreenY = playerScreen[1];
-        if (!otherDimension && playerScreenX >= 0
-            && playerScreenY >= 0
-            && playerScreenX <= width
-            && playerScreenY <= height) {
-            float yaw = mc.thePlayer.prevRotationYaw
-                + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
-            if (iso) {
-                // Where one block ahead of the player lands on the screen gives the arrow's direction.
-                double r = Math.toRadians(yaw);
-                double[] ahead = toScreen(px - Math.sin(r), py, pz + Math.cos(r));
-                yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
-            }
-            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
-        }
-        drawOverlay(mouseX, mouseY, partialTicks, dimension, dimensionId, otherDimension, iso);
-    }
-
-    /** The flat map and everything drawn on it (not in 3D). */
-    private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX, int mouseY,
-        float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
         boolean prospecting = Mods.isVisualProspectingLoaded();
         // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
@@ -602,6 +453,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
+        // The dimension shown: the player's, or another one picked from the title.
+        int dimensionId = viewDimension();
+        boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
             ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
@@ -622,12 +476,24 @@ public class GuiWorldMap extends ScaledScreen {
         if (!otherDimension) {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
         }
-    }
+        // Teammates always, also in another dimension being looked at.
+        MapDrawer.drawTeammates(mc, dimensionId, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
-    /** Header, footer, menus and tooltips over the map. */
-    private void drawOverlay(int mouseX, int mouseY, float partialTicks, MapDimension dimension, int dimensionId,
-        boolean otherDimension, boolean iso) {
-        boolean prospecting = Mods.isVisualProspectingLoaded();
+        drawWaypoints(mouseX, mouseY);
+
+        double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
+        double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
+        double playerScreenX = width / 2.0 + (px - centerX) * scale;
+        double playerScreenY = height / 2.0 + (pz - centerZ) * scale;
+        if (!otherDimension && playerScreenX >= 0
+            && playerScreenY >= 0
+            && playerScreenX <= width
+            && playerScreenY <= height) {
+            float yaw = mc.thePlayer.prevRotationYaw
+                + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
+            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
+        }
+
         // Header and footer.
         Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
         Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
@@ -639,8 +505,8 @@ public class GuiWorldMap extends ScaledScreen {
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
-        int[] hovered = blockAt(mouseX, mouseY);
-        int hoverX = hovered[0], hoverZ = hovered[1];
+        int hoverX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+        int hoverZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
         String cursorText = "X: " + hoverX + "  Z: " + hoverZ;
         if (!isExplored(dimension, hoverX, hoverZ)) {
             cursorText += "  (?)";
@@ -667,15 +533,7 @@ public class GuiWorldMap extends ScaledScreen {
                 + ")";
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
-        if (iso) {
-            String note = I18n.format("wayfarmap.gui.iso_hint");
-            Theme.text(
-                fontRendererObj,
-                note,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
-                height - 10,
-                Theme.TEXT_MUTED);
-        } else if (claimsShown()) {
+        if (claimsShown()) {
             String counts = ClaimsLayer.countsText();
             Theme.text(
                 fontRendererObj,
@@ -716,7 +574,7 @@ public class GuiWorldMap extends ScaledScreen {
             drawMenu(mouseX, mouseY);
         } else if (hoveredIcon != null && !hoveredIcon.tooltip.isEmpty()) {
             drawHoveringText(Collections.singletonList(hoveredIcon.tooltip), mouseX, mouseY, fontRendererObj);
-        } else if (!iso && mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
+        } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
             // Power failures are drawn on top, so their tooltip comes first.
             List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
             if (tooltip == null && nodesShown()) {
@@ -946,7 +804,8 @@ public class GuiWorldMap extends ScaledScreen {
             showDimension(mate.dimension);
         }
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
-        centerOn(position[0], position[1], position[2]);
+        centerX = position[0];
+        centerZ = position[2];
         zooming = false;
     }
 
@@ -958,7 +817,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         MapManager.INSTANCE.viewDimension(id);
         if (id == mc.theWorld.provider.dimensionId) {
-            centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            centerX = mc.thePlayer.posX;
+            centerZ = mc.thePlayer.posZ;
         } else if (id == -1 && from != -1) {
             centerX /= 8;
             centerZ /= 8;
@@ -981,15 +841,12 @@ public class GuiWorldMap extends ScaledScreen {
         boolean here = !MapManager.INSTANCE.isViewingOtherDimension();
         List<MenuEntry> entries = new ArrayList<>();
         // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
-        // The 3D view has no layers to point at.
-        boolean flat = !isoShown();
-        final Object vein = flat && Mods.isVisualProspectingLoaded() && Config.showOreVeins
-            ? ProspectingLayer.getHoveredVein()
+        final Object vein = Mods.isVisualProspectingLoaded() && Config.showOreVeins ? ProspectingLayer.getHoveredVein()
             : null;
         // Same for the power failure under the mouse.
-        final Object powerfail = flat && powerfailsShown() ? PowerfailLayer.getHovered() : null;
+        final Object powerfail = powerfailsShown() ? PowerfailLayer.getHovered() : null;
         // And for the Thaumcraft node under the mouse.
-        final Object node = flat && powerfail == null && nodesShown() ? ThaumcraftNodes.getHovered() : null;
+        final Object node = powerfail == null && nodesShown() ? ThaumcraftNodes.getHovered() : null;
         if (node != null) {
             entries.add(
                 new MenuEntry(
@@ -1024,9 +881,8 @@ public class GuiWorldMap extends ScaledScreen {
                     true,
                     () -> ProspectingLayer.toggleDepleted(vein)));
         }
-        int[] block = blockAt(mouseX, mouseY);
-        final int bx = block[0];
-        final int bz = block[1];
+        final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+        final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
         final int safeY = here ? Teleport.findSafeY(mc.theWorld, bx, bz) : 0;
         entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport_here"), here && Teleport.isAllowed(), () -> {
             if (safeY > 0) {
@@ -1106,8 +962,8 @@ public class GuiWorldMap extends ScaledScreen {
         Waypoint hovered = waypointAt(mouseX, mouseY);
         List<Waypoint> onScreen = new ArrayList<>();
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
-            double[] at = waypointScreen(waypoint);
-            double wx = at[0], wy = at[1];
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
             if (wx > -size && wy > -size && wx < width + size && wy < height + size && waypoint != hovered) {
                 onScreen.add(waypoint);
             }
@@ -1155,25 +1011,20 @@ public class GuiWorldMap extends ScaledScreen {
         return false;
     }
 
-    /** Screen position of the waypoint's marker; in 3D at its height. */
-    private double[] waypointScreen(Waypoint waypoint) {
-        return toScreen(waypoint.x + 0.5, waypoint.y, waypoint.z + 0.5);
-    }
-
     private double screenX(Waypoint waypoint) {
-        return waypointScreen(waypoint)[0];
+        return width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
     }
 
     private double screenY(Waypoint waypoint) {
-        return waypointScreen(waypoint)[1];
+        return height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
     }
 
     private Waypoint waypointAt(int mouseX, int mouseY) {
         Waypoint best = null;
         double bestDistance = markerSize() / 2 + 2;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
-            double[] at = waypointScreen(waypoint);
-            double wx = at[0], wy = at[1];
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
             double distance = Math.max(Math.abs(wx - mouseX), Math.abs(wy - mouseY));
             if (distance <= bestDistance) {
                 best = waypoint;
@@ -1226,9 +1077,8 @@ public class GuiWorldMap extends ScaledScreen {
         // Keep the block under the cursor in place while zooming.
         anchorScreenX = Mouse.getEventX() * (double) width / mc.displayWidth;
         anchorScreenY = height - Mouse.getEventY() * (double) height / mc.displayHeight;
-        double[] offset = screenToWorldOffset(anchorScreenX - width / 2.0, anchorScreenY - height / 2.0);
-        anchorWorldX = centerX + offset[0];
-        anchorWorldZ = centerZ + offset[1];
+        anchorWorldX = centerX + (anchorScreenX - width / 2.0) / scale;
+        anchorWorldZ = centerZ + (anchorScreenY - height / 2.0) / scale;
         zoomIndex = newIndex;
         zooming = true;
     }
@@ -1255,7 +1105,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
-        if (!isoShown() && claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
+        if (claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
             return;
         }
         if (button == 0 && onCaveSlider(mouseX, mouseY)) {
@@ -1406,15 +1256,11 @@ public class GuiWorldMap extends ScaledScreen {
             mc.displayGuiScreen(null);
             return;
         }
-        if (isoShown() && (keyCode == Keyboard.KEY_Q || keyCode == Keyboard.KEY_E)) {
-            // Turns the 3D view: E clockwise, Q the other way.
-            Config.rotateIso(keyCode == Keyboard.KEY_E ? 1 : -1);
-            return;
-        }
         if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
             MapManager.INSTANCE.stopViewing();
             applySearch();
-            centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            centerX = mc.thePlayer.posX;
+            centerZ = mc.thePlayer.posZ;
             zooming = false;
             scale = Config.MAP_ZOOMS[zoomIndex];
             return;
@@ -1437,7 +1283,6 @@ public class GuiWorldMap extends ScaledScreen {
             ThaumcraftNodes.setSearch("");
         }
         saveView();
-        IsoMapRenderer.clear();
         MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
     }
 
@@ -1524,15 +1369,12 @@ public class GuiWorldMap extends ScaledScreen {
         // Twice a second: free the regions scrolled away from, so a long look around doesn't fill the memory.
         if (++ticks % 10 == 0 && mc.thePlayer != null) {
             double halfWidth = width / 2.0 / scale, halfHeight = height / 2.0 / scale;
-            // World box on the screen: in 3D all the ground that can show up, at any height.
-            double[] box = isoShown() ? isoView().visibleBounds(0, 0, width, height)
-                : new double[] { centerX - halfWidth, centerZ - halfHeight, centerX + halfWidth, centerZ + halfHeight };
             MapManager.INSTANCE.trimForView(
                 mc.thePlayer,
-                (MathHelper.floor_double(box[0]) >> MapRegion.SHIFT) - 1,
-                (MathHelper.floor_double(box[1]) >> MapRegion.SHIFT) - 1,
-                (MathHelper.floor_double(box[2]) >> MapRegion.SHIFT) + 1,
-                (MathHelper.floor_double(box[3]) >> MapRegion.SHIFT) + 1);
+                (MathHelper.floor_double(centerX - halfWidth) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerZ - halfHeight) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerX + halfWidth) >> MapRegion.SHIFT) + 1,
+                (MathHelper.floor_double(centerZ + halfHeight) >> MapRegion.SHIFT) + 1);
         }
     }
 
