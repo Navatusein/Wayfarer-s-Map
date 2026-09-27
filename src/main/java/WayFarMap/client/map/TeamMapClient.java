@@ -36,7 +36,8 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
  * whenever the player creates, joins or leaves one);</li>
  * <li>in a team, the client uploads in the background the whole map it already has (all dimensions and caves),
  * only what it hasn't given this team yet, and from then on every chunk it maps;</li>
- * <li>the server sends what the team mapped meanwhile, and teammates' new chunks as they come.</li>
+ * <li>the server sends what the team mapped meanwhile in every dimension, and teammates' new chunks as they come;
+ * chunks of other dimensions go straight into those dimensions' maps, to be looked at from the world map.</li>
  * </ul>
  * Every chunk carries the time it was mapped, so when maps merge the newer chunk wins on both sides.
  */

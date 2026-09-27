@@ -69,10 +69,12 @@ public class MapManager implements IResourceManagerReloadListener {
     private boolean underground;
 
     /**
-     * Another saved dimension shown on the world map (read only, never scanned), or null to show the one the player
-     * is in.
+     * Maps of dimensions the player isn't in, opened to look at them on the world map or to write teammates' chunks
+     * into; one per dimension, so viewing and writing share the same regions.
      */
-    private ViewedDimension viewed;
+    private final Map<Integer, OtherDimension> others = new HashMap<>();
+    /** The one of {@link #others} shown on the world map, or null to show the player's dimension. */
+    private OtherDimension viewed;
 
     private final ScanTracker surfaceTracker = new ScanTracker();
     private final ScanTracker caveTracker = new ScanTracker();
@@ -149,8 +151,8 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
-    /** Maps of a dimension the player isn't in, loaded from disk to look at. */
-    private final class ViewedDimension {
+    /** Maps of a dimension the player isn't in: never scanned, only looked at and written by the team map. */
+    private final class OtherDimension {
 
         final int id;
         final File directory;
@@ -160,7 +162,7 @@ public class MapManager implements IResourceManagerReloadListener {
         final MapDimension biomes;
         final Map<Integer, MapDimension> caves = new HashMap<>();
 
-        ViewedDimension(int id, File directory) {
+        OtherDimension(int id, File directory) {
             this.id = id;
             this.directory = directory;
             DimensionInfo info = readInfo(directory, id);
@@ -190,12 +192,6 @@ public class MapManager implements IResourceManagerReloadListener {
             return maps;
         }
 
-        void delete() {
-            for (MapDimension map : all()) {
-                // Nothing to save: these maps are only looked at.
-                map.retain((x, z) -> false);
-            }
-        }
     }
 
     /** Name and sky of a dimension, saved next to its map so it is known without being in it. */
@@ -278,6 +274,12 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             }
         }
+        for (int id : others.keySet()) {
+            // Written by the team map but not saved yet.
+            if (!ids.contains(id)) {
+                ids.add(id);
+            }
+        }
         Collections.sort(ids);
         for (int id : ids) {
             String name = id == current && currentWorld != null ? currentWorld.provider.getDimensionName()
@@ -319,13 +321,26 @@ public class MapManager implements IResourceManagerReloadListener {
             return;
         }
         stopViewing();
-        viewed = new ViewedDimension(id, new File(worldDirectory, "dim" + id));
+        viewed = other(id);
+    }
+
+    /** The maps of another dimension, opened on first use. */
+    private OtherDimension other(int id) {
+        OtherDimension other = others.get(id);
+        if (other == null) {
+            other = new OtherDimension(id, new File(worldDirectory, "dim" + id));
+            others.put(id, other);
+        }
+        return other;
     }
 
     /** Back to the dimension the player is in. */
     public void stopViewing() {
         if (viewed != null) {
-            viewed.delete();
+            // Its regions are freed (changed ones once saved) with the others' by the next trim.
+            for (MapDimension map : viewed.all()) {
+                map.retain((x, z) -> false);
+            }
             viewed = null;
             // Search overlays belong to the regions of the viewed maps.
             BiomeHighlight.clear();
@@ -343,12 +358,12 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     /** Id of the dimension shown on the world map. */
-    public int getViewedDimensionId() {
+    public int getOtherDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
     }
 
     /** Name of the dimension shown on the world map. */
-    public String getViewedDimensionName() {
+    public String getOtherDimensionName() {
         if (viewed != null) {
             return viewed.name;
         }
@@ -410,12 +425,22 @@ public class MapManager implements IResourceManagerReloadListener {
      * still being read from disk; the caller tries again later.
      */
     public boolean applySharedChunk(int dimension, ChunkRecord record) {
-        if (surface == null || dimension != surface.dimensionId) {
-            // Another dimension (the player moved on): dropped.
+        if (surface == null || worldDirectory == null) {
             return true;
         }
-        MapDimension map = record.layer < 0 ? surface : getCaveLayer(record.layer);
-        MapDimension biomeMap = record.layer < 0 && record.biomes != null ? biomes : null;
+        MapDimension map, biomeMap;
+        if (dimension == surface.dimensionId) {
+            map = record.layer < 0 ? surface : getCaveLayer(record.layer);
+            biomeMap = biomes;
+        } else {
+            // Another dimension: written to its map on disk, so it can be looked at without going there.
+            OtherDimension other = other(dimension);
+            map = record.layer < 0 ? other.surface : other.cave(record.layer);
+            biomeMap = other.biomes;
+        }
+        if (record.layer >= 0 || record.biomes == null) {
+            biomeMap = null;
+        }
         int rx = record.chunkX >> (MapRegion.SHIFT - 4), rz = record.chunkZ >> (MapRegion.SHIFT - 4);
         if (map == null || !map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
             return false;
@@ -483,6 +508,9 @@ public class MapManager implements IResourceManagerReloadListener {
             maps.add(biomes);
         }
         maps.addAll(caveLayers.values());
+        for (OtherDimension other : others.values()) {
+            maps.addAll(other.all());
+        }
         return maps;
     }
 
@@ -519,6 +547,19 @@ public class MapManager implements IResourceManagerReloadListener {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, Math.max(1, budget / 4));
         } else {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, budget);
+        }
+
+        if (tick % 100 == 0 && !others.isEmpty()) {
+            // Other dimensions filled by the team map: saved often and freed once saved (the one being viewed
+            // is trimmed by the world map instead), so catching up on many dimensions doesn't fill the memory.
+            for (OtherDimension other : others.values()) {
+                for (MapDimension map : other.all()) {
+                    map.save(saveExecutor);
+                    if (other != viewed) {
+                        map.retain((x, z) -> false);
+                    }
+                }
+            }
         }
 
         long now = System.currentTimeMillis();
@@ -582,11 +623,6 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             map.trim(rx, rz, KEEP_REGION_RADIUS);
         }
-        if (viewed != null) {
-            for (MapDimension map : viewed.all()) {
-                map.retain((x, z) -> false);
-            }
-        }
     }
 
     /**
@@ -604,11 +640,6 @@ public class MapManager implements IResourceManagerReloadListener {
             || (Math.abs(rx - prx) <= KEEP_REGION_RADIUS && Math.abs(rz - prz) <= KEEP_REGION_RADIUS);
         for (MapDimension map : allMaps()) {
             map.retain(keep);
-        }
-        if (viewed != null) {
-            for (MapDimension map : viewed.all()) {
-                map.retain(keep);
-            }
         }
     }
 
@@ -643,7 +674,8 @@ public class MapManager implements IResourceManagerReloadListener {
             map.deleteTextures();
         }
         BiomeHighlight.clear();
-        stopViewing();
+        viewed = null;
+        others.clear();
         surface = null;
         biomes = null;
         caveLayers.clear();

@@ -37,9 +37,10 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 /**
  * Server side of the team map: every ServerUtilities team gets a shared map. Clients with the mod upload the chunks
  * they map, and on joining a team (or the server, while in one) the whole map they already had; the server keeps
- * the most recently mapped version of each chunk per team, passes new chunks on to online teammates in the same
- * dimension, and when a player joins or changes dimension sends everything the team got there since that player
- * last synced, nearest first. So the maps of a team merge, newer chunks winning.
+ * the most recently mapped version of each chunk per team, passes new chunks on to all online teammates (whatever
+ * dimension they are in), and when a player joins sends everything the team got since that player last synced, in
+ * every dimension: the player's own first, nearest regions first. So the maps of a team merge, newer chunks winning,
+ * and every dimension the team explored can be looked at right away.
  * <p>
  * Stored in {@code <world>/wayfarmap/teams/<team>/dim<id>/<surface|caveN>/r.X.Z.bin}, one file per 32x32 chunks.
  */
@@ -54,7 +55,7 @@ public final class TeamMapServer {
     private static final int MAX_UPLOAD_DISTANCE = 96;
     private static final int MAX_UPLOADS_PER_SECOND = 400;
     /** Messages of teammates' chunks sent per player per tick while catching up. */
-    private static final int SYNC_MESSAGES_PER_TICK = 2;
+    private static final int SYNC_MESSAGES_PER_TICK = 1;
     private static final long SAVE_INTERVAL_MS = 30_000, IDLE_UNLOAD_MS = 120_000;
 
     private static Boolean active;
@@ -145,14 +146,6 @@ public final class TeamMapServer {
         knownTeams.remove(id);
     }
 
-    @SubscribeEvent
-    public void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (event.player instanceof EntityPlayerMP && capable.contains(event.player.getUniqueID())) {
-            finishSync(event.player.getUniqueID());
-            startSync((EntityPlayerMP) event.player);
-        }
-    }
-
     /** Saves everything and forgets the world (server stopping). */
     public void stop() {
         for (Sync sync : new ArrayList<>(syncs.values())) {
@@ -229,9 +222,9 @@ public final class TeamMapServer {
         if (accepted.isEmpty()) {
             return;
         }
-        // Teammates in the same dimension get it right away.
+        // Teammates get it right away, wherever they are: their client files it under its dimension.
         for (EntityPlayerMP mate : SuTeams.onlineTeammates(player)) {
-            if (mate != player && mate.dimension == message.dimension && capable.contains(mate.getUniqueID())) {
+            if (mate != player && capable.contains(mate.getUniqueID())) {
                 sendInMessages(mate, message.dimension, accepted);
             }
         }
@@ -251,33 +244,60 @@ public final class TeamMapServer {
         if (teamId == null) {
             return;
         }
-        syncs.put(player.getUniqueID(), new Sync(player, store(teamId), player.dimension));
+        syncs.put(player.getUniqueID(), new Sync(player, store(teamId)));
     }
 
-    /** Remembers how far the player got, so next time only newer chunks are sent. */
+    /**
+     * Remembers how far the player got, so next time only newer chunks are sent. Dimensions caught up on were kept
+     * current by live updates until now; the others keep what they had.
+     */
     private void finishSync(UUID id) {
         Sync sync = syncs.remove(id);
-        if (sync != null && sync.done) {
-            sync.store.setLastSync(id, sync.dimension, System.currentTimeMillis());
+        if (sync != null) {
+            long now = System.currentTimeMillis();
+            for (int dimension : sync.completed) {
+                sync.store.setLastSync(id, dimension, now);
+            }
         }
     }
 
-    /** Sends a player everything the team mapped in a dimension since the player's last sync there. */
+    /**
+     * Sends a player everything the team got since the player's last sync, in every dimension the team mapped: the
+     * player's own dimension first (nearest regions first), then the others, so they can be looked at on the world
+     * map without going there.
+     */
     private final class Sync {
 
         final EntityPlayerMP player;
         final TeamStore store;
-        final int dimension;
-        final long since, started = System.currentTimeMillis();
+        final ArrayDeque<Integer> dimensions = new ArrayDeque<>();
+        final List<Integer> completed = new ArrayList<>();
         final ArrayDeque<RegionKey> regions = new ArrayDeque<>();
         final ArrayDeque<ChunkRecord> pending = new ArrayDeque<>();
+        int dimension;
+        long since, started;
         boolean done;
 
-        Sync(EntityPlayerMP player, TeamStore store, int dimension) {
+        Sync(EntityPlayerMP player, TeamStore store) {
             this.player = player;
             this.store = store;
-            this.dimension = dimension;
-            this.since = store.lastSync(player.getUniqueID(), dimension);
+            dimensions.add(player.dimension);
+            for (int other : store.dimensions()) {
+                if (other != player.dimension) {
+                    dimensions.add(other);
+                }
+            }
+            nextDimension();
+        }
+
+        private void nextDimension() {
+            if (dimensions.isEmpty()) {
+                done = true;
+                return;
+            }
+            dimension = dimensions.poll();
+            since = store.lastSync(player.getUniqueID(), dimension);
+            started = System.currentTimeMillis();
             List<RegionKey> keys = store.regionsNewerThan(dimension, since);
             final int rx = (int) Math.floor(player.posX) >> (4 + REGION_SHIFT);
             final int rz = (int) Math.floor(player.posZ) >> (4 + REGION_SHIFT);
@@ -294,7 +314,7 @@ public final class TeamMapServer {
             if (done) {
                 return;
             }
-            if (player.dimension != dimension || player.playerNetServerHandler == null) {
+            if (player.playerNetServerHandler == null) {
                 syncs.remove(player.getUniqueID());
                 return;
             }
@@ -318,8 +338,9 @@ public final class TeamMapServer {
                 ShareNetwork.sendTo(new ShareNetwork.Chunks(dimension, part), player);
             }
             if (regions.isEmpty() && pending.isEmpty()) {
-                done = true;
                 store.setLastSync(player.getUniqueID(), dimension, started);
+                completed.add(dimension);
+                nextDimension();
             }
         }
     }
@@ -496,6 +517,25 @@ public final class TeamMapServer {
                 index.put(dimension, regions);
             }
             return regions;
+        }
+
+        /** Every dimension the team has a map of. */
+        List<Integer> dimensions() {
+            List<Integer> result = new ArrayList<>(index.keySet());
+            File[] dirs = dir.listFiles(
+                file -> file.isDirectory() && file.getName()
+                    .matches("dim-?\\d+"));
+            if (dirs != null) {
+                for (File dimensionDir : dirs) {
+                    int id = Integer.parseInt(
+                        dimensionDir.getName()
+                            .substring(3));
+                    if (!result.contains(id)) {
+                        result.add(id);
+                    }
+                }
+            }
+            return result;
         }
 
         List<RegionKey> regionsNewerThan(int dimension, long since) {

@@ -119,7 +119,8 @@ Every player has §ftheir own map§r. If the mod is on the §fserver§r too (wit
 - Create or join a team — §fyour whole map§r (all dimensions and caves) is sent to the team in the background, and you get the team's
 - The members' maps §fmerge§r: the most recently mapped version of every part wins
 - Teammates' new discoveries appear on your map right away, and yours on theirs
-- Join later — you §fget everything§r the team mapped meanwhile, and what you mapped goes to the team
+- Join later — you §fget everything§r the team mapped meanwhile, §fin every dimension§r (yours first), and what you mapped goes to the team
+- Dimensions the team explored are open right away in the list under the map title — §fwithout going there§r
 - Stored on the server, in the world's §7wayfarmap/teams§r folder
 
 ! Without a team your map stays yours only — nobody else's reaches you.
