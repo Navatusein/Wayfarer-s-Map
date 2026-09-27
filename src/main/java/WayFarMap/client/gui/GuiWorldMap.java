@@ -85,6 +85,12 @@ public class GuiWorldMap extends GuiScreen {
     /** Chunk where the drag started: the selection is the rectangle from it to the chunk under the mouse. */
     private int claimStartX, claimStartZ, claimEndX = Integer.MIN_VALUE, claimEndZ;
 
+    /** Dimension picker under the title; null when closed. */
+    private List<MapManager.SavedDimension> dimensionList;
+    private int dimensionListX, dimensionListWidth;
+    /** Title bounds in the header, clickable to open the dimension picker. */
+    private int titleX0, titleX1;
+
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
     private int menuX, menuY;
@@ -117,6 +123,8 @@ public class GuiWorldMap extends GuiScreen {
             centerX = mc.thePlayer.posX;
             centerZ = mc.thePlayer.posZ;
             initialized = true;
+            // A freshly opened map shows the dimension the player is in.
+            MapManager.INSTANCE.stopViewing();
             if (Mods.isVisualProspectingLoaded()) {
                 ProspectingLayer.onOpenMap();
             }
@@ -158,6 +166,7 @@ public class GuiWorldMap extends GuiScreen {
         }
         updateLightButtons();
         menu = null;
+        dimensionList = null;
 
         // Bottom right: the help screen with every feature explained.
         String helpText = "? " + I18n.format("wayfarmap.gui.help_button");
@@ -179,7 +188,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private boolean biomeViewShown() {
-        return Config.mapDisplayMode == Config.DISPLAY_BIOMES && MapManager.INSTANCE.getActiveCaveLayer() < 0;
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES && MapManager.INSTANCE.getViewCaveLayer() < 0;
     }
 
     private static boolean prospectingLayerShown() {
@@ -310,7 +319,7 @@ public class GuiWorldMap extends GuiScreen {
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
 
-        MapDimension dimension = MapManager.INSTANCE.getDimension();
+        MapDimension dimension = MapManager.INSTANCE.getViewMap();
         if (dimension == null || mc.thePlayer == null) {
             super.drawScreen(mouseX, mouseY, partialTicks);
             return;
@@ -321,17 +330,20 @@ public class GuiWorldMap extends GuiScreen {
         boolean prospecting = Mods.isVisualProspectingLoaded();
         // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
         if (biomeViewShown() && BiomeHighlight.isActive()) {
-            BiomeHighlight.draw(MapManager.INSTANCE.getBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
+            BiomeHighlight.draw(MapManager.INSTANCE.getViewBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
         } else if (prospecting && prospectingLayerShown() && ProspectingLayer.isSearchActive()) {
             Theme.fill(0, 0, width, height, 0xB0202428);
         }
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
+        // The dimension shown: the player's, or another one picked from the title.
+        int dimensionId = viewDimension();
+        boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
             ClaimsLayer.draw(
-                mc.theWorld.provider.dimensionId,
+                dimensionId,
                 centerX,
                 centerZ,
                 scale,
@@ -342,7 +354,6 @@ public class GuiWorldMap extends GuiScreen {
                 claimSelection,
                 claimAction);
         }
-        int dimensionId = mc.theWorld.provider.dimensionId;
         if (prospecting && Config.showUndergroundFluids) {
             ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
         }
@@ -350,7 +361,9 @@ public class GuiWorldMap extends GuiScreen {
             ProspectingLayer
                 .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
         }
-        MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
+        if (!otherDimension) {
+            MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
+        }
 
         drawWaypoints(mouseX, mouseY);
 
@@ -358,7 +371,7 @@ public class GuiWorldMap extends GuiScreen {
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
         double playerScreenX = width / 2.0 + (px - centerX) * scale;
         double playerScreenY = height / 2.0 + (pz - centerZ) * scale;
-        if (playerScreenX >= 0 && playerScreenY >= 0 && playerScreenX <= width && playerScreenY <= height) {
+        if (!otherDimension && playerScreenX >= 0 && playerScreenY >= 0 && playerScreenX <= width && playerScreenY <= height) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
             MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
@@ -367,12 +380,7 @@ public class GuiWorldMap extends GuiScreen {
         // Header and footer.
         Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
         Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
-        // "[id] Name" of the dimension the map shows.
-        String title = "[" + mc.theWorld.provider.dimensionId + "] " + mc.theWorld.provider.getDimensionName();
-        int titleWidth = fontRendererObj.getStringWidth(title);
-        if (width / 2 - titleWidth / 2 > headerLeftEnd() + 8 && width / 2 + titleWidth / 2 < gridButton.xPosition - 8) {
-            Theme.centered(fontRendererObj, title, width / 2, 8, Theme.TEXT_MUTED);
-        }
+        drawTitle(mouseX, mouseY, dimensionId, otherDimension);
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
         Theme.text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
@@ -385,12 +393,12 @@ public class GuiWorldMap extends GuiScreen {
         if (!isExplored(dimension, hoverX, hoverZ)) {
             cursorText += "  (?)";
         }
-        int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
+        int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
         if (caveLayer >= 0) {
             cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
         }
         if (caveLayer < 0 && Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
-            BiomeGenBase biome = MapManager.INSTANCE.getBiome(hoverX, hoverZ);
+            BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
             if (biome != null) {
                 cursorText += "  |  " + biome.biomeName;
             }
@@ -420,12 +428,14 @@ public class GuiWorldMap extends GuiScreen {
         if (searchAvailable()) {
             searchField.drawTextBox();
         }
-        if (menu != null) {
+        if (dimensionList != null) {
+            drawDimensionList(mouseX, mouseY);
+        } else if (menu != null) {
             drawMenu(mouseX, mouseY);
         } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
             List<String> tooltip = prospecting && Config.showOreVeins ? ProspectingLayer.getHoveredTooltip() : null;
             if (tooltip == null && claimsShown()) {
-                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, mc.theWorld.provider.dimensionId);
+                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
             }
             if (tooltip != null) {
                 drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
@@ -472,7 +482,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private boolean onCaveSlider(int mouseX, int mouseY) {
-        return MapManager.INSTANCE.getActiveCaveLayer() >= 0
+        return MapManager.INSTANCE.getViewCaveLayer() >= 0
             && Theme.inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
     }
 
@@ -487,7 +497,7 @@ public class GuiWorldMap extends GuiScreen {
         int x = sliderX();
         int top = sliderTop(), bottom = sliderBottom();
         int override = MapManager.INSTANCE.getCaveLayerOverride();
-        int layer = MapManager.INSTANCE.getActiveCaveLayer();
+        int layer = MapManager.INSTANCE.getViewCaveLayer();
 
         // "Auto" follows the player's height.
         int autoTop = sliderAutoTop();
@@ -515,10 +525,130 @@ public class GuiWorldMap extends GuiScreen {
         Theme.text(fontRendererObj, label, x - labelWidth - 7, labelY, hovered ? Theme.TEXT : Theme.TEXT_MUTED);
     }
 
+    // ---------------------------------------------------------------- dimension picker
+
+    /** "[id] Name ▼" in the middle of the header; it opens the list of saved dimensions. */
+    private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
+        String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
+        int titleWidth = fontRendererObj.getStringWidth(title);
+        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= gridButton.xPosition - 8) {
+            // No room for the name: the id alone still opens the list.
+            title = "[" + dimensionId + "] \u25BE";
+            titleWidth = fontRendererObj.getStringWidth(title);
+        }
+        titleX0 = width / 2 - titleWidth / 2;
+        titleX1 = titleX0 + titleWidth;
+        boolean hovered = dimensionList != null || Theme.inside(mouseX, mouseY, titleX0 - 4, 4, titleX1 + 4, 20);
+        if (hovered) {
+            Theme.fill(titleX0 - 4, 4, titleX1 + 4, 20, Theme.CONTROL_HOVER);
+        }
+        // Accent while looking at another dimension than the player's.
+        int color = otherDimension ? Theme.ACCENT : hovered ? Theme.TEXT : Theme.TEXT_MUTED;
+        Theme.text(fontRendererObj, title, titleX0, 8, color);
+    }
+
+    private void openDimensionList() {
+        if (dimensionList != null) {
+            dimensionList = null;
+            return;
+        }
+        menu = null;
+        dimensionList = MapManager.INSTANCE.listSavedDimensions();
+        String here = I18n.format("wayfarmap.gui.dimension_here");
+        int widest = 0;
+        for (MapManager.SavedDimension dimension : dimensionList) {
+            widest = Math.max(
+                widest,
+                fontRendererObj.getStringWidth(dimensionLabel(dimension)) + fontRendererObj.getStringWidth("  " + here));
+        }
+        dimensionListWidth = Math.max(titleX1 - titleX0 + 8, widest + 12);
+        dimensionListX = Math.max(2, Math.min(width / 2 - dimensionListWidth / 2, width - dimensionListWidth - 2));
+    }
+
+    private static String dimensionLabel(MapManager.SavedDimension dimension) {
+        return "[" + dimension.id + "] " + dimension.name;
+    }
+
+    private void drawDimensionList(int mouseX, int mouseY) {
+        int top = HEADER_HEIGHT - 2;
+        int h = dimensionList.size() * MENU_ROW + 4;
+        Theme.panel(dimensionListX, top, dimensionListX + dimensionListWidth, top + h);
+        int shown = viewDimension();
+        int playerDimension = mc.theWorld.provider.dimensionId;
+        String here = I18n.format("wayfarmap.gui.dimension_here");
+        for (int i = 0; i < dimensionList.size(); i++) {
+            MapManager.SavedDimension dimension = dimensionList.get(i);
+            int y = top + 2 + i * MENU_ROW;
+            if (dimension.id == shown) {
+                Theme.fill(dimensionListX + 1, y, dimensionListX + dimensionListWidth - 1, y + MENU_ROW, Theme.ACCENT_DIM);
+            } else if (Theme.inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
+                Theme.fill(
+                    dimensionListX + 1,
+                    y,
+                    dimensionListX + dimensionListWidth - 1,
+                    y + MENU_ROW,
+                    Theme.CONTROL_HOVER);
+            }
+            String label = dimensionLabel(dimension);
+            Theme.text(fontRendererObj, label, dimensionListX + 6, y + 3, Theme.TEXT);
+            if (dimension.id == playerDimension) {
+                Theme.text(
+                    fontRendererObj,
+                    here,
+                    dimensionListX + dimensionListWidth - 6 - fontRendererObj.getStringWidth(here),
+                    y + 3,
+                    Theme.TEXT_MUTED);
+            }
+        }
+    }
+
+    /** @return true if the click was taken by the dimension list (which then closes) */
+    private boolean clickDimensionList(int mouseX, int mouseY) {
+        if (dimensionList == null) {
+            return false;
+        }
+        List<MapManager.SavedDimension> entries = dimensionList;
+        dimensionList = null;
+        int top = HEADER_HEIGHT - 2;
+        for (int i = 0; i < entries.size(); i++) {
+            int y = top + 2 + i * MENU_ROW;
+            if (Theme.inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
+                showDimension(entries.get(i).id);
+            }
+        }
+        return true;
+    }
+
+    /** Switches the map to a saved dimension, keeping the view roughly in place (Nether coordinates are 1:8). */
+    private void showDimension(int id) {
+        int from = viewDimension();
+        if (id == from) {
+            return;
+        }
+        MapManager.INSTANCE.viewDimension(id);
+        if (id == mc.theWorld.provider.dimensionId) {
+            centerX = mc.thePlayer.posX;
+            centerZ = mc.thePlayer.posZ;
+        } else if (id == -1 && from != -1) {
+            centerX /= 8;
+            centerZ /= 8;
+        } else if (from == -1 && id != -1) {
+            centerX *= 8;
+            centerZ *= 8;
+        }
+        zooming = false;
+        scale = Config.MAP_ZOOMS[zoomIndex];
+        claimButton = -1;
+        claimSelection.clear();
+        applySearch();
+    }
+
     // ---------------------------------------------------------------- right click menu
 
     private void openMenu(int mouseX, int mouseY) {
-        int dimension = mc.theWorld.provider.dimensionId;
+        int dimension = viewDimension();
+        // Teleporting works only within the player's dimension.
+        boolean here = !MapManager.INSTANCE.isViewingOtherDimension();
         List<MenuEntry> entries = new ArrayList<>();
         // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
         final Object vein = Mods.isVisualProspectingLoaded() && Config.showOreVeins ? ProspectingLayer.getHoveredVein()
@@ -539,8 +669,8 @@ public class GuiWorldMap extends GuiScreen {
         }
         final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
         final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
-        final int safeY = Teleport.findSafeY(mc.theWorld, bx, bz);
-        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport_here"), Teleport.isAllowed(), () -> {
+        final int safeY = here ? Teleport.findSafeY(mc.theWorld, bx, bz) : 0;
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport_here"), here && Teleport.isAllowed(), () -> {
             if (safeY > 0) {
                 Teleport.teleport(bx, safeY, bz);
             } else {
@@ -553,7 +683,7 @@ public class GuiWorldMap extends GuiScreen {
                 I18n.format("wayfarmap.gui.new_waypoint"),
                 true,
                 () -> mc.displayGuiScreen(
-                    GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : surfaceY(bx, bz), bz, dimension))));
+                    GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : waypointY(bx, bz), bz, dimension))));
         menu = entries;
         menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
         menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
@@ -607,7 +737,7 @@ public class GuiWorldMap extends GuiScreen {
         float size = markerSize();
         Waypoint hovered = waypointAt(mouseX, mouseY);
         List<Waypoint> onScreen = new ArrayList<>();
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
             double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
             double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
             if (wx > -size && wy > -size && wx < width + size && wy < height + size && waypoint != hovered) {
@@ -662,7 +792,7 @@ public class GuiWorldMap extends GuiScreen {
     private Waypoint waypointAt(int mouseX, int mouseY) {
         Waypoint best = null;
         double bestDistance = markerSize() / 2 + 2;
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
             double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
             double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
             double distance = Math.max(Math.abs(wx - mouseX), Math.abs(wy - mouseY));
@@ -672,6 +802,20 @@ public class GuiWorldMap extends GuiScreen {
             }
         }
         return best;
+    }
+
+    /** Id of the dimension the map shows: the player's, or another one picked from the title. */
+    private static int viewDimension() {
+        return MapManager.INSTANCE.getViewedDimensionId();
+    }
+
+    /** Height for a new waypoint: the ground if known, in another dimension from its saved map. */
+    private int waypointY(int x, int z) {
+        if (!MapManager.INSTANCE.isViewingOtherDimension()) {
+            return surfaceY(x, z);
+        }
+        int y = MapManager.INSTANCE.getViewSurfaceHeight(x, z);
+        return y > 0 ? y : 64;
     }
 
     /** Height of the ground at the column if its chunk is loaded, otherwise the player's height. */
@@ -713,7 +857,14 @@ public class GuiWorldMap extends GuiScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (clickDimensionList(mouseX, mouseY)) {
+            return;
+        }
         if (clickMenu(mouseX, mouseY)) {
+            return;
+        }
+        if (button == 0 && titleX1 > titleX0 && Theme.inside(mouseX, mouseY, titleX0 - 4, 4, titleX1 + 4, 20)) {
+            openDimensionList();
             return;
         }
         if (searchAvailable()) {
@@ -769,8 +920,9 @@ public class GuiWorldMap extends GuiScreen {
 
     // ---------------------------------------------------------------- claims painting
 
+    /** Claims come from the server for the player's dimension only, so other dimensions don't show them. */
     private static boolean claimsShown() {
-        return Config.showClaims && Mods.isClaimsAvailable();
+        return Config.showClaims && Mods.isClaimsAvailable() && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
     /**
@@ -846,6 +998,10 @@ public class GuiWorldMap extends GuiScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (dimensionList != null && keyCode == Keyboard.KEY_ESCAPE) {
+            dimensionList = null;
+            return;
+        }
         if (menu != null && keyCode == Keyboard.KEY_ESCAPE) {
             menu = null;
             return;
@@ -873,6 +1029,8 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
         if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
+            MapManager.INSTANCE.stopViewing();
+            applySearch();
             centerX = mc.thePlayer.posX;
             centerZ = mc.thePlayer.posZ;
             zooming = false;

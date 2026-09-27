@@ -17,6 +17,13 @@
 - §eRight click§r on empty space — menu: §bTeleport here§r, §bNew waypoint§r
 - §eRight click§r on a waypoint — opens its editor
 
+§fOther dimensions:§r click §b[0] Overworld ▾§r at the top — a list of every dimension saved in the map opens. Pick any to see its map without being there.
+- Coordinates are converted for the Nether (1:8)
+- Waypoints, ores and fluids are shown for the picked dimension
+- §eSpace§r — back to your dimension and the player
+
+! In another dimension you can't teleport or change claims, and the player and mobs are not shown.
+
 The bottom left shows the coordinates under the cursor. §7(?)§r means the place is not explored yet.
 
 # Waypoints

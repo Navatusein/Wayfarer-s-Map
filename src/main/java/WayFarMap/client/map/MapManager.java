@@ -1,6 +1,8 @@
 package WayFarMap.client.map;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,7 +23,10 @@ import net.minecraft.client.resources.IResourceManagerReloadListener;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
+import net.minecraft.world.WorldProvider;
+import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
+import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
@@ -49,6 +54,7 @@ public class MapManager implements IResourceManagerReloadListener {
     private final ExecutorService loadExecutor = createExecutor("WayFarMap loader");
 
     private WorldClient currentWorld;
+    private File worldDirectory;
     private File dimensionDirectory;
     private MapDimension surface;
     private MapDimension biomes;
@@ -58,6 +64,12 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Cave layer chosen on the world map, or -1 to follow the player. */
     private int caveLayerOverride = -1;
     private boolean underground;
+
+    /**
+     * Another saved dimension shown on the world map (read only, never scanned), or null to show the one the player
+     * is in.
+     */
+    private ViewedDimension viewed;
 
     private final ScanTracker surfaceTracker = new ScanTracker();
     private final ScanTracker caveTracker = new ScanTracker();
@@ -116,6 +128,262 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Cave layer being shown (blocks {@code layer * 16} to {@code layer * 16 + 15}), or -1 for the surface. */
     public int getActiveCaveLayer() {
         return activeCaveLayer;
+    }
+
+    // ---------------------------------------------------------------- saved dimensions on the world map
+
+    /** A dimension with map data saved for this world or server. */
+    public static final class SavedDimension {
+
+        public final int id;
+        public final String name;
+
+        SavedDimension(int id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+    }
+
+    /** Maps of a dimension the player isn't in, loaded from disk to look at. */
+    private final class ViewedDimension {
+
+        final int id;
+        final File directory;
+        final String name;
+        final boolean noSky;
+        final MapDimension surface;
+        final MapDimension biomes;
+        final Map<Integer, MapDimension> caves = new HashMap<>();
+
+        ViewedDimension(int id, File directory) {
+            this.id = id;
+            this.directory = directory;
+            DimensionInfo info = readInfo(directory, id);
+            this.name = info.name;
+            this.noSky = info.noSky;
+            surface = new MapDimension(id, directory, loadExecutor);
+            biomes = new MapDimension(id, new File(directory, "biomes"), loadExecutor);
+        }
+
+        MapDimension cave(int layer) {
+            MapDimension cave = caves.get(layer);
+            if (cave == null) {
+                cave = new MapDimension(id, new File(new File(directory, "caves"), String.valueOf(layer)), loadExecutor);
+                caves.put(layer, cave);
+            }
+            return cave;
+        }
+
+        void delete() {
+            surface.deleteTextures();
+            biomes.deleteTextures();
+            for (MapDimension cave : caves.values()) {
+                cave.deleteTextures();
+            }
+        }
+    }
+
+    /** Name and sky of a dimension, saved next to its map so it is known without being in it. */
+    private static final class DimensionInfo {
+
+        final String name;
+        final boolean noSky;
+
+        DimensionInfo(String name, boolean noSky) {
+            this.name = name;
+            this.noSky = noSky;
+        }
+    }
+
+    private static final String INFO_FILE = "dimension.txt";
+
+    private static void writeInfo(File directory, WorldProvider provider) {
+        try {
+            directory.mkdirs();
+            String text = provider.getDimensionName() + "\n" + provider.hasNoSky + "\n";
+            Files.write(new File(directory, INFO_FILE).toPath(), text.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Could not save the dimension name to {}", directory, e);
+        }
+    }
+
+    private static DimensionInfo readInfo(File directory, int id) {
+        try {
+            List<String> lines = Files.readAllLines(new File(directory, INFO_FILE).toPath(), StandardCharsets.UTF_8);
+            if (!lines.isEmpty() && !lines.get(0)
+                .trim()
+                .isEmpty()) {
+                return new DimensionInfo(
+                    lines.get(0)
+                        .trim(),
+                    lines.size() > 1 && Boolean.parseBoolean(
+                        lines.get(1)
+                            .trim()));
+            }
+        } catch (Exception e) {
+            // Saved by an older version: ask Forge below.
+        }
+        String name = "DIM" + id;
+        boolean noSky = id == -1;
+        try {
+            if (DimensionManager.isDimensionRegistered(id)) {
+                WorldProvider provider = DimensionManager.createProviderFor(id);
+                name = provider.getDimensionName();
+                noSky |= provider instanceof WorldProviderHell;
+            }
+        } catch (Throwable t) {
+            // Unknown provider on this client.
+        }
+        return new DimensionInfo(name, noSky);
+    }
+
+    /** Dimensions of this world or server that have a saved map, sorted by id; always has the current one. */
+    public List<SavedDimension> listSavedDimensions() {
+        List<SavedDimension> result = new ArrayList<>();
+        if (worldDirectory == null || surface == null) {
+            return result;
+        }
+        int current = surface.dimensionId;
+        File[] files = worldDirectory.listFiles();
+        List<Integer> ids = new ArrayList<>();
+        ids.add(current);
+        if (files != null) {
+            for (File file : files) {
+                String name = file.getName();
+                if (!file.isDirectory() || !name.matches("dim-?\\d+") || !hasMapData(file)) {
+                    continue;
+                }
+                try {
+                    int id = Integer.parseInt(name.substring(3));
+                    if (!ids.contains(id)) {
+                        ids.add(id);
+                    }
+                } catch (NumberFormatException e) {
+                    // Not a dimension folder.
+                }
+            }
+        }
+        Collections.sort(ids);
+        for (int id : ids) {
+            String name = id == current && currentWorld != null ? currentWorld.provider.getDimensionName()
+                : readInfo(new File(worldDirectory, "dim" + id), id).name;
+            result.add(new SavedDimension(id, name));
+        }
+        return result;
+    }
+
+    /** True if the folder or its biome / cave subfolders hold a saved region. */
+    private static boolean hasMapData(File directory) {
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return false;
+        }
+        for (File file : files) {
+            if (file.isDirectory()) {
+                if (hasMapData(file)) {
+                    return true;
+                }
+            } else if (file.getName()
+                .endsWith(".png")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Shows the saved map of another dimension on the world map; the player's own dimension stops viewing. */
+    public void viewDimension(int id) {
+        if (surface == null) {
+            return;
+        }
+        if (id == surface.dimensionId) {
+            stopViewing();
+            return;
+        }
+        if (viewed != null && viewed.id == id) {
+            return;
+        }
+        stopViewing();
+        viewed = new ViewedDimension(id, new File(worldDirectory, "dim" + id));
+    }
+
+    /** Back to the dimension the player is in. */
+    public void stopViewing() {
+        if (viewed != null) {
+            viewed.delete();
+            viewed = null;
+            // Search overlays belong to the regions of the viewed maps.
+            BiomeHighlight.clear();
+        }
+    }
+
+    /** True while the world map shows a dimension other than the player's. */
+    public boolean isViewingOtherDimension() {
+        return viewed != null;
+    }
+
+    /** Id of the dimension shown on the world map. */
+    public int getViewedDimensionId() {
+        return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
+    }
+
+    /** Name of the dimension shown on the world map. */
+    public String getViewedDimensionName() {
+        if (viewed != null) {
+            return viewed.name;
+        }
+        return currentWorld != null ? currentWorld.provider.getDimensionName() : "";
+    }
+
+    /**
+     * Cave layer shown on the world map, or -1 for the surface. For another dimension there is no player in it, so
+     * "Auto" shows caves only where there is no sky (like the Nether), at the player's height or the slider's layer.
+     */
+    public int getViewCaveLayer() {
+        if (viewed == null) {
+            return activeCaveLayer;
+        }
+        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && viewed.noSky);
+        if (!caves) {
+            return -1;
+        }
+        if (caveLayerOverride >= 0) {
+            return caveLayerOverride;
+        }
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        return player == null ? 4 : Math.max(0, Math.min(15, MathHelper.floor_double(player.boundingBox.minY) >> 4));
+    }
+
+    /** Map shown on the world map: like {@link #getDimension()}, but of the viewed dimension. */
+    public MapDimension getViewMap() {
+        if (viewed == null) {
+            return getDimension();
+        }
+        int layer = getViewCaveLayer();
+        if (layer >= 0) {
+            return viewed.cave(layer);
+        }
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES ? viewed.biomes : viewed.surface;
+    }
+
+    /** Biome map of the dimension shown on the world map. */
+    public MapDimension getViewBiomeMap() {
+        return viewed != null ? viewed.biomes : biomes;
+    }
+
+    /** Biome at the column in the dimension shown on the world map, or null if unknown. */
+    public BiomeGenBase getViewBiome(int x, int z) {
+        MapDimension map = getViewBiomeMap();
+        MapRegion region = map == null ? null : map.getLoadedRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
+        int id = region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+        return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
+    }
+
+    /** Height to stand on in the dimension shown on the world map, from its explored surface; 0 if unknown. */
+    public int getViewSurfaceHeight(int x, int z) {
+        MapDimension map = viewed != null ? viewed.surface : surface;
+        MapRegion region = map == null ? null : map.getRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT, false);
+        return region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
     }
 
     private MapDimension getCaveLayer(int layer) {
@@ -240,8 +508,10 @@ public class MapManager implements IResourceManagerReloadListener {
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
-        File worldDirectory = new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc));
+        worldDirectory = new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc));
         dimensionDirectory = new File(worldDirectory, "dim" + dimensionId);
+        // Name and sky saved so the world map can show this dimension from elsewhere.
+        writeInfo(dimensionDirectory, world.provider);
         WaypointManager.INSTANCE.load(worldDirectory);
         surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
         biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
@@ -266,11 +536,13 @@ public class MapManager implements IResourceManagerReloadListener {
             map.deleteTextures();
         }
         BiomeHighlight.clear();
+        stopViewing();
         surface = null;
         biomes = null;
         caveLayers.clear();
         caveLayerOverride = -1;
         dimensionDirectory = null;
+        worldDirectory = null;
         activeCaveLayer = -1;
         underground = false;
         currentWorld = null;
