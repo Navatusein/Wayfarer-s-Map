@@ -6,6 +6,7 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.IMob;
@@ -103,6 +104,11 @@ public final class MapDrawer {
         boolean chunks = 16 * scale >= 6;
         int step = chunks ? 16 : MapRegion.SIZE;
 
+        // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
+        // jump behind the smoothly moving map.
+        Minecraft mc = Minecraft.getMinecraft();
+        double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -115,7 +121,8 @@ public final class MapDrawer {
             }
             if (sx >= x) {
                 int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
-                fillRect(tessellator, Math.floor(sx), y, Math.floor(sx) + 1, y + height, color);
+                double lx = Math.floor(sx / pixel) * pixel;
+                fillRect(tessellator, lx, y, lx + pixel, y + height, color);
             }
         }
         int firstZ = (int) Math.floor(top / step) * step;
@@ -126,7 +133,8 @@ public final class MapDrawer {
             }
             if (sy >= y) {
                 int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
-                fillRect(tessellator, x, Math.floor(sy), x + width, Math.floor(sy) + 1, color);
+                double ly = Math.floor(sy / pixel) * pixel;
+                fillRect(tessellator, x, ly, x + width, ly + pixel, color);
             }
         }
         GL11.glEnable(GL11.GL_TEXTURE_2D);
