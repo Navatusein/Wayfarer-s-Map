@@ -19,6 +19,7 @@ import com.dyonovan.tcnodetracker.integration.navigator.ThaumcraftNodeLayerManag
 import com.dyonovan.tcnodetracker.lib.JsonUtils;
 import com.dyonovan.tcnodetracker.lib.NodeList;
 
+import WayFarMap.client.waypoint.WaypointRenderer;
 import thaumcraft.api.aspects.Aspect;
 
 /**
@@ -296,11 +297,6 @@ public final class ThaumcraftNodes {
         return hovered;
     }
 
-    public static int[] position(Object handle) {
-        Node node = (Node) handle;
-        return new int[] { node.x, node.y, node.z, node.dimension };
-    }
-
     public static boolean isTracked(Object handle) {
         return ((Node) handle).tracked();
     }
@@ -317,6 +313,66 @@ public final class ThaumcraftNodes {
         TCNodeTracker.xMarker = node.x;
         TCNodeTracker.yMarker = off ? -1 : node.y;
         TCNodeTracker.zMarker = node.z;
+    }
+
+    /**
+     * Draws the tracked node in the world like a waypoint: the node icon with its strongest aspect, the name and the
+     * distance, visible through blocks. TCNodeTracker's own arrow only shows with Goggles of Revealing on; this one
+     * always does. The tracked node is TCNodeTracker's marker, so marking a node in its list works too.
+     */
+    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+        if (!TCNodeTracker.doGui || TCNodeTracker.yMarker < 0) {
+            return;
+        }
+        for (NodeList source : new ArrayList<>(TCNodeTracker.nodelist)) {
+            if (source.dim != dimension || source.x != TCNodeTracker.xMarker
+                || source.y != TCNodeTracker.yMarker
+                || source.z != TCNodeTracker.zMarker) {
+                continue;
+            }
+            final Node node = new Node(source);
+            String aspect = node.aspects.isEmpty() ? ""
+                : node.aspects.get(0)
+                    .getName();
+            WaypointRenderer.renderBillboard(
+                mc,
+                node.x + 0.5,
+                node.y,
+                node.z + 0.5,
+                I18n.format("wayfarmap.node.tracked_name", aspect),
+                node.color(),
+                (cx, cy, size) -> {
+                    drawIcon(node, cx, cy, size);
+                    return true;
+                });
+            return;
+        }
+    }
+
+    /** The node icon and its strongest aspect, centered on (cx, cy). */
+    private static void drawIcon(Node node, double cx, double cy, double size) {
+        Minecraft mc = Minecraft.getMinecraft();
+        Tessellator tessellator = Tessellator.instance;
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        double[] center = { cx, cy };
+        mc.getTextureManager()
+            .bindTexture(NODE_TRACKED);
+        tessellator.startDrawingQuads();
+        tessellator.setColorRGBA_I(0xFFFFFF, 230);
+        quad(tessellator, center, size / 2);
+        tessellator.draw();
+        ResourceLocation image = node.image();
+        if (image != null) {
+            mc.getTextureManager()
+                .bindTexture(image);
+            tessellator.startDrawingQuads();
+            tessellator.setColorRGBA_I(node.color(), 255);
+            quad(tessellator, center, size * 0.35);
+            tessellator.draw();
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Marks the node depleted the way TCNodeTracker does: removes it from its list and saves. */

@@ -21,6 +21,7 @@ import WayFarMap.Config;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
+import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
@@ -236,6 +237,9 @@ public class WaypointRenderer {
         }
         if (Mods.isVisualProspectingLoaded()) {
             ProspectingLayer.renderTrackedInWorld(mc, dimension);
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            ThaumcraftNodes.renderTrackedInWorld(mc, dimension);
         }
     }
 

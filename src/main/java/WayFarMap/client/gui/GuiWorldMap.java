@@ -852,12 +852,6 @@ public class GuiWorldMap extends ScaledScreen {
                     I18n.format("wayfarmap.node.deplete"),
                     true,
                     () -> ThaumcraftNodes.markDepleted(node)));
-            final int[] at = ThaumcraftNodes.position(node);
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.powerfail.waypoint"),
-                    true,
-                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1], at[2], at[3]))));
         }
         if (powerfail != null) {
             entries.add(
