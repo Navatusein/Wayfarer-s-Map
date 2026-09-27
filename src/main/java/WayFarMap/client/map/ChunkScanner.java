@@ -6,8 +6,6 @@ import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 
-import WayFarMap.Config;
-
 /** Turns a loaded chunk into map pixels. */
 public final class ChunkScanner {
 
@@ -43,19 +41,17 @@ public final class ChunkScanner {
         int cx = chunk.xPosition;
         int cz = chunk.zPosition;
         boolean noSky = world.provider.hasNoSky;
-        boolean detailed = Config.mapStyle == Config.STYLE_DETAILED;
 
         // Heights of the chunk and of the two rows north and west of it (from the neighbouring chunks if loaded),
         // for shading across chunk borders: heights[lx + 2][lz + 2] for lx, lz from -2 to 15.
         int[][] heights = new int[18][18];
         Chunk north = neighbour(world, cx, cz - 1);
-        Chunk west = detailed ? neighbour(world, cx - 1, cz) : null;
-        Chunk northWest = detailed ? neighbour(world, cx - 1, cz - 1) : null;
+        Chunk west = neighbour(world, cx - 1, cz);
+        Chunk northWest = neighbour(world, cx - 1, cz - 1);
         for (int i = -2; i < 16; i++) {
             for (int j = -2; j < 16; j++) {
                 Chunk source = i >= 0 ? (j >= 0 ? chunk : north) : (j >= 0 ? west : northWest);
-                heights[i + 2][j + 2] = source == null || (i < -1 || j < -1) && !detailed ? NO_BLOCK
-                    : findTop(source, i & 15, j & 15, noSky, caveLayer);
+                heights[i + 2][j + 2] = source == null ? NO_BLOCK : findTop(source, i & 15, j & 15, noSky, caveLayer);
             }
         }
 
@@ -68,19 +64,16 @@ public final class ChunkScanner {
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
                 int y = heights[lx + 2][lz + 2];
-                int previousHeight = heights[lx + 2][lz + 1];
+                int northHeight = heights[lx + 2][lz + 1];
                 int argb = 0;
-                float relief = 1f;
-                if (y != NO_BLOCK && previousHeight != NO_BLOCK) {
-                    relief = 1.0f + Math.max(-4, Math.min(4, y - previousHeight)) * 0.05f;
+                // Light relief for the biome map: a step up from the north is lighter, a step down darker.
+                float biomeRelief = 1f;
+                if (y != NO_BLOCK && northHeight != NO_BLOCK) {
+                    biomeRelief = 1.0f + Math.max(-4, Math.min(4, y - northHeight)) * 0.03f;
                 }
                 if (y != NO_BLOCK) {
                     int rgb = columnColor(world, chunk, lx, y, lz);
-                    if (detailed) {
-                        rgb = detailedColor(world, chunk, heights, lx, y, lz, rgb);
-                    } else {
-                        rgb = BlockColors.shade(rgb, relief);
-                    }
+                    rgb = detailedColor(world, chunk, heights, lx, y, lz, rgb);
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
@@ -97,7 +90,7 @@ public final class ChunkScanner {
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
                     int biomeArgb = biome == null ? 0
-                        : 0xFF000000 | BlockColors.shade(biomeColor(biome), 1f + (relief - 1f) * 0.6f);
+                        : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
                     int biomeId = biome == null || biome.biomeID >= 255 ? 0 : biome.biomeID + 1;
                     biomeRegion.setPixel(baseX + lx, baseZ + lz, biomeArgb, biomeId);
                 }
@@ -119,7 +112,7 @@ public final class ChunkScanner {
     private static final float DAYLIGHT = 1.06f;
 
     /**
-     * The detailed (JourneyMap) look of a column: a plant, crop, rail or redstone on the block is drawn instead of
+     * The JourneyMap look of a column: a plant, crop, rail or redstone on the block is drawn instead of
      * it (without a bevel, like JourneyMap without plant shadows); otherwise the block is beveled by its slope to the
      * north-west, with shadows turning a little blue.
      */

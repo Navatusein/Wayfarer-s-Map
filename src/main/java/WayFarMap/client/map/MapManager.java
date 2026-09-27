@@ -76,8 +76,6 @@ public class MapManager implements IResourceManagerReloadListener {
     private final ScanTracker surfaceTracker = new ScanTracker();
     private final ScanTracker caveTracker = new ScanTracker();
     private int tick;
-    /** Map style the explored area around the player was last drawn with. */
-    private int scannedStyle = -1;
     private long lastAutosave;
 
     private MapManager() {}
@@ -447,12 +445,7 @@ public class MapManager implements IResourceManagerReloadListener {
 
         tick++;
         updateCaveMode(world, mc.thePlayer);
-        if (scannedStyle != Config.mapStyle) {
-            // The style changed: redraw everything in range right away instead of when it is next due.
-            scannedStyle = Config.mapStyle;
-            surfaceTracker.reset();
-            caveTracker.reset();
-        }
+
 
         int budget = Config.chunksScannedPerTick;
         if (activeCaveLayer >= 0) {

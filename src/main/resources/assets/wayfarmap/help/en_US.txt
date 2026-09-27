@@ -117,7 +117,7 @@ Colors: §9blue§r — your claims, §agreen§r — loaded, other teams in their
 The §bSettings§r button on the map opens all options by category:
 
 - §fMinimap§r — size, corner, zoom, coordinates and biome, §fround shape§r and §frotate with view§r (view direction always up). The compass points §cN§r, E, S, W are marked on the minimap's edge
-- §fMap§r — §fmap style§r (§fDetailed§r — like JourneyMap: every height step is beveled, flowers, crops, rails and redstone are shown; or §fClassic§r), §finterface scale§r (the map and the mod's screens don't depend on Minecraft's GUI scale; Auto fits the window), caves, lighting, colors, scan speed, autosave
+- §fMap§r — §finterface scale§r (the map and the mod's screens don't depend on Minecraft's GUI scale; Auto fits the window), caves, lighting, colors, scan speed, autosave
 - §fEntities§r — players, hostile and passive mobs, icon limit, vertical range
 - §fWaypoints§r — size, label width, max distance, in-world and minimap visibility
 
