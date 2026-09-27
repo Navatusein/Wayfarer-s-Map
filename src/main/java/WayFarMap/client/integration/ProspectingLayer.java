@@ -3,9 +3,11 @@ package WayFarMap.client.integration;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -55,7 +57,6 @@ public final class ProspectingLayer {
     /** Database entry of each vein location, for its height range. */
     private static Map<OreVeinLocation, OreVeinPosition> positions = new IdentityHashMap<>();
     private static List<UndergroundFluidLocation> fluids = Collections.emptyList();
-    private static boolean failed;
 
     /** Vein under the mouse on the last drawn fullscreen map, or null. */
     private static OreVeinLocation hovered;
@@ -101,37 +102,57 @@ public final class ProspectingLayer {
 
     private static void refresh(int dimension) {
         long now = System.currentTimeMillis();
-        if (failed || (dimension == cachedDimension && now - lastRefresh < REFRESH_MS)) {
+        if (dimension == cachedDimension && now - lastRefresh < REFRESH_MS) {
             return;
         }
         cachedDimension = dimension;
         lastRefresh = now;
+
+        // One bad entry (e.g. a vein type whose ore has no texture) is skipped instead of hiding everything.
+        List<OreVeinLocation> newVeins = new ArrayList<>();
+        Map<OreVeinLocation, OreVeinPosition> newPositions = new IdentityHashMap<>();
         try {
-            List<OreVeinLocation> newVeins = new ArrayList<>();
-            Map<OreVeinLocation, OreVeinPosition> newPositions = new IdentityHashMap<>();
             for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
-                if (vein.veinType != VeinType.NO_VEIN && vein.dimensionId == dimension) {
-                    OreVeinLocation location = new OreVeinLocation(vein);
-                    newVeins.add(location);
-                    newPositions.put(location, vein);
+                try {
+                    if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN && vein.dimensionId == dimension) {
+                        OreVeinLocation location = new OreVeinLocation(vein);
+                        newVeins.add(location);
+                        newPositions.put(location, vein);
+                    }
+                } catch (Throwable t) {
+                    warnOnce("vein " + (vein.veinType != null ? vein.veinType.name : "?"), t);
                 }
             }
-            List<UndergroundFluidLocation> newFluids = new ArrayList<>();
-            for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
-                if (fluid.isProspected() && fluid.dimensionId == dimension) {
-                    UndergroundFluidLocation location = new UndergroundFluidLocation(fluid);
-                    location.setActive(true);
-                    newFluids.add(location);
-                }
-            }
-            veins = newVeins;
-            positions = newPositions;
-            fluids = newFluids;
         } catch (Throwable t) {
-            WayFarMap.LOG.warn("Could not read VisualProspecting data; its map layers are turned off", t);
-            failed = true;
-            veins = Collections.emptyList();
-            fluids = Collections.emptyList();
+            warnOnce("ore veins", t);
+        }
+        List<UndergroundFluidLocation> newFluids = new ArrayList<>();
+        try {
+            for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
+                try {
+                    if (fluid.isProspected() && fluid.dimensionId == dimension) {
+                        UndergroundFluidLocation location = new UndergroundFluidLocation(fluid);
+                        location.setActive(true);
+                        newFluids.add(location);
+                    }
+                } catch (Throwable t) {
+                    warnOnce("fluid " + (fluid.fluid != null ? fluid.fluid.getName() : "?"), t);
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("underground fluids", t);
+        }
+        veins = newVeins;
+        positions = newPositions;
+        fluids = newFluids;
+    }
+
+    private static final Set<String> WARNED = new HashSet<>();
+
+    /** Logs a problem with VisualProspecting data once per kind, so a broken entry doesn't flood the log. */
+    private static void warnOnce(String what, Throwable t) {
+        if (WARNED.add(what)) {
+            WayFarMap.LOG.warn("Skipping VisualProspecting " + what + " on the map", t);
         }
     }
 
