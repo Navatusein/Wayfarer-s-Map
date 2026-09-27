@@ -9,8 +9,8 @@ import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 
@@ -147,7 +147,8 @@ public class MinimapRenderer {
 
         int textY = y + size + 3;
         for (String line : lines) {
-            font.drawStringWithShadow(line, x + size / 2 - font.getStringWidth(line) / 2, textY, 0xFFFFFF);
+            mc.fontRenderer
+                .drawStringWithShadow(line, x + size / 2 - mc.fontRenderer.getStringWidth(line) / 2, textY, 0xFFFFFF);
             textY += LINE_HEIGHT;
         }
 
@@ -219,7 +220,8 @@ public class MinimapRenderer {
             for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
                 double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
                 double cos = Math.cos(a), sin = Math.sin(a);
-                tessellator.addVertexWithUV(x + half + cos * half, y + half + sin * half, 0, 0.5 + cos * 0.5, 0.5 - sin * 0.5);
+                tessellator
+                    .addVertexWithUV(x + half + cos * half, y + half + sin * half, 0, 0.5 + cos * 0.5, 0.5 - sin * 0.5);
             }
             tessellator.draw();
         } else {

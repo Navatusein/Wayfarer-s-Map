@@ -271,10 +271,8 @@ public final class ProspectingLayer {
             if (max > 0) {
                 title = location.getFluid()
                     .getLocalizedName();
-                values = MessageFormat.format(
-                    "{0}-{1} L/Op",
-                    formatAmount(location.getMinProduction() >> 1),
-                    formatAmount(max >> 1));
+                values = MessageFormat
+                    .format("{0}-{1} L/Op", formatAmount(location.getMinProduction() >> 1), formatAmount(max >> 1));
             }
             int maxWidth = (int) fieldSize - 6;
             double labelX = fx + fieldSize / 2;
@@ -660,8 +658,8 @@ public final class ProspectingLayer {
         }
     }
 
-    private static void addTextureQuad(Tessellator tessellator, double sx, double sy, double size, double u0,
-        double v0, double u1, double v1) {
+    private static void addTextureQuad(Tessellator tessellator, double sx, double sy, double size, double u0, double v0,
+        double u1, double v1) {
         tessellator.addVertexWithUV(sx, sy + size, 0, u0, v1);
         tessellator.addVertexWithUV(sx + size, sy + size, 0, u1, v1);
         tessellator.addVertexWithUV(sx + size, sy, 0, u1, v0);
@@ -674,7 +672,17 @@ public final class ProspectingLayer {
         int lx = (int) Math.round(cx - w / 2.0);
         int ly = (int) Math.round(ty);
         begin();
-        rect(lx - 2, ly - 1, w + 4, 10, LABEL_BACKGROUND & 0xFFFFFF, LABEL_BACKGROUND >>> 24, lx - 2, ly - 1, w + 4, 10);
+        rect(
+            lx - 2,
+            ly - 1,
+            w + 4,
+            10,
+            LABEL_BACKGROUND & 0xFFFFFF,
+            LABEL_BACKGROUND >>> 24,
+            lx - 2,
+            ly - 1,
+            w + 4,
+            10);
         end();
         font.drawString(text, lx, ly, color);
         GL11.glColor4f(1f, 1f, 1f, 1f);

@@ -49,8 +49,7 @@ public final class ChunkScanner {
             northHeights[lx] = north != null ? findTop(north, lx, 15, noSky, caveLayer) : NO_BLOCK;
         }
 
-        MapRegion region = dimension
-            .getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
+        MapRegion region = dimension.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
         int baseX = (cx * 16) & (MapRegion.SIZE - 1);
         int baseZ = (cz * 16) & (MapRegion.SIZE - 1);
         MapRegion biomeRegion = biomeMap == null ? null

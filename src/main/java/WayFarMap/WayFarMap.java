@@ -10,7 +10,10 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
-@Mod(modid = WayFarMap.MODID, version = Tags.VERSION, name = "WayFarMap",
+@Mod(
+    modid = WayFarMap.MODID,
+    version = Tags.VERSION,
+    name = "WayFarMap",
     acceptedMinecraftVersions = "[1.7.10]",
     acceptableRemoteVersions = "*")
 public class WayFarMap {

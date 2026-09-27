@@ -72,13 +72,15 @@ public class GuiItemPicker extends ScaledScreen {
                 try {
                     name = stack.getDisplayName();
                 } catch (Throwable t) {
-                    name = String.valueOf(GameData.getItemRegistry()
-                        .getNameForObject(item));
+                    name = String.valueOf(
+                        GameData.getItemRegistry()
+                            .getNameForObject(item));
                 }
                 allStacks.add(stack);
                 allNames.add(
-                    (name + " " + GameData.getItemRegistry()
-                        .getNameForObject(item)).toLowerCase(Locale.ROOT));
+                    (name + " "
+                        + GameData.getItemRegistry()
+                            .getNameForObject(item)).toLowerCase(Locale.ROOT));
             }
         }
     }
@@ -211,15 +213,21 @@ public class GuiItemPicker extends ScaledScreen {
         }
 
         String count = filtered.size() + "";
-        Theme.text(fontRendererObj, count, gridX + columns * CELL - fontRendererObj.getStringWidth(count), 11, Theme.TEXT_MUTED);
+        Theme.text(
+            fontRendererObj,
+            count,
+            gridX + columns * CELL - fontRendererObj.getStringWidth(count),
+            11,
+            Theme.TEXT_MUTED);
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 
         if (hovered >= 0) {
             List<String> tooltip = new ArrayList<>();
             try {
-                tooltip.add(filtered.get(hovered)
-                    .getDisplayName());
+                tooltip.add(
+                    filtered.get(hovered)
+                        .getDisplayName());
             } catch (Throwable t) {
                 tooltip.add("?");
             }

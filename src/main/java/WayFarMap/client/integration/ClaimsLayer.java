@@ -309,11 +309,8 @@ public final class ClaimsLayer {
             // Unload first, then give the claims up; the server handles the messages in order.
             new MessageClaimedChunksModify(first.chunkXPos, first.chunkZPos, MessageClaimedChunksModify.UNLOAD, chunks)
                 .sendToServer();
-            new MessageClaimedChunksModify(
-                first.chunkXPos,
-                first.chunkZPos,
-                MessageClaimedChunksModify.UNCLAIM,
-                chunks).sendToServer();
+            new MessageClaimedChunksModify(first.chunkXPos, first.chunkZPos, MessageClaimedChunksModify.UNCLAIM, chunks)
+                .sendToServer();
         } else {
             int message = action == CLAIM ? MessageClaimedChunksModify.CLAIM
                 : action == UNCLAIM ? MessageClaimedChunksModify.UNCLAIM
@@ -409,8 +406,8 @@ public final class ClaimsLayer {
         tessellator.addVertex(x0, y0, 0);
     }
 
-    private static void hollowRect(double rx, double ry, double w, double h, double t, int rgb, int alpha, int x,
-        int y, int width, int height) {
+    private static void hollowRect(double rx, double ry, double w, double h, double t, int rgb, int alpha, int x, int y,
+        int width, int height) {
         rect(rx, ry, w, t, rgb, alpha, x, y, width, height);
         rect(rx, ry + h - t, w, t, rgb, alpha, x, y, width, height);
         rect(rx, ry + t, t, h - 2 * t, rgb, alpha, x, y, width, height);
