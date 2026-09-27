@@ -18,6 +18,8 @@ import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -39,7 +41,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6;
+        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -62,6 +64,8 @@ public class GuiWorldMap extends GuiScreen {
     private FlatButton caveButton;
     private FlatButton biomeButton;
     private FlatButton gridButton;
+    /** VisualProspecting layers; null when it isn't installed. */
+    private FlatButton oreButton, fluidButton;
 
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
@@ -95,12 +99,21 @@ public class GuiWorldMap extends GuiScreen {
             centerX = mc.thePlayer.posX;
             centerZ = mc.thePlayer.posZ;
             initialized = true;
+            if (Mods.isVisualProspectingLoaded()) {
+                ProspectingLayer.onOpenMap();
+            }
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
         int x = 4;
         x = addHeaderButton(new FlatButton(ID_WAYPOINTS, x, 4, 0, 16, I18n.format("wayfarmap.gui.waypoints")), x);
-        addHeaderButton(new FlatButton(ID_SETTINGS, x, 4, 0, 16, I18n.format("wayfarmap.gui.settings")), x);
+        x = addHeaderButton(new FlatButton(ID_SETTINGS, x, 4, 0, 16, I18n.format("wayfarmap.gui.settings")), x);
+        if (Mods.isVisualProspectingLoaded()) {
+            oreButton = new FlatButton(ID_ORES, x, 4, 0, 16, I18n.format("wayfarmap.gui.ores"));
+            x = addHeaderButton(oreButton, x);
+            fluidButton = new FlatButton(ID_FLUIDS, x, 4, 0, 16, I18n.format("wayfarmap.gui.fluids"));
+            addHeaderButton(fluidButton, x);
+        }
 
         // Right side, laid out right to left before the zoom text.
         int right = width - 34;
@@ -144,12 +157,22 @@ public class GuiWorldMap extends GuiScreen {
         caveButton.displayString = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
+        if (oreButton != null) {
+            oreButton.active = Config.showOreVeins;
+            fluidButton.active = Config.showUndergroundFluids;
+        }
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_ORES) {
+            Config.toggleOreVeins();
+            updateLightButtons();
+        } else if (button.id == ID_FLUIDS) {
+            Config.toggleUndergroundFluids();
+            updateLightButtons();
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
@@ -226,6 +249,15 @@ public class GuiWorldMap extends GuiScreen {
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
+        boolean prospecting = Mods.isVisualProspectingLoaded();
+        int dimensionId = mc.theWorld.provider.dimensionId;
+        if (prospecting && Config.showUndergroundFluids) {
+            ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
+        }
+        if (prospecting && Config.showOreVeins) {
+            ProspectingLayer
+                .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
         MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
@@ -288,6 +320,11 @@ public class GuiWorldMap extends GuiScreen {
         }
         if (menu != null) {
             drawMenu(mouseX, mouseY);
+        } else if (prospecting && Config.showOreVeins && mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT) {
+            List<String> tooltip = ProspectingLayer.getHoveredTooltip();
+            if (tooltip != null) {
+                drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
+            }
         }
     }
 
@@ -295,7 +332,7 @@ public class GuiWorldMap extends GuiScreen {
         int end = 0;
         for (Object o : buttonList) {
             GuiButton button = (GuiButton) o;
-            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS) {
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS || button.id == ID_ORES || button.id == ID_FLUIDS) {
                 end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
             }
         }
@@ -375,6 +412,15 @@ public class GuiWorldMap extends GuiScreen {
     private void openMenu(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
         List<MenuEntry> entries = new ArrayList<>();
+        if (Mods.isVisualProspectingLoaded() && Config.showOreVeins && ProspectingLayer.hasHoveredVein()) {
+            entries.add(
+                new MenuEntry(
+                    I18n.format(
+                        ProspectingLayer.isHoveredVeinDepleted() ? "wayfarmap.gui.vein_restore"
+                            : "wayfarmap.gui.vein_deplete"),
+                    true,
+                    ProspectingLayer::toggleHoveredVein));
+        }
         final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
         final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
         final int safeY = Teleport.findSafeY(mc.theWorld, bx, bz);

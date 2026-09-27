@@ -16,6 +16,8 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.Waypoint;
@@ -77,6 +79,15 @@ public class MinimapRenderer {
         MapDrawer.drawMap(dimension, px, pz, scale, x, y, size, size);
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(px, pz, scale, x, y, size, size);
+        }
+        if (Mods.isVisualProspectingLoaded()) {
+            int dimensionId = mc.theWorld.provider.dimensionId;
+            if (Config.showUndergroundFluids) {
+                ProspectingLayer.drawFluids(dimensionId, px, pz, scale, x, y, size, size, true);
+            }
+            if (Config.showOreVeins) {
+                ProspectingLayer.drawOreVeins(dimensionId, px, pz, scale, x, y, size, size, true, 0, 0);
+            }
         }
         MapDrawer.drawEntities(mc, px, pz, scale, x, y, size, size, partialTicks, 6f, false);
         if (Config.waypointsOnMinimap) {

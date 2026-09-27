@@ -51,6 +51,9 @@ public class Config {
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean chunkGrid = false;
+    /** VisualProspecting layers (only used when it is installed). */
+    public static boolean showOreVeins = true;
+    public static boolean showUndergroundFluids = false;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -131,6 +134,20 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
+        bool(
+            c,
+            "oreVeins",
+            "Show ore veins prospected with VisualProspecting (if installed).",
+            true,
+            () -> showOreVeins,
+            v -> showOreVeins = v);
+        bool(
+            c,
+            "undergroundFluids",
+            "Show underground fluids prospected with VisualProspecting (if installed).",
+            false,
+            () -> showUndergroundFluids,
+            v -> showUndergroundFluids = v);
         choice(
             c,
             "caveMode",
@@ -321,6 +338,16 @@ public class Config {
     /** Auto -> off -> on -> auto. */
     public static void cycleCaveMode() {
         caveMode = (caveMode + 1) % 3;
+        save();
+    }
+
+    public static void toggleOreVeins() {
+        showOreVeins = !showOreVeins;
+        save();
+    }
+
+    public static void toggleUndergroundFluids() {
+        showUndergroundFluids = !showUndergroundFluids;
         save();
     }
 
