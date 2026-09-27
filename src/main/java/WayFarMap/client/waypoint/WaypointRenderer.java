@@ -111,18 +111,20 @@ public class WaypointRenderer {
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         String name = mapLabelName(waypoint, fullName);
         font.drawString(name, rect[0] + 2, rect[1] + 1, Theme.TEXT);
-        font.drawString(distanceSuffix(waypoint), rect[0] + 2 + font.getStringWidth(name), rect[1] + 1, Theme.TEXT_MUTED);
+        font.drawString(
+            distanceSuffix(waypoint),
+            rect[0] + 2 + font.getStringWidth(name),
+            rect[1] + 1,
+            Theme.TEXT_MUTED);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
-     * Name for the world map label: name and distance together fit in {@link Config#waypointLabelMaxWidth}, so the
-     * name is cut shorter to leave room for the distance (unless the full name is wanted, e.g. on hover).
+     * Name for the world map label: name and distance together always fit in {@link Config#waypointLabelMaxWidth},
+     * so the name is cut shorter to leave room for the distance. The full name of the hovered waypoint is shown in
+     * the map's bottom bar instead.
      */
     private static String mapLabelName(Waypoint waypoint, boolean fullName) {
-        if (fullName) {
-            return waypoint.name;
-        }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         int room = Config.waypointLabelMaxWidth - font.getStringWidth(distanceSuffix(waypoint));
         return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));
