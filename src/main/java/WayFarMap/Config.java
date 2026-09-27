@@ -47,6 +47,8 @@ public class Config {
     public static int minimapShape = SHAPE_SQUARE;
     /** Turn the minimap with the player, so the view direction is always up. */
     public static boolean minimapRotate = false;
+    /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
+    public static int uiScale = 0;
 
     /** Map lighting: {@link #LIGHT_AUTO} follows the day/night cycle. */
     public static int mapLightMode = LIGHT_AUTO;
@@ -132,6 +134,14 @@ public class Config {
             v -> minimapShowBiome = v);
 
         c = CATEGORY_MAP;
+        choice(
+            c,
+            "uiScale",
+            "Scale of the map and the mod's screens, independent of Minecraft's GUI scale: 0 = auto (fits the window), 1-6 = fixed.",
+            0,
+            new String[] { "auto", "s1", "s2", "s3", "s4", "s5", "s6" },
+            () -> uiScale,
+            v -> uiScale = v);
         choice(
             c,
             "lightMode",

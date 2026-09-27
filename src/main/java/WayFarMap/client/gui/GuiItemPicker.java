@@ -15,12 +15,13 @@ import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.registry.GameData;
 
 /** Grid of every item in the game with a search field; used to pick a waypoint icon. */
-public class GuiItemPicker extends GuiScreen {
+public class GuiItemPicker extends ScaledScreen {
 
     public interface Callback {
 
@@ -185,7 +186,7 @@ public class GuiItemPicker extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(gridX - 8, 4, gridX + columns * CELL + 8, gridY + rows * CELL + 34);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_icon"), gridX, 11, Theme.ACCENT);
@@ -212,7 +213,7 @@ public class GuiItemPicker extends GuiScreen {
         String count = filtered.size() + "";
         Theme.text(fontRendererObj, count, gridX + columns * CELL - fontRendererObj.getStringWidth(count), 11, Theme.TEXT_MUTED);
 
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
 
         if (hovered >= 0) {
             List<String> tooltip = new ArrayList<>();

@@ -12,7 +12,6 @@ import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.resources.I18n;
@@ -36,6 +35,7 @@ import com.sinthoras.visualprospecting.integration.model.locations.UndergroundFl
 import com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBackground;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import gregtech.api.interfaces.IIconContainer;
 
@@ -197,7 +197,7 @@ public final class ProspectingLayer {
     /** JourneyMap-style zoom level: 2^zoom screen pixels per block. */
     private static double zoomLevel(double guiScale) {
         Minecraft mc = Minecraft.getMinecraft();
-        int factor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        int factor = ScaledScreen.currentFactor();
         return Math.log(guiScale * factor) / Math.log(2);
     }
 
@@ -215,7 +215,7 @@ public final class ProspectingLayer {
         int fieldBlocks = VP.undergroundFluidSizeChunkX * VP.chunkWidth;
         double fieldSize = fieldBlocks * scale;
         Minecraft mc = Minecraft.getMinecraft();
-        double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        double pixel = 1.0 / ScaledScreen.currentFactor();
 
         // While searching (world map only), fields of other fluids fade out like in VisualProspecting.
         boolean searching = !minimap && isSearchActive();

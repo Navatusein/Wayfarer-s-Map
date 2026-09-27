@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
@@ -21,10 +20,11 @@ import WayFarMap.client.MapDrawer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
-import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -34,7 +34,7 @@ import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 
 /** Fullscreen world map: drag to pan, mouse wheel to zoom. */
-public class GuiWorldMap extends GuiScreen {
+public class GuiWorldMap extends ScaledScreen {
 
     private static final int DEFAULT_ZOOM = 3;
 
@@ -363,12 +363,12 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
 
         MapDimension dimension = MapManager.INSTANCE.getViewMap();
         if (dimension == null || mc.thePlayer == null) {
-            super.drawScreen(mouseX, mouseY, partialTicks);
+            super.drawScaled(mouseX, mouseY, partialTicks);
             return;
         }
 
@@ -478,7 +478,7 @@ public class GuiWorldMap extends GuiScreen {
         }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
 
         if (caveLayer >= 0) {
             drawCaveSlider(mouseX, mouseY);

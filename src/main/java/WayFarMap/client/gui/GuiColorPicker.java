@@ -13,13 +13,14 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
  * Picks any color: a saturation/brightness square for the current hue, a hue bar, and a hex field. Shows the old and
  * the new color side by side.
  */
-public class GuiColorPicker extends GuiScreen {
+public class GuiColorPicker extends ScaledScreen {
 
     public interface Callback {
 
@@ -181,7 +182,7 @@ public class GuiColorPicker extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         if (dragging != 0) {
             if (Mouse.isButtonDown(0)) {
                 updateDrag(mouseX, mouseY);
@@ -248,7 +249,7 @@ public class GuiColorPicker extends GuiScreen {
         Theme.outline(sideX, sy + 46, sideX + sideWidth, sy + 66, Theme.BORDER);
         hexField.drawTextBox();
 
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
     @Override

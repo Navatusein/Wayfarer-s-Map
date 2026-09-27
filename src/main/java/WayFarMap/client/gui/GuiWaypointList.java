@@ -16,6 +16,7 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
@@ -23,7 +24,7 @@ import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 
 /** All waypoints sorted into their groups; groups can be hidden, collapsed, renamed, reordered and deleted. */
-public class GuiWaypointList extends GuiScreen {
+public class GuiWaypointList extends ScaledScreen {
 
     private static final int ROW_HEIGHT = 20;
     private static final int ID_GROUP_ACTION = 0, ID_NEW_WAYPOINT = 1, ID_DONE = 2;
@@ -334,7 +335,7 @@ public class GuiWaypointList extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(listLeft - 8, 6, listRight + 8, height - 6);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.waypoints"), listLeft, 14, Theme.ACCENT);
@@ -382,7 +383,7 @@ public class GuiWaypointList extends GuiScreen {
         }
 
         groupField.drawTextBox();
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
 
         if (draggingWaypoint) {
             // The dragged waypoint follows the mouse.
