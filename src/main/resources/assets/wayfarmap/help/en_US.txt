@@ -117,8 +117,8 @@ Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded
 
 - Hover — node type, modifier, every aspect with its amount, and the coordinates
 - Zoomed in, the main aspects are written under the icon
-- §eRight click a node → Track§r — a node marker with the distance appears in the world (seen through blocks); TCNodeTracker's arrow turns on too (it shows with Goggles of Revealing)
-- §eRight click a node → Mark depleted§r — removes it from TCNodeTracker's list
+- §eRight click a node → Track§r — a node marker with the distance appears in the world, like a tracked vein (seen through blocks)
+- §eRight click a node → Remove node§r — removes it from TCNodeTracker's list
 - The search at the top finds aspects: §e"ignis"§r, §e"aer ordo"§r — other nodes fade
 
 # Claims (ServerUtilities)

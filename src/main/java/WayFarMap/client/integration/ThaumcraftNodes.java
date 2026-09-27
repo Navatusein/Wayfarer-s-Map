@@ -25,8 +25,8 @@ import thaumcraft.api.aspects.Aspect;
 /**
  * Thaumcraft aura nodes found with TCNodeTracker, drawn like its own Navigator (JourneyMap / Xaero) layer: the node
  * icon tinted with the node's strongest aspect, with that aspect on top. TCNodeTracker keeps them in
- * {@link TCNodeTracker#nodelist}; marking a node depleted removes it there and saves its file, and its in-world arrow
- * follows {@code doGui} and the markers.
+ * {@link TCNodeTracker#nodelist}; removing a node takes it out of there and saves its file. A tracked node gets a
+ * marker in the world like a tracked ore vein.
  * <p>
  * Only touch this class after {@link Mods#isThaumcraftNodesAvailable()}.
  */
@@ -42,6 +42,9 @@ public final class ThaumcraftNodes {
     private static final int LABEL_BACKGROUND = 0xB4000000;
 
     private ThaumcraftNodes() {}
+
+    /** The tracked node as {dimension, x, y, z}, shown in the world like a waypoint; null if none. */
+    private static int[] tracked;
 
     /** One node with its aspects, strongest first. */
     public static final class Node {
@@ -87,9 +90,8 @@ public final class ThaumcraftNodes {
         }
 
         boolean tracked() {
-            return TCNodeTracker.doGui && TCNodeTracker.xMarker == x
-                && TCNodeTracker.yMarker == y
-                && TCNodeTracker.zMarker == z;
+            int[] target = tracked;
+            return target != null && target[0] == dimension && target[1] == x && target[2] == y && target[3] == z;
         }
     }
 
@@ -301,33 +303,23 @@ public final class ThaumcraftNodes {
         return ((Node) handle).tracked();
     }
 
-    /** Points TCNodeTracker's in-world arrow at the node, or turns it off if it points there already. */
+    /** Starts tracking the node, or stops if it is the tracked one. */
     public static void toggleTracked(Object handle) {
         Node node = (Node) handle;
-        boolean off = node.tracked();
-        if (TCNodeTracker.isNavigatorLoaded) {
-            // Its map layers show the tracked node as the active waypoint; that is cleared the same way it does.
-            ThaumcraftNodeLayerManager.instance.clearActiveWaypoint();
-        }
-        TCNodeTracker.doGui = !off;
-        TCNodeTracker.xMarker = node.x;
-        TCNodeTracker.yMarker = off ? -1 : node.y;
-        TCNodeTracker.zMarker = node.z;
+        tracked = node.tracked() ? null : new int[] { node.dimension, node.x, node.y, node.z };
     }
 
     /**
-     * Draws the tracked node in the world like a waypoint: the node icon with its strongest aspect, the name and the
-     * distance, visible through blocks. TCNodeTracker's own arrow only shows with Goggles of Revealing on; this one
-     * always does. The tracked node is TCNodeTracker's marker, so marking a node in its list works too.
+     * Draws the tracked node in the world like a waypoint (as a tracked ore vein): the node icon with its strongest
+     * aspect, the name and the distance, visible through blocks.
      */
     public static void renderTrackedInWorld(Minecraft mc, int dimension) {
-        if (!TCNodeTracker.doGui || TCNodeTracker.yMarker < 0) {
+        int[] target = tracked;
+        if (target == null || target[0] != dimension) {
             return;
         }
         for (NodeList source : new ArrayList<>(TCNodeTracker.nodelist)) {
-            if (source.dim != dimension || source.x != TCNodeTracker.xMarker
-                || source.y != TCNodeTracker.yMarker
-                || source.z != TCNodeTracker.zMarker) {
+            if (source.dim != target[0] || source.x != target[1] || source.y != target[2] || source.z != target[3]) {
                 continue;
             }
             final Node node = new Node(source);
@@ -375,11 +367,11 @@ public final class ThaumcraftNodes {
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
-    /** Marks the node depleted the way TCNodeTracker does: removes it from its list and saves. */
+    /** Removes the node the way TCNodeTracker does (its "delete"): from its list, and saves. */
     public static void markDepleted(Object handle) {
         Node node = (Node) handle;
         if (node.tracked()) {
-            toggleTracked(node);
+            tracked = null;
         }
         if (TCNodeTracker.isNavigatorLoaded) {
             // Also updates its own map layers.
