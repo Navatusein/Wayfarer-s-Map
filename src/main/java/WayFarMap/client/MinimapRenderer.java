@@ -240,10 +240,15 @@ public class MinimapRenderer {
             double[] direction = rotate(COMPASS_DIRECTIONS[i][0], COMPASS_DIRECTIONS[i][1], rotation);
             // On a square the letter slides along the border, on a circle along the rim.
             double reach = round ? edge : edge / Math.max(Math.abs(direction[0]), Math.abs(direction[1]));
-            int lx = (int) Math.round(cx + direction[0] * reach);
-            int ly = (int) Math.round(cy + direction[1] * reach);
             String letter = COMPASS_LETTERS[i];
-            font.drawStringWithShadow(letter, lx - font.getStringWidth(letter) / 2 + 1, ly - 3, i == 0 ? 0xFF5555 : 0xFFFFFF);
+            // Placed at sub-pixel positions: rounding to GUI pixels made the letters jump while turning.
+            GL11.glPushMatrix();
+            GL11.glTranslated(
+                cx + direction[0] * reach - font.getStringWidth(letter) / 2.0 + 1,
+                cy + direction[1] * reach - 3,
+                0);
+            font.drawStringWithShadow(letter, 0, 0, i == 0 ? 0xFF5555 : 0xFFFFFF);
+            GL11.glPopMatrix();
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }

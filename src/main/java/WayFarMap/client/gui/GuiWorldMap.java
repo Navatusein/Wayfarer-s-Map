@@ -827,7 +827,13 @@ public class GuiWorldMap extends GuiScreen {
             rects.add(rect);
         }
         for (int i = labelled.size() - 1; i >= 0; i--) {
-            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i), textScale);
+            // Moved by the same sub-pixel remainder as its marker, so the two glide together.
+            Waypoint waypoint = labelled.get(i);
+            double sx = screenX(waypoint), sy = screenY(waypoint);
+            GL11.glPushMatrix();
+            GL11.glTranslated(sx - Math.round(sx), sy - Math.round(sy), 0);
+            WaypointRenderer.drawMapLabel(waypoint, rects.get(i), textScale);
+            GL11.glPopMatrix();
         }
     }
 
