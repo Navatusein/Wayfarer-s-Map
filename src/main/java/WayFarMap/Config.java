@@ -141,7 +141,8 @@ public class Config {
         choice(
             c,
             "uiScale",
-            "Scale of the map and the mod's screens, independent of Minecraft's GUI scale: 0 = auto (fits the window), 1-6 = fixed.",
+            "Scale of the map and the mod's screens, independent of Minecraft's GUI scale: "
+                + "0 = auto (fits the window), 1-6 = fixed.",
             0,
             new String[] { "auto", "s1", "s2", "s3", "s4", "s5", "s6" },
             () -> uiScale,
