@@ -31,6 +31,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §eLeft drag§r — move the map
 - §eWheel§r — zoom (towards the cursor)
 - §eSpace§r — back to the player
+- The map opens §fwhere you closed it§r — same zoom and dimension
 - §eRight click§r on empty space — menu: §bTeleport here§r, §bNew waypoint§r
 - §eRight click§r on a waypoint — opens its editor
 

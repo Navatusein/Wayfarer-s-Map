@@ -1,9 +1,16 @@
 package WayFarMap.client.gui;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
@@ -16,6 +23,7 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.WayFarMap;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.TeamMates;
@@ -140,12 +148,13 @@ public class GuiWorldMap extends ScaledScreen {
     public void initGui() {
         super.initGui();
         if (!initialized && mc.thePlayer != null) {
-            // Only on first open, not when the window is resized.
-            centerX = mc.thePlayer.posX;
-            centerZ = mc.thePlayer.posZ;
+            // Only on first open, not when the window is resized: back where the map was closed, or at the player.
             initialized = true;
-            // A freshly opened map shows the dimension the player is in.
             MapManager.INSTANCE.stopViewing();
+            if (!restoreView()) {
+                centerX = mc.thePlayer.posX;
+                centerZ = mc.thePlayer.posZ;
+            }
             if (Mods.isVisualProspectingLoaded()) {
                 ProspectingLayer.onOpenMap();
             }
@@ -1232,7 +1241,83 @@ public class GuiWorldMap extends ScaledScreen {
         if (Mods.isPowerfailsAvailable()) {
             PowerfailLayer.setSearch("");
         }
+        saveView();
         MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+    }
+
+    // ---------------------------------------------------------------- where the map was left
+
+    /**
+     * Where the map was last closed, per dimension the player was in: the dimension looked at, the center and the
+     * zoom, as "dimension;x;z;zoom" in the account's world folder, so it survives restarts.
+     */
+    private static final String VIEW_FILE = "map-view.properties";
+
+    private static Properties readViews(File file) {
+        Properties views = new Properties();
+        if (file.isFile()) {
+            try (InputStream in = new FileInputStream(file)) {
+                views.load(in);
+            } catch (IOException e) {
+                // Lost view positions only mean the map opens at the player.
+            }
+        }
+        return views;
+    }
+
+    /** Opens the map where it was closed; false if there is nothing saved (or its dimension has no map). */
+    private boolean restoreView() {
+        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        if (worldDirectory == null) {
+            return false;
+        }
+        int playerDimension = mc.theWorld.provider.dimensionId;
+        String saved = readViews(new File(worldDirectory, VIEW_FILE)).getProperty("dim" + playerDimension);
+        if (saved == null) {
+            return false;
+        }
+        try {
+            String[] parts = saved.split(";");
+            int dimension = Integer.parseInt(parts[0]);
+            double x = Double.parseDouble(parts[1]);
+            double z = Double.parseDouble(parts[2]);
+            int zoom = Integer.parseInt(parts[3]);
+            if (dimension != playerDimension) {
+                boolean known = false;
+                for (MapManager.SavedDimension other : MapManager.INSTANCE.listSavedDimensions()) {
+                    known |= other.id == dimension;
+                }
+                if (!known) {
+                    return false;
+                }
+                MapManager.INSTANCE.viewDimension(dimension);
+            }
+            centerX = x;
+            centerZ = z;
+            zoomIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoom));
+            scale = Config.MAP_ZOOMS[zoomIndex];
+            zooming = false;
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private void saveView() {
+        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        if (worldDirectory == null || mc.theWorld == null || !initialized) {
+            return;
+        }
+        File file = new File(worldDirectory, VIEW_FILE);
+        Properties views = readViews(file);
+        views.setProperty(
+            "dim" + mc.theWorld.provider.dimensionId,
+            viewDimension() + ";" + centerX + ";" + centerZ + ";" + zoomIndex);
+        try (OutputStream out = new FileOutputStream(file)) {
+            views.store(out, "WayFarMap: where the world map was last closed, per dimension the player was in");
+        } catch (IOException e) {
+            WayFarMap.LOG.warn("Could not save the map position to " + file, e);
+        }
     }
 
     @Override
