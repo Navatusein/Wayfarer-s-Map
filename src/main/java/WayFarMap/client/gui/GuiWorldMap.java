@@ -80,6 +80,9 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton mobsButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
     private IconButton addonsButton;
+    /** Search of biomes, ore veins, fluids or power failures; kept between openings of the map. */
+    private static String searchText = "";
+    private FlatTextField searchField;
     private IconButton helpButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
