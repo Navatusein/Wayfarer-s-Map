@@ -26,3 +26,5 @@ wayfarmap.gui.edit=Изменить
 wayfarmap.gui.rename=Переим.
 wayfarmap.gui.create_group=Создать группу
 wayfarmap.gui.rename_group=Переименовать
+wayfarmap.gui.day=День
+wayfarmap.gui.night=Ночь

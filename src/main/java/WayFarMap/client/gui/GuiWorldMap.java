@@ -34,7 +34,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0;
+    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2;
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -48,6 +48,9 @@ public class GuiWorldMap extends GuiScreen {
     /** World point that stays under {@link #anchorScreenX}/{@link #anchorScreenY} while the zoom animates. */
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
+
+    private GuiButton dayButton;
+    private GuiButton nightButton;
 
     private boolean dragging;
     private int lastRawMouseX;
@@ -66,12 +69,31 @@ public class GuiWorldMap extends GuiScreen {
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
         buttonList.add(new GuiButton(ID_WAYPOINTS, 4, 2, 90, 20, I18n.format("wayfarmap.gui.waypoints")));
+        dayButton = new GuiButton(ID_DAY, width - 150, 2, 50, 20, "");
+        nightButton = new GuiButton(ID_NIGHT, width - 98, 2, 50, 20, "");
+        buttonList.add(dayButton);
+        buttonList.add(nightButton);
+        updateLightButtons();
+    }
+
+    /** Active mode is shown in green; with both off the map follows the time of day. */
+    private void updateLightButtons() {
+        dayButton.displayString = (Config.mapLightMode == Config.LIGHT_DAY ? "\u00a7a" : "")
+            + I18n.format("wayfarmap.gui.day");
+        nightButton.displayString = (Config.mapLightMode == Config.LIGHT_NIGHT ? "\u00a7a" : "")
+            + I18n.format("wayfarmap.gui.night");
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_DAY) {
+            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_AUTO : Config.LIGHT_DAY);
+            updateLightButtons();
+        } else if (button.id == ID_NIGHT) {
+            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_NIGHT ? Config.LIGHT_AUTO : Config.LIGHT_NIGHT);
+            updateLightButtons();
         }
     }
 
@@ -128,9 +150,7 @@ public class GuiWorldMap extends GuiScreen {
 
         updateView();
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
-        if (Config.showOtherPlayers) {
-            MapDrawer.drawOtherPlayers(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, true);
-        }
+        MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
 
@@ -146,7 +166,9 @@ public class GuiWorldMap extends GuiScreen {
 
         // Header and footer.
         drawRect(0, 0, width, HEADER_HEIGHT, 0xA0000000);
-        drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 8, 0xFFFFFF);
+        if (width >= 420) {
+            drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 8, 0xFFFFFF);
+        }
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
         fontRendererObj.drawStringWithShadow(zoomText, width - 4 - fontRendererObj.getStringWidth(zoomText), 8, 0xAAAAAA);

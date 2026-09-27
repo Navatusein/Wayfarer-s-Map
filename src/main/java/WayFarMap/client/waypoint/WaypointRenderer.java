@@ -27,6 +27,8 @@ public class WaypointRenderer {
     private static final RenderItem RENDER_ITEM = new RenderItem();
     /** Marker color of waypoints that have neither an icon nor an outline. */
     public static final int DEFAULT_COLOR = 0xFFFFFF;
+    /** Up to this distance, in-world waypoints keep their full size on screen. */
+    private static final double NEAR_DISTANCE = 12.0;
 
     /** Draws an item icon of {@code size} GUI pixels centered on the given point. */
     public static void drawItem(ItemStack stack, double centerX, double centerY, float size) {
@@ -177,10 +179,13 @@ public class WaypointRenderer {
         if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
             return;
         }
-        // Far waypoints are drawn closer (inside the view distance) and scaled so they keep the same size on screen.
+        // Far waypoints are drawn closer (inside the view distance) and scaled to look as if they were at their real
+        // distance. Up close they keep a constant size on screen; farther away they shrink like real objects until
+        // they reach the minimum on-screen size, from where they stop shrinking so they stay readable.
         double viewDistance = Math.min(distance, 48.0);
         double factor = viewDistance / distance;
-        float scale = (float) (0.0045 * Math.max(viewDistance, 5.0));
+        double apparentSize = Math.max(Config.waypointMinScale, Math.min(1.0, NEAR_DISTANCE / distance));
+        float scale = (float) (0.0045 * Config.waypointScale * Math.max(viewDistance, 5.0) * apparentSize);
 
         int blocks = (int) Math.round(Math.sqrt(
             Math.pow(waypoint.x + 0.5 - player.posX, 2) + Math.pow(waypoint.y - player.posY, 2)

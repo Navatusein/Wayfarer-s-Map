@@ -68,9 +68,7 @@ public class MinimapRenderer {
         Gui.drawRect(x, y, x + size, y + size, 0xFF202020);
 
         MapDrawer.drawMap(dimension, px, pz, scale, x, y, size, size);
-        if (Config.showOtherPlayers) {
-            MapDrawer.drawOtherPlayers(mc, px, pz, scale, x, y, size, size, partialTicks, false);
-        }
+        MapDrawer.drawEntities(mc, px, pz, scale, x, y, size, size, partialTicks, 6f, false);
         if (Config.waypointsOnMinimap) {
             drawWaypoints(mc, px, pz, scale, x, y, size);
         }

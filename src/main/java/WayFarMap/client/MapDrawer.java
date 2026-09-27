@@ -1,12 +1,20 @@
 package WayFarMap.client;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.monster.IMob;
+import net.minecraft.entity.passive.IAnimals;
 import net.minecraft.entity.player.EntityPlayer;
 
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.Config;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapRegion;
 
@@ -37,7 +45,8 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        float[] tint = lightTint(Minecraft.getMinecraft());
+        GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
 
         Tessellator tessellator = Tessellator.instance;
         for (int rx = rx0; rx <= rx1; rx++) {
@@ -77,6 +86,28 @@ public final class MapDrawer {
                 tessellator.draw();
             }
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Map color multiplier for night. */
+    private static final float[] NIGHT_TINT = { 0.28f, 0.32f, 0.5f };
+
+    /** RGB multiplier for the map according to {@link Config#mapLightMode} and the time of day. */
+    public static float[] lightTint(Minecraft mc) {
+        float day;
+        if (Config.mapLightMode == Config.LIGHT_DAY) {
+            day = 1f;
+        } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
+            day = 0f;
+        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky) {
+            day = 1f;
+        } else {
+            // Sun brightness goes from about 0.2 at midnight to 1.0 at noon.
+            float sun = mc.theWorld.getSunBrightness(1f);
+            day = Math.max(0f, Math.min(1f, (sun - 0.2f) / 0.8f));
+        }
+        return new float[] { NIGHT_TINT[0] + (1f - NIGHT_TINT[0]) * day, NIGHT_TINT[1] + (1f - NIGHT_TINT[1]) * day,
+            NIGHT_TINT[2] + (1f - NIGHT_TINT[2]) * day };
     }
 
     /** Draws an arrow at the given screen position pointing where the player looks. */
@@ -134,32 +165,107 @@ public final class MapDrawer {
         tessellator.draw();
     }
 
+    private static final int HOSTILE_COLOR = 0xFFFF4040;
+    private static final int PASSIVE_COLOR = 0xFF60E060;
+    private static final int OTHER_COLOR = 0xFFFFE040;
+
     /**
-     * Draws the other players that are within the rectangle.
+     * Draws mobs (colored dots) and other players (their face) that are within the rectangle.
      *
-     * @param showNames draw the player names next to their markers
+     * @param playerSize size of player heads in GUI pixels
+     * @param showNames  draw player names under their heads
      */
-    public static void drawOtherPlayers(Minecraft mc, double centerX, double centerZ, double scale, int x, int y,
-        int width, int height, float partialTicks, boolean showNames) {
-        FontRenderer font = mc.fontRenderer;
-        for (Object o : mc.theWorld.playerEntities) {
-            if (!(o instanceof EntityPlayer) || o == mc.thePlayer) {
+    public static void drawEntities(Minecraft mc, double centerX, double centerZ, double scale, int x, int y, int width,
+        int height, float partialTicks, float playerSize, boolean showNames) {
+        double playerY = mc.thePlayer.posY;
+        List<EntityPlayer> players = new ArrayList<>();
+        for (Object o : mc.theWorld.loadedEntityList) {
+            if (!(o instanceof EntityLivingBase) || o == mc.thePlayer) {
                 continue;
             }
-            EntityPlayer other = (EntityPlayer) o;
+            EntityLivingBase entity = (EntityLivingBase) o;
+            if (entity instanceof EntityPlayer) {
+                if (Config.showOtherPlayers) {
+                    players.add((EntityPlayer) entity);
+                }
+                continue;
+            }
+            if (entity.isInvisible() || Math.abs(entity.posY - playerY) > Config.entityVerticalRange) {
+                continue;
+            }
+            int color;
+            if (entity instanceof IMob) {
+                if (!Config.showHostileMobs) continue;
+                color = HOSTILE_COLOR;
+            } else if (entity instanceof IAnimals) {
+                if (!Config.showPassiveMobs) continue;
+                color = PASSIVE_COLOR;
+            } else {
+                if (!Config.showOtherEntities) continue;
+                color = OTHER_COLOR;
+            }
+            double ex = entity.prevPosX + (entity.posX - entity.prevPosX) * partialTicks;
+            double ez = entity.prevPosZ + (entity.posZ - entity.prevPosZ) * partialTicks;
+            double sx = x + width / 2.0 + (ex - centerX) * scale;
+            double sy = y + height / 2.0 + (ez - centerZ) * scale;
+            if (sx < x + 2 || sy < y + 2 || sx > x + width - 2 || sy > y + height - 2) {
+                continue;
+            }
+            drawDot(sx, sy, 1f, color);
+        }
+
+        // Players on top of mobs.
+        FontRenderer font = mc.fontRenderer;
+        float half = playerSize / 2f;
+        for (EntityPlayer other : players) {
             double px = other.prevPosX + (other.posX - other.prevPosX) * partialTicks;
             double pz = other.prevPosZ + (other.posZ - other.prevPosZ) * partialTicks;
             double sx = x + width / 2.0 + (px - centerX) * scale;
             double sy = y + height / 2.0 + (pz - centerZ) * scale;
-            if (sx < x + 2 || sy < y + 2 || sx > x + width - 2 || sy > y + height - 2) {
+            if (sx < x + half || sy < y + half || sx > x + width - half || sy > y + height - half) {
                 continue;
             }
-            drawDot(sx, sy, 1.5f, 0xFF4FC3F7);
+            drawPlayerHead(mc, other, sx, sy, playerSize);
             if (showNames) {
                 String name = other.getCommandSenderName();
-                font.drawStringWithShadow(name, (int) sx - font.getStringWidth(name) / 2, (int) sy + 4, 0xFFFFFF);
+                font.drawStringWithShadow(
+                    name,
+                    (int) sx - font.getStringWidth(name) / 2,
+                    (int) (sy + half) + 2,
+                    0xFFFFFF);
             }
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Draws the face of the player's skin (with the hat layer), with a dark border. */
+    private static void drawPlayerHead(Minecraft mc, EntityPlayer player, double sx, double sy, float size) {
+        double half = size / 2.0;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        Tessellator tessellator = Tessellator.instance;
+        fillRect(tessellator, sx - half - 1, sy - half - 1, sx + half + 1, sy + half + 1, 0xFF000000);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        if (!(player instanceof AbstractClientPlayer)) {
+            return;
+        }
+        mc.getTextureManager()
+            .bindTexture(((AbstractClientPlayer) player).getLocationSkin());
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        // 1.7.10 skins are 64x32: the face is at (8, 8), the hat layer at (40, 8), both 8x8.
+        drawSkinPart(tessellator, sx, sy, half, 8, 8);
+        drawSkinPart(tessellator, sx, sy, half, 40, 8);
+    }
+
+    private static void drawSkinPart(Tessellator tessellator, double sx, double sy, double half, int u, int v) {
+        double u0 = u / 64.0, u1 = (u + 8) / 64.0, v0 = v / 32.0, v1 = (v + 8) / 32.0;
+        tessellator.startDrawingQuads();
+        tessellator.addVertexWithUV(sx - half, sy + half, 0, u0, v1);
+        tessellator.addVertexWithUV(sx + half, sy + half, 0, u1, v1);
+        tessellator.addVertexWithUV(sx + half, sy - half, 0, u1, v0);
+        tessellator.addVertexWithUV(sx - half, sy - half, 0, u0, v0);
+        tessellator.draw();
     }
 
     private static int floor(double value) {

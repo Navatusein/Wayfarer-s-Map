@@ -26,6 +26,17 @@ public class Config {
     public static boolean waypointsInWorld = true;
     public static boolean waypointsOnMinimap = true;
     public static int waypointMaxDistance = 0;
+    public static double waypointScale = 1.0;
+    public static double waypointMinScale = 0.35;
+
+    /** Map lighting: 0 = follows the game's day/night cycle, 1 = always day, 2 = always night. */
+    public static int mapLightMode = 0;
+    public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
+
+    public static boolean showHostileMobs = true;
+    public static boolean showPassiveMobs = true;
+    public static boolean showOtherEntities = true;
+    public static int entityVerticalRange = 32;
 
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
@@ -70,6 +81,47 @@ public class Config {
             1000000,
             "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.");
 
+        waypointScale = configuration.get(
+            CATEGORY_WAYPOINTS,
+            "scale",
+            waypointScale,
+            "Size of in-world waypoints (1.0 = default).",
+            0.25,
+            4.0)
+            .getDouble(waypointScale);
+        waypointMinScale = configuration.get(
+            CATEGORY_WAYPOINTS,
+            "minScale",
+            waypointMinScale,
+            "In-world waypoints shrink with distance down to this fraction of their close-up size, then stop shrinking.",
+            0.05,
+            1.0)
+            .getDouble(waypointMinScale);
+
+        mapLightMode = configuration.getInt(
+            "lightMode",
+            CATEGORY_MAP,
+            mapLightMode,
+            0,
+            2,
+            "Map lighting: 0 = follow the day/night cycle, 1 = always day, 2 = always night.");
+        showHostileMobs = configuration
+            .getBoolean("showHostileMobs", CATEGORY_MAP, showHostileMobs, "Show hostile mobs (red dots) on the maps.");
+        showPassiveMobs = configuration
+            .getBoolean("showPassiveMobs", CATEGORY_MAP, showPassiveMobs, "Show animals (green dots) on the maps.");
+        showOtherEntities = configuration.getBoolean(
+            "showOtherEntities",
+            CATEGORY_MAP,
+            showOtherEntities,
+            "Show other living entities, e.g. villagers and golems (yellow dots), on the maps.");
+        entityVerticalRange = configuration.getInt(
+            "entityVerticalRange",
+            CATEGORY_MAP,
+            entityVerticalRange,
+            1,
+            256,
+            "Only show mobs at most this many blocks above or below you.");
+
         showOtherPlayers = configuration
             .getBoolean("showOtherPlayers", CATEGORY_MAP, showOtherPlayers, "Show other nearby players on the maps.");
         useTextureColors = configuration.getBoolean(
@@ -109,6 +161,11 @@ public class Config {
                 .set(enabled);
             configuration.save();
         }
+    }
+
+    public static void setMapLightMode(int mode) {
+        mapLightMode = mode;
+        save(CATEGORY_MAP, "lightMode", mode);
     }
 
     private static void save(String category, String key, int value) {
