@@ -371,6 +371,18 @@ public class MapManager implements IResourceManagerReloadListener {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
     }
 
+    /** Name of any dimension: the player's own, one looked at, or from its saved map (or Forge). */
+    public String getDimensionName(int id) {
+        if (surface != null && id == surface.dimensionId && currentWorld != null) {
+            return currentWorld.provider.getDimensionName();
+        }
+        OtherDimension other = others.get(id);
+        if (other != null) {
+            return other.name;
+        }
+        return worldDirectory == null ? "DIM" + id : readInfo(new File(worldDirectory, "dim" + id), id).name;
+    }
+
     /** Name of the dimension shown on the world map. */
     public String getViewedDimensionName() {
         if (viewed != null) {

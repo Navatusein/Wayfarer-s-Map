@@ -11,6 +11,7 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.IMob;
 import net.minecraft.entity.passive.IAnimals;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.opengl.GL11;
 
@@ -285,7 +286,8 @@ public final class MapDrawer {
             }
             EntityLivingBase entity = (EntityLivingBase) o;
             if (entity instanceof EntityPlayer) {
-                if (Config.showOtherPlayers) {
+                // Teammates are drawn by drawTeammates, always.
+                if (Config.showOtherPlayers && !TeamMates.INSTANCE.isTeammate(entity.getUniqueID())) {
                     players.add((EntityPlayer) entity);
                 }
                 continue;
@@ -394,16 +396,70 @@ public final class MapDrawer {
 
     /** Draws the face of the player's skin (with the hat layer), with a dark border. */
     private static void drawPlayerHead(Minecraft mc, EntityPlayer player, double sx, double sy, float size) {
+        drawHead(
+            mc,
+            player instanceof AbstractClientPlayer ? ((AbstractClientPlayer) player).getLocationSkin() : null,
+            sx,
+            sy,
+            size,
+            0xFF000000);
+    }
+
+    /** Team color frame around teammates' heads. */
+    private static final int TEAMMATE_FRAME = 0xFF4CB4FF;
+
+    /**
+     * Draws the online teammates in the given dimension (reported by the server, so even far away or in another
+     * dimension than the player's), with a blue frame and, on the world map, their names.
+     */
+    public static void drawTeammates(Minecraft mc, int dimension, double centerX, double centerZ, double scale, int x,
+        int y, int width, int height, float partialTicks, float playerSize, boolean showNames) {
+        List<TeamMates.Mate> mates = TeamMates.INSTANCE.all();
+        if (mates.isEmpty()) {
+            return;
+        }
+        float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
+        float size = Math.max(5f, (playerSize + 1f) * zoomFactor);
+        float half = size / 2f;
+        FontRenderer font = mc.fontRenderer;
+        for (TeamMates.Mate mate : mates) {
+            if (mate.dimension != dimension) {
+                continue;
+            }
+            double[] position = TeamMates.INSTANCE.position(mate, partialTicks);
+            double sx = x + width / 2.0 + (position[0] - centerX) * scale;
+            double sy = y + height / 2.0 + (position[2] - centerZ) * scale;
+            if (sx < x + half || sy < y + half || sx > x + width - half || sy > y + height - half) {
+                continue;
+            }
+            ResourceLocation skin = AbstractClientPlayer.getLocationSkin(mate.name);
+            // Starts the skin download for players the client hasn't seen.
+            AbstractClientPlayer.getDownloadImageSkin(skin, mate.name);
+            pushUpright(sx, sy);
+            drawHead(mc, skin, sx, sy, size, TEAMMATE_FRAME);
+            GL11.glPopMatrix();
+            if (showNames) {
+                font.drawStringWithShadow(
+                    mate.name,
+                    (int) sx - font.getStringWidth(mate.name) / 2,
+                    (int) (sy + half) + 2,
+                    0x9FD4FF);
+            }
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static void drawHead(Minecraft mc, ResourceLocation skin, double sx, double sy, float size, int frame) {
         double half = size / 2.0;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         Tessellator tessellator = Tessellator.instance;
-        fillRect(tessellator, sx - half - 1, sy - half - 1, sx + half + 1, sy + half + 1, 0xFF000000);
+        fillRect(tessellator, sx - half - 1, sy - half - 1, sx + half + 1, sy + half + 1, frame);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
-        if (!(player instanceof AbstractClientPlayer)) {
+        if (skin == null) {
             return;
         }
         mc.getTextureManager()
-            .bindTexture(((AbstractClientPlayer) player).getLocationSkin());
+            .bindTexture(skin);
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);

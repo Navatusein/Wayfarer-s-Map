@@ -178,3 +178,4 @@ wayfarmap.option.map.powerfails.desc=Show GregTech machines that ran out of powe
 wayfarmap.option.map.shareWithTeam=Team map
 wayfarmap.option.map.shareWithTeam.desc=Every player has their own map. In a ServerUtilities team (on a server with this mod) it is also shared: on joining a team your whole map is sent to it, the members' maps merge (newer parts win), new discoveries show up for everyone right away, and whoever joins later gets everything the team mapped meanwhile.
 wayfarmap.gui.addons=Add-on layers
+wayfarmap.gui.team=Team online

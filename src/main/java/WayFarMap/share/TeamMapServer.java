@@ -103,6 +103,9 @@ public final class TeamMapServer {
         if (tick % 100 == 0) {
             checkTeams();
         }
+        if (tick % 10 == 0) {
+            sendTeammates();
+        }
         Object[] entry;
         while ((entry = inbox.poll()) != null) {
             EntityPlayerMP player = (EntityPlayerMP) entry[0];
@@ -144,6 +147,7 @@ public final class TeamMapServer {
         capable.remove(id);
         uploadBudget.remove(id);
         knownTeams.remove(id);
+        toldAlone.remove(id);
     }
 
     /** Saves everything and forgets the world (server stopping). */
@@ -171,6 +175,44 @@ public final class TeamMapServer {
         // The client learns its team: with one it starts uploading the map it already has.
         ShareNetwork.sendTo(new ShareNetwork.Hello(team), player);
         startSync(player);
+    }
+
+    /** Players last told they have no teammates online, so the empty list isn't sent again and again. */
+    private final Set<UUID> toldAlone = new HashSet<>();
+
+    /** Tells every player with the mod where their online teammates are, in any dimension. */
+    private void sendTeammates() {
+        for (Object o : MinecraftServer.getServer()
+            .getConfigurationManager().playerEntityList) {
+            EntityPlayerMP player = (EntityPlayerMP) o;
+            UUID id = player.getUniqueID();
+            if (!capable.contains(id)) {
+                continue;
+            }
+            ShareNetwork.Teammates message = new ShareNetwork.Teammates();
+            for (EntityPlayerMP mate : SuTeams.onlineTeammates(player)) {
+                if (mate == player) {
+                    continue;
+                }
+                ShareNetwork.Teammates.Mate entry = new ShareNetwork.Teammates.Mate();
+                entry.id = mate.getUniqueID();
+                entry.name = mate.getCommandSenderName();
+                entry.dimension = mate.dimension;
+                entry.x = mate.posX;
+                entry.y = mate.posY;
+                entry.z = mate.posZ;
+                entry.yaw = mate.rotationYaw;
+                message.mates.add(entry);
+            }
+            if (message.mates.isEmpty()) {
+                if (!toldAlone.add(id)) {
+                    continue;
+                }
+            } else {
+                toldAlone.remove(id);
+            }
+            ShareNetwork.sendTo(message, player);
+        }
     }
 
     /** A player who created, joined or left a team gets the new team's map, and uploads theirs to it. */

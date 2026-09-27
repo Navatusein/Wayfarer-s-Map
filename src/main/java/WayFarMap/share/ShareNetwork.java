@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -48,6 +49,7 @@ public final class ShareNetwork {
         channel.registerMessage(HelloToClient.class, Hello.class, 1, Side.CLIENT);
         channel.registerMessage(ChunksToServer.class, Chunks.class, 2, Side.SERVER);
         channel.registerMessage(ChunksToClient.class, Chunks.class, 3, Side.CLIENT);
+        channel.registerMessage(TeammatesToClient.class, Teammates.class, 5, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -146,6 +148,57 @@ public final class ShareNetwork {
         }
     }
 
+    /** Where the player's online teammates are (the player not included); sent twice a second. */
+    public static final class Teammates implements IMessage {
+
+        /** One teammate. */
+        public static final class Mate {
+
+            public UUID id;
+            public String name;
+            public int dimension;
+            public double x, y, z;
+            public float yaw;
+        }
+
+        public final List<Mate> mates = new ArrayList<>();
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int count = Math.min(buf.readShort(), 256);
+            for (int i = 0; i < count; i++) {
+                Mate mate = new Mate();
+                mate.id = new UUID(buf.readLong(), buf.readLong());
+                byte[] name = new byte[Math.min(64, Math.max(0, buf.readShort()))];
+                buf.readBytes(name);
+                mate.name = new String(name, StandardCharsets.UTF_8);
+                mate.dimension = buf.readInt();
+                mate.x = buf.readDouble();
+                mate.y = buf.readDouble();
+                mate.z = buf.readDouble();
+                mate.yaw = buf.readFloat();
+                mates.add(mate);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeShort(mates.size());
+            for (Mate mate : mates) {
+                buf.writeLong(mate.id.getMostSignificantBits());
+                buf.writeLong(mate.id.getLeastSignificantBits());
+                byte[] name = mate.name.getBytes(StandardCharsets.UTF_8);
+                buf.writeShort(name.length);
+                buf.writeBytes(name);
+                buf.writeInt(mate.dimension);
+                buf.writeDouble(mate.x);
+                buf.writeDouble(mate.y);
+                buf.writeDouble(mate.z);
+                buf.writeFloat(mate.yaw);
+            }
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
 
     public static final class HelloToServer implements IMessageHandler<Hello, IMessage> {
@@ -171,6 +224,15 @@ public final class ShareNetwork {
 
         @Override
         public IMessage onMessage(Hello message, MessageContext context) {
+            WayFarMap.proxy.receiveTeamMap(message);
+            return null;
+        }
+    }
+
+    public static final class TeammatesToClient implements IMessageHandler<Teammates, IMessage> {
+
+        @Override
+        public IMessage onMessage(Teammates message, MessageContext context) {
             WayFarMap.proxy.receiveTeamMap(message);
             return null;
         }

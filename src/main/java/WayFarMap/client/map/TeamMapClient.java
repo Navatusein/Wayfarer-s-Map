@@ -23,6 +23,7 @@ import net.minecraft.client.Minecraft;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.TeamMates;
 import WayFarMap.share.ChunkRecord;
 import WayFarMap.share.ShareNetwork;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -96,6 +97,7 @@ public final class TeamMapClient {
                 helloSent = false;
                 serverShares = false;
                 team = "";
+                TeamMates.INSTANCE.clear();
                 stopBackfill();
                 inbox.clear();
                 outgoing.clear();
@@ -119,6 +121,8 @@ public final class TeamMapClient {
         while ((message = inbox.poll()) != null) {
             if (message instanceof ShareNetwork.Hello) {
                 onServerHello((ShareNetwork.Hello) message);
+            } else if (message instanceof ShareNetwork.Teammates) {
+                TeamMates.INSTANCE.update(((ShareNetwork.Teammates) message).mates);
             } else if (message instanceof ShareNetwork.Chunks && Config.shareMapWithTeam) {
                 ShareNetwork.Chunks chunks = (ShareNetwork.Chunks) message;
                 for (ChunkRecord record : chunks.records) {
@@ -166,6 +170,7 @@ public final class TeamMapClient {
         serverShares = true;
         if (!hello.team.equals(team)) {
             team = hello.team;
+            TeamMates.INSTANCE.clear();
             WayFarMap.LOG.info(team.isEmpty() ? "Team map: not in a team" : "Team map: in team " + team);
             stopBackfill();
             sent.clear();

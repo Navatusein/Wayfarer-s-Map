@@ -198,6 +198,19 @@ public class MinimapRenderer {
                     .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
             }
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
+            MapDrawer.drawTeammates(
+                mc,
+                mc.theWorld.provider.dimensionId,
+                px,
+                pz,
+                scale,
+                0,
+                0,
+                inner,
+                inner,
+                partialTicks,
+                6f,
+                false);
         } finally {
             MapDrawer.iconRotation = 0f;
             GL11.glPopMatrix();

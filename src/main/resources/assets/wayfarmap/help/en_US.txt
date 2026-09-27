@@ -24,6 +24,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bTree§r — biomes
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — day / night
+- §bTwo people§r — teammates online (shown while there are some)
 - §b?§r bottom right — this help
 
 # Map navigation
@@ -138,6 +139,9 @@ Every player has §ftheir own map§r. If the mod is on the §fserver§r too (wit
 - Join later — you §fget everything§r the team mapped meanwhile, §fin every dimension§r (yours first), and what you mapped goes to the team
 - Dimensions the team explored are open right away in the list under the map title — §fwithout going there§r
 - Stored on the server, in the world's §7wayfarmap/teams§r folder
+
+- §fTeammates are always shown§r on the map and the minimap — their head in a §9blue frame§r with their name, even far away and in another dimension (when looking at it)
+- The §bTwo people§r icon at the top right (while someone of the team is online) lists your teammates and their dimension; a click moves the map to them, even into another dimension
 
 ! Without a team your map stays yours only — nobody else's reaches you.
 > To turn it off: §bSettings → Map → Team map§r.

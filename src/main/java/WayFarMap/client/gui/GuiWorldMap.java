@@ -18,6 +18,7 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
+import WayFarMap.client.TeamMates;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
@@ -50,11 +51,12 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13;
+        ID_BIOMES = 5, ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13,
+        ID_TEAM = 14;
     /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2;
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3;
     private static final int SLIDER_WIDTH = 10;
-    private static final int MENU_WIDTH = 130, MENU_ROW = 14;
+    private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
     /** Lang key suffixes of {@link Config#getMobFilter()} values. */
     private static final String[] MOB_FILTER_KEYS = { "all", "friendly", "hostile", "none" };
@@ -80,6 +82,8 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton mobsButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
     private IconButton addonsButton;
+    /** Online teammates, to jump to them; shown only while there are some. */
+    private IconButton teamButton;
     /** Search of biomes, ore veins, fluids or power failures; kept between openings of the map. */
     private static String searchText = "";
     private FlatTextField searchField;
@@ -102,6 +106,7 @@ public class GuiWorldMap extends ScaledScreen {
     private List<MenuEntry> menu;
     private int menuX, menuY;
     private int menuKind;
+    private int menuWidth = MENU_WIDTH;
     private boolean draggingCaveSlider;
 
     /** One line of the right click menu. */
@@ -174,6 +179,11 @@ public class GuiWorldMap extends ScaledScreen {
             right -= 3;
             buttonList.add(button);
         }
+        teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
+        teamButton.xPosition = right - teamButton.getWidth();
+        teamButton.visible = !TeamMates.INSTANCE.all()
+            .isEmpty();
+        buttonList.add(teamButton);
         updateLightButtons();
         menu = null;
         dimensionList = null;
@@ -251,6 +261,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         menu = entries;
         menuKind = MENU_ADDONS;
+        menuWidth = MENU_WIDTH;
         menuX = Math.max(2, Math.min(addonsButton.xPosition, width - MENU_WIDTH - 2));
         menuY = addonsButton.yPosition + 18;
     }
@@ -281,6 +292,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         menu = entries;
         menuKind = MENU_MOBS;
+        menuWidth = MENU_WIDTH;
         menuX = Math.max(2, Math.min(mobsButton.xPosition, width - MENU_WIDTH - 2));
         menuY = mobsButton.yPosition + 18;
     }
@@ -322,6 +334,8 @@ public class GuiWorldMap extends ScaledScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_TEAM) {
+            openTeamMenu();
         } else if (button.id == ID_ADDONS) {
             openAddonsMenu();
         } else if (button.id == ID_GRID) {
@@ -398,6 +412,12 @@ public class GuiWorldMap extends ScaledScreen {
             super.drawScaled(mouseX, mouseY, partialTicks);
             return;
         }
+        // Teammates come and go while the map is open.
+        teamButton.visible = !TeamMates.INSTANCE.all()
+            .isEmpty();
+        if (!teamButton.visible && menuKind == MENU_TEAM) {
+            menu = null;
+        }
 
         updateView();
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
@@ -441,6 +461,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (!otherDimension) {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
         }
+        // Teammates always, also in another dimension being looked at.
+        MapDrawer
+            .drawTeammates(mc, dimensionId, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
 
@@ -628,7 +651,7 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
         String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
         int titleWidth = fontRendererObj.getStringWidth(title);
-        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= mobsButton.xPosition - 8) {
+        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= rightButtonsStart() - 8) {
             // No room for the name: the id alone still opens the list.
             title = "[" + dimensionId + "] \u25BE";
             titleWidth = fontRendererObj.getStringWidth(title);
@@ -717,6 +740,41 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** Switches the map to a saved dimension, keeping the view roughly in place (Nether coordinates are 1:8). */
+    /** Left edge of the buttons on the right of the header. */
+    private int rightButtonsStart() {
+        return teamButton.visible ? teamButton.xPosition : mobsButton.xPosition;
+    }
+
+    /** Menu under the team button: every online teammate and the dimension they are in; a click goes there. */
+    private void openTeamMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        for (TeamMates.Mate mate : TeamMates.INSTANCE.all()) {
+            String where = "[" + mate.dimension + "] " + MapManager.INSTANCE.getDimensionName(mate.dimension);
+            String label = mate.name + " \u00a77" + where;
+            entries.add(
+                new MenuEntry(
+                    Theme.ellipsize(fontRendererObj, label, TEAM_MENU_WIDTH - 12),
+                    true,
+                    () -> goToTeammate(mate)));
+        }
+        menu = entries;
+        menuKind = MENU_TEAM;
+        menuWidth = TEAM_MENU_WIDTH;
+        menuX = Math.max(2, Math.min(teamButton.xPosition, width - TEAM_MENU_WIDTH - 2));
+        menuY = teamButton.yPosition + 18;
+    }
+
+    /** Centers the map on the teammate, switching to their dimension if needed. */
+    private void goToTeammate(TeamMates.Mate mate) {
+        if (mate.dimension != viewDimension()) {
+            showDimension(mate.dimension);
+        }
+        double[] position = TeamMates.INSTANCE.position(mate, 1f);
+        centerX = position[0];
+        centerZ = position[2];
+        zooming = false;
+    }
+
     private void showDimension(int id) {
         int from = viewDimension();
         if (id == from) {
@@ -795,18 +853,19 @@ public class GuiWorldMap extends ScaledScreen {
                     GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : waypointY(bx, bz), bz, dimension))));
         menu = entries;
         menuKind = MENU_MAP;
+        menuWidth = MENU_WIDTH;
         menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
         menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
     }
 
     private void drawMenu(int mouseX, int mouseY) {
         int h = menu.size() * MENU_ROW + 4;
-        Theme.panel(menuX, menuY, menuX + MENU_WIDTH, menuY + h);
+        Theme.panel(menuX, menuY, menuX + menuWidth, menuY + h);
         for (int i = 0; i < menu.size(); i++) {
             MenuEntry entry = menu.get(i);
             int y = menuY + 2 + i * MENU_ROW;
-            if (entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + MENU_WIDTH, y + MENU_ROW)) {
-                Theme.fill(menuX + 1, y, menuX + MENU_WIDTH - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
+            if (entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW)) {
+                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
             }
             int textX = menuX + 6;
             if (entry.checked != null) {
@@ -835,7 +894,7 @@ public class GuiWorldMap extends ScaledScreen {
         for (int i = 0; i < entries.size(); i++) {
             int y = menuY + 2 + i * MENU_ROW;
             MenuEntry entry = entries.get(i);
-            if (Theme.inside(mouseX, mouseY, menuX, y, menuX + MENU_WIDTH, y + MENU_ROW) && entry.enabled) {
+            if (Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW) && entry.enabled) {
                 entry.action.run();
                 if (entry.checked != null && menuKind == MENU_ADDONS) {
                     // Toggles keep the menu open, showing the new state.
