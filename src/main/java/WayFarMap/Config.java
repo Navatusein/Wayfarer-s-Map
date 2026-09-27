@@ -379,6 +379,26 @@ public class Config {
         save();
     }
 
+    /** Mob filter of the world map's "Mobs" button: which of hostile and friendly mobs are shown. */
+    public static final int MOBS_ALL = 0, MOBS_FRIENDLY = 1, MOBS_HOSTILE = 2, MOBS_NONE = 3;
+
+    /** Current mob filter; "friendly" is animals and other living entities (villagers, golems...). */
+    public static int getMobFilter() {
+        boolean friendly = showPassiveMobs || showOtherEntities;
+        if (showHostileMobs) {
+            return friendly ? MOBS_ALL : MOBS_HOSTILE;
+        }
+        return friendly ? MOBS_FRIENDLY : MOBS_NONE;
+    }
+
+    public static void setMobFilter(int filter) {
+        showHostileMobs = filter == MOBS_ALL || filter == MOBS_HOSTILE;
+        boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
+        showPassiveMobs = friendly;
+        showOtherEntities = friendly;
+        save();
+    }
+
     public static void toggleChunkGrid() {
         chunkGrid = !chunkGrid;
         save();

@@ -46,10 +46,13 @@ public class GuiWorldMap extends GuiScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9, ID_HELP = 10;
+        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9, ID_HELP = 10,
+        ID_MOBS = 11;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
+    /** Lang key suffixes of {@link Config#getMobFilter()} values. */
+    private static final String[] MOB_FILTER_KEYS = { "all", "friendly", "hostile", "none" };
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -69,6 +72,7 @@ public class GuiWorldMap extends GuiScreen {
     private FlatButton caveButton;
     private FlatButton biomeButton;
     private FlatButton gridButton;
+    private FlatButton mobsButton;
     /** Search of biomes, ore veins or fluids; kept between openings of the map. */
     private static String searchText = "";
     private FlatTextField searchField;
@@ -94,6 +98,8 @@ public class GuiWorldMap extends GuiScreen {
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
     private int menuX, menuY;
+    /** The right click map menu shows a note under it when teleporting isn't allowed. */
+    private boolean menuNote;
     private boolean draggingCaveSlider;
 
     /** One line of the right click menu. */
@@ -152,11 +158,18 @@ public class GuiWorldMap extends GuiScreen {
         caveButton = new FlatButton(ID_CAVES, 0, 4, 0, 16, caveButtonText());
         biomeButton = new FlatButton(ID_BIOMES, 0, 4, 0, 16, I18n.format("wayfarmap.gui.biomes"));
         gridButton = new FlatButton(ID_GRID, 0, 4, 0, 16, I18n.format("wayfarmap.gui.grid"));
-        for (FlatButton button : new FlatButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton }) {
+        mobsButton = new FlatButton(ID_MOBS, 0, 4, 0, 16, mobsButtonText(Config.getMobFilter()));
+        for (FlatButton button : new FlatButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton,
+            mobsButton }) {
             int w = fontRendererObj.getStringWidth(button.displayString) + 12;
             if (button == caveButton) {
                 // Room for longer mode names, so the button doesn't jump when cycling.
                 w += 12;
+            } else if (button == mobsButton) {
+                // As wide as the longest filter name, so the button doesn't jump either.
+                for (int filter = 0; filter < MOB_FILTER_KEYS.length; filter++) {
+                    w = Math.max(w, fontRendererObj.getStringWidth(mobsButtonText(filter)) + 12);
+                }
             }
             button.setWidth(w);
             right -= w;
@@ -210,6 +223,29 @@ public class GuiWorldMap extends GuiScreen {
         return x + button.getWidth() + 4;
     }
 
+    private static String mobsButtonText(int filter) {
+        return I18n.format("wayfarmap.gui.mobs") + ": " + I18n.format("wayfarmap.gui.mobs." + MOB_FILTER_KEYS[filter]);
+    }
+
+    /** Menu under the "Mobs" button: show all mobs, only friendly, only hostile or none. */
+    private void openMobsMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        int current = Config.getMobFilter();
+        for (int filter = 0; filter < MOB_FILTER_KEYS.length; filter++) {
+            final int value = filter;
+            String label = (filter == current ? "\u25CF " : "   ")
+                + I18n.format("wayfarmap.gui.mobs.menu." + MOB_FILTER_KEYS[filter]);
+            entries.add(new MenuEntry(label, true, () -> {
+                Config.setMobFilter(value);
+                updateLightButtons();
+            }));
+        }
+        menu = entries;
+        menuNote = false;
+        menuX = Math.max(2, Math.min(mobsButton.xPosition, width - MENU_WIDTH - 2));
+        menuY = mobsButton.yPosition + 18;
+    }
+
     private static String caveButtonText() {
         return I18n.format("wayfarmap.gui.caves") + ": "
             + I18n.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode]);
@@ -227,6 +263,10 @@ public class GuiWorldMap extends GuiScreen {
         caveButton.displayString = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
+        int mobFilter = Config.getMobFilter();
+        mobsButton.displayString = mobsButtonText(mobFilter);
+        // Highlighted while some mobs are hidden.
+        mobsButton.active = mobFilter != Config.MOBS_ALL;
         if (oreButton != null) {
             oreButton.active = Config.showOreVeins;
             fluidButton.active = Config.showUndergroundFluids;
@@ -263,6 +303,12 @@ public class GuiWorldMap extends GuiScreen {
             updateLightButtons();
         } else if (button.id == ID_SETTINGS) {
             mc.displayGuiScreen(new GuiSettings(this));
+        } else if (button.id == ID_MOBS) {
+            if (menu != null && !menuNote) {
+                menu = null;
+            } else {
+                openMobsMenu();
+            }
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
         } else if (button.id == ID_DAY) {
@@ -531,7 +577,7 @@ public class GuiWorldMap extends GuiScreen {
     private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
         String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
         int titleWidth = fontRendererObj.getStringWidth(title);
-        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= gridButton.xPosition - 8) {
+        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= mobsButton.xPosition - 8) {
             // No room for the name: the id alone still opens the list.
             title = "[" + dimensionId + "] \u25BE";
             titleWidth = fontRendererObj.getStringWidth(title);
@@ -685,6 +731,7 @@ public class GuiWorldMap extends GuiScreen {
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : waypointY(bx, bz), bz, dimension))));
         menu = entries;
+        menuNote = true;
         menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
         menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
     }
@@ -705,7 +752,7 @@ public class GuiWorldMap extends GuiScreen {
                 y + 3,
                 entry.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
         }
-        if (!Teleport.isAllowed()) {
+        if (menuNote && !Teleport.isAllowed()) {
             String note = I18n.format("wayfarmap.gui.no_teleport_permission");
             Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
         }
