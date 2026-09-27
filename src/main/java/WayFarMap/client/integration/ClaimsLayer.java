@@ -39,7 +39,10 @@ import serverutils.net.MessageNavigatorValidateKnown;
 public final class ClaimsLayer {
 
     /** What a drag over the map does with the chunks it passes. */
-    public static final int CLAIM = 0, LOAD = 1, CLAIM_AND_LOAD = 2, UNCLAIM = 3, UNLOAD = 4;
+    public static final int CLAIM = 0, LOAD = 1, CLAIM_AND_LOAD = 2, UNCLAIM = 3, UNLOAD = 4, UNLOAD_AND_UNCLAIM = 5;
+
+    /** Own claims are shown in these colors, whatever the team color is. */
+    private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
     /** The area asked from the server at once is capped, like the view of a normal map. */
@@ -135,8 +138,8 @@ public final class ClaimsLayer {
     }
 
     /**
-     * Draws the claims: each team's chunks filled in its color with a border around the claimed area, chunk loaded
-     * chunks with an inner frame, and the chunks of the current drag selection.
+     * Draws the claims: own claims light blue, chunk loaded chunks green, other teams in their team color, with a
+     * border around each claimed area, and the chunks of the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
      * @param selectionMode one of the action constants, for the selection color
@@ -164,11 +167,13 @@ public final class ClaimsLayer {
                 continue;
             }
             ClientClaimedChunks.ChunkData data = entry.getValue();
-            int color = teamColor(data);
+            boolean own = data.team != null && data.team.isMember;
+            // Own claims light blue, chunk loaded chunks green; other teams in their team color.
+            int color = own ? CLAIMED_COLOR : teamColor(data);
+            int fill = data.isLoaded() ? LOADED_COLOR : color;
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            boolean own = data.team != null && data.team.isMember;
-            rect(sx, sy, cell, cell, color, own ? 0x70 : 0x50, x, y, width, height);
+            rect(sx, sy, cell, cell, fill, own || data.isLoaded() ? 0x78 : 0x50, x, y, width, height);
             // Border only where the neighbour isn't the same team, so a claimed area has one outline.
             if (!sameTeam(data, get(pos.posX, pos.posZ - 1, dimension))) {
                 rect(sx, sy, cell, border, color, 0xE0, x, y, width, height);
@@ -182,16 +187,11 @@ public final class ClaimsLayer {
             if (!sameTeam(data, get(pos.posX + 1, pos.posZ, dimension))) {
                 rect(sx + cell - border, sy, border, cell, color, 0xE0, x, y, width, height);
             }
-            if (data.isLoaded() && cell >= 4) {
-                // Chunk loaded: a white frame inside the chunk.
-                double inset = Math.max(border + pixel, cell / 6);
-                hollowRect(sx + inset, sy + inset, cell - 2 * inset, cell - 2 * inset, pixel, 0xFFFFFF, 0xD0, x, y,
-                    width, height);
-            }
         }
         if (selection != null && !selection.isEmpty()) {
-            int color = selectionMode == UNCLAIM || selectionMode == UNLOAD ? 0xFF5050
-                : selectionMode == LOAD ? 0x4CA0FF : selectionMode == CLAIM_AND_LOAD ? 0xB070FF : 0x50E070;
+            int color = selectionMode == UNCLAIM || selectionMode == UNLOAD || selectionMode == UNLOAD_AND_UNCLAIM
+                ? 0xFF5050
+                : selectionMode == LOAD ? LOADED_COLOR : selectionMode == CLAIM_AND_LOAD ? 0xB070FF : CLAIMED_COLOR;
             for (long packed : selection) {
                 double sx = x + (unpackX(packed) * 16 - left) * scale;
                 double sy = y + (unpackZ(packed) * 16 - top) * scale;
@@ -251,6 +251,7 @@ public final class ClaimsLayer {
             case UNLOAD:
                 return own && data.isLoaded();
             case UNCLAIM:
+            case UNLOAD_AND_UNCLAIM:
                 return own;
             default:
                 return false;
@@ -269,10 +270,21 @@ public final class ClaimsLayer {
             chunks.add(new ChunkCoordIntPair(unpackX(packed), unpackZ(packed)));
         }
         ChunkCoordIntPair first = chunks.get(0);
-        int message = action == CLAIM ? MessageClaimedChunksModify.CLAIM
-            : action == UNCLAIM ? MessageClaimedChunksModify.UNCLAIM
-                : action == UNLOAD ? MessageClaimedChunksModify.UNLOAD : MessageClaimedChunksModify.LOAD;
-        new MessageClaimedChunksModify(first.chunkXPos, first.chunkZPos, message, chunks).sendToServer();
+        if (action == UNLOAD_AND_UNCLAIM) {
+            // Unload first, then give the claims up; the server handles the messages in order.
+            new MessageClaimedChunksModify(first.chunkXPos, first.chunkZPos, MessageClaimedChunksModify.UNLOAD, chunks)
+                .sendToServer();
+            new MessageClaimedChunksModify(
+                first.chunkXPos,
+                first.chunkZPos,
+                MessageClaimedChunksModify.UNCLAIM,
+                chunks).sendToServer();
+        } else {
+            int message = action == CLAIM ? MessageClaimedChunksModify.CLAIM
+                : action == UNCLAIM ? MessageClaimedChunksModify.UNCLAIM
+                    : action == UNLOAD ? MessageClaimedChunksModify.UNLOAD : MessageClaimedChunksModify.LOAD;
+            new MessageClaimedChunksModify(first.chunkXPos, first.chunkZPos, message, chunks).sendToServer();
+        }
 
         // Show the result before the server answers, the way ServerUtilities' own map integration does.
         for (ChunkCoordIntPair chunk : chunks) {
@@ -293,6 +305,7 @@ public final class ClaimsLayer {
                     setLoaded(chunk, dimension, false);
                     break;
                 case UNCLAIM:
+                case UNLOAD_AND_UNCLAIM:
                     NavigatorIntegration.removeChunk(chunk.chunkXPos, chunk.chunkZPos);
                     break;
                 default:

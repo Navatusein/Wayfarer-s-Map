@@ -137,6 +137,6 @@ wayfarmap.claims.own=Your team
 wayfarmap.claims.ally=Ally
 wayfarmap.claims.loaded=Chunk loaded
 wayfarmap.claims.counts=Claimed %s/%s  Loaded %s/%s
-wayfarmap.claims.help=Drag: Ctrl claim, Shift load, Ctrl+Shift both; right button: Ctrl unclaim, Shift unload
+wayfarmap.claims.help=Drag a rectangle: Ctrl claim, Shift load, Ctrl+Shift both; right button: Ctrl unclaim, Shift unload, Ctrl+Shift both
 wayfarmap.option.map.claims=Chunk claims
 wayfarmap.option.map.claims.desc=Show ServerUtilities claims on the world map and claim/load chunks by dragging with Ctrl/Shift (only when it is installed).

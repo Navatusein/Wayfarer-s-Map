@@ -137,6 +137,6 @@ wayfarmap.claims.own=Ваша команда
 wayfarmap.claims.ally=Союзник
 wayfarmap.claims.loaded=Чанклоад
 wayfarmap.claims.counts=Приват %s/%s  Загрузка %s/%s
-wayfarmap.claims.help=Тянуть: Ctrl — приват, Shift — загрузка, Ctrl+Shift — оба; ПКМ: Ctrl — снять приват, Shift — выгрузить
+wayfarmap.claims.help=Выделить прямоугольник: Ctrl — приват, Shift — загрузка, Ctrl+Shift — оба; ПКМ: Ctrl — снять приват, Shift — выгрузить, Ctrl+Shift — всё
 wayfarmap.option.map.claims=Приваты чанков
 wayfarmap.option.map.claims.desc=Показывать приваты ServerUtilities на карте мира и приватить/загружать чанки, проводя мышью с Ctrl/Shift (только если он установлен).

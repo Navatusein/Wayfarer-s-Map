@@ -81,7 +81,8 @@ public class GuiWorldMap extends GuiScreen {
     private final Set<Long> claimSelection = new LinkedHashSet<>();
     private int claimButton = -1;
     private int claimAction;
-    private double lastClaimX, lastClaimZ;
+    /** Chunk where the drag started: the selection is the rectangle from it to the chunk under the mouse. */
+    private int claimStartX, claimStartZ, claimEndX = Integer.MIN_VALUE, claimEndZ;
 
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
@@ -758,8 +759,9 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     /**
-     * With Ctrl and/or Shift held, a drag paints chunks instead of moving the map. Left button: Ctrl claims, Shift
-     * chunk loads own claims, both claim and load. Right button: Ctrl unclaims, Shift unloads.
+     * With Ctrl and/or Shift held, a drag selects the rectangle of chunks between where it started and the mouse
+     * instead of moving the map. Left button: Ctrl claims, Shift chunk loads own claims, both claim and load. Right
+     * button: Ctrl unclaims, Shift unloads, both unload and unclaim.
      */
     private boolean startClaimPaint(int mouseX, int mouseY, int button) {
         boolean ctrl = Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
@@ -770,13 +772,14 @@ public class GuiWorldMap extends GuiScreen {
         if (button == 0) {
             claimAction = ctrl && shift ? ClaimsLayer.CLAIM_AND_LOAD : ctrl ? ClaimsLayer.CLAIM : ClaimsLayer.LOAD;
         } else {
-            claimAction = ctrl ? ClaimsLayer.UNCLAIM : ClaimsLayer.UNLOAD;
+            claimAction = ctrl && shift ? ClaimsLayer.UNLOAD_AND_UNCLAIM
+                : ctrl ? ClaimsLayer.UNCLAIM : ClaimsLayer.UNLOAD;
         }
         claimButton = button;
-        claimSelection.clear();
-        lastClaimX = centerX + (mouseX - width / 2.0) / scale;
-        lastClaimZ = centerZ + (mouseY - height / 2.0) / scale;
-        addClaimLine(lastClaimX, lastClaimZ);
+        claimStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        claimStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        claimEndX = Integer.MIN_VALUE;
+        updateClaimRectangle(claimStartX, claimStartZ);
         return true;
     }
 
@@ -789,25 +792,32 @@ public class GuiWorldMap extends GuiScreen {
             finishClaimPaint();
             return;
         }
-        double wx = centerX + (mouseX - width / 2.0) / scale;
-        double wz = centerZ + (mouseY - height / 2.0) / scale;
-        addClaimLine(wx, wz);
+        int chunkX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        int chunkZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        updateClaimRectangle(chunkX, chunkZ);
     }
 
-    /** Adds every chunk on the line from the last mouse position, so fast moves don't skip chunks. */
-    private void addClaimLine(double wx, double wz) {
+    /** Selects every fitting chunk in the rectangle from the start chunk to the given one. */
+    private void updateClaimRectangle(int endX, int endZ) {
+        if (endX == claimEndX && endZ == claimEndZ) {
+            return;
+        }
+        claimEndX = endX;
+        claimEndZ = endZ;
+        claimSelection.clear();
         int dimension = mc.theWorld.provider.dimensionId;
-        double dx = wx - lastClaimX, dz = wz - lastClaimZ;
-        int steps = Math.max(1, (int) Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 4));
-        for (int i = 0; i <= steps; i++) {
-            int chunkX = MathHelper.floor_double(lastClaimX + dx * i / steps) >> 4;
-            int chunkZ = MathHelper.floor_double(lastClaimZ + dz * i / steps) >> 4;
-            if (ClaimsLayer.accepts(claimAction, chunkX, chunkZ, dimension)) {
-                claimSelection.add(ClaimsLayer.pack(chunkX, chunkZ));
+        int minX = Math.min(claimStartX, endX), maxX = Math.max(claimStartX, endX);
+        int minZ = Math.min(claimStartZ, endZ), maxZ = Math.max(claimStartZ, endZ);
+        // Capped so a huge accidental drag can't send thousands of chunks.
+        maxX = Math.min(maxX, minX + 63);
+        maxZ = Math.min(maxZ, minZ + 63);
+        for (int chunkX = minX; chunkX <= maxX; chunkX++) {
+            for (int chunkZ = minZ; chunkZ <= maxZ; chunkZ++) {
+                if (ClaimsLayer.accepts(claimAction, chunkX, chunkZ, dimension)) {
+                    claimSelection.add(ClaimsLayer.pack(chunkX, chunkZ));
+                }
             }
         }
-        lastClaimX = wx;
-        lastClaimZ = wz;
     }
 
     private void finishClaimPaint() {
