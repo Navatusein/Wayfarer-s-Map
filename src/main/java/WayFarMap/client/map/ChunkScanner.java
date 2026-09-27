@@ -2,7 +2,6 @@ package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
-import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
@@ -46,23 +45,17 @@ public final class ChunkScanner {
         boolean noSky = world.provider.hasNoSky;
         boolean detailed = Config.mapStyle == Config.STYLE_DETAILED;
 
-        // Heights of the chunk and of the columns right around it (from the neighbouring chunks if loaded), for
-        // shading across chunk borders: heights[lx + 1][lz + 1].
+        // Heights of the chunk and of the two rows north and west of it (from the neighbouring chunks if loaded),
+        // for shading across chunk borders: heights[lx + 2][lz + 2] for lx, lz from -2 to 15.
         int[][] heights = new int[18][18];
-        Chunk north = neighbour(world, cx, cz - 1), south = neighbour(world, cx, cz + 1);
-        Chunk west = neighbour(world, cx - 1, cz), east = neighbour(world, cx + 1, cz);
-        for (int i = 0; i < 18; i++) {
-            heights[i][0] = heights[i][17] = heights[0][i] = heights[17][i] = NO_BLOCK;
-        }
-        for (int lx = 0; lx < 16; lx++) {
-            for (int lz = 0; lz < 16; lz++) {
-                heights[lx + 1][lz + 1] = findTop(chunk, lx, lz, noSky, caveLayer);
-            }
-            heights[lx + 1][0] = north != null ? findTop(north, lx, 15, noSky, caveLayer) : NO_BLOCK;
-            if (detailed) {
-                heights[lx + 1][17] = south != null ? findTop(south, lx, 0, noSky, caveLayer) : NO_BLOCK;
-                heights[0][lx + 1] = west != null ? findTop(west, 15, lx, noSky, caveLayer) : NO_BLOCK;
-                heights[17][lx + 1] = east != null ? findTop(east, 0, lx, noSky, caveLayer) : NO_BLOCK;
+        Chunk north = neighbour(world, cx, cz - 1);
+        Chunk west = detailed ? neighbour(world, cx - 1, cz) : null;
+        Chunk northWest = detailed ? neighbour(world, cx - 1, cz - 1) : null;
+        for (int i = -2; i < 16; i++) {
+            for (int j = -2; j < 16; j++) {
+                Chunk source = i >= 0 ? (j >= 0 ? chunk : north) : (j >= 0 ? west : northWest);
+                heights[i + 2][j + 2] = source == null || (i < -1 || j < -1) && !detailed ? NO_BLOCK
+                    : findTop(source, i & 15, j & 15, noSky, caveLayer);
             }
         }
 
@@ -74,8 +67,8 @@ public final class ChunkScanner {
 
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
-                int y = heights[lx + 1][lz + 1];
-                int previousHeight = heights[lx + 1][lz];
+                int y = heights[lx + 2][lz + 2];
+                int previousHeight = heights[lx + 2][lz + 1];
                 int argb = 0;
                 float relief = 1f;
                 if (y != NO_BLOCK && previousHeight != NO_BLOCK) {
@@ -84,17 +77,14 @@ public final class ChunkScanner {
                 if (y != NO_BLOCK) {
                     int rgb = columnColor(world, chunk, lx, y, lz);
                     if (detailed) {
-                        rgb = withPlant(world, chunk, lx, y, lz, rgb);
+                        rgb = detailedColor(world, chunk, heights, lx, y, lz, rgb);
+                    } else {
+                        rgb = BlockColors.shade(rgb, relief);
                     }
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
                         rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
-                    }
-                    if (detailed) {
-                        rgb = BlockColors.shade(rgb, detailedShade(heights, lx + 1, lz + 1, caveLayer < 0 && !noSky));
-                    } else {
-                        rgb = BlockColors.shade(rgb, relief);
                     }
                     argb = 0xFF000000 | rgb;
                 }
@@ -119,134 +109,90 @@ public final class ChunkScanner {
         return isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
     }
 
+    // JourneyMap's shading ("black magic that serves as the stand-in for true bump-mapping"), same numbers.
+    private static final int[][] PRIMARY_SLOPE = { { 0, -1 }, { -1, -1 }, { -1, 0 } };
+    private static final int[][] SECONDARY_SLOPE = { { -1, -2 }, { -2, -1 }, { -2, -2 }, { -2, 0 }, { 0, -2 } };
+    private static final float DOWNSLOPE = 0.65f, UPSLOPE = 1.2f;
+    private static final float SECONDARY_DOWNSLOPE = 0.95f, SECONDARY_UPSLOPE = 1.05f;
+    private static final float SLOPE_MIN = 0.2f, SLOPE_MAX = 1.7f;
+    /** Daylight brightening of the surface, like JourneyMap's day map. */
+    private static final float DAYLIGHT = 1.06f;
+
     /**
-     * JourneyMap-like shading: the slope towards the north-west light (both neighbours, not only the north one) makes
-     * faces brighter or darker, columns lower than their surroundings get a little shadow (crevices, riverbeds, the
-     * foot of cliffs), and on the surface higher ground is slightly lighter, so the terrain reads like a relief map.
+     * The detailed (JourneyMap) look of a column: a plant, crop, rail or redstone on the block is drawn instead of
+     * it (without a bevel, like JourneyMap without plant shadows); otherwise the block is beveled by its slope to the
+     * north-west, with shadows turning a little blue.
      */
-    private static float detailedShade(int[][] heights, int i, int j, boolean surface) {
-        int y = heights[i][j];
-        int north = heightOr(heights[i][j - 1], y), west = heightOr(heights[i - 1][j], y);
-        int south = heightOr(heights[i][j + 1], y), east = heightOr(heights[i + 1][j], y);
-        int slope = Math.max(-6, Math.min(6, y - north)) + Math.max(-6, Math.min(6, y - west));
-        float factor = 1.0f + slope * 0.045f;
-        // Neighbours at least two blocks higher cast a soft shadow.
-        int higher = (north - y >= 2 ? 1 : 0) + (west - y >= 2 ? 1 : 0)
-            + (south - y >= 2 ? 1 : 0)
-            + (east - y >= 2 ? 1 : 0);
-        factor -= higher * 0.05f;
-        if (surface) {
-            factor += Math.max(-0.08f, Math.min(0.08f, (y - 64) * 0.0015f));
+    private static int detailedColor(World world, Chunk chunk, int[][] heights, int lx, int y, int lz, int rgb) {
+        int plant = plantColor(world, chunk, lx, y, lz);
+        if (plant >= 0) {
+            return BlockColors.shade(plant, DAYLIGHT);
         }
-        return Math.max(0.55f, Math.min(1.35f, factor));
+        if (chunk.getBlock(lx, y, lz)
+            .getMaterial()
+            .isLiquid()) {
+            // Water and lava are flat: no bevel, as in JourneyMap.
+            return BlockColors.shade(rgb, DAYLIGHT);
+        }
+        return bevel(BlockColors.shade(rgb, DAYLIGHT), slope(heights, lx + 2, lz + 2));
     }
 
-    private static int heightOr(int height, int fallback) {
-        return height == NO_BLOCK ? fallback : height;
+    /** Slope factor of the column: above 1 facing the light (brighter), below 1 facing away (darker). */
+    private static float slope(int[][] heights, int i, int j) {
+        int y = heights[i][j];
+        if (y <= 0) {
+            return 1f;
+        }
+        float primary = averageRatio(heights, i, j, y, PRIMARY_SLOPE);
+        float slope = primary < 1f ? primary * DOWNSLOPE : primary > 1f ? primary * UPSLOPE : 1f;
+        if (primary == 1f) {
+            // Flat next to the block: look one block further to soften the edges (JourneyMap's antialiasing).
+            float secondary = averageRatio(heights, i, j, y, SECONDARY_SLOPE);
+            if (secondary > 1f) {
+                slope *= SECONDARY_UPSLOPE;
+            } else if (secondary < 1f) {
+                slope *= SECONDARY_DOWNSLOPE;
+            }
+        }
+        return Math.max(SLOPE_MIN, Math.min(SLOPE_MAX, slope));
+    }
+
+    /** Average of the column's height divided by each neighbour's (unknown neighbours count as level). */
+    private static float averageRatio(int[][] heights, int i, int j, int y, int[][] offsets) {
+        float sum = 0;
+        for (int[] offset : offsets) {
+            int other = heights[i + offset[0]][j + offset[1]];
+            sum += other == NO_BLOCK || other <= 0 ? 1f : (float) y / other;
+        }
+        return sum / offsets.length;
+    }
+
+    /** Darkens or lightens by the slope; shadows get a blue tint (JourneyMap's bevelSlope). */
+    private static int bevel(int rgb, float factor) {
+        float bluer = factor < 1f ? 0.85f : 1f;
+        int r = Math.min(255, (int) (((rgb >> 16) & 0xFF) * bluer * factor));
+        int g = Math.min(255, (int) (((rgb >> 8) & 0xFF) * bluer * factor));
+        int b = Math.min(255, (int) ((rgb & 0xFF) * factor));
+        return r << 16 | g << 8 | b;
     }
 
     /**
-     * Plants and small things standing on the block (flowers, tall grass, crops, saplings, rails, redstone, torches,
-     * snow) tint its pixel, like JourneyMap's plant layer.
+     * Color of a plant, crop, sapling, rail, redstone or torch standing on the block, or -1 if there is none.
+     * JourneyMap draws these instead of the block below them.
      */
-    private static int withPlant(World world, Chunk chunk, int lx, int y, int lz, int rgb) {
+    private static int plantColor(World world, Chunk chunk, int lx, int y, int lz) {
         if (y >= 255) {
-            return rgb;
+            return -1;
         }
         Block above = chunk.getBlock(lx, y + 1, lz);
         Material material = above.getMaterial();
         if (above.getRenderType() == -1 || material != Material.plants && material != Material.vine
             && material != Material.circuits) {
-            return rgb;
+            return -1;
         }
         int x = chunk.xPosition * 16 + lx;
         int z = chunk.zPosition * 16 + lz;
-        int plant = BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
-        // Tall grass and vines mostly cover the ground; flowers, crops and rails leave more of it visible.
-        float amount = material == Material.vine || above == Blocks.tallgrass ? 0.35f : 0.6f;
-        return BlockColors.blend(rgb, plant, amount);
-    }
-
-    /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */
-    public static int biomeColor(BiomeGenBase biome) {
-        int color = biome.color & 0xFFFFFF;
-        if (color != 0) {
-            return color;
-        }
-        int hash = biome.biomeID * 0x9E3779B1;
-        return 0x404040 | (hash >>> 8) & 0xBFBFBF;
-    }
-
-    private static int findTop(Chunk chunk, int lx, int lz, boolean noSky, int caveLayer) {
-        return caveLayer >= 0 ? findCaveFloor(chunk, lx, lz, caveLayer) : findSurface(chunk, lx, lz, noSky);
-    }
-
-    /**
-     * Floor of the open space in the cave layer: rock at the top of the layer is skipped, then the first block below
-     * the open space is the floor (searched down to one layer below, for pits). Solid rock gives {@link #NO_BLOCK}.
-     */
-    private static int findCaveFloor(Chunk chunk, int lx, int lz, int layer) {
-        int layerBottom = layer * 16;
-        int y = Math.min(255, layerBottom + 15);
-        while (y >= layerBottom && isSolid(chunk.getBlock(lx, y, lz))) {
-            y--;
-        }
-        if (y < layerBottom) {
-            return NO_BLOCK;
-        }
-        int lowest = Math.max(0, layerBottom - 16);
-        for (; y >= lowest; y--) {
-            if (isVisible(chunk.getBlock(lx, y, lz))) {
-                return y;
-            }
-        }
-        return NO_BLOCK;
-    }
-
-    /** A block that fills the space (not air, plants, torches or liquids). */
-    private static boolean isSolid(Block block) {
-        return isVisible(block) && !block.getMaterial()
-            .isLiquid();
-    }
-
-    /** @return y of the topmost block that should be drawn, or {@link #NO_BLOCK}. */
-    private static int findSurface(Chunk chunk, int lx, int lz, boolean noSky) {
-        int top = chunk.getTopFilledSegment() + 15;
-        if (top < 0) {
-            return NO_BLOCK;
-        }
-        int y = top;
-        if (noSky) {
-            // Under a ceiling (Nether): skip the ceiling, then look for the floor below the first open space.
-            top = Math.min(top, 127);
-            y = top;
-            while (y > 0 && !isAir(chunk.getBlock(lx, y, lz))) {
-                y--;
-            }
-        }
-        for (; y >= 0; y--) {
-            Block block = chunk.getBlock(lx, y, lz);
-            if (isVisible(block)) {
-                return y;
-            }
-        }
-        return NO_BLOCK;
-    }
-
-    private static boolean isAir(Block block) {
-        return block.getMaterial() == Material.air;
-    }
-
-    private static boolean isVisible(Block block) {
-        Material material = block.getMaterial();
-        if (material == Material.air || material == Material.plants
-            || material == Material.vine
-            || material == Material.circuits
-            || material == Material.web
-            || material == Material.fire) {
-            return false;
-        }
-        return block.getRenderType() != -1 || material.isLiquid();
+        return BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
     }
 
     private static int columnColor(World world, Chunk chunk, int lx, int y, int lz) {
