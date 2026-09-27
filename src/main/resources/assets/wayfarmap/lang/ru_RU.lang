@@ -112,3 +112,6 @@ wayfarmap.option.map.displayMode.blocks=Блоки
 wayfarmap.option.map.displayMode.biomes=Биомы
 wayfarmap.gui.teleport_y_title=На какую высоту телепортировать?
 wayfarmap.gui.teleport_y_hint=Высота неизвестна: X %s Z %s. Y (0-255):
+wayfarmap.gui.pick_color=Выбор цвета
+wayfarmap.gui.color_new=Новый
+wayfarmap.gui.color_old=Было

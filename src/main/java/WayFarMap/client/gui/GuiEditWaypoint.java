@@ -23,10 +23,10 @@ import WayFarMap.client.waypoint.WaypointRenderer;
 /** Creates or edits a waypoint: name, coordinates, group, icon and outline color. */
 public class GuiEditWaypoint extends GuiScreen {
 
-    private static final int[] PALETTE = { 0xFFFFFF, 0xFF5555, 0xFFAA00, 0xFFFF55, 0x55FF55, 0x00AA00, 0x55FFFF,
-        0x00AAAA, 0x5555FF, 0x0000AA, 0xFF55FF, 0xAA00AA, 0xAAAAAA, 0x555555, 0x000000, 0xAA5500 };
     private static final int DEFAULT_OUTLINE = 0xFF5555;
-    private static final int SWATCH = 13;
+    /** Color sample next to the outline switch; a click opens the color picker. */
+    private static final int SWATCH_X = 144, SWATCH_Y = 155, SWATCH_W = 76, SWATCH_H = 18;
+    private static final int BUTTON_ROW = 181;
 
     private static final int ID_GROUP = 1, ID_NEW_GROUP = 2, ID_ICON = 3, ID_OUTLINE = 4, ID_SAVE = 5, ID_DELETE = 6,
         ID_CANCEL = 7, ID_TELEPORT = 8;
@@ -41,7 +41,7 @@ public class GuiEditWaypoint extends GuiScreen {
     /** Last outline color, remembered while the outline is switched off. */
     private int outlineColor;
 
-    private GuiTextField nameField, xField, yField, zField, newGroupField, colorField;
+    private GuiTextField nameField, xField, yField, zField, newGroupField;
     private final List<GuiTextField> fields = new ArrayList<>();
     private FlatButton deleteButton;
     private boolean confirmDelete;
@@ -77,7 +77,6 @@ public class GuiEditWaypoint extends GuiScreen {
         zField = field(left + 150, top + 58, 70, String.valueOf(edited.z), 9);
         newGroupField = field(left, top + 107, 170, "", 32);
         ((FlatTextField) newGroupField).setHint(I18n.format("wayfarmap.gui.new_group_hint"));
-        colorField = field(left + 144, top + 155, 76, String.format("#%06X", outlineColor), 7);
         nameField.setFocused(true);
 
         buttonList.add(new FlatButton(ID_GROUP, left, top + 83, 220, 18, ""));
@@ -86,15 +85,15 @@ public class GuiEditWaypoint extends GuiScreen {
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
         // Bottom row: Save [Teleport Delete] Cancel; teleport and delete only exist for saved waypoints. Each button
         // gets its text width plus an equal share of the remaining space.
-        FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.save"));
+        FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.save"));
         saveButton.active = true;
-        deleteButton = new FlatButton(ID_DELETE, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.confirm"));
+        deleteButton = new FlatButton(ID_DELETE, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.confirm"));
         deleteButton.danger = true;
-        FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + 199, 0, 18, I18n.format("gui.cancel"));
+        FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + BUTTON_ROW, 0, 18, I18n.format("gui.cancel"));
         List<FlatButton> row = new ArrayList<>();
         row.add(saveButton);
         if (target != null) {
-            FlatButton teleport = new FlatButton(ID_TELEPORT, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.teleport"));
+            FlatButton teleport = new FlatButton(ID_TELEPORT, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.teleport"));
             teleport.enabled = Teleport.isAllowed() && mc.theWorld != null
                 && target.dimension == mc.theWorld.provider.dimensionId;
             row.add(teleport);
@@ -150,7 +149,6 @@ public class GuiEditWaypoint extends GuiScreen {
                     break;
             }
         }
-        colorField.setEnabled(edited.outlineColor != null);
     }
 
     private static String safeName(ItemStack stack) {
@@ -258,8 +256,17 @@ public class GuiEditWaypoint extends GuiScreen {
     private void setOutline(int color) {
         outlineColor = color & 0xFFFFFF;
         edited.outlineColor = outlineColor;
-        colorField.setText(String.format("#%06X", outlineColor));
         updateButtons();
+    }
+
+    private boolean onSwatch(int mouseX, int mouseY) {
+        return Theme.inside(
+            mouseX,
+            mouseY,
+            left + SWATCH_X,
+            top + SWATCH_Y,
+            left + SWATCH_X + SWATCH_W,
+            top + SWATCH_Y + SWATCH_H);
     }
 
     @Override
@@ -296,19 +303,6 @@ public class GuiEditWaypoint extends GuiScreen {
                 field.textboxKeyTyped(typedChar, keyCode);
             }
         }
-        if (colorField.isFocused()) {
-            String text = colorField.getText()
-                .trim();
-            if (text.startsWith("#")) {
-                text = text.substring(1);
-            }
-            if (text.length() == 6) {
-                try {
-                    outlineColor = Integer.parseInt(text, 16);
-                    edited.outlineColor = outlineColor;
-                } catch (NumberFormatException ignored) {}
-            }
-        }
     }
 
     @Override
@@ -317,12 +311,9 @@ public class GuiEditWaypoint extends GuiScreen {
         for (GuiTextField field : fields) {
             field.mouseClicked(mouseX, mouseY, button);
         }
-        int swatchY = top + 179;
-        if (button == 0 && mouseY >= swatchY && mouseY < swatchY + 12 && mouseX >= left) {
-            int index = (mouseX - left) / SWATCH;
-            if (index < PALETTE.length) {
-                setOutline(PALETTE[index]);
-            }
+        if (button == 0 && onSwatch(mouseX, mouseY)) {
+            readFields();
+            mc.displayGuiScreen(new GuiColorPicker(this, outlineColor, this::setOutline));
         }
     }
 
@@ -341,7 +332,7 @@ public class GuiEditWaypoint extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
-        Theme.panel(left - 10, top - 8, left + 230, top + 226);
+        Theme.panel(left - 10, top - 8, left + 230, top + BUTTON_ROW + 27);
         Theme.text(
             fontRendererObj,
             I18n.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
@@ -357,13 +348,22 @@ public class GuiEditWaypoint extends GuiScreen {
             field.drawTextBox();
         }
 
-        for (int i = 0; i < PALETTE.length; i++) {
-            int x = left + i * SWATCH;
-            int y = top + 179;
-            boolean selected = edited.outlineColor != null && edited.outlineColor == PALETTE[i];
-            drawRect(x, y, x + SWATCH - 1, y + 12, selected ? Theme.ACCENT : Theme.BORDER);
-            drawRect(x + 1, y + 1, x + SWATCH - 2, y + 11, 0xFF000000 | PALETTE[i]);
+        // Color sample: the chosen outline color with its hex code; dimmed while the outline is off.
+        int sx = left + SWATCH_X, sy = top + SWATCH_Y;
+        boolean on = edited.outlineColor != null;
+        drawRect(sx, sy, sx + SWATCH_W, sy + SWATCH_H, 0xFF000000 | outlineColor);
+        if (!on) {
+            drawRect(sx, sy, sx + SWATCH_W, sy + SWATCH_H, 0xB0101418);
         }
+        Theme.outline(sx, sy, sx + SWATCH_W, sy + SWATCH_H, onSwatch(mouseX, mouseY) ? Theme.ACCENT : Theme.BORDER);
+        int r = (outlineColor >> 16) & 0xFF, g = (outlineColor >> 8) & 0xFF, b = outlineColor & 0xFF;
+        boolean light = on && r * 299 + g * 587 + b * 114 > 150_000;
+        Theme.centered(
+            fontRendererObj,
+            String.format("#%06X", outlineColor),
+            sx + SWATCH_W / 2,
+            sy + 5,
+            !on ? Theme.TEXT_MUTED : light ? 0xFF000000 : 0xFFFFFFFF);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
 
