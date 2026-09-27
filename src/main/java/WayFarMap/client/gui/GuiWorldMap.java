@@ -1,6 +1,7 @@
 package WayFarMap.client.gui;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,6 +21,8 @@ import WayFarMap.client.MapDrawer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.IconButton;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
@@ -47,8 +50,9 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9, ID_HELP = 10,
-        ID_MOBS = 11, ID_POWERFAILS = 12;
+        ID_BIOMES = 5, ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13;
+    /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -68,22 +72,15 @@ public class GuiWorldMap extends ScaledScreen {
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
 
-    private FlatButton dayButton;
-    private FlatButton nightButton;
-    private FlatButton caveButton;
-    private FlatButton biomeButton;
-    private FlatButton gridButton;
-    private FlatButton mobsButton;
-    /** Search of biomes, ore veins or fluids; kept between openings of the map. */
-    private static String searchText = "";
-    private FlatTextField searchField;
-    /** VisualProspecting layers; null when it isn't installed. */
-    private FlatButton oreButton, fluidButton;
-    /** ServerUtilities claims layer; null when it isn't installed. */
-    private FlatButton claimsButton;
-    /** GregTech power failures; null when GregTech doesn't have them. */
-    private FlatButton powerfailButton;
-    private FlatButton helpButton;
+    private IconButton dayButton;
+    private IconButton nightButton;
+    private IconButton caveButton;
+    private IconButton biomeButton;
+    private IconButton gridButton;
+    private IconButton mobsButton;
+    /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
+    private IconButton addonsButton;
+    private IconButton helpButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
     private final Set<Long> claimSelection = new LinkedHashSet<>();
@@ -101,8 +98,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
     private int menuX, menuY;
-    /** The right click map menu shows a note under it when teleporting isn't allowed. */
-    private boolean menuNote;
+    private int menuKind;
     private boolean draggingCaveSlider;
 
     /** One line of the right click menu. */
@@ -111,11 +107,18 @@ public class GuiWorldMap extends ScaledScreen {
         final String label;
         final boolean enabled;
         final Runnable action;
+        /** Checkbox state for a toggle (the menu then stays open), null for a plain entry. */
+        final Boolean checked;
 
         MenuEntry(String label, boolean enabled, Runnable action) {
+            this(label, enabled, action, null);
+        }
+
+        MenuEntry(String label, boolean enabled, Runnable action, Boolean checked) {
             this.label = label;
             this.enabled = enabled;
             this.action = action;
+            this.checked = checked;
         }
     }
 
@@ -141,48 +144,31 @@ public class GuiWorldMap extends ScaledScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
+        // Header: icons with tooltips. Left: waypoints, settings, add-on layers; right (before the zoom text):
+        // mobs, grid, biomes, caves, day, night.
         int x = 4;
-        x = addHeaderButton(new FlatButton(ID_WAYPOINTS, x, 4, 0, 16, I18n.format("wayfarmap.gui.waypoints")), x);
-        x = addHeaderButton(new FlatButton(ID_SETTINGS, x, 4, 0, 16, I18n.format("wayfarmap.gui.settings")), x);
-        if (Mods.isVisualProspectingLoaded()) {
-            oreButton = new FlatButton(ID_ORES, x, 4, 0, 16, I18n.format("wayfarmap.gui.ores"));
-            x = addHeaderButton(oreButton, x);
-            fluidButton = new FlatButton(ID_FLUIDS, x, 4, 0, 16, I18n.format("wayfarmap.gui.fluids"));
-            x = addHeaderButton(fluidButton, x);
-        }
-        if (Mods.isClaimsAvailable()) {
-            claimsButton = new FlatButton(ID_CLAIMS, x, 4, 0, 16, I18n.format("wayfarmap.gui.claims"));
-            x = addHeaderButton(claimsButton, x);
-        }
-        if (Mods.isPowerfailsAvailable()) {
-            powerfailButton = new FlatButton(ID_POWERFAILS, x, 4, 0, 16, I18n.format("wayfarmap.gui.powerfails"));
-            addHeaderButton(powerfailButton, x);
+        x = addIconButton(
+            new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
+            x);
+        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
+        addonsButton = null;
+        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable() || Mods.isPowerfailsAvailable()) {
+            addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
+            addIconButton(addonsButton, x);
         }
 
-        // Right side, laid out right to left before the zoom text.
         int right = width - 34;
-        nightButton = new FlatButton(ID_NIGHT, 0, 4, 0, 16, I18n.format("wayfarmap.gui.night"));
-        dayButton = new FlatButton(ID_DAY, 0, 4, 0, 16, I18n.format("wayfarmap.gui.day"));
-        caveButton = new FlatButton(ID_CAVES, 0, 4, 0, 16, caveButtonText());
-        biomeButton = new FlatButton(ID_BIOMES, 0, 4, 0, 16, I18n.format("wayfarmap.gui.biomes"));
-        gridButton = new FlatButton(ID_GRID, 0, 4, 0, 16, I18n.format("wayfarmap.gui.grid"));
-        mobsButton = new FlatButton(ID_MOBS, 0, 4, 0, 16, mobsButtonText(Config.getMobFilter()));
-        for (FlatButton button : new FlatButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton,
+        nightButton = new IconButton(ID_NIGHT, 0, 4, Icons.NIGHT, I18n.format("wayfarmap.gui.night"));
+        dayButton = new IconButton(ID_DAY, 0, 4, Icons.DAY, I18n.format("wayfarmap.gui.day"));
+        caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
+        biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
+        gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
+        mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
+        for (IconButton button : new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton,
             mobsButton }) {
-            int w = fontRendererObj.getStringWidth(button.displayString) + 12;
-            if (button == caveButton) {
-                // Room for longer mode names, so the button doesn't jump when cycling.
-                w += 12;
-            } else if (button == mobsButton) {
-                // As wide as the longest filter name, so the button doesn't jump either.
-                for (int filter = 0; filter < MOB_FILTER_KEYS.length; filter++) {
-                    w = Math.max(w, fontRendererObj.getStringWidth(mobsButtonText(filter)) + 12);
-                }
-            }
-            button.setWidth(w);
-            right -= w;
+            right -= button.getWidth();
             button.xPosition = right;
-            right -= 4;
+            right -= 3;
             buttonList.add(button);
         }
         updateLightButtons();
@@ -190,9 +176,13 @@ public class GuiWorldMap extends ScaledScreen {
         dimensionList = null;
 
         // Bottom right: the help screen with every feature explained.
-        String helpText = "? " + I18n.format("wayfarmap.gui.help_button");
-        int helpWidth = fontRendererObj.getStringWidth(helpText) + 12;
-        helpButton = new FlatButton(ID_HELP, width - helpWidth - 2, height - FOOTER_HEIGHT + 1, helpWidth, 13, helpText);
+        helpButton = new IconButton(
+            ID_HELP,
+            width - 22,
+            height - FOOTER_HEIGHT + 1,
+            Icons.HELP,
+            I18n.format("wayfarmap.gui.help_button"));
+        helpButton.setHeight(13);
         buttonList.add(helpButton);
 
         Keyboard.enableRepeatEvents(true);
@@ -232,10 +222,41 @@ public class GuiWorldMap extends ScaledScreen {
         }
     }
 
-    private int addHeaderButton(FlatButton button, int x) {
-        button.setWidth(fontRendererObj.getStringWidth(button.displayString) + 12);
+    private int addIconButton(IconButton button, int x) {
         buttonList.add(button);
-        return x + button.getWidth() + 4;
+        return x + button.getWidth() + 3;
+    }
+
+    /** Menu under the add-ons button: a checkbox per layer; it stays open to switch several. */
+    private void openAddonsMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        if (Mods.isVisualProspectingLoaded()) {
+            entries.add(addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins));
+            entries.add(
+                addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids));
+        }
+        if (Mods.isClaimsAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.claims", Config.showClaims, () -> {
+                Config.toggleClaims();
+                if (Config.showClaims) {
+                    ClaimsLayer.onShow();
+                }
+            }));
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails));
+        }
+        menu = entries;
+        menuKind = MENU_ADDONS;
+        menuX = Math.max(2, Math.min(addonsButton.xPosition, width - MENU_WIDTH - 2));
+        menuY = addonsButton.yPosition + 18;
+    }
+
+    private MenuEntry addonToggle(String key, boolean on, Runnable toggle) {
+        return new MenuEntry(I18n.format(key), true, () -> {
+            toggle.run();
+            updateLightButtons();
+        }, on);
     }
 
     private static String mobsButtonText(int filter) {
@@ -256,7 +277,7 @@ public class GuiWorldMap extends ScaledScreen {
             }));
         }
         menu = entries;
-        menuNote = false;
+        menuKind = MENU_MOBS;
         menuX = Math.max(2, Math.min(mobsButton.xPosition, width - MENU_WIDTH - 2));
         menuY = mobsButton.yPosition + 18;
     }
@@ -274,23 +295,23 @@ public class GuiWorldMap extends ScaledScreen {
         }
         dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
         nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
+        // Caves: highlighted when on, a dot when automatic, dimmed when off.
         caveButton.active = Config.caveMode == Config.CAVES_ON;
-        caveButton.displayString = caveButtonText();
+        caveButton.dim = Config.caveMode == Config.CAVES_OFF;
+        caveButton.badge = Config.caveMode == Config.CAVES_AUTO ? Theme.ACCENT : 0;
+        caveButton.tooltip = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
+        // Mobs: highlighted while some are hidden, the dot tells which kind is left.
         int mobFilter = Config.getMobFilter();
-        mobsButton.displayString = mobsButtonText(mobFilter);
-        // Highlighted while some mobs are hidden.
         mobsButton.active = mobFilter != Config.MOBS_ALL;
-        if (oreButton != null) {
-            oreButton.active = Config.showOreVeins;
-            fluidButton.active = Config.showUndergroundFluids;
-        }
-        if (claimsButton != null) {
-            claimsButton.active = Config.showClaims;
-        }
-        if (powerfailButton != null) {
-            powerfailButton.active = Config.showPowerfails;
+        mobsButton.dim = mobFilter == Config.MOBS_NONE;
+        mobsButton.badge = mobFilter == Config.MOBS_FRIENDLY ? Theme.SUCCESS
+            : mobFilter == Config.MOBS_HOSTILE ? Theme.DANGER : 0;
+        mobsButton.tooltip = mobsButtonText(mobFilter);
+        if (addonsButton != null) {
+            addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
+                || powerfailsShown();
         }
     }
 
@@ -298,21 +319,8 @@ public class GuiWorldMap extends ScaledScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
-        } else if (button.id == ID_CLAIMS) {
-            Config.toggleClaims();
-            if (Config.showClaims) {
-                ClaimsLayer.onShow();
-            }
-            updateLightButtons();
-        } else if (button.id == ID_POWERFAILS) {
-            Config.togglePowerfails();
-            updateLightButtons();
-        } else if (button.id == ID_ORES) {
-            Config.toggleOreVeins();
-            updateLightButtons();
-        } else if (button.id == ID_FLUIDS) {
-            Config.toggleUndergroundFluids();
-            updateLightButtons();
+        } else if (button.id == ID_ADDONS) {
+            openAddonsMenu();
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
@@ -325,11 +333,7 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_SETTINGS) {
             mc.displayGuiScreen(new GuiSettings(this));
         } else if (button.id == ID_MOBS) {
-            if (menu != null && !menuNote) {
-                menu = null;
-            } else {
-                openMobsMenu();
-            }
+            openMobsMenu();
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
         } else if (button.id == ID_DAY) {
@@ -509,10 +513,18 @@ public class GuiWorldMap extends ScaledScreen {
         if (searchAvailable()) {
             searchField.drawTextBox();
         }
+        IconButton hoveredIcon = null;
+        for (Object o : buttonList) {
+            if (o instanceof IconButton && ((IconButton) o).isMouseOver(mouseX, mouseY)) {
+                hoveredIcon = (IconButton) o;
+            }
+        }
         if (dimensionList != null) {
             drawDimensionList(mouseX, mouseY);
         } else if (menu != null) {
             drawMenu(mouseX, mouseY);
+        } else if (hoveredIcon != null && !hoveredIcon.tooltip.isEmpty()) {
+            drawHoveringText(Collections.singletonList(hoveredIcon.tooltip), mouseX, mouseY, fontRendererObj);
         } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
             // Power failures are drawn on top, so their tooltip comes first.
             List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
@@ -532,11 +544,7 @@ public class GuiWorldMap extends ScaledScreen {
         int end = 0;
         for (Object o : buttonList) {
             GuiButton button = (GuiButton) o;
-            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS
-                || button.id == ID_ORES
-                || button.id == ID_FLUIDS
-                || button.id == ID_CLAIMS
-                || button.id == ID_POWERFAILS) {
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS || button.id == ID_ADDONS) {
                 end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
             }
         }
@@ -783,7 +791,7 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : waypointY(bx, bz), bz, dimension))));
         menu = entries;
-        menuNote = true;
+        menuKind = MENU_MAP;
         menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
         menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
     }
@@ -797,14 +805,18 @@ public class GuiWorldMap extends ScaledScreen {
             if (entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + MENU_WIDTH, y + MENU_ROW)) {
                 Theme.fill(menuX + 1, y, menuX + MENU_WIDTH - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
             }
-            Theme.text(
-                fontRendererObj,
-                entry.label,
-                menuX + 6,
-                y + 3,
-                entry.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
+            int textX = menuX + 6;
+            if (entry.checked != null) {
+                // Checkbox.
+                Theme.outline(menuX + 5, y + 3, menuX + 13, y + 11, entry.checked ? Theme.ACCENT : Theme.BORDER);
+                if (entry.checked) {
+                    Theme.fill(menuX + 7, y + 5, menuX + 11, y + 9, Theme.ACCENT);
+                }
+                textX = menuX + 18;
+            }
+            Theme.text(fontRendererObj, entry.label, textX, y + 3, entry.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
         }
-        if (menuNote && !Teleport.isAllowed()) {
+        if (menuKind == MENU_MAP && !Teleport.isAllowed()) {
             String note = I18n.format("wayfarmap.gui.no_teleport_permission");
             Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
         }
@@ -822,6 +834,10 @@ public class GuiWorldMap extends ScaledScreen {
             MenuEntry entry = entries.get(i);
             if (Theme.inside(mouseX, mouseY, menuX, y, menuX + MENU_WIDTH, y + MENU_ROW) && entry.enabled) {
                 entry.action.run();
+                if (entry.checked != null && menuKind == MENU_ADDONS) {
+                    // Toggles keep the menu open, showing the new state.
+                    openAddonsMenu();
+                }
             }
         }
         return true;

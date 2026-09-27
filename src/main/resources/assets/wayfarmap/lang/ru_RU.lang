@@ -177,3 +177,4 @@ wayfarmap.option.map.powerfails=Сбои питания GregTech
 wayfarmap.option.map.powerfails.desc=Показывать на карте и миникарте машины GregTech, у которых кончилась энергия (если версия GregTech это поддерживает).
 wayfarmap.option.map.shareWithTeam=Общая карта команды
 wayfarmap.option.map.shareWithTeam.desc=У каждого игрока своя карта. В команде ServerUtilities (на сервере с этим модом) она ещё и общая: при вступлении в команду вся ваша карта отправляется команде, карты участников объединяются (более свежие участки побеждают), новые открытия сразу видны всем, а зашедший позже догружает всё, что команда открыла без него.
+wayfarmap.gui.addons=Слои аддонов

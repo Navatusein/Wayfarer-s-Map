@@ -10,6 +10,22 @@
 
 > All keys can be changed in Minecraft's §bOptions → Controls§r.
 
+# Map buttons
+The top of the map has §ficons§r; hover one to see its name.
+
+§fLeft:§r
+- §bFlag§r — waypoint list
+- §bGear§r — settings
+- §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims and power failures (only for installed mods); it stays open to switch several
+
+§fRight:§r
+- §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
+- §bGrid§r — chunk grid
+- §bTree§r — biomes
+- §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
+- §bSun§r / §bMoon§r — day / night
+- §b?§r bottom right — this help
+
 # Map navigation
 - §eLeft drag§r — move the map
 - §eWheel§r — zoom (towards the cursor)
@@ -74,7 +90,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
 # Ores and fluids
-Needs the §fVisualProspecting§r mod (GTNH). The §bOres§r and §bFluids§r buttons are §fexclusive§r — only one is on.
+Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and §bFluids§r checkboxes in the §bAdd-on layers§r menu (layers icon, top left) — they are §fexclusive§r, only one is on.
 
 - Hover a vein — a tooltip with its ores
 - §eRight click a vein → Track§r — a marker with distance appears in the world
@@ -84,7 +100,7 @@ Needs the §fVisualProspecting§r mod (GTNH). The §bOres§r and §bFluids§r bu
 ! Veins show up only after prospecting (mined ores, samples, scanners).
 
 # Power failures (GregTech)
-When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r button shows them on the map and the minimap with a §cred frame§r and a lightning icon.
+When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r checkbox in the §bAdd-on layers§r menu shows them on the map and the minimap with a §cred frame§r and a lightning icon.
 
 - Hover — which machine, coordinates, how many times and when it last failed
 - Zoomed in, the machine and how long ago are written under the icon
@@ -95,7 +111,7 @@ When a GregTech machine runs out of energy, GregTech records a §fpower failure�
 > Your whole team sees them: the GregTech server sends them.
 
 # Claims (ServerUtilities)
-Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r button.
+Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bAdd-on layers§r menu.
 
 §fLeft drag a rectangle:§r
 - §eCtrl§r — claim chunks
