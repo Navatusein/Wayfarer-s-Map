@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.WorldClient;
@@ -31,7 +32,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
  * Keeps track of the map of the world the client is currently in: scans loaded chunks into map regions and saves
- * them to {@code .minecraft/wayfarmap/<world>/dim<id>/}.
+ * them to {@code .minecraft/wayfarmap/<world>/dim<id>/}. Besides the surface, caves are mapped in horizontal layers of
+ * 16 blocks ({@code dim<id>/caves/<layer>/}), the one the player is in while cave mode is active.
  */
 public class MapManager implements IResourceManagerReloadListener {
 
@@ -39,17 +41,23 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** Regions farther than this from the player are released when no fullscreen map is open. */
     private static final int KEEP_REGION_RADIUS = 2;
+    /** Solid blocks above the head needed to count as underground (a one block roof doesn't). */
+    private static final int UNDERGROUND_ROOF = 3;
 
     private final ExecutorService saveExecutor = createExecutor("WayFarMap saver");
     private final ExecutorService loadExecutor = createExecutor("WayFarMap loader");
 
     private WorldClient currentWorld;
-    private MapDimension dimension;
+    private File dimensionDirectory;
+    private MapDimension surface;
+    private final Map<Integer, MapDimension> caveLayers = new HashMap<>();
+    /** Cave layer shown and scanned, or -1 while the surface is shown. */
+    private int activeCaveLayer = -1;
+    private boolean underground;
 
-    private final Map<Long, Integer> lastScanTick = new HashMap<>();
-    private final ArrayDeque<Long> scanQueue = new ArrayDeque<>();
+    private final ScanTracker surfaceTracker = new ScanTracker();
+    private final ScanTracker caveTracker = new ScanTracker();
     private int tick;
-    private int nextQueueBuild;
     private long lastAutosave;
 
     private MapManager() {}
@@ -62,9 +70,33 @@ public class MapManager implements IResourceManagerReloadListener {
         });
     }
 
-    /** Map of the dimension the player is in, or null outside of a world. */
+    /** Map to show right now: the active cave layer in cave mode, otherwise the surface. Null outside of a world. */
     public MapDimension getDimension() {
-        return dimension;
+        return activeCaveLayer >= 0 ? getCaveLayer(activeCaveLayer) : surface;
+    }
+
+    /** Cave layer being shown (blocks {@code layer * 16} to {@code layer * 16 + 15}), or -1 for the surface. */
+    public int getActiveCaveLayer() {
+        return activeCaveLayer;
+    }
+
+    private MapDimension getCaveLayer(int layer) {
+        MapDimension cave = caveLayers.get(layer);
+        if (cave == null && dimensionDirectory != null) {
+            File directory = new File(new File(dimensionDirectory, "caves"), String.valueOf(layer));
+            cave = new MapDimension(surface.dimensionId, directory, loadExecutor);
+            caveLayers.put(layer, cave);
+        }
+        return cave;
+    }
+
+    private List<MapDimension> allMaps() {
+        List<MapDimension> maps = new ArrayList<>();
+        if (surface != null) {
+            maps.add(surface);
+        }
+        maps.addAll(caveLayers.values());
+        return maps;
     }
 
     @Override
@@ -85,21 +117,63 @@ public class MapManager implements IResourceManagerReloadListener {
                 open(mc, world);
             }
         }
-        if (world == null || mc.thePlayer == null || dimension == null) {
+        if (world == null || mc.thePlayer == null || surface == null) {
             return;
         }
 
         tick++;
-        scanChunks(mc, world, mc.thePlayer);
+        updateCaveMode(world, mc.thePlayer);
+
+        int budget = Config.chunksScannedPerTick;
+        if (activeCaveLayer >= 0) {
+            caveTracker.scan(mc, world, mc.thePlayer, getCaveLayer(activeCaveLayer), activeCaveLayer, budget);
+            // The surface rarely changes while the player is underground.
+            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, Math.max(1, budget / 4));
+        } else {
+            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, budget);
+        }
 
         long now = System.currentTimeMillis();
         if (now - lastAutosave >= Config.autosaveIntervalSeconds * 1000L) {
             lastAutosave = now;
-            dimension.save(saveExecutor);
+            for (MapDimension map : allMaps()) {
+                map.save(saveExecutor);
+            }
             if (!(mc.currentScreen instanceof GuiWorldMap)) {
                 trimAroundPlayer(mc.thePlayer);
             }
         }
+    }
+
+    private void updateCaveMode(WorldClient world, EntityPlayer player) {
+        if (tick % 10 == 0) {
+            underground = isUnderground(world, player);
+        }
+        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && underground);
+        int layer = caves ? Math.max(0, Math.min(15, MathHelper.floor_double(player.boundingBox.minY) >> 4)) : -1;
+        if (layer != activeCaveLayer) {
+            activeCaveLayer = layer;
+            caveTracker.reset();
+        }
+    }
+
+    /** In the Nether, or with a few solid blocks above the head (a cave, not a house or a forest). */
+    private static boolean isUnderground(WorldClient world, EntityPlayer player) {
+        if (world.provider.hasNoSky) {
+            return true;
+        }
+        int x = MathHelper.floor_double(player.posX);
+        int z = MathHelper.floor_double(player.posZ);
+        int y = MathHelper.floor_double(player.boundingBox.minY) + 2;
+        int top = Math.min(255, world.getHeightValue(x, z));
+        int solid = 0;
+        for (int yy = y; yy <= top && solid < UNDERGROUND_ROOF; yy++) {
+            Block block = world.getBlock(x, yy, z);
+            if (block.isOpaqueCube()) {
+                solid++;
+            }
+        }
+        return solid >= UNDERGROUND_ROOF;
     }
 
     @SubscribeEvent
@@ -111,43 +185,51 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** Frees memory used by regions far from the player (e.g. after browsing the fullscreen map). */
     public void trimAroundPlayer(EntityPlayer player) {
-        if (dimension == null || player == null) {
+        if (surface == null || player == null) {
             return;
         }
         int rx = MathHelper.floor_double(player.posX) >> MapRegion.SHIFT;
         int rz = MathHelper.floor_double(player.posZ) >> MapRegion.SHIFT;
-        dimension.trim(rx, rz, KEEP_REGION_RADIUS);
+        for (MapDimension map : allMaps()) {
+            map.trim(rx, rz, KEEP_REGION_RADIUS);
+        }
     }
 
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
         File worldDirectory = new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc));
-        File directory = new File(worldDirectory, "dim" + dimensionId);
+        dimensionDirectory = new File(worldDirectory, "dim" + dimensionId);
         WaypointManager.INSTANCE.load(worldDirectory);
-        dimension = new MapDimension(dimensionId, directory, loadExecutor);
+        surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
         lastAutosave = System.currentTimeMillis();
-        WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, directory);
+        WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, dimensionDirectory);
     }
 
     private void close() {
-        if (dimension != null) {
-            List<Future<?>> pending = dimension.save(saveExecutor);
-            // Wait so the data is on disk even if the game exits right after leaving the world.
-            for (Future<?> future : pending) {
-                try {
-                    future.get();
-                } catch (Exception e) {
-                    WayFarMap.LOG.warn("Error while saving the map", e);
-                }
-            }
-            dimension.deleteTextures();
+        List<Future<?>> pending = new ArrayList<>();
+        for (MapDimension map : allMaps()) {
+            pending.addAll(map.save(saveExecutor));
         }
-        dimension = null;
+        // Wait so the data is on disk even if the game exits right after leaving the world.
+        for (Future<?> future : pending) {
+            try {
+                future.get();
+            } catch (Exception e) {
+                WayFarMap.LOG.warn("Error while saving the map", e);
+            }
+        }
+        for (MapDimension map : allMaps()) {
+            map.deleteTextures();
+        }
+        surface = null;
+        caveLayers.clear();
+        dimensionDirectory = null;
+        activeCaveLayer = -1;
+        underground = false;
         currentWorld = null;
-        lastScanTick.clear();
-        scanQueue.clear();
-        nextQueueBuild = 0;
+        surfaceTracker.reset();
+        caveTracker.reset();
         tick = 0;
     }
 
@@ -169,71 +251,85 @@ public class MapManager implements IResourceManagerReloadListener {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
-    private void scanChunks(Minecraft mc, WorldClient world, EntityPlayer player) {
-        if (scanQueue.isEmpty() && tick >= nextQueueBuild) {
-            buildScanQueue(mc, world, player);
-            nextQueueBuild = tick + 10;
-        }
-        int budget = Config.chunksScannedPerTick;
-        while (budget > 0 && !scanQueue.isEmpty()) {
-            long key = scanQueue.poll();
-            int cx = (int) (key >> 32);
-            int cz = (int) key;
-            if (!ChunkScanner.isChunkReady(world, cx, cz)) {
-                continue;
-            }
-            try {
-                ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), dimension);
-            } catch (Exception e) {
-                WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
-            }
-            lastScanTick.put(key, tick);
-            budget--;
-        }
-    }
+    /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
+    private final class ScanTracker {
 
-    private void buildScanQueue(Minecraft mc, WorldClient world, EntityPlayer player) {
-        int pcx = MathHelper.floor_double(player.posX) >> 4;
-        int pcz = MathHelper.floor_double(player.posZ) >> 4;
-        int radius = mc.gameSettings.renderDistanceChunks + 1;
+        private final Map<Long, Integer> lastScanTick = new HashMap<>();
+        private final ArrayDeque<Long> queue = new ArrayDeque<>();
+        private int nextQueueBuild;
 
-        // Forget chunks that are out of range; they get rescanned when the player comes back.
-        Iterator<Long> it = lastScanTick.keySet()
-            .iterator();
-        while (it.hasNext()) {
-            long key = it.next();
-            int cx = (int) (key >> 32);
-            int cz = (int) key;
-            if (Math.abs(cx - pcx) > radius + 1 || Math.abs(cz - pcz) > radius + 1) {
-                it.remove();
-            }
+        void reset() {
+            lastScanTick.clear();
+            queue.clear();
+            nextQueueBuild = 0;
         }
 
-        List<long[]> candidates = new ArrayList<>();
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                int cx = pcx + dx;
-                int cz = pcz + dz;
-                long key = chunkKey(cx, cz);
-                Integer last = lastScanTick.get(key);
-                int distance = Math.max(Math.abs(dx), Math.abs(dz));
-                if (last != null) {
-                    // Keep the area around the player up to date; far chunks rarely change.
-                    int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
-                    if (tick - last < interval) {
-                        continue;
-                    }
-                }
+        /** @param caveLayer layer to scan, or -1 for the surface */
+        void scan(Minecraft mc, WorldClient world, EntityPlayer player, MapDimension map, int caveLayer, int budget) {
+            if (queue.isEmpty() && tick >= nextQueueBuild) {
+                buildQueue(mc, world, player);
+                nextQueueBuild = tick + 10;
+            }
+            while (budget > 0 && !queue.isEmpty()) {
+                long key = queue.poll();
+                int cx = (int) (key >> 32);
+                int cz = (int) key;
                 if (!ChunkScanner.isChunkReady(world, cx, cz)) {
                     continue;
                 }
-                long priority = (last == null ? 0 : 1000) + distance;
-                candidates.add(new long[] { priority, key });
+                try {
+                    ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer);
+                } catch (Exception e) {
+                    WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
+                }
+                lastScanTick.put(key, tick);
+                budget--;
             }
         }
-        Collections.sort(candidates, (a, b) -> Long.compare(a[0], b[0]));
-        for (long[] candidate : candidates) {
-            scanQueue.add(candidate[1]);
+
+        private void buildQueue(Minecraft mc, WorldClient world, EntityPlayer player) {
+            int pcx = MathHelper.floor_double(player.posX) >> 4;
+            int pcz = MathHelper.floor_double(player.posZ) >> 4;
+            int radius = mc.gameSettings.renderDistanceChunks + 1;
+
+            // Forget chunks that are out of range; they get rescanned when the player comes back.
+            Iterator<Long> it = lastScanTick.keySet()
+                .iterator();
+            while (it.hasNext()) {
+                long key = it.next();
+                int cx = (int) (key >> 32);
+                int cz = (int) key;
+                if (Math.abs(cx - pcx) > radius + 1 || Math.abs(cz - pcz) > radius + 1) {
+                    it.remove();
+                }
+            }
+
+            List<long[]> candidates = new ArrayList<>();
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    int cx = pcx + dx;
+                    int cz = pcz + dz;
+                    long key = chunkKey(cx, cz);
+                    Integer last = lastScanTick.get(key);
+                    int distance = Math.max(Math.abs(dx), Math.abs(dz));
+                    if (last != null) {
+                        // Keep the area around the player up to date; far chunks rarely change.
+                        int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
+                        if (tick - last < interval) {
+                            continue;
+                        }
+                    }
+                    if (!ChunkScanner.isChunkReady(world, cx, cz)) {
+                        continue;
+                    }
+                    long priority = (last == null ? 0 : 1000) + distance;
+                    candidates.add(new long[] { priority, key });
+                }
+            }
+            Collections.sort(candidates, (a, b) -> Long.compare(a[0], b[0]));
+            for (long[] candidate : candidates) {
+                queue.add(candidate[1]);
+            }
         }
     }
 }

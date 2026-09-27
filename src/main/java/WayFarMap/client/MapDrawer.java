@@ -16,6 +16,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.client.map.MapDimension;
+import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
 
 /** Shared drawing code of the minimap and the fullscreen map. */
@@ -99,7 +100,9 @@ public final class MapDrawer {
             day = 1f;
         } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
             day = 0f;
-        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky) {
+        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
+            || MapManager.INSTANCE.getActiveCaveLayer() >= 0) {
+            // No sunlight underground: caves look the same at any time of day.
             day = 1f;
         } else {
             // Sun brightness goes from about 0.2 at midnight to 1.0 at noon.

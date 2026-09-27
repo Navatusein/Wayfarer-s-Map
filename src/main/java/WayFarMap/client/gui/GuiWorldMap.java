@@ -36,7 +36,8 @@ public class GuiWorldMap extends GuiScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3;
+    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4;
+    private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -53,6 +54,7 @@ public class GuiWorldMap extends GuiScreen {
 
     private FlatButton dayButton;
     private FlatButton nightButton;
+    private FlatButton caveButton;
 
     private boolean dragging;
     private int lastRawMouseX;
@@ -76,6 +78,8 @@ public class GuiWorldMap extends GuiScreen {
         nightButton = new FlatButton(ID_NIGHT, width - 90, 4, 48, 16, I18n.format("wayfarmap.gui.night"));
         buttonList.add(dayButton);
         buttonList.add(nightButton);
+        caveButton = new FlatButton(ID_CAVES, 172, 4, 92, 16, "");
+        buttonList.add(caveButton);
         updateLightButtons();
     }
 
@@ -83,12 +87,18 @@ public class GuiWorldMap extends GuiScreen {
     private void updateLightButtons() {
         dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
         nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
+        caveButton.active = Config.caveMode == Config.CAVES_ON;
+        caveButton.displayString = I18n.format("wayfarmap.gui.caves") + ": "
+            + I18n.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode]);
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_CAVES) {
+            Config.cycleCaveMode();
+            updateLightButtons();
         } else if (button.id == ID_SETTINGS) {
             mc.displayGuiScreen(new GuiSettings(this));
         } else if (button.id == ID_DAY) {
@@ -184,6 +194,10 @@ public class GuiWorldMap extends GuiScreen {
         String cursorText = "X: " + hoverX + "  Z: " + hoverZ;
         if (!isExplored(dimension, hoverX, hoverZ)) {
             cursorText += "  (?)";
+        }
+        int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
+        if (caveLayer >= 0) {
+            cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
         }
         Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
         if (hoveredWaypoint != null) {

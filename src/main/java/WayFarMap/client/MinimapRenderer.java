@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 
@@ -52,6 +53,10 @@ public class MinimapRenderer {
         int blockZ = MathHelper.floor_double(player.posZ);
         if (Config.minimapShowCoordinates) {
             lines.add(blockX + ", " + MathHelper.floor_double(player.boundingBox.minY) + ", " + blockZ);
+        }
+        int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
+        if (caveLayer >= 0) {
+            lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
             lines.add(mc.theWorld.getBiomeGenForCoords(blockX, blockZ).biomeName);

@@ -34,6 +34,7 @@ public class Config {
     public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
+    public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
 
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
@@ -44,6 +45,8 @@ public class Config {
 
     /** Map lighting: {@link #LIGHT_AUTO} follows the day/night cycle. */
     public static int mapLightMode = LIGHT_AUTO;
+    /** Cave view: {@link #CAVES_AUTO} switches to it while underground. */
+    public static int caveMode = CAVES_AUTO;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -109,6 +112,14 @@ public class Config {
             new String[] { "auto", "day", "night" },
             () -> mapLightMode,
             v -> mapLightMode = v);
+        choice(
+            c,
+            "caveMode",
+            "Cave view: 0 = automatic while underground, 1 = off, 2 = always.",
+            CAVES_AUTO,
+            new String[] { "auto", "off", "on" },
+            () -> caveMode,
+            v -> caveMode = v);
         bool(
             c,
             "useTextureColors",
@@ -285,6 +296,12 @@ public class Config {
 
     public static void setMinimapEnabled(boolean enabled) {
         minimapEnabled = enabled;
+        save();
+    }
+
+    /** Auto -> off -> on -> auto. */
+    public static void cycleCaveMode() {
+        caveMode = (caveMode + 1) % 3;
         save();
     }
 

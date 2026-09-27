@@ -22,7 +22,13 @@ public final class ChunkScanner {
         return chunk != null && !chunk.isEmpty();
     }
 
-    public static void scan(World world, Chunk chunk, MapDimension dimension) {
+    /**
+     * Draws the chunk into the map.
+     *
+     * @param caveLayer -1 for the surface, otherwise the cave layer (blocks {@code layer * 16} to
+     *                  {@code layer * 16 + 15}) whose floor is drawn
+     */
+    public static void scan(World world, Chunk chunk, MapDimension dimension, int caveLayer) {
         int cx = chunk.xPosition;
         int cz = chunk.zPosition;
         boolean noSky = world.provider.hasNoSky;
@@ -31,7 +37,7 @@ public final class ChunkScanner {
         int[] northHeights = new int[16];
         Chunk north = isChunkReady(world, cx, cz - 1) ? world.getChunkFromChunkCoords(cx, cz - 1) : null;
         for (int lx = 0; lx < 16; lx++) {
-            northHeights[lx] = north != null ? findSurface(north, lx, 15, noSky) : NO_BLOCK;
+            northHeights[lx] = north != null ? findTop(north, lx, 15, noSky, caveLayer) : NO_BLOCK;
         }
 
         MapRegion region = dimension
@@ -42,10 +48,15 @@ public final class ChunkScanner {
         for (int lx = 0; lx < 16; lx++) {
             int previousHeight = northHeights[lx];
             for (int lz = 0; lz < 16; lz++) {
-                int y = findSurface(chunk, lx, lz, noSky);
+                int y = findTop(chunk, lx, lz, noSky, caveLayer);
                 int argb = 0;
                 if (y != NO_BLOCK) {
                     int rgb = columnColor(world, chunk, lx, y, lz);
+                    if (caveLayer >= 0) {
+                        // Deeper floors (below the layer) get darker, so drops read as depth.
+                        int below = Math.max(0, caveLayer * 16 - y);
+                        rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
+                    }
                     if (previousHeight != NO_BLOCK) {
                         int diff = Math.max(-4, Math.min(4, y - previousHeight));
                         rgb = BlockColors.shade(rgb, 1.0f + diff * 0.05f);
@@ -56,6 +67,38 @@ public final class ChunkScanner {
                 previousHeight = y;
             }
         }
+    }
+
+    private static int findTop(Chunk chunk, int lx, int lz, boolean noSky, int caveLayer) {
+        return caveLayer >= 0 ? findCaveFloor(chunk, lx, lz, caveLayer) : findSurface(chunk, lx, lz, noSky);
+    }
+
+    /**
+     * Floor of the open space in the cave layer: rock at the top of the layer is skipped, then the first block below
+     * the open space is the floor (searched down to one layer below, for pits). Solid rock gives {@link #NO_BLOCK}.
+     */
+    private static int findCaveFloor(Chunk chunk, int lx, int lz, int layer) {
+        int layerBottom = layer * 16;
+        int y = Math.min(255, layerBottom + 15);
+        while (y >= layerBottom && isSolid(chunk.getBlock(lx, y, lz))) {
+            y--;
+        }
+        if (y < layerBottom) {
+            return NO_BLOCK;
+        }
+        int lowest = Math.max(0, layerBottom - 16);
+        for (; y >= lowest; y--) {
+            if (isVisible(chunk.getBlock(lx, y, lz))) {
+                return y;
+            }
+        }
+        return NO_BLOCK;
+    }
+
+    /** A block that fills the space (not air, plants, torches or liquids). */
+    private static boolean isSolid(Block block) {
+        return isVisible(block) && !block.getMaterial()
+            .isLiquid();
     }
 
     /** @return y of the topmost block that should be drawn, or {@link #NO_BLOCK}. */
