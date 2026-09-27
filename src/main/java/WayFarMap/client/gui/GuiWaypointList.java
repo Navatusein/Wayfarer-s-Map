@@ -261,10 +261,17 @@ public class GuiWaypointList extends GuiScreen {
     @Override
     protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
         super.mouseMovedOrUp(mouseX, mouseY, button);
-        if (button != 0) {
-            return;
+        if (button == 0) {
+            finishDrag(mouseX, mouseY);
         }
-        if (draggingWaypoint) {
+    }
+
+    /**
+     * Drops the dragged waypoint into the group under the mouse. Called from whichever notices the release first: the
+     * frame (mouse state) or the tick (mouse event), since GUI mouse events only arrive 20 times per second.
+     */
+    private void finishDrag(int mouseX, int mouseY) {
+        if (pressedWaypoint != null && draggingWaypoint) {
             Row target = rowAt(mouseX, mouseY);
             if (target != null) {
                 String group = target.ungrouped ? null : target.group.name;
@@ -296,8 +303,7 @@ public class GuiWaypointList extends GuiScreen {
             return;
         }
         if (!Mouse.isButtonDown(0)) {
-            pressedWaypoint = null;
-            draggingWaypoint = false;
+            finishDrag(mouseX, mouseY);
             return;
         }
         if (!draggingWaypoint && Math.abs(mouseX - pressX) + Math.abs(mouseY - pressY) > 3) {

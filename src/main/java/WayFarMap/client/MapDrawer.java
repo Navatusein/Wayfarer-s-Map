@@ -208,7 +208,10 @@ public final class MapDrawer {
         final double cx = centerX, cz = centerZ;
         mobs.sort((a, b) -> Double.compare(distanceSq(b, cx, cz), distanceSq(a, cx, cz)));
         int firstIcon = Config.entityIcons ? Math.max(0, mobs.size() - Config.entityIconLimit) : mobs.size();
-        float iconSize = playerSize + 2f;
+        // Icons shrink when zooming out (like waypoints) so they don't cover the map, down to half their size.
+        float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
+        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor);
+        playerSize = Math.max(4f, playerSize * zoomFactor);
         for (int i = 0; i < mobs.size(); i++) {
             EntityLivingBase entity = mobs.get(i);
             double ex = entity.prevPosX + (entity.posX - entity.prevPosX) * partialTicks;
