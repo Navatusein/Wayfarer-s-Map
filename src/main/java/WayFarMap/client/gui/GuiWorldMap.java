@@ -24,6 +24,7 @@ import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
@@ -47,7 +48,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
         ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9, ID_HELP = 10,
-        ID_MOBS = 11;
+        ID_MOBS = 11, ID_POWERFAILS = 12;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -80,6 +81,8 @@ public class GuiWorldMap extends ScaledScreen {
     private FlatButton oreButton, fluidButton;
     /** ServerUtilities claims layer; null when it isn't installed. */
     private FlatButton claimsButton;
+    /** GregTech power failures; null when GregTech doesn't have them. */
+    private FlatButton powerfailButton;
     private FlatButton helpButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
@@ -149,7 +152,11 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Mods.isClaimsAvailable()) {
             claimsButton = new FlatButton(ID_CLAIMS, x, 4, 0, 16, I18n.format("wayfarmap.gui.claims"));
-            addHeaderButton(claimsButton, x);
+            x = addHeaderButton(claimsButton, x);
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            powerfailButton = new FlatButton(ID_POWERFAILS, x, 4, 0, 16, I18n.format("wayfarmap.gui.powerfails"));
+            addHeaderButton(powerfailButton, x);
         }
 
         // Right side, laid out right to left before the zoom text.
@@ -198,7 +205,11 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** The search field shows up in biome view and with the ore vein or fluid layer. */
     private boolean searchAvailable() {
-        return biomeViewShown() || prospectingLayerShown();
+        return biomeViewShown() || prospectingLayerShown() || powerfailsShown();
+    }
+
+    private static boolean powerfailsShown() {
+        return Config.showPowerfails && Mods.isPowerfailsAvailable();
     }
 
     private boolean biomeViewShown() {
@@ -215,6 +226,9 @@ public class GuiWorldMap extends ScaledScreen {
         BiomeHighlight.setQuery(biomeViewShown() ? query : "");
         if (Mods.isVisualProspectingLoaded()) {
             ProspectingLayer.setSearch(prospectingLayerShown() ? query : "");
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            PowerfailLayer.setSearch(powerfailsShown() ? query : "");
         }
     }
 
@@ -275,6 +289,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (claimsButton != null) {
             claimsButton.active = Config.showClaims;
         }
+        if (powerfailButton != null) {
+            powerfailButton.active = Config.showPowerfails;
+        }
     }
 
     @Override
@@ -286,6 +303,9 @@ public class GuiWorldMap extends ScaledScreen {
             if (Config.showClaims) {
                 ClaimsLayer.onShow();
             }
+            updateLightButtons();
+        } else if (button.id == ID_POWERFAILS) {
+            Config.togglePowerfails();
             updateLightButtons();
         } else if (button.id == ID_ORES) {
             Config.toggleOreVeins();
@@ -408,6 +428,9 @@ public class GuiWorldMap extends ScaledScreen {
             ProspectingLayer
                 .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
         }
+        if (powerfailsShown()) {
+            PowerfailLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
         if (!otherDimension) {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
         }
@@ -491,7 +514,11 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (menu != null) {
             drawMenu(mouseX, mouseY);
         } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
-            List<String> tooltip = prospecting && Config.showOreVeins ? ProspectingLayer.getHoveredTooltip() : null;
+            // Power failures are drawn on top, so their tooltip comes first.
+            List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
+            if (tooltip == null && prospecting && Config.showOreVeins) {
+                tooltip = ProspectingLayer.getHoveredTooltip();
+            }
             if (tooltip == null && claimsShown()) {
                 tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
             }
@@ -508,7 +535,8 @@ public class GuiWorldMap extends ScaledScreen {
             if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS
                 || button.id == ID_ORES
                 || button.id == ID_FLUIDS
-                || button.id == ID_CLAIMS) {
+                || button.id == ID_CLAIMS
+                || button.id == ID_POWERFAILS) {
                 end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
             }
         }
@@ -711,6 +739,18 @@ public class GuiWorldMap extends ScaledScreen {
         // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
         final Object vein = Mods.isVisualProspectingLoaded() && Config.showOreVeins ? ProspectingLayer.getHoveredVein()
             : null;
+        // Same for the power failure under the mouse.
+        final Object powerfail = powerfailsShown() ? PowerfailLayer.getHovered() : null;
+        if (powerfail != null) {
+            entries.add(
+                new MenuEntry(I18n.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail)));
+            final int[] at = PowerfailLayer.position(powerfail);
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.powerfail.waypoint"),
+                    true,
+                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1] + 1, at[2], at[3]))));
+        }
         if (vein != null) {
             entries.add(
                 new MenuEntry(
@@ -1110,6 +1150,9 @@ public class GuiWorldMap extends ScaledScreen {
         // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
         if (Mods.isVisualProspectingLoaded()) {
             ProspectingLayer.setSearch("");
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            PowerfailLayer.setSearch("");
         }
         MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
     }
