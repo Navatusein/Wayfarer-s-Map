@@ -26,7 +26,7 @@ import WayFarMap.WayFarMap;
 /**
  * GregTech power failures ("powerfails"): machines of the player's team that ran out of power, as GregTech's own
  * Navigator map layer shows them. GregTech keeps them on the client in
- * {@code GTMod.clientProxy().powerfailRenderer.powerfails} (dimension -> packed coordinate -> Powerfail) and clears
+ * {@code GTMod.clientProxy().powerfailRenderer.powerfails} (see {@link #containers()}) and clears
  * one with a {@code GTPacketClearPowerfail} to the server. Everything is reached by reflection, so GregTech versions
  * without powerfails simply don't get the button.
  */
@@ -77,6 +77,7 @@ public final class PowerfailLayer {
                 sendToServer = networkField.getType()
                     .getMethod("sendToServer", Class.forName("gregtech.api.net.GTPacket"));
                 available = true;
+                WayFarMap.LOG.info("GregTech power failures found, showing them on the map");
             } catch (Throwable t) {
                 WayFarMap.LOG.info("GregTech power failures are not available: {}", t.toString());
                 available = false;
@@ -140,11 +141,10 @@ public final class PowerfailLayer {
         lastRefresh = now;
         List<Powerfail> result = new ArrayList<>();
         try {
-            Map<?, ?> byDimension = (Map<?, ?>) powerfailsField.get(renderer());
-            Object inDimension = byDimension.get(dimension);
-            if (inDimension instanceof Map) {
-                for (Object source : ((Map<?, ?>) inDimension).values()) {
-                    result.add(new Powerfail(source));
+            for (Object source : allSources()) {
+                Powerfail powerfail = new Powerfail(source);
+                if (powerfail.dimension == dimension) {
+                    result.add(powerfail);
                 }
             }
         } catch (Throwable t) {
@@ -155,6 +155,34 @@ public final class PowerfailLayer {
         }
         cached = result;
         return result;
+    }
+
+    /**
+     * The collections GregTech keeps powerfails in: newer versions have a map per dimension (dimension -> coordinate
+     * -> powerfail), the first ones (5.09.51.413 on) a single map for all dimensions (coordinate -> powerfail).
+     */
+    private static List<Collection<?>> containers() throws Exception {
+        Map<?, ?> top = (Map<?, ?>) powerfailsField.get(renderer());
+        List<Collection<?>> containers = new ArrayList<>();
+        boolean nested = false;
+        for (Object value : top.values()) {
+            if (value instanceof Map) {
+                containers.add(((Map<?, ?>) value).values());
+                nested = true;
+            }
+        }
+        if (!nested) {
+            containers.add(top.values());
+        }
+        return containers;
+    }
+
+    private static List<Object> allSources() throws Exception {
+        List<Object> sources = new ArrayList<>();
+        for (Collection<?> container : containers()) {
+            sources.addAll(container);
+        }
+        return sources;
     }
 
     private static IIcon icon() {
@@ -171,11 +199,8 @@ public final class PowerfailLayer {
         Powerfail powerfail = (Powerfail) handle;
         try {
             sendToServer.invoke(networkField.get(null), clearPacket.newInstance(powerfail.source));
-            Map<?, ?> byDimension = (Map<?, ?>) powerfailsField.get(renderer());
-            Object inDimension = byDimension.get(powerfail.dimension);
-            if (inDimension instanceof Map) {
-                ((Map<?, ?>) inDimension).values()
-                    .remove(powerfail.source);
+            for (Collection<?> container : containers()) {
+                container.remove(powerfail.source);
             }
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Could not clear a GregTech power failure", t);
