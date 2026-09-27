@@ -2,9 +2,12 @@ package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
+import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
+
+import WayFarMap.Config;
 
 /** Turns a loaded chunk into map pixels. */
 public final class ChunkScanner {
@@ -41,12 +44,26 @@ public final class ChunkScanner {
         int cx = chunk.xPosition;
         int cz = chunk.zPosition;
         boolean noSky = world.provider.hasNoSky;
+        boolean detailed = Config.mapStyle == Config.STYLE_DETAILED;
 
-        // Heights of the row just north of this chunk, for relief shading across the chunk border.
-        int[] northHeights = new int[16];
-        Chunk north = isChunkReady(world, cx, cz - 1) ? world.getChunkFromChunkCoords(cx, cz - 1) : null;
+        // Heights of the chunk and of the columns right around it (from the neighbouring chunks if loaded), for
+        // shading across chunk borders: heights[lx + 1][lz + 1].
+        int[][] heights = new int[18][18];
+        Chunk north = neighbour(world, cx, cz - 1), south = neighbour(world, cx, cz + 1);
+        Chunk west = neighbour(world, cx - 1, cz), east = neighbour(world, cx + 1, cz);
+        for (int i = 0; i < 18; i++) {
+            heights[i][0] = heights[i][17] = heights[0][i] = heights[17][i] = NO_BLOCK;
+        }
         for (int lx = 0; lx < 16; lx++) {
-            northHeights[lx] = north != null ? findTop(north, lx, 15, noSky, caveLayer) : NO_BLOCK;
+            for (int lz = 0; lz < 16; lz++) {
+                heights[lx + 1][lz + 1] = findTop(chunk, lx, lz, noSky, caveLayer);
+            }
+            heights[lx + 1][0] = north != null ? findTop(north, lx, 15, noSky, caveLayer) : NO_BLOCK;
+            if (detailed) {
+                heights[lx + 1][17] = south != null ? findTop(south, lx, 0, noSky, caveLayer) : NO_BLOCK;
+                heights[0][lx + 1] = west != null ? findTop(west, 15, lx, noSky, caveLayer) : NO_BLOCK;
+                heights[17][lx + 1] = east != null ? findTop(east, 0, lx, noSky, caveLayer) : NO_BLOCK;
+            }
         }
 
         MapRegion region = dimension.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
@@ -56,9 +73,9 @@ public final class ChunkScanner {
             : biomeMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
 
         for (int lx = 0; lx < 16; lx++) {
-            int previousHeight = northHeights[lx];
             for (int lz = 0; lz < 16; lz++) {
-                int y = findTop(chunk, lx, lz, noSky, caveLayer);
+                int y = heights[lx + 1][lz + 1];
+                int previousHeight = heights[lx + 1][lz];
                 int argb = 0;
                 float relief = 1f;
                 if (y != NO_BLOCK && previousHeight != NO_BLOCK) {
@@ -66,12 +83,19 @@ public final class ChunkScanner {
                 }
                 if (y != NO_BLOCK) {
                     int rgb = columnColor(world, chunk, lx, y, lz);
+                    if (detailed) {
+                        rgb = withPlant(world, chunk, lx, y, lz, rgb);
+                    }
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
                         rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
                     }
-                    rgb = BlockColors.shade(rgb, relief);
+                    if (detailed) {
+                        rgb = BlockColors.shade(rgb, detailedShade(heights, lx + 1, lz + 1, caveLayer < 0 && !noSky));
+                    } else {
+                        rgb = BlockColors.shade(rgb, relief);
+                    }
                     argb = 0xFF000000 | rgb;
                 }
                 if (caveLayer < 0) {
@@ -87,9 +111,60 @@ public final class ChunkScanner {
                     int biomeId = biome == null || biome.biomeID >= 255 ? 0 : biome.biomeID + 1;
                     biomeRegion.setPixel(baseX + lx, baseZ + lz, biomeArgb, biomeId);
                 }
-                previousHeight = y;
             }
         }
+    }
+
+    private static Chunk neighbour(World world, int cx, int cz) {
+        return isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
+    }
+
+    /**
+     * JourneyMap-like shading: the slope towards the north-west light (both neighbours, not only the north one) makes
+     * faces brighter or darker, columns lower than their surroundings get a little shadow (crevices, riverbeds, the
+     * foot of cliffs), and on the surface higher ground is slightly lighter, so the terrain reads like a relief map.
+     */
+    private static float detailedShade(int[][] heights, int i, int j, boolean surface) {
+        int y = heights[i][j];
+        int north = heightOr(heights[i][j - 1], y), west = heightOr(heights[i - 1][j], y);
+        int south = heightOr(heights[i][j + 1], y), east = heightOr(heights[i + 1][j], y);
+        int slope = Math.max(-6, Math.min(6, y - north)) + Math.max(-6, Math.min(6, y - west));
+        float factor = 1.0f + slope * 0.045f;
+        // Neighbours at least two blocks higher cast a soft shadow.
+        int higher = (north - y >= 2 ? 1 : 0) + (west - y >= 2 ? 1 : 0)
+            + (south - y >= 2 ? 1 : 0)
+            + (east - y >= 2 ? 1 : 0);
+        factor -= higher * 0.05f;
+        if (surface) {
+            factor += Math.max(-0.08f, Math.min(0.08f, (y - 64) * 0.0015f));
+        }
+        return Math.max(0.55f, Math.min(1.35f, factor));
+    }
+
+    private static int heightOr(int height, int fallback) {
+        return height == NO_BLOCK ? fallback : height;
+    }
+
+    /**
+     * Plants and small things standing on the block (flowers, tall grass, crops, saplings, rails, redstone, torches,
+     * snow) tint its pixel, like JourneyMap's plant layer.
+     */
+    private static int withPlant(World world, Chunk chunk, int lx, int y, int lz, int rgb) {
+        if (y >= 255) {
+            return rgb;
+        }
+        Block above = chunk.getBlock(lx, y + 1, lz);
+        Material material = above.getMaterial();
+        if (above.getRenderType() == -1 || material != Material.plants && material != Material.vine
+            && material != Material.circuits) {
+            return rgb;
+        }
+        int x = chunk.xPosition * 16 + lx;
+        int z = chunk.zPosition * 16 + lz;
+        int plant = BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
+        // Tall grass and vines mostly cover the ground; flowers, crops and rails leave more of it visible.
+        float amount = material == Material.vine || above == Blocks.tallgrass ? 0.35f : 0.6f;
+        return BlockColors.blend(rgb, plant, amount);
     }
 
     /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */

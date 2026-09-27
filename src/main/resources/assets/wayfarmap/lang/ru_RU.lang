@@ -175,3 +175,7 @@ wayfarmap.powerfail.clear=Убрать отметку о сбое
 wayfarmap.powerfail.waypoint=Поставить метку здесь
 wayfarmap.option.map.powerfails=Сбои питания GregTech
 wayfarmap.option.map.powerfails.desc=Показывать на карте и миникарте машины GregTech, у которых кончилась энергия (если версия GregTech это поддерживает).
+wayfarmap.option.map.style=Стиль карты
+wayfarmap.option.map.style.desc=«Детальный» — как в JourneyMap: объёмный рельеф (свет с северо-запада, тени во впадинах и у обрывов), высота подсвечивается, видны цветы, трава, посевы, рельсы, редстоун и факелы. Уже исследованные места перерисуются, когда вы снова окажетесь рядом.
+wayfarmap.option.map.style.classic=Классический
+wayfarmap.option.map.style.detailed=Детальный

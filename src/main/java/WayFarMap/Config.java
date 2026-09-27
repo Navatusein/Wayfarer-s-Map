@@ -64,6 +64,9 @@ public class Config {
     public static boolean showClaims = false;
     public static boolean showPowerfails = true;
     public static boolean useTextureColors = true;
+    public static final int STYLE_CLASSIC = 0, STYLE_DETAILED = 1;
+    /** How the map is drawn: simple relief, or JourneyMap-like shading with plants. */
+    public static int mapStyle = STYLE_DETAILED;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
 
@@ -209,6 +212,14 @@ public class Config {
             new String[] { "auto", "off", "on" },
             () -> caveMode,
             v -> caveMode = v);
+        choice(
+            c,
+            "style",
+            "Map style: 0 = classic, 1 = detailed (JourneyMap-like shading, plants, rails and redstone).",
+            STYLE_DETAILED,
+            new String[] { "classic", "detailed" },
+            () -> mapStyle,
+            v -> mapStyle = v);
         bool(
             c,
             "useTextureColors",
