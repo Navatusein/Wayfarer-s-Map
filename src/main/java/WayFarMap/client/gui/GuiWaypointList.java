@@ -13,6 +13,7 @@ import net.minecraft.util.MathHelper;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
+import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Theme;
@@ -470,7 +471,7 @@ public class GuiWaypointList extends GuiScreen {
         x += 18;
 
         boolean shown = manager.isVisible(waypoint);
-        String name = waypoint.name.isEmpty() ? "-" : Theme.ellipsize(fontRendererObj, waypoint.name, 140);
+        String name = waypoint.name.isEmpty() ? "-" : Theme.ellipsize(fontRendererObj, waypoint.name, 110);
         fontRendererObj.drawString(name, x, y + 6, shown ? Theme.TEXT : Theme.TEXT_DISABLED);
         x += fontRendererObj.getStringWidth(name) + 6;
 
@@ -482,6 +483,8 @@ public class GuiWaypointList extends GuiScreen {
             double dz = waypoint.z + 0.5 - mc.thePlayer.posZ;
             info += "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m";
         }
+        // Leave room for the row's buttons on the right.
+        info = Theme.ellipsize(fontRendererObj, info, Math.max(0, listRight - 184 - x));
         fontRendererObj.drawString(info, x, y + 6, Theme.TEXT_MUTED);
 
         int bx = listRight - 4;
@@ -493,7 +496,7 @@ public class GuiWaypointList extends GuiScreen {
             mouseX,
             mouseY,
             () -> confirmDelete(waypoint, () -> manager.removeWaypoint(waypoint)));
-        drawTextButton(
+        bx = drawTextButton(
             bx,
             y + 4,
             I18n.format("wayfarmap.gui.edit"),
@@ -501,6 +504,13 @@ public class GuiWaypointList extends GuiScreen {
             mouseX,
             mouseY,
             () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint)));
+        // Teleporting needs /tp permission and the same dimension.
+        if (Teleport.isAllowed() && mc.theWorld != null && waypoint.dimension == mc.theWorld.provider.dimensionId) {
+            drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.teleport"), Theme.ACCENT, mouseX, mouseY, () -> {
+                mc.displayGuiScreen(null);
+                Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
+            });
+        }
     }
 
     private void drawCheckbox(int x, int y, boolean checked, int mouseX, int mouseY, Runnable action) {

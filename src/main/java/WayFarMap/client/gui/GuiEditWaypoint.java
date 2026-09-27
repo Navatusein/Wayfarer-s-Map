@@ -11,6 +11,7 @@ import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Keyboard;
 
+import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Theme;
@@ -28,7 +29,9 @@ public class GuiEditWaypoint extends GuiScreen {
     private static final int SWATCH = 13;
 
     private static final int ID_GROUP = 1, ID_NEW_GROUP = 2, ID_ICON = 3, ID_OUTLINE = 4, ID_SAVE = 5, ID_DELETE = 6,
-        ID_CANCEL = 7;
+        ID_CANCEL = 7, ID_TELEPORT = 8;
+    /** Square left of the icon button showing the marker as it will look. */
+    private static final int PREVIEW = 18;
 
     private final GuiScreen parent;
     /** Waypoint being edited, or null when creating a new one. */
@@ -79,16 +82,39 @@ public class GuiEditWaypoint extends GuiScreen {
 
         buttonList.add(new FlatButton(ID_GROUP, left, top + 83, 220, 18, ""));
         buttonList.add(new FlatButton(ID_NEW_GROUP, left + 174, top + 107, 46, 18, "+"));
-        buttonList.add(new FlatButton(ID_ICON, left, top + 131, 220, 18, ""));
+        buttonList.add(new FlatButton(ID_ICON, left + PREVIEW + 4, top + 131, 220 - PREVIEW - 4, 18, ""));
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
-        FlatButton saveButton = new FlatButton(ID_SAVE, left, top + 199, 70, 18, I18n.format("wayfarmap.gui.save"));
+        // Bottom row: Save [Teleport Delete] Cancel; teleport and delete only exist for saved waypoints. Each button
+        // gets its text width plus an equal share of the remaining space.
+        FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.save"));
         saveButton.active = true;
-        buttonList.add(saveButton);
-        deleteButton = new FlatButton(ID_DELETE, left + 75, top + 199, 70, 18, "");
+        deleteButton = new FlatButton(ID_DELETE, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.confirm"));
         deleteButton.danger = true;
-        deleteButton.enabled = target != null;
-        buttonList.add(deleteButton);
-        buttonList.add(new FlatButton(ID_CANCEL, left + 150, top + 199, 70, 18, I18n.format("gui.cancel")));
+        FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + 199, 0, 18, I18n.format("gui.cancel"));
+        List<FlatButton> row = new ArrayList<>();
+        row.add(saveButton);
+        if (target != null) {
+            FlatButton teleport = new FlatButton(ID_TELEPORT, 0, top + 199, 0, 18, I18n.format("wayfarmap.gui.teleport"));
+            teleport.enabled = Teleport.isAllowed() && mc.theWorld != null
+                && target.dimension == mc.theWorld.provider.dimensionId;
+            row.add(teleport);
+            row.add(deleteButton);
+        }
+        row.add(cancelButton);
+        int natural = 0;
+        for (FlatButton button : row) {
+            natural += fontRendererObj.getStringWidth(button.displayString) + 8;
+        }
+        int extra = Math.max(0, 220 - natural - (row.size() - 1) * 4) / row.size();
+        int x = left;
+        for (FlatButton button : row) {
+            button.xPosition = x;
+            button.setWidth(fontRendererObj.getStringWidth(button.displayString) + 8 + extra);
+            x += button.getWidth() + 4;
+            buttonList.add(button);
+        }
+        // Rounding leftovers go to the last button so the row ends flush with the fields above.
+        cancelButton.setWidth(left + 220 - cancelButton.xPosition);
         updateButtons();
     }
 
@@ -203,6 +229,10 @@ public class GuiEditWaypoint extends GuiScreen {
                     return;
                 }
                 break;
+            case ID_TELEPORT:
+                mc.displayGuiScreen(null);
+                Teleport.teleport(target.x, target.y, target.z);
+                return;
             case ID_CANCEL:
                 mc.displayGuiScreen(parent);
                 return;
@@ -311,7 +341,7 @@ public class GuiEditWaypoint extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
-        Theme.panel(left - 30, top - 8, left + 230, top + 226);
+        Theme.panel(left - 10, top - 8, left + 230, top + 226);
         Theme.text(
             fontRendererObj,
             I18n.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
@@ -338,7 +368,9 @@ public class GuiEditWaypoint extends GuiScreen {
         super.drawScreen(mouseX, mouseY, partialTicks);
 
         // Preview of the marker next to the icon button.
-        WaypointRenderer.drawMapMarker(edited, left - 16, top + 140, 16f, false);
+        Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, 0xFF0F1216);
+        Theme.outline(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, Theme.BORDER);
+        WaypointRenderer.drawMapMarker(edited, left + PREVIEW / 2.0, top + 131 + PREVIEW / 2.0, 12f, false);
     }
 
     @Override

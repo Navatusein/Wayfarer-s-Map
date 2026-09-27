@@ -128,7 +128,7 @@ public class MapDimension {
             if (!region.isSaveDirty()) {
                 continue;
             }
-            final int[] data = region.snapshotForSave();
+            final MapRegion.Snapshot data = region.snapshotForSave();
             final File file = MapRegion.getFile(directory, region.rx, region.rz);
             futures.add(executor.submit(() -> {
                 try {

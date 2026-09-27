@@ -1,9 +1,15 @@
 package WayFarMap.client.map;
 
 import java.awt.image.BufferedImage;
+import java.io.DataInputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.IntBuffer;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 import javax.imageio.ImageIO;
 
@@ -13,7 +19,9 @@ import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
 
 /**
- * A 512x512 block area of the map (32x32 chunks). Pixels are ARGB; a pixel with alpha 0 has not been explored.
+ * A 512x512 block area of the map (32x32 chunks). Pixels are ARGB; a pixel with alpha 0 has not been explored. Each
+ * pixel can also carry one extra byte (0 = unknown): the height to stand on for the surface map, the biome for the
+ * biome map. It is saved next to the image as {@code r.X.Z.dat}.
  */
 public class MapRegion {
 
@@ -26,6 +34,8 @@ public class MapRegion {
     public final int rx;
     public final int rz;
     private final int[] pixels = new int[SIZE * SIZE];
+    /** Allocated on first use; most maps (caves) never need it. */
+    private byte[] extra;
 
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
@@ -47,6 +57,27 @@ public class MapRegion {
                 markTextureDirty(localX, localZ);
             }
         }
+    }
+
+    /** Sets the pixel and its extra byte (0..255, 0 = unknown). */
+    public void setPixel(int localX, int localZ, int argb, int extraValue) {
+        setPixel(localX, localZ, argb);
+        int index = localZ * SIZE + localX;
+        if (extra == null) {
+            if (extraValue == 0) {
+                return;
+            }
+            extra = new byte[SIZE * SIZE];
+        }
+        if (extra[index] != (byte) extraValue) {
+            extra[index] = (byte) extraValue;
+            saveDirty = true;
+        }
+    }
+
+    /** @return the extra byte of the pixel, 0 if unknown */
+    public int getExtra(int localX, int localZ) {
+        return extra == null ? 0 : extra[localZ * SIZE + localX] & 0xFF;
     }
 
     private void markTextureDirty(int localX, int localZ) {
@@ -142,11 +173,22 @@ public class MapRegion {
         return saveDirty;
     }
 
-    /** Copies the pixels for saving on another thread and clears the dirty flag. */
-    public int[] snapshotForSave() {
+    /** Copies the data for saving on another thread and clears the dirty flag. */
+    public Snapshot snapshotForSave() {
         saveDirty = false;
         saving = true;
-        return pixels.clone();
+        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null);
+    }
+
+    public static final class Snapshot {
+
+        final int[] pixels;
+        final byte[] extra;
+
+        Snapshot(int[] pixels, byte[] extra) {
+            this.pixels = pixels;
+            this.extra = extra;
+        }
     }
 
     /** Whether a save of this region is queued or running, i.e. the file on disk may be out of date. */
@@ -162,7 +204,33 @@ public class MapRegion {
         return new File(dimensionDir, "r." + rx + "." + rz + ".png");
     }
 
-    public static void write(File file, int[] data) throws IOException {
+    private static File getExtraFile(File imageFile) {
+        String path = imageFile.getPath();
+        return new File(path.substring(0, path.length() - 4) + ".dat");
+    }
+
+    public static void write(File file, Snapshot snapshot) throws IOException {
+        writeImage(file, snapshot.pixels);
+        if (snapshot.extra != null) {
+            File extraFile = getExtraFile(file);
+            File tmp = new File(extraFile.getPath() + ".tmp");
+            try (OutputStream out = new GZIPOutputStream(new FileOutputStream(tmp))) {
+                out.write(snapshot.extra);
+            }
+            replace(tmp, extraFile);
+        }
+    }
+
+    private static void replace(File tmp, File file) throws IOException {
+        if (file.exists() && !file.delete()) {
+            throw new IOException("Could not replace " + file);
+        }
+        if (!tmp.renameTo(file)) {
+            throw new IOException("Could not rename " + tmp + " to " + file);
+        }
+    }
+
+    private static void writeImage(File file, int[] data) throws IOException {
         BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
         image.setRGB(0, 0, SIZE, SIZE, data, 0, SIZE);
         File parent = file.getParentFile();
@@ -173,12 +241,7 @@ public class MapRegion {
         if (!ImageIO.write(image, "png", tmp)) {
             throw new IOException("No PNG writer available");
         }
-        if (file.exists() && !file.delete()) {
-            throw new IOException("Could not replace " + file);
-        }
-        if (!tmp.renameTo(file)) {
-            throw new IOException("Could not rename " + tmp + " to " + file);
-        }
+        replace(tmp, file);
     }
 
     public static MapRegion read(File file, int rx, int rz) throws IOException {
@@ -188,6 +251,16 @@ public class MapRegion {
         }
         MapRegion region = new MapRegion(rx, rz);
         image.getRGB(0, 0, SIZE, SIZE, region.pixels, 0, SIZE);
+        File extraFile = getExtraFile(file);
+        if (extraFile.isFile()) {
+            byte[] extra = new byte[SIZE * SIZE];
+            try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(extraFile)))) {
+                in.readFully(extra);
+                region.extra = extra;
+            } catch (IOException e) {
+                // Only the extra data is lost; the map image is still fine.
+            }
+        }
         return region;
     }
 }

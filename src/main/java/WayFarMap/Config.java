@@ -35,6 +35,7 @@ public class Config {
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
+    public static final int DISPLAY_BLOCKS = 0, DISPLAY_BIOMES = 1;
 
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
@@ -47,6 +48,8 @@ public class Config {
     public static int mapLightMode = LIGHT_AUTO;
     /** Cave view: {@link #CAVES_AUTO} switches to it while underground. */
     public static int caveMode = CAVES_AUTO;
+    /** Surface drawn with block colors or biome colors. */
+    public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -112,6 +115,14 @@ public class Config {
             new String[] { "auto", "day", "night" },
             () -> mapLightMode,
             v -> mapLightMode = v);
+        choice(
+            c,
+            "displayMode",
+            "Surface map colors: 0 = blocks, 1 = biomes.",
+            DISPLAY_BLOCKS,
+            new String[] { "blocks", "biomes" },
+            () -> mapDisplayMode,
+            v -> mapDisplayMode = v);
         choice(
             c,
             "caveMode",
@@ -302,6 +313,11 @@ public class Config {
     /** Auto -> off -> on -> auto. */
     public static void cycleCaveMode() {
         caveMode = (caveMode + 1) % 3;
+        save();
+    }
+
+    public static void toggleBiomeView() {
+        mapDisplayMode = mapDisplayMode == DISPLAY_BIOMES ? DISPLAY_BLOCKS : DISPLAY_BIOMES;
         save();
     }
 

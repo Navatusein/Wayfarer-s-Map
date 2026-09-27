@@ -21,6 +21,7 @@ import net.minecraft.client.resources.IResourceManagerReloadListener;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
+import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
@@ -50,9 +51,12 @@ public class MapManager implements IResourceManagerReloadListener {
     private WorldClient currentWorld;
     private File dimensionDirectory;
     private MapDimension surface;
+    private MapDimension biomes;
     private final Map<Integer, MapDimension> caveLayers = new HashMap<>();
     /** Cave layer shown and scanned, or -1 while the surface is shown. */
     private int activeCaveLayer = -1;
+    /** Cave layer chosen on the world map, or -1 to follow the player. */
+    private int caveLayerOverride = -1;
     private boolean underground;
 
     private final ScanTracker surfaceTracker = new ScanTracker();
@@ -70,9 +74,38 @@ public class MapManager implements IResourceManagerReloadListener {
         });
     }
 
-    /** Map to show right now: the active cave layer in cave mode, otherwise the surface. Null outside of a world. */
+    /**
+     * Map to show right now: the active cave layer in cave mode, otherwise the surface or the biome map. Null outside
+     * of a world.
+     */
     public MapDimension getDimension() {
-        return activeCaveLayer >= 0 ? getCaveLayer(activeCaveLayer) : surface;
+        if (activeCaveLayer >= 0) {
+            return getCaveLayer(activeCaveLayer);
+        }
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES ? biomes : surface;
+    }
+
+    /** Pins the cave view to a layer (0-15), or -1 to follow the player's height. */
+    public void setCaveLayerOverride(int layer) {
+        caveLayerOverride = layer < 0 ? -1 : Math.min(15, layer);
+    }
+
+    public int getCaveLayerOverride() {
+        return caveLayerOverride;
+    }
+
+    /** Height to stand on at the column, from the explored surface map; 0 if unknown. */
+    public int getSurfaceHeight(int x, int z) {
+        MapRegion region = surface == null ? null
+            : surface.getRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT, false);
+        return region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+    }
+
+    /** Biome of the column from the explored biome map, or null if unknown. */
+    public BiomeGenBase getBiome(int x, int z) {
+        MapRegion region = biomes == null ? null : biomes.getLoadedRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
+        int id = region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+        return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
     }
 
     /** Cave layer being shown (blocks {@code layer * 16} to {@code layer * 16 + 15}), or -1 for the surface. */
@@ -94,6 +127,9 @@ public class MapManager implements IResourceManagerReloadListener {
         List<MapDimension> maps = new ArrayList<>();
         if (surface != null) {
             maps.add(surface);
+        }
+        if (biomes != null) {
+            maps.add(biomes);
         }
         maps.addAll(caveLayers.values());
         return maps;
@@ -126,11 +162,11 @@ public class MapManager implements IResourceManagerReloadListener {
 
         int budget = Config.chunksScannedPerTick;
         if (activeCaveLayer >= 0) {
-            caveTracker.scan(mc, world, mc.thePlayer, getCaveLayer(activeCaveLayer), activeCaveLayer, budget);
+            caveTracker.scan(mc, world, mc.thePlayer, getCaveLayer(activeCaveLayer), activeCaveLayer, null, budget);
             // The surface rarely changes while the player is underground.
-            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, Math.max(1, budget / 4));
+            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, Math.max(1, budget / 4));
         } else {
-            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, budget);
+            surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, budget);
         }
 
         long now = System.currentTimeMillis();
@@ -150,7 +186,8 @@ public class MapManager implements IResourceManagerReloadListener {
             underground = isUnderground(world, player);
         }
         boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && underground);
-        int layer = caves ? Math.max(0, Math.min(15, MathHelper.floor_double(player.boundingBox.minY) >> 4)) : -1;
+        int playerLayer = Math.max(0, Math.min(15, MathHelper.floor_double(player.boundingBox.minY) >> 4));
+        int layer = !caves ? -1 : caveLayerOverride >= 0 ? caveLayerOverride : playerLayer;
         if (layer != activeCaveLayer) {
             activeCaveLayer = layer;
             caveTracker.reset();
@@ -202,6 +239,7 @@ public class MapManager implements IResourceManagerReloadListener {
         dimensionDirectory = new File(worldDirectory, "dim" + dimensionId);
         WaypointManager.INSTANCE.load(worldDirectory);
         surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
+        biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
         lastAutosave = System.currentTimeMillis();
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, dimensionDirectory);
     }
@@ -223,7 +261,9 @@ public class MapManager implements IResourceManagerReloadListener {
             map.deleteTextures();
         }
         surface = null;
+        biomes = null;
         caveLayers.clear();
+        caveLayerOverride = -1;
         dimensionDirectory = null;
         activeCaveLayer = -1;
         underground = false;
@@ -265,7 +305,8 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         /** @param caveLayer layer to scan, or -1 for the surface */
-        void scan(Minecraft mc, WorldClient world, EntityPlayer player, MapDimension map, int caveLayer, int budget) {
+        void scan(Minecraft mc, WorldClient world, EntityPlayer player, MapDimension map, int caveLayer,
+            MapDimension biomeMap, int budget) {
             if (queue.isEmpty() && tick >= nextQueueBuild) {
                 buildQueue(mc, world, player);
                 nextQueueBuild = tick + 10;
@@ -278,7 +319,7 @@ public class MapManager implements IResourceManagerReloadListener {
                     continue;
                 }
                 try {
-                    ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer);
+                    ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap);
                 } catch (Exception e) {
                     WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
                 }

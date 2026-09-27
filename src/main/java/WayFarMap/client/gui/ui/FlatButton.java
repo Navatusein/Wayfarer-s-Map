@@ -15,6 +15,14 @@ public class FlatButton extends GuiButton {
         super(id, x, y, width, height, text);
     }
 
+    public int getWidth() {
+        return width;
+    }
+
+    public void setWidth(int width) {
+        this.width = width;
+    }
+
     public boolean isMouseOver(int mouseX, int mouseY) {
         return visible && Theme.inside(mouseX, mouseY, xPosition, yPosition, xPosition + width, yPosition + height);
     }

@@ -3,6 +3,7 @@ package WayFarMap.client.map;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.world.World;
+import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 
 /** Turns a loaded chunk into map pixels. */
@@ -29,6 +30,14 @@ public final class ChunkScanner {
      *                  {@code layer * 16 + 15}) whose floor is drawn
      */
     public static void scan(World world, Chunk chunk, MapDimension dimension, int caveLayer) {
+        scan(world, chunk, dimension, caveLayer, null);
+    }
+
+    /**
+     * Same as {@link #scan(World, Chunk, MapDimension, int)}, also drawing the biome of each column into
+     * {@code biomeMap} when it is not null (surface only).
+     */
+    public static void scan(World world, Chunk chunk, MapDimension dimension, int caveLayer, MapDimension biomeMap) {
         int cx = chunk.xPosition;
         int cz = chunk.zPosition;
         boolean noSky = world.provider.hasNoSky;
@@ -44,12 +53,18 @@ public final class ChunkScanner {
             .getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
         int baseX = (cx * 16) & (MapRegion.SIZE - 1);
         int baseZ = (cz * 16) & (MapRegion.SIZE - 1);
+        MapRegion biomeRegion = biomeMap == null ? null
+            : biomeMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
 
         for (int lx = 0; lx < 16; lx++) {
             int previousHeight = northHeights[lx];
             for (int lz = 0; lz < 16; lz++) {
                 int y = findTop(chunk, lx, lz, noSky, caveLayer);
                 int argb = 0;
+                float relief = 1f;
+                if (y != NO_BLOCK && previousHeight != NO_BLOCK) {
+                    relief = 1.0f + Math.max(-4, Math.min(4, y - previousHeight)) * 0.05f;
+                }
                 if (y != NO_BLOCK) {
                     int rgb = columnColor(world, chunk, lx, y, lz);
                     if (caveLayer >= 0) {
@@ -57,16 +72,35 @@ public final class ChunkScanner {
                         int below = Math.max(0, caveLayer * 16 - y);
                         rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
                     }
-                    if (previousHeight != NO_BLOCK) {
-                        int diff = Math.max(-4, Math.min(4, y - previousHeight));
-                        rgb = BlockColors.shade(rgb, 1.0f + diff * 0.05f);
-                    }
+                    rgb = BlockColors.shade(rgb, relief);
                     argb = 0xFF000000 | rgb;
                 }
-                region.setPixel(baseX + lx, baseZ + lz, argb);
+                if (caveLayer < 0) {
+                    // The surface also remembers the height to stand on, for teleporting.
+                    region.setPixel(baseX + lx, baseZ + lz, argb, y == NO_BLOCK ? 0 : Math.min(255, y + 1));
+                } else {
+                    region.setPixel(baseX + lx, baseZ + lz, argb);
+                }
+                if (biomeRegion != null) {
+                    BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
+                    int biomeArgb = biome == null ? 0
+                        : 0xFF000000 | BlockColors.shade(biomeColor(biome), 1f + (relief - 1f) * 0.6f);
+                    int biomeId = biome == null || biome.biomeID >= 255 ? 0 : biome.biomeID + 1;
+                    biomeRegion.setPixel(baseX + lx, baseZ + lz, biomeArgb, biomeId);
+                }
                 previousHeight = y;
             }
         }
+    }
+
+    /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */
+    public static int biomeColor(BiomeGenBase biome) {
+        int color = biome.color & 0xFFFFFF;
+        if (color != 0) {
+            return color;
+        }
+        int hash = biome.biomeID * 0x9E3779B1;
+        return 0x404040 | (hash >>> 8) & 0xBFBFBF;
     }
 
     private static int findTop(Chunk chunk, int lx, int lz, boolean noSky, int caveLayer) {

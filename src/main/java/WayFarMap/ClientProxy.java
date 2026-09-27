@@ -7,6 +7,7 @@ import net.minecraftforge.common.MinecraftForge;
 
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.Teleport;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -35,6 +36,10 @@ public class ClientProxy extends CommonProxy {
             // Texture packs change block colors.
             ((IReloadableResourceManager) resourceManager).registerReloadListener(manager);
         }
+
+        FMLCommonHandler.instance()
+            .bus()
+            .register(Teleport.INSTANCE);
 
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
