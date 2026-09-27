@@ -2,6 +2,8 @@ package WayFarMap.client.integration;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +51,13 @@ public final class ClaimsLayer {
     private static final int MAX_REQUEST_CHUNKS = 128;
 
     private static long lastRequest, lastValidate, lastCounts;
+
+    /**
+     * Chunks the player just unclaimed, with the time. ServerUtilities only marks unclaimed chunks invalid and drops
+     * them in a later cleanup, and until then its map updates still list them; they stay hidden here meanwhile.
+     */
+    private static final Map<Long, Long> unclaimed = new HashMap<>();
+    private static final long UNCLAIMED_MAX_MS = 60_000, UNCLAIMED_MIN_MS = 6000;
     private static boolean haveCounts;
     private static int claimed, maxClaimed, loaded, maxLoaded;
 
@@ -121,7 +130,30 @@ public final class ClaimsLayer {
     }
 
     private static ClientClaimedChunks.ChunkData get(int chunkX, int chunkZ, int dimension) {
+        if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(chunkX, chunkZ))) {
+            return null;
+        }
         return NavigatorIntegration.CLAIMS.get(new ChunkDimPos(chunkX, chunkZ, dimension));
+    }
+
+    /** Stops hiding unclaimed chunks once the server no longer lists them (or after a minute). */
+    private static void expireUnclaimed(int dimension) {
+        if (unclaimed.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Iterator<Map.Entry<Long, Long>> it = unclaimed.entrySet()
+            .iterator();
+        while (it.hasNext()) {
+            Map.Entry<Long, Long> entry = it.next();
+            long age = now - entry.getValue();
+            long packed = entry.getKey();
+            boolean listed = NavigatorIntegration.CLAIMS
+                .containsKey(new ChunkDimPos(unpackX(packed), unpackZ(packed), dimension));
+            if (age > UNCLAIMED_MAX_MS || (age > UNCLAIMED_MIN_MS && !listed)) {
+                it.remove();
+            }
+        }
     }
 
     private static boolean sameTeam(ClientClaimedChunks.ChunkData a, ClientClaimedChunks.ChunkData b) {
@@ -151,6 +183,7 @@ public final class ClaimsLayer {
         int minChunkX = (int) Math.floor(left) >> 4, maxChunkX = (int) Math.floor(left + width / scale) >> 4;
         int minChunkZ = (int) Math.floor(top) >> 4, maxChunkZ = (int) Math.floor(top + height / scale) >> 4;
         update(minChunkX, maxChunkX, minChunkZ, maxChunkZ);
+        expireUnclaimed(dimension);
 
         Minecraft mc = Minecraft.getMinecraft();
         double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
@@ -160,6 +193,9 @@ public final class ClaimsLayer {
         begin();
         for (Map.Entry<ChunkDimPos, ClientClaimedChunks.ChunkData> entry : NavigatorIntegration.CLAIMS.entrySet()) {
             ChunkDimPos pos = entry.getKey();
+            if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(pos.posX, pos.posZ))) {
+                continue;
+            }
             if (pos.dim != dimension || pos.posX < minChunkX
                 || pos.posX > maxChunkX
                 || pos.posZ < minChunkZ
@@ -287,7 +323,14 @@ public final class ClaimsLayer {
         }
 
         // Show the result before the server answers, the way ServerUtilities' own map integration does.
+        long now = System.currentTimeMillis();
         for (ChunkCoordIntPair chunk : chunks) {
+            long packed = pack(chunk.chunkXPos, chunk.chunkZPos);
+            if (action == UNCLAIM || action == UNLOAD_AND_UNCLAIM) {
+                unclaimed.put(packed, now);
+            } else if (action == CLAIM || action == CLAIM_AND_LOAD) {
+                unclaimed.remove(packed);
+            }
             switch (action) {
                 case CLAIM:
                 case CLAIM_AND_LOAD:
