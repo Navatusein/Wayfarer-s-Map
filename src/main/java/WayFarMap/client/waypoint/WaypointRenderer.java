@@ -61,9 +61,14 @@ public class WaypointRenderer {
      * @param label draw the name below the marker
      */
     public static void drawMapMarker(Waypoint waypoint, double sx, double sy, float size, boolean label) {
+        // Laid out on whole GUI pixels, then moved by the remainder: a GUI pixel is 2-4 screen pixels, and snapping
+        // to it made markers jump instead of gliding while the map moves or turns.
+        long cx = Math.round(sx), cy = Math.round(sy);
+        GL11.glPushMatrix();
+        GL11.glTranslated(sx - cx, sy - cy, 0);
         int half = Math.round(size / 2f);
-        int x0 = (int) Math.round(sx) - half;
-        int y0 = (int) Math.round(sy) - half;
+        int x0 = (int) cx - half;
+        int y0 = (int) cy - half;
         int x1 = x0 + half * 2;
         int y1 = y0 + half * 2;
         ItemStack icon = waypoint.getIcon();
@@ -75,7 +80,7 @@ public class WaypointRenderer {
             Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
         }
         if (icon != null) {
-            drawItem(icon, sx, sy, size);
+            drawItem(icon, cx, cy, size);
         } else if (waypoint.outlineColor == null) {
             int inset = Math.max(1, half / 3);
             Gui.drawRect(x0 + inset - 1, y0 + inset - 1, x1 - inset + 1, y1 - inset + 1, 0xFF000000);
@@ -83,11 +88,12 @@ public class WaypointRenderer {
         }
 
         if (label) {
-            int[] rect = getLabelRect(waypoint, sx, sy, size, false);
+            int[] rect = getLabelRect(waypoint, cx, cy, size, false);
             if (rect != null) {
                 drawMapLabel(waypoint, rect, false);
             }
         }
+        GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
