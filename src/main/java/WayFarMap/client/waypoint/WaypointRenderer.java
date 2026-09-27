@@ -7,8 +7,11 @@ import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.IIcon;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 
 import org.lwjgl.opengl.GL11;
@@ -27,10 +30,6 @@ public class WaypointRenderer {
 
     /** Draws an item icon of {@code size} GUI pixels centered on the given point. */
     public static void drawItem(ItemStack stack, double centerX, double centerY, float size) {
-        drawItem(stack, centerX, centerY, size, true);
-    }
-
-    private static void drawItem(ItemStack stack, double centerX, double centerY, float size, boolean depthTest) {
         Minecraft mc = Minecraft.getMinecraft();
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
@@ -38,11 +37,7 @@ public class WaypointRenderer {
         GL11.glScalef(size / 16f, size / 16f, 1f);
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glEnable(GL12.GL_RESCALE_NORMAL);
-        if (depthTest) {
-            GL11.glEnable(GL11.GL_DEPTH_TEST);
-        } else {
-            GL11.glDisable(GL11.GL_DEPTH_TEST);
-        }
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
         RenderHelper.enableGUIStandardItemLighting();
         try {
             RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
@@ -82,15 +77,80 @@ public class WaypointRenderer {
             Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | DEFAULT_COLOR);
         }
 
-        if (label && !waypoint.name.isEmpty()) {
-            FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-            int width = font.getStringWidth(waypoint.name);
-            int tx = (int) Math.round(sx) - width / 2;
-            int ty = y1 + 3;
-            Gui.drawRect(tx - 2, ty - 1, tx + width + 2, ty + 9, 0x90000000);
-            font.drawStringWithShadow(waypoint.name, tx, ty, 0xFFFFFF);
+        if (label) {
+            int[] rect = getLabelRect(waypoint, sx, sy, size);
+            if (rect != null) {
+                drawMapLabel(waypoint, rect);
+            }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Screen rectangle {x0, y0, x1, y1} of the name label under a marker of the given size, or null if the waypoint
+     * has no name.
+     */
+    public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size) {
+        if (waypoint.name.isEmpty()) {
+            return null;
+        }
+        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
+        int width = font.getStringWidth(waypoint.name);
+        int tx = (int) Math.round(sx) - width / 2;
+        int ty = (int) Math.round(sy) + Math.round(size / 2f) + 3;
+        return new int[] { tx - 2, ty - 1, tx + width + 2, ty + 9 };
+    }
+
+    public static void drawMapLabel(Waypoint waypoint, int[] rect) {
+        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], 0x90000000);
+        Minecraft.getMinecraft().fontRenderer.drawStringWithShadow(waypoint.name, rect[0] + 2, rect[1] + 1, 0xFFFFFF);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Draws the item's icon as a flat textured square centered on (0-based) {@code centerX}/{@code centerY} in the
+     * current coordinate space. Unlike the GUI item renderer this works in any 3D transform.
+     *
+     * @return false if the item has no usable icon (e.g. it only has a custom 3D renderer)
+     */
+    private static boolean drawFlatItem(ItemStack stack, float centerX, float centerY, float size) {
+        Item item = stack.getItem();
+        if (item == null) {
+            return false;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        TextureManager textureManager = mc.getTextureManager();
+        boolean drew = false;
+        try {
+            textureManager.bindTexture(textureManager.getResourceLocation(stack.getItemSpriteNumber()));
+            boolean multiPass = item.requiresMultipleRenderPasses();
+            int passes = multiPass ? item.getRenderPasses(stack.getItemDamage()) : 1;
+            float x0 = centerX - size / 2f, y0 = centerY - size / 2f, x1 = x0 + size, y1 = y0 + size;
+            Tessellator tessellator = Tessellator.instance;
+            for (int pass = 0; pass < passes; pass++) {
+                IIcon icon = multiPass ? item.getIcon(stack, pass) : stack.getIconIndex();
+                if (icon == null) {
+                    continue;
+                }
+                int color = item.getColorFromItemStack(stack, pass);
+                GL11.glColor4f(
+                    ((color >> 16) & 0xFF) / 255f,
+                    ((color >> 8) & 0xFF) / 255f,
+                    (color & 0xFF) / 255f,
+                    1f);
+                tessellator.startDrawingQuads();
+                tessellator.addVertexWithUV(x0, y1, 0, icon.getMinU(), icon.getMaxV());
+                tessellator.addVertexWithUV(x1, y1, 0, icon.getMaxU(), icon.getMaxV());
+                tessellator.addVertexWithUV(x1, y0, 0, icon.getMaxU(), icon.getMinV());
+                tessellator.addVertexWithUV(x0, y0, 0, icon.getMinU(), icon.getMinV());
+                tessellator.draw();
+                drew = true;
+            }
+        } catch (Throwable ignored) {
+            // Some modded items can't give an icon outside of their own renderer.
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        return drew;
     }
 
     @SubscribeEvent
@@ -161,9 +221,9 @@ public class WaypointRenderer {
         font.drawString(distanceText, -distanceWidth / 2, textY, 0xFFC0C0C0);
 
         ItemStack icon = waypoint.getIcon();
-        if (icon != null) {
-            drawItem(icon, 0, top - 11, 16f, false);
-        } else {
+        GL11.glEnable(GL11.GL_ALPHA_TEST);
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+        if (icon == null || !drawFlatItem(icon, 0f, top - 11f, 16f)) {
             int color = 0xFF000000 | (waypoint.outlineColor != null ? waypoint.outlineColor : DEFAULT_COLOR);
             fillRect(-4, top - 12, 4, top - 4, 0xFF000000);
             fillRect(-3, top - 11, 3, top - 5, color);

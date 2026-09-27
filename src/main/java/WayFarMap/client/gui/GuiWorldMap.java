@@ -1,5 +1,8 @@
 package WayFarMap.client.gui;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
@@ -30,6 +33,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final int HEADER_HEIGHT = 24;
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
+    private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0;
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
@@ -128,14 +132,7 @@ public class GuiWorldMap extends GuiScreen {
             MapDrawer.drawOtherPlayers(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, true);
         }
 
-        int dimensionId = mc.theWorld.provider.dimensionId;
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(dimensionId)) {
-            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
-            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
-            if (wx > -50 && wy > -20 && wx < width + 50 && wy < height + 20) {
-                WaypointRenderer.drawMapMarker(waypoint, wx, wy, MARKER_SIZE, true);
-            }
-        }
+        drawWaypoints(mouseX, mouseY);
 
         double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
@@ -175,9 +172,68 @@ public class GuiWorldMap extends GuiScreen {
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
+    /** Marker size in GUI pixels: markers shrink when zooming out so nearby waypoints don't pile up. */
+    private float markerSize() {
+        return (float) Math.max(MIN_MARKER_SIZE, Math.min(MARKER_SIZE, MARKER_SIZE * Math.pow(scale, 0.4)));
+    }
+
+    private void drawWaypoints(int mouseX, int mouseY) {
+        float size = markerSize();
+        Waypoint hovered = waypointAt(mouseX, mouseY);
+        List<Waypoint> onScreen = new ArrayList<>();
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+            if (wx > -size && wy > -size && wx < width + size && wy < height + size && waypoint != hovered) {
+                onScreen.add(waypoint);
+            }
+        }
+        if (hovered != null) {
+            // Drawn last so it is on top, and its label always wins.
+            onScreen.add(hovered);
+        }
+
+        for (Waypoint waypoint : onScreen) {
+            WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+        }
+
+        // Labels: skip any that would overlap a label already placed, starting with the hovered one.
+        List<Waypoint> labelled = new ArrayList<>();
+        List<int[]> rects = new ArrayList<>();
+        for (int i = onScreen.size() - 1; i >= 0; i--) {
+            Waypoint waypoint = onScreen.get(i);
+            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size);
+            if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
+                continue;
+            }
+            labelled.add(waypoint);
+            rects.add(rect);
+        }
+        for (int i = labelled.size() - 1; i >= 0; i--) {
+            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i));
+        }
+    }
+
+    private static boolean overlapsAny(int[] rect, List<int[]> others) {
+        for (int[] other : others) {
+            if (rect[0] < other[2] && other[0] < rect[2] && rect[1] < other[3] && other[1] < rect[3]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private double screenX(Waypoint waypoint) {
+        return width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+    }
+
+    private double screenY(Waypoint waypoint) {
+        return height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+    }
+
     private Waypoint waypointAt(int mouseX, int mouseY) {
         Waypoint best = null;
-        double bestDistance = MARKER_SIZE / 2 + 2;
+        double bestDistance = markerSize() / 2 + 2;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
             double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
             double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
