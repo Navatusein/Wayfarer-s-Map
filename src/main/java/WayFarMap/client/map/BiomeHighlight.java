@@ -38,7 +38,10 @@ public final class BiomeHighlight {
         long builtAt;
     }
 
-    private static final Map<MapRegion, Overlay> OVERLAYS = new WeakHashMap<>();
+    private static final Map<PixelSource, Overlay> OVERLAYS = new WeakHashMap<>();
+    /** Overlays (re)built per frame; a new search over many regions spreads over a few frames. */
+    private static final int BUILDS_PER_FRAME = 4, LOD_BUILDS_PER_FRAME = 32;
+    private static int buildsLeft;
     private static IntBuffer buffer;
 
     private BiomeHighlight() {}
@@ -87,9 +90,12 @@ public final class BiomeHighlight {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glColor4f(1f, 1f, 1f, 1f);
         Tessellator tessellator = Tessellator.instance;
+        // Same resolution as the map under it.
+        boolean lod = WayFarMap.client.MapDrawer.useLod(scale);
+        buildsLeft = lod ? LOD_BUILDS_PER_FRAME : BUILDS_PER_FRAME;
         for (int rx = rx0; rx <= rx1; rx++) {
             for (int rz = rz0; rz <= rz1; rz++) {
-                MapRegion region = biomeMap.getLoadedRegion(rx, rz);
+                PixelSource region = lod ? biomeMap.requestLod(rx, rz) : biomeMap.getLoadedRegion(rx, rz);
                 if (region == null) {
                     continue;
                 }
@@ -102,7 +108,11 @@ public final class BiomeHighlight {
                 if (bx1 <= bx0 || bz1 <= bz0) {
                     continue;
                 }
-                GL11.glBindTexture(GL11.GL_TEXTURE_2D, overlayTexture(region));
+                int texture = overlayTexture(region);
+                if (texture == -1) {
+                    continue;
+                }
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
                 double u0 = (bx0 - regionX) / MapRegion.SIZE;
                 double v0 = (bz0 - regionZ) / MapRegion.SIZE;
                 double u1 = (bx1 - regionX) / MapRegion.SIZE;
@@ -134,7 +144,16 @@ public final class BiomeHighlight {
         }
     }
 
-    private static int overlayTexture(MapRegion region) {
+    /** Frees the overlay of a region or reduced copy whose own texture is freed. */
+    static void forget(PixelSource source) {
+        Overlay overlay = OVERLAYS.remove(source);
+        if (overlay != null && overlay.textureId != -1) {
+            GL11.glDeleteTextures(overlay.textureId);
+        }
+    }
+
+    /** Overlay texture of the region, or -1 while it waits for its turn to be built. */
+    private static int overlayTexture(PixelSource region) {
         Overlay overlay = OVERLAYS.get(region);
         if (overlay == null) {
             overlay = new Overlay();
@@ -143,6 +162,13 @@ public final class BiomeHighlight {
         long now = System.currentTimeMillis();
         boolean stale = overlay.queryVersion != queryVersion
             || (overlay.regionChanges != region.getChanges() && now - overlay.builtAt >= REBUILD_MS);
+        if (stale && buildsLeft <= 0) {
+            // Out of budget this frame: an outdated overlay is still better than a flash of the plain map.
+            return overlay.queryVersion == -1 || overlay.textureId == -1 ? -1 : overlay.textureId;
+        }
+        if (stale) {
+            buildsLeft--;
+        }
         if (overlay.textureId == -1) {
             overlay.textureId = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, overlay.textureId);
@@ -164,8 +190,8 @@ public final class BiomeHighlight {
                 GL11.GL_TEXTURE_2D,
                 0,
                 GL11.GL_RGBA,
-                MapRegion.SIZE,
-                MapRegion.SIZE,
+                region.size(),
+                region.size(),
                 0,
                 GL12.GL_BGRA,
                 GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
@@ -178,10 +204,10 @@ public final class BiomeHighlight {
     }
 
     /** Fills {@link #buffer} with the overlay of the region: gray where no match, outline on the matches' edges. */
-    private static void build(MapRegion region) {
-        int size = MapRegion.SIZE;
+    private static void build(PixelSource region) {
+        int size = region.size();
         if (buffer == null) {
-            buffer = BufferUtils.createIntBuffer(size * size);
+            buffer = BufferUtils.createIntBuffer(MapRegion.SIZE * MapRegion.SIZE);
         }
         buffer.clear();
         for (int z = 0; z < size; z++) {
@@ -205,8 +231,9 @@ public final class BiomeHighlight {
     }
 
     /** 0 = unexplored (or outside the region), 1 = explored but not matching, 2 = matching. */
-    private static int state(MapRegion region, int x, int z) {
-        if (x < 0 || z < 0 || x >= MapRegion.SIZE || z >= MapRegion.SIZE) {
+    private static int state(PixelSource region, int x, int z) {
+        int size = region.size();
+        if (x < 0 || z < 0 || x >= size || z >= size) {
             return 0;
         }
         int id = region.getExtra(x, z);

@@ -23,13 +23,18 @@ import org.lwjgl.opengl.GL14;
  * pixel can also carry one extra byte (0 = unknown): the height to stand on for the surface map, the biome for the
  * biome map. It is saved next to the image as {@code r.X.Z.dat}.
  */
-public class MapRegion {
+public class MapRegion implements PixelSource {
 
     public static final int SIZE = 512;
     public static final int SHIFT = 9;
 
     /** Upload buffer shared by all regions; uploads only happen on the render thread. */
     private static IntBuffer uploadBuffer;
+    /**
+     * Changed pixels are sent to the texture at most this often: every upload also rebuilds the mipmaps of the whole
+     * 512x512 texture, and around the player the map changes every tick.
+     */
+    private static final long UPLOAD_INTERVAL_MS = 100;
 
     public final int rx;
     public final int rz;
@@ -40,6 +45,7 @@ public class MapRegion {
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
+    private long lastUpload;
     private volatile boolean saveDirty;
     private volatile boolean saving;
     /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
@@ -79,11 +85,32 @@ public class MapRegion {
         }
     }
 
+    @Override
     public int getChanges() {
         return changes;
     }
 
+    @Override
+    public int size() {
+        return SIZE;
+    }
+
+    /** The live pixel array, for building the reduced copy on the render thread. */
+    int[] pixelArray() {
+        return pixels;
+    }
+
+    /** The live extra bytes (null if none), for building the reduced copy on the render thread. */
+    byte[] extraArray() {
+        return extra;
+    }
+
+    public boolean hasTexture() {
+        return textureId != -1;
+    }
+
     /** @return the extra byte of the pixel, 0 if unknown */
+    @Override
     public int getExtra(int localX, int localZ) {
         return extra == null ? 0 : extra[localZ * SIZE + localX] & 0xFF;
     }
@@ -100,6 +127,7 @@ public class MapRegion {
         }
     }
 
+    @Override
     public int getPixel(int localX, int localZ) {
         return pixels[localZ * SIZE + localX];
     }
@@ -136,11 +164,17 @@ public class MapRegion {
         } else {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
         }
-        if (dirtyMaxX >= dirtyMinX) {
+        long now = System.currentTimeMillis();
+        if (dirtyMaxX >= dirtyMinX && (now - lastUpload >= UPLOAD_INTERVAL_MS || isFullyDirty())) {
+            lastUpload = now;
             upload(dirtyMinX, dirtyMinZ, dirtyMaxX - dirtyMinX + 1, dirtyMaxZ - dirtyMinZ + 1);
             dirtyMaxX = -1;
             dirtyMinX = 0;
         }
+    }
+
+    private boolean isFullyDirty() {
+        return dirtyMinX == 0 && dirtyMinZ == 0 && dirtyMaxX == SIZE - 1 && dirtyMaxZ == SIZE - 1;
     }
 
     private void upload(int x, int z, int width, int height) {
@@ -175,6 +209,7 @@ public class MapRegion {
             dirtyMaxX = -1;
             dirtyMinX = 0;
         }
+        BiomeHighlight.forget(this);
     }
 
     public boolean isSaveDirty() {

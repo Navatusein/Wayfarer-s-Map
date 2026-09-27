@@ -120,6 +120,7 @@ public class GuiWorldMap extends GuiScreen {
     private int lastRawMouseX;
     private int lastRawMouseY;
     private long lastFrameNanos;
+    private int ticks;
 
     @Override
     public void initGui() {
@@ -888,9 +889,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private static boolean isExplored(MapDimension dimension, int x, int z) {
-        MapRegion region = dimension.getLoadedRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
-        return region != null
-            && (region.getPixel(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1)) >>> 24) != 0;
+        return (dimension.peekPixel(x, z) >>> 24) != 0;
     }
 
     @Override
@@ -1113,6 +1112,16 @@ public class GuiWorldMap extends GuiScreen {
     public void updateScreen() {
         if (searchField != null) {
             searchField.updateCursorCounter();
+        }
+        // Twice a second: free the regions scrolled away from, so a long look around doesn't fill the memory.
+        if (++ticks % 10 == 0 && mc.thePlayer != null) {
+            double halfWidth = width / 2.0 / scale, halfHeight = height / 2.0 / scale;
+            MapManager.INSTANCE.trimForView(
+                mc.thePlayer,
+                (MathHelper.floor_double(centerX - halfWidth) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerZ - halfHeight) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerX + halfWidth) >> MapRegion.SHIFT) + 1,
+                (MathHelper.floor_double(centerZ + halfHeight) >> MapRegion.SHIFT) + 1);
         }
     }
 

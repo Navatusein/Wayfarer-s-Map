@@ -16,6 +16,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.map.LodTile;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
@@ -24,6 +25,20 @@ import WayFarMap.client.map.MapRegion;
 public final class MapDrawer {
 
     private MapDrawer() {}
+
+    /** New region textures created per frame; the rest pop in over the next frames instead of one long stall. */
+    private static final int NEW_TEXTURES_PER_FRAME = 4;
+    private static final int NEW_LOD_TEXTURES_PER_FRAME = 32;
+
+    /**
+     * Whether the map is drawn from reduced region copies (one pixel per 4x4 blocks): when a block is at most half a
+     * screen pixel wide the full resolution can't be seen anyway, and it would need far more memory.
+     */
+    public static boolean useLod(double scale) {
+        Minecraft mc = Minecraft.getMinecraft();
+        int factor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        return scale * factor <= 0.5;
+    }
 
     /**
      * Draws the map into the screen rectangle ({@code x}, {@code y}, {@code width}, {@code height}).
@@ -51,12 +66,23 @@ public final class MapDrawer {
         GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
 
         Tessellator tessellator = Tessellator.instance;
+        boolean lod = useLod(scale);
+        int newTextures = lod ? NEW_LOD_TEXTURES_PER_FRAME : NEW_TEXTURES_PER_FRAME;
         for (int rx = rx0; rx <= rx1; rx++) {
             for (int rz = rz0; rz <= rz1; rz++) {
                 // Regions on disk are read in the background; they pop in once loaded.
-                MapRegion region = dimension.requestRegion(rx, rz);
-                if (region == null) {
-                    continue;
+                MapRegion region = null;
+                LodTile tile = null;
+                if (lod) {
+                    tile = dimension.requestLod(rx, rz);
+                    if (tile == null || (!tile.hasTexture() && newTextures-- <= 0)) {
+                        continue;
+                    }
+                } else {
+                    region = dimension.requestRegion(rx, rz);
+                    if (region == null || (!region.hasTexture() && newTextures-- <= 0)) {
+                        continue;
+                    }
                 }
 
                 // Part of the region that is inside the view, in block coordinates.
@@ -70,7 +96,11 @@ public final class MapDrawer {
                     continue;
                 }
 
-                region.bindTexture();
+                if (lod) {
+                    tile.bindTexture();
+                } else {
+                    region.bindTexture();
+                }
                 double u0 = (bx0 - regionX) / MapRegion.SIZE;
                 double v0 = (bz0 - regionZ) / MapRegion.SIZE;
                 double u1 = (bx1 - regionX) / MapRegion.SIZE;

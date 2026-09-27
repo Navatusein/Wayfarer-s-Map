@@ -381,13 +381,16 @@ public final class ClaimsLayer {
 
     // ---------------------------------------------------------------- drawing helpers
 
+    /** All rectangles between begin() and end() go into one batch: a big claimed area is thousands of them. */
     private static void begin() {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator.instance.startDrawingQuads();
     }
 
     private static void end() {
+        Tessellator.instance.draw();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
@@ -400,13 +403,11 @@ public final class ClaimsLayer {
             return;
         }
         Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawingQuads();
         tessellator.setColorRGBA_I(rgb & 0xFFFFFF, alpha);
         tessellator.addVertex(x0, y1, 0);
         tessellator.addVertex(x1, y1, 0);
         tessellator.addVertex(x1, y0, 0);
         tessellator.addVertex(x0, y0, 0);
-        tessellator.draw();
     }
 
     private static void hollowRect(double rx, double ry, double w, double h, double t, int rgb, int alpha, int x,

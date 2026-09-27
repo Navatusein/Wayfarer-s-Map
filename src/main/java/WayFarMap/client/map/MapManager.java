@@ -50,8 +50,10 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Solid blocks above the head needed to count as underground (a one block roof doesn't). */
     private static final int UNDERGROUND_ROOF = 3;
 
-    private final ExecutorService saveExecutor = createExecutor("WayFarMap saver");
-    private final ExecutorService loadExecutor = createExecutor("WayFarMap loader");
+    /** One thread, so writes of the same file never overlap. */
+    private final ExecutorService saveExecutor = createExecutor("WayFarMap saver", 1);
+    /** Decoding region images takes a while; two threads fill a zoomed out map faster. */
+    private final ExecutorService loadExecutor = createExecutor("WayFarMap loader", 2);
 
     private WorldClient currentWorld;
     private File worldDirectory;
@@ -78,8 +80,8 @@ public class MapManager implements IResourceManagerReloadListener {
 
     private MapManager() {}
 
-    private static ExecutorService createExecutor(String name) {
-        return Executors.newSingleThreadExecutor(r -> {
+    private static ExecutorService createExecutor(String name, int threads) {
+        return Executors.newFixedThreadPool(threads, r -> {
             Thread thread = new Thread(r, name);
             thread.setDaemon(true);
             return thread;
@@ -123,8 +125,7 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** Biome of the column from the explored biome map, or null if unknown. */
     public BiomeGenBase getBiome(int x, int z) {
-        MapRegion region = biomes == null ? null : biomes.getLoadedRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
-        int id = region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+        int id = biomes == null ? 0 : biomes.peekExtra(x, z);
         return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
     }
 
@@ -177,11 +178,18 @@ public class MapManager implements IResourceManagerReloadListener {
             return cave;
         }
 
+        List<MapDimension> all() {
+            List<MapDimension> maps = new ArrayList<>();
+            maps.add(surface);
+            maps.add(biomes);
+            maps.addAll(caves.values());
+            return maps;
+        }
+
         void delete() {
-            surface.deleteTextures();
-            biomes.deleteTextures();
-            for (MapDimension cave : caves.values()) {
-                cave.deleteTextures();
+            for (MapDimension map : all()) {
+                // Nothing to save: these maps are only looked at.
+                map.retain((x, z) -> false);
             }
         }
     }
@@ -377,8 +385,7 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Biome at the column in the dimension shown on the world map, or null if unknown. */
     public BiomeGenBase getViewBiome(int x, int z) {
         MapDimension map = getViewBiomeMap();
-        MapRegion region = map == null ? null : map.getLoadedRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
-        int id = region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+        int id = map == null ? 0 : map.peekExtra(x, z);
         return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
     }
 
@@ -506,6 +513,34 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             map.trim(rx, rz, KEEP_REGION_RADIUS);
         }
+        if (viewed != null) {
+            for (MapDimension map : viewed.all()) {
+                map.retain((x, z) -> false);
+            }
+        }
+    }
+
+    /**
+     * While the world map is open: frees everything outside the regions it shows (in region coordinates, inclusive)
+     * except around the player. Without it, scrolling over a big explored area zoomed out would keep every region
+     * passed on the way in memory.
+     */
+    public void trimForView(EntityPlayer player, int minRx, int minRz, int maxRx, int maxRz) {
+        if (surface == null || player == null) {
+            return;
+        }
+        int prx = MathHelper.floor_double(player.posX) >> MapRegion.SHIFT;
+        int prz = MathHelper.floor_double(player.posZ) >> MapRegion.SHIFT;
+        MapDimension.RegionFilter keep = (rx, rz) -> (rx >= minRx && rx <= maxRx && rz >= minRz && rz <= maxRz)
+            || (Math.abs(rx - prx) <= KEEP_REGION_RADIUS && Math.abs(rz - prz) <= KEEP_REGION_RADIUS);
+        for (MapDimension map : allMaps()) {
+            map.retain(keep);
+        }
+        if (viewed != null) {
+            for (MapDimension map : viewed.all()) {
+                map.retain(keep);
+            }
+        }
     }
 
     private void open(Minecraft mc, WorldClient world) {
@@ -597,6 +632,12 @@ public class MapManager implements IResourceManagerReloadListener {
                 int cx = (int) (key >> 32);
                 int cz = (int) key;
                 if (!ChunkScanner.isChunkReady(world, cx, cz)) {
+                    continue;
+                }
+                // Reading a region from disk takes tens of milliseconds: it is done in the background, and the
+                // chunk is scanned on a later tick instead of freezing the game (both reads start right away).
+                int rx = cx >> (MapRegion.SHIFT - 4), rz = cz >> (MapRegion.SHIFT - 4);
+                if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
                     continue;
                 }
                 try {

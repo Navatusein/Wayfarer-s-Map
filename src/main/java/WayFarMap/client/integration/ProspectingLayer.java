@@ -382,40 +382,64 @@ public final class ProspectingLayer {
             }
         }
 
+        // Drawn in a few batches (icons, shading, depleted marks, frames) rather than several draw calls per vein:
+        // zoomed out over a well prospected area there can be thousands of veins on screen.
+        Tessellator tessellator = Tessellator.instance;
         mc.getTextureManager()
             .bindTexture(TextureMap.locationBlocksTexture);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        tessellator.startDrawingQuads();
+        for (OreVeinLocation vein : visible) {
+            addVeinIcon(
+                tessellator,
+                vein,
+                x + (vein.getBlockX() - left) * scale - half,
+                y + (vein.getBlockZ() - top) * scale - half,
+                size);
+        }
+        tessellator.draw();
+
+        // Search misses and depleted veins are shaded.
+        begin();
+        boolean anyDepleted = false;
+        for (OreVeinLocation vein : visible) {
+            if (!vein.drawSearchHighlight() || vein.isDepleted()) {
+                double sx = x + (vein.getBlockX() - left) * scale - half;
+                double sy = y + (vein.getBlockZ() - top) * scale - half;
+                rect(sx, sy, size, size, 0x000000, 150, x, y, width, height);
+                anyDepleted |= vein.isDepleted();
+            }
+        }
+        end();
+
+        if (anyDepleted) {
+            mc.getTextureManager()
+                .bindTexture(DEPLETED_TEXTURE);
+            tessellator.startDrawingQuads();
+            tessellator.setColorOpaque_I(0xFFFFFF);
+            for (OreVeinLocation vein : visible) {
+                if (vein.isDepleted()) {
+                    double sx = x + (vein.getBlockX() - left) * scale - half;
+                    double sy = y + (vein.getBlockZ() - top) * scale - half;
+                    addTextureQuad(tessellator, sx, sy, size, 0, 0, 1, 1);
+                }
+            }
+            tessellator.draw();
+        }
+
+        // Frames: search hits, and gold for the tracked vein (like VisualProspecting's "active as waypoint").
+        boolean searching = !minimap && isSearchActive();
+        begin();
         for (OreVeinLocation vein : visible) {
             double sx = x + (vein.getBlockX() - left) * scale - half;
             double sy = y + (vein.getBlockZ() - top) * scale - half;
-            drawVeinIcon(vein, sx, sy, size);
-            if (!vein.drawSearchHighlight() || vein.isDepleted()) {
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
-                begin();
-                rect(sx, sy, size, size, 0x000000, 150, x, y, width, height);
-                end();
-                GL11.glEnable(GL11.GL_TEXTURE_2D);
-                if (vein.isDepleted()) {
-                    mc.getTextureManager()
-                        .bindTexture(DEPLETED_TEXTURE);
-                    textureQuad(sx, sy, size, 0, 0, 1, 1, 0xFFFFFF);
-                    mc.getTextureManager()
-                        .bindTexture(TextureMap.locationBlocksTexture);
-                }
-            }
-            if (!minimap && isSearchActive() && vein.drawSearchHighlight() && !vein.isDepleted()) {
-                // Search hit.
-                begin();
+            if (searching && vein.drawSearchHighlight() && !vein.isDepleted()) {
                 hollowRect(sx - 1, sy - 1, size + 2, size + 2, 1, SEARCH_COLOR, 255, x, y, width, height);
-                end();
-                mc.getTextureManager()
-                    .bindTexture(TextureMap.locationBlocksTexture);
             }
             if (isTrackedLocation(vein)) {
-                // Gold frame, like VisualProspecting's "active as waypoint".
-                begin();
                 hollowRect(
                     sx - 1,
                     sy - 1,
@@ -428,11 +452,9 @@ public final class ProspectingLayer {
                     y,
                     width,
                     height);
-                end();
-                mc.getTextureManager()
-                    .bindTexture(TextureMap.locationBlocksTexture);
             }
         }
+        end();
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
         if (minimap || zoom < Config.minZoomLevelForOreLabel) {
@@ -547,29 +569,56 @@ public final class ProspectingLayer {
             .getTextureManager()
             .bindTexture(TextureMap.locationBlocksTexture);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        addVeinIcon(tessellator, vein, sx, sy, size);
+        tessellator.draw();
+    }
+
+    /**
+     * Adds the stone background and ore icon of the vein, with the top-left corner at (sx, sy), to the quads being
+     * drawn with the block texture atlas bound.
+     */
+    private static void addVeinIcon(Tessellator tessellator, OreVeinLocation vein, double sx, double sy, double size) {
         try {
-            iconQuad(DimensionStoneBackground.getBackgroundIcon(vein.getDimensionId()), sx, sy, size, 0xFFFFFF);
+            addIconQuad(
+                tessellator,
+                DimensionStoneBackground.getBackgroundIcon(vein.getDimensionId()),
+                sx,
+                sy,
+                size,
+                0xFFFFFF);
             IIconContainer ore = vein.getIconFromPrimaryOre();
-            iconQuad(ore.getIcon(), sx, sy, size, vein.getColor());
+            addIconQuad(tessellator, ore.getIcon(), sx, sy, size, vein.getColor());
             IIcon overlay = ore.getOverlayIcon();
             if (overlay != null) {
-                iconQuad(overlay, sx, sy, size, 0xFFFFFF);
+                addIconQuad(tessellator, overlay, sx, sy, size, 0xFFFFFF);
             }
         } catch (Throwable t) {
             // Missing textures only cost the icon.
         }
-        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     // ---------------------------------------------------------------- drawing helpers
 
+    /** True between {@link #begin()} and {@link #end()}: rectangles go into one batch of quads. */
+    private static boolean batching;
+
+    /** Starts a batch of untextured rectangles, drawn together by {@link #end()}. */
     private static void begin() {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator.instance.startDrawingQuads();
+        batching = true;
     }
 
     private static void end() {
+        if (batching) {
+            batching = false;
+            Tessellator.instance.draw();
+        }
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
@@ -583,13 +632,17 @@ public final class ProspectingLayer {
             return;
         }
         Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawingQuads();
+        if (!batching) {
+            tessellator.startDrawingQuads();
+        }
         tessellator.setColorRGBA_I(rgb & 0xFFFFFF, Math.min(255, alpha));
         tessellator.addVertex(x0, y1, 0);
         tessellator.addVertex(x1, y1, 0);
         tessellator.addVertex(x1, y0, 0);
         tessellator.addVertex(x0, y0, 0);
-        tessellator.draw();
+        if (!batching) {
+            tessellator.draw();
+        }
     }
 
     private static void hollowRect(double rx, double ry, double w, double h, double thickness, int rgb, int alpha,
@@ -600,22 +653,19 @@ public final class ProspectingLayer {
         rect(rx + w - thickness, ry + thickness, thickness, h - 2 * thickness, rgb, alpha, x, y, width, height);
     }
 
-    private static void iconQuad(IIcon icon, double sx, double sy, double size, int rgb) {
+    private static void addIconQuad(Tessellator tessellator, IIcon icon, double sx, double sy, double size, int rgb) {
         if (icon != null) {
-            textureQuad(sx, sy, size, icon.getMinU(), icon.getMinV(), icon.getMaxU(), icon.getMaxV(), rgb);
+            tessellator.setColorOpaque_I(rgb & 0xFFFFFF);
+            addTextureQuad(tessellator, sx, sy, size, icon.getMinU(), icon.getMinV(), icon.getMaxU(), icon.getMaxV());
         }
     }
 
-    private static void textureQuad(double sx, double sy, double size, double u0, double v0, double u1, double v1,
-        int rgb) {
-        GL11.glColor4f(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 1f);
-        Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawingQuads();
+    private static void addTextureQuad(Tessellator tessellator, double sx, double sy, double size, double u0,
+        double v0, double u1, double v1) {
         tessellator.addVertexWithUV(sx, sy + size, 0, u0, v1);
         tessellator.addVertexWithUV(sx + size, sy + size, 0, u1, v1);
         tessellator.addVertexWithUV(sx + size, sy, 0, u1, v0);
         tessellator.addVertexWithUV(sx, sy, 0, u0, v0);
-        tessellator.draw();
     }
 
     /** Text centered on {@code cx} with a dark background, like VisualProspecting's labels. */
