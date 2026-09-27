@@ -20,6 +20,7 @@ import WayFarMap.Config;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -190,6 +191,10 @@ public class MinimapRenderer {
                 if (Config.showOreVeins) {
                     ProspectingLayer.drawOreVeins(dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
                 }
+            }
+            if (Config.showPowerfails && Mods.isPowerfailsAvailable()) {
+                PowerfailLayer
+                    .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
             }
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
         } finally {

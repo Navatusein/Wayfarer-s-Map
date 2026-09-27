@@ -21,6 +21,11 @@ public final class Mods {
         return claims;
     }
 
+    /** GregTech power failure markers (GT5-Unofficial versions that have them); see {@link PowerfailLayer}. */
+    public static boolean isPowerfailsAvailable() {
+        return Loader.isModLoaded("gregtech") && PowerfailLayer.isAvailable();
+    }
+
     public static boolean isVisualProspectingLoaded() {
         if (visualProspecting == null) {
             visualProspecting = Loader.isModLoaded("visualprospecting");

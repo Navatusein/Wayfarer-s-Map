@@ -62,6 +62,7 @@ public class Config {
     public static boolean showUndergroundFluids = false;
     /** ServerUtilities claims layer on the world map (only used when it is installed). */
     public static boolean showClaims = false;
+    public static boolean showPowerfails = true;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -193,6 +194,13 @@ public class Config {
             false,
             () -> showClaims,
             v -> showClaims = v);
+        bool(
+            c,
+            "powerfails",
+            "Show GregTech power failures on the world map and the minimap (if GregTech has them).",
+            true,
+            () -> showPowerfails,
+            v -> showPowerfails = v);
         choice(
             c,
             "caveMode",
@@ -400,6 +408,11 @@ public class Config {
         if (showUndergroundFluids) {
             showOreVeins = false;
         }
+        save();
+    }
+
+    public static void togglePowerfails() {
+        showPowerfails = !showPowerfails;
         save();
     }
 

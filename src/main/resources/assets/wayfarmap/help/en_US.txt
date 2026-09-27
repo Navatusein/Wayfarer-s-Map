@@ -83,6 +83,17 @@ Needs the §fVisualProspecting§r mod (GTNH). The §bOres§r and §bFluids§r bu
 
 ! Veins show up only after prospecting (mined ores, samples, scanners).
 
+# Power failures (GregTech)
+When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r button shows them on the map and the minimap with a §cred frame§r and a lightning icon.
+
+- Hover — which machine, coordinates, how many times and when it last failed
+- Zoomed in, the machine and how long ago are written under the icon
+- §eRight click → Clear power failure§r — forget it (like in GregTech)
+- §eRight click → Place a waypoint here§r — a waypoint to the machine
+- The search at the top finds failures by machine name
+
+> Your whole team sees them: the GregTech server sends them.
+
 # Claims (ServerUtilities)
 Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r button.
 
