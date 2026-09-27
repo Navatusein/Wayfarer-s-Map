@@ -46,7 +46,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9;
+        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9, ID_HELP = 10;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -76,6 +76,7 @@ public class GuiWorldMap extends GuiScreen {
     private FlatButton oreButton, fluidButton;
     /** ServerUtilities claims layer; null when it isn't installed. */
     private FlatButton claimsButton;
+    private FlatButton helpButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
     private final Set<Long> claimSelection = new LinkedHashSet<>();
@@ -157,6 +158,12 @@ public class GuiWorldMap extends GuiScreen {
         }
         updateLightButtons();
         menu = null;
+
+        // Bottom right: the help screen with every feature explained.
+        String helpText = "? " + I18n.format("wayfarmap.gui.help_button");
+        int helpWidth = fontRendererObj.getStringWidth(helpText) + 12;
+        helpButton = new FlatButton(ID_HELP, width - helpWidth - 2, height - FOOTER_HEIGHT + 1, helpWidth, 13, helpText);
+        buttonList.add(helpButton);
 
         Keyboard.enableRepeatEvents(true);
         searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
@@ -247,6 +254,8 @@ public class GuiWorldMap extends GuiScreen {
             updateLightButtons();
         } else if (button.id == ID_SETTINGS) {
             mc.displayGuiScreen(new GuiSettings(this));
+        } else if (button.id == ID_HELP) {
+            mc.displayGuiScreen(new GuiHelp(this));
         } else if (button.id == ID_DAY) {
             Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_AUTO : Config.LIGHT_DAY);
             updateLightButtons();
@@ -392,9 +401,15 @@ public class GuiWorldMap extends GuiScreen {
                 + hoveredWaypoint.z + ")";
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
-        String help = claimsShown() ? ClaimsLayer.countsText() + "   " + I18n.format("wayfarmap.claims.help")
-            : I18n.format("wayfarmap.gui.help");
-        Theme.text(fontRendererObj, help, width - 6 - fontRendererObj.getStringWidth(help), height - 10, Theme.TEXT_MUTED);
+        if (claimsShown()) {
+            String counts = ClaimsLayer.countsText();
+            Theme.text(
+                fontRendererObj,
+                counts,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(counts),
+                height - 10,
+                Theme.TEXT_MUTED);
+        }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScreen(mouseX, mouseY, partialTicks);
