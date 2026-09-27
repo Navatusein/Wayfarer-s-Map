@@ -21,6 +21,8 @@ public class Waypoint {
     /** Name of the group, or null when the waypoint is in no group. */
     public String group;
     public boolean enabled = true;
+    /** A beacon-like beam of light rises from it in the world. */
+    public boolean beam;
 
     private transient ItemStack cachedIcon;
     private transient boolean iconResolved;
@@ -42,6 +44,7 @@ public class Waypoint {
         copy.iconMeta = iconMeta;
         copy.group = group;
         copy.enabled = enabled;
+        copy.beam = beam;
         return copy;
     }
 
@@ -56,6 +59,7 @@ public class Waypoint {
         iconMeta = other.iconMeta;
         group = other.group;
         enabled = other.enabled;
+        beam = other.beam;
         iconResolved = false;
     }
 

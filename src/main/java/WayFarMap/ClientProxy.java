@@ -3,6 +3,7 @@ package WayFarMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.IReloadableResourceManager;
 import net.minecraft.client.resources.IResourceManager;
+import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 
 import WayFarMap.client.KeyHandler;
@@ -13,6 +14,7 @@ import WayFarMap.client.integration.Mods;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.WaypointRenderer;
+import WayFarMap.client.waypoint.WaypointShare;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -52,6 +54,10 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(TeamMapClient.INSTANCE);
+
+        // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
+        MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
+        ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
 
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());

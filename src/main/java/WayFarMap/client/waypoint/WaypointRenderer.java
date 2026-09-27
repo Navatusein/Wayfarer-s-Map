@@ -1,5 +1,7 @@
 package WayFarMap.client.waypoint;
 
+import java.util.List;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
@@ -12,6 +14,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.IIcon;
+import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 
 import org.lwjgl.opengl.GL11;
@@ -231,7 +234,14 @@ public class WaypointRenderer {
         }
         int dimension = mc.theWorld.provider.dimensionId;
         if (Config.waypointsInWorld && MapManager.INSTANCE.getDimension() != null) {
-            for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(dimension)) {
+            List<Waypoint> waypoints = WaypointManager.INSTANCE.getVisibleWaypoints(dimension);
+            // Beams first: the markers are drawn over everything.
+            for (Waypoint waypoint : waypoints) {
+                if (waypoint.beam) {
+                    renderBeam(mc, waypoint, event.partialTicks);
+                }
+            }
+            for (Waypoint waypoint : waypoints) {
                 renderInWorld(mc, waypoint);
             }
         }
@@ -241,6 +251,79 @@ public class WaypointRenderer {
         if (Mods.isThaumcraftNodesAvailable()) {
             ThaumcraftNodes.renderTrackedInWorld(mc, dimension);
         }
+    }
+
+    private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
+
+    /**
+     * A beacon beam above the waypoint, in its outline color (white without one): a turning inner beam with a
+     * scrolling texture and a faint outer glow, like the vanilla beacon. Hidden behind terrain like a real one.
+     */
+    private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks) {
+        double x = waypoint.x - RenderManager.renderPosX;
+        double y = waypoint.y - RenderManager.renderPosY;
+        double z = waypoint.z - RenderManager.renderPosZ;
+        double height = Math.max(1, 256 - waypoint.y);
+        int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
+        int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
+        float time = mc.theWorld.getTotalWorldTime() % 100_000L + partialTicks;
+        double scroll = -time * 0.2 - Math.floor(-time * 0.1);
+
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        mc.getTextureManager()
+            .bindTexture(BEAM_TEXTURE);
+        GL11.glTexParameterf(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
+        GL11.glTexParameterf(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_FOG);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
+        Tessellator tessellator = Tessellator.instance;
+
+        // Inner beam: a turning square, blended additively so it glows.
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        double angle = time * 0.025 * -1.5;
+        double radius = 0.2;
+        double[] cx = new double[4], cz = new double[4];
+        for (int i = 0; i < 4; i++) {
+            double a = angle + Math.PI / 4 + i * Math.PI / 2;
+            cx[i] = x + 0.5 + Math.cos(a) * radius;
+            cz[i] = z + 0.5 + Math.sin(a) * radius;
+        }
+        double vTop = height * (0.5 / radius) + scroll - 1, vBottom = scroll - 1;
+        tessellator.startDrawingQuads();
+        tessellator.setColorRGBA(r, g, b, 32);
+        for (int i = 0; i < 4; i++) {
+            int j = (i + 1) % 4;
+            tessellator.addVertexWithUV(cx[i], y + height, cz[i], 1, vTop);
+            tessellator.addVertexWithUV(cx[i], y, cz[i], 1, vBottom);
+            tessellator.addVertexWithUV(cx[j], y, cz[j], 0, vBottom);
+            tessellator.addVertexWithUV(cx[j], y + height, cz[j], 0, vTop);
+        }
+        tessellator.draw();
+
+        // Outer glow: a still, wider square with normal blending.
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        double lo = 0.2, hi = 0.8;
+        double[][] corners = { { lo, lo }, { hi, lo }, { hi, hi }, { lo, hi } };
+        double vTop2 = height + scroll - 1;
+        tessellator.startDrawingQuads();
+        tessellator.setColorRGBA(r, g, b, 32);
+        for (int i = 0; i < 4; i++) {
+            double[] a = corners[i], c = corners[(i + 1) % 4];
+            tessellator.addVertexWithUV(x + a[0], y + height, z + a[1], 1, vTop2);
+            tessellator.addVertexWithUV(x + a[0], y, z + a[1], 1, scroll - 1);
+            tessellator.addVertexWithUV(x + c[0], y, z + c[1], 0, scroll - 1);
+            tessellator.addVertexWithUV(x + c[0], y + height, z + c[1], 0, vTop2);
+        }
+        tessellator.draw();
+
+        GL11.glDepthMask(true);
+        GL11.glPopAttrib();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {

@@ -20,6 +20,7 @@ import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
+import WayFarMap.client.waypoint.WaypointShare;
 
 /** Creates or edits a waypoint: name, coordinates, group, icon and outline color. */
 public class GuiEditWaypoint extends ScaledScreen {
@@ -27,10 +28,10 @@ public class GuiEditWaypoint extends ScaledScreen {
     private static final int DEFAULT_OUTLINE = 0xFF5555;
     /** Color sample next to the outline switch; a click opens the color picker. */
     private static final int SWATCH_X = 144, SWATCH_Y = 155, SWATCH_W = 76, SWATCH_H = 18;
-    private static final int BUTTON_ROW = 181;
+    private static final int BUTTON_ROW = 205;
 
     private static final int ID_GROUP = 1, ID_NEW_GROUP = 2, ID_ICON = 3, ID_OUTLINE = 4, ID_SAVE = 5, ID_DELETE = 6,
-        ID_CANCEL = 7, ID_TELEPORT = 8;
+        ID_CANCEL = 7, ID_TELEPORT = 8, ID_BEAM = 9, ID_SHARE = 10;
     /** Square left of the icon button showing the marker as it will look. */
     private static final int PREVIEW = 18;
 
@@ -68,7 +69,7 @@ public class GuiEditWaypoint extends ScaledScreen {
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         left = width / 2 - 110;
-        top = Math.max(4, height / 2 - 118);
+        top = Math.max(4, height / 2 - 130);
         fields.clear();
         buttonList.clear();
 
@@ -84,6 +85,9 @@ public class GuiEditWaypoint extends ScaledScreen {
         buttonList.add(new FlatButton(ID_NEW_GROUP, left + 174, top + 107, 46, 18, "+"));
         buttonList.add(new FlatButton(ID_ICON, left + PREVIEW + 4, top + 131, 220 - PREVIEW - 4, 18, ""));
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
+        // Beacon beam switch, and sharing the waypoint in the chat.
+        buttonList.add(new FlatButton(ID_BEAM, left, top + 179, 140, 18, ""));
+        buttonList.add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, I18n.format("wayfarmap.share.button")));
         // Bottom row: Save [Teleport Delete] Cancel; teleport and delete only exist for saved waypoints. Each button
         // gets its text width plus an equal share of the remaining space.
         FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.save"));
@@ -148,6 +152,11 @@ public class GuiEditWaypoint extends ScaledScreen {
                 case ID_OUTLINE:
                     button.displayString = I18n.format("wayfarmap.gui.outline") + ": "
                         + I18n.format(edited.outlineColor != null ? "options.on" : "options.off");
+                    break;
+                case ID_BEAM:
+                    button.displayString = I18n.format("wayfarmap.gui.beam") + ": "
+                        + I18n.format(edited.beam ? "options.on" : "options.off");
+                    ((FlatButton) button).active = edited.beam;
                     break;
                 case ID_DELETE:
                     button.displayString = I18n
@@ -224,6 +233,15 @@ public class GuiEditWaypoint extends ScaledScreen {
             case ID_OUTLINE:
                 edited.outlineColor = edited.outlineColor == null ? (Integer) outlineColor : null;
                 break;
+            case ID_BEAM:
+                edited.beam = !edited.beam;
+                break;
+            case ID_SHARE:
+                // Shares what the editor shows now, saved or not.
+                readFields();
+                WaypointShare.share(edited);
+                mc.displayGuiScreen(null);
+                return;
             case ID_SAVE:
                 save();
                 return;
