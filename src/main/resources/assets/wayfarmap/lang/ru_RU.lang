@@ -110,3 +110,5 @@ wayfarmap.option.map.displayMode=Цвета карты
 wayfarmap.option.map.displayMode.desc=Блоки: карта в цветах блоков. Биомы: каждый биом своим цветом (при наведении — название). Данные собираются по мере сканирования чанков.
 wayfarmap.option.map.displayMode.blocks=Блоки
 wayfarmap.option.map.displayMode.biomes=Биомы
+wayfarmap.gui.teleport_y_title=На какую высоту телепортировать?
+wayfarmap.gui.teleport_y_hint=Высота неизвестна: X %s Z %s. Y (0-255):

@@ -365,35 +365,23 @@ public class GuiWorldMap extends GuiScreen {
     private void openMenu(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
         List<MenuEntry> entries = new ArrayList<>();
-        Waypoint hovered = waypointAt(mouseX, mouseY);
-        if (hovered != null) {
-            final Waypoint waypoint = hovered;
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.gui.edit"),
-                    true,
-                    () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint))));
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.gui.teleport"),
-                    Teleport.isAllowed() && waypoint.dimension == dimension,
-                    () -> Teleport.teleport(waypoint.x, waypoint.y, waypoint.z)));
-        } else {
-            final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
-            final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
-            final int safeY = Teleport.findSafeY(mc.theWorld, bx, bz);
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.gui.teleport_here"),
-                    Teleport.isAllowed() && safeY > 0,
-                    () -> Teleport.teleport(bx, safeY, bz)));
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.gui.new_waypoint"),
-                    true,
-                    () -> mc.displayGuiScreen(
-                        GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : surfaceY(bx, bz), bz, dimension))));
-        }
+        final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+        final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
+        final int safeY = Teleport.findSafeY(mc.theWorld, bx, bz);
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport_here"), Teleport.isAllowed(), () -> {
+            if (safeY > 0) {
+                Teleport.teleport(bx, safeY, bz);
+            } else {
+                // Unexplored or unknown height: ask which Y to go to.
+                mc.displayGuiScreen(new GuiTeleportY(this, bx, bz));
+            }
+        }));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.new_waypoint"),
+                true,
+                () -> mc.displayGuiScreen(
+                    GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : surfaceY(bx, bz), bz, dimension))));
         menu = entries;
         menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
         menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
@@ -569,8 +557,14 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
         if (button == 1) {
-            // Right click: a small menu to teleport there or create/edit a waypoint.
-            openMenu(mouseX, mouseY);
+            // Right click on a waypoint edits it (teleport is in the editor); elsewhere a small menu to teleport
+            // there or create a waypoint.
+            Waypoint hovered = waypointAt(mouseX, mouseY);
+            if (hovered != null) {
+                mc.displayGuiScreen(GuiEditWaypoint.edit(this, hovered));
+            } else {
+                openMenu(mouseX, mouseY);
+            }
             return;
         }
         if (button == 0) {

@@ -110,3 +110,5 @@ wayfarmap.option.map.displayMode=Map colors
 wayfarmap.option.map.displayMode.desc=Blocks: the map shows block colors. Biomes: each biome in its own color (hover shows its name). New data is collected as chunks are scanned.
 wayfarmap.option.map.displayMode.blocks=Blocks
 wayfarmap.option.map.displayMode.biomes=Biomes
+wayfarmap.gui.teleport_y_title=Teleport to which height?
+wayfarmap.gui.teleport_y_hint=Ground unknown at X %s Z %s. Y (0-255):
