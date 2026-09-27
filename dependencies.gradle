@@ -40,4 +40,7 @@ dependencies {
     // Optional ServerUtilities integration: chunk claims and chunk loading from the map.
     compileOnly("com.github.GTNewHorizons:ServerUtilities:2.4.13:dev")
     compileOnly("it.unimi.dsi:fastutil:8.5.18")
+    // Optional TCNodeTracker integration: the Thaumcraft aura nodes it recorded, on the map.
+    compileOnly("com.github.GTNewHorizons:TCNodeTracker:1.4.6:dev")
+    compileOnly("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
 }

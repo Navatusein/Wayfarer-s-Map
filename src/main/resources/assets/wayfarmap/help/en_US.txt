@@ -16,7 +16,7 @@ The top of the map has §ficons§r; hover one to see its name.
 §fLeft:§r
 - §bGear§r — settings
 - §bFlag§r — waypoint list
-- §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims and power failures (only for installed mods); it stays open to switch several
+- §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r
 - §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
@@ -111,6 +111,16 @@ When a GregTech machine runs out of energy, GregTech records a §fpower failure�
 - The search at the top finds failures by machine name
 
 > Your whole team sees them: the GregTech server sends them.
+
+# Thaumcraft nodes (TCNodeTracker)
+Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded with TCNodeTracker show on the map and the minimap — a node icon in the color of its §fstrongest aspect§r with that aspect inside. Turned on with the §bThaumcraft nodes§r checkbox in the §bAdd-on layers§r menu.
+
+- Hover — node type, modifier, every aspect with its amount, and the coordinates
+- Zoomed in, the main aspects are written under the icon
+- §eRight click a node → Point the arrow here§r — TCNodeTracker's in-world arrow leads to it
+- §eRight click a node → Mark depleted§r — removes it from TCNodeTracker's list
+- §eRight click a node → Place a waypoint here§r
+- The search at the top finds aspects: §e"ignis"§r, §e"aer ordo"§r — other nodes fade
 
 # Claims (ServerUtilities)
 Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bAdd-on layers§r menu.

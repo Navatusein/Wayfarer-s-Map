@@ -1,0 +1,361 @@
+package WayFarMap.client.integration;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.resources.I18n;
+import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.StatCollector;
+
+import org.lwjgl.opengl.GL11;
+
+import com.dyonovan.tcnodetracker.TCNodeTracker;
+import com.dyonovan.tcnodetracker.integration.navigator.ThaumcraftNodeLayerManager;
+import com.dyonovan.tcnodetracker.lib.JsonUtils;
+import com.dyonovan.tcnodetracker.lib.NodeList;
+
+import thaumcraft.api.aspects.Aspect;
+
+/**
+ * Thaumcraft aura nodes found with TCNodeTracker, drawn like its own Navigator (JourneyMap / Xaero) layer: the node
+ * icon tinted with the node's strongest aspect, with that aspect on top. TCNodeTracker keeps them in
+ * {@link TCNodeTracker#nodelist}; marking a node depleted removes it there and saves its file, and its in-world arrow
+ * follows {@code doGui} and the markers.
+ * <p>
+ * Only touch this class after {@link Mods#isThaumcraftNodesAvailable()}.
+ */
+public final class ThaumcraftNodes {
+
+    private static final ResourceLocation NODE = new ResourceLocation(
+        "tcnodetracker",
+        "textures/gui/node_unmarked.png");
+    private static final ResourceLocation NODE_TRACKED = new ResourceLocation(
+        "tcnodetracker",
+        "textures/gui/node_marked.png");
+    private static final int SEARCH_COLOR = 0xFFD34D;
+    private static final int LABEL_BACKGROUND = 0xB4000000;
+
+    private ThaumcraftNodes() {}
+
+    /** One node with its aspects, strongest first. */
+    public static final class Node {
+
+        final NodeList source;
+        public final int dimension, x, y, z;
+        final List<Aspect> aspects = new ArrayList<>();
+        final List<Integer> amounts = new ArrayList<>();
+
+        Node(NodeList source) {
+            this.source = source;
+            dimension = source.dim;
+            x = source.x;
+            y = source.y;
+            z = source.z;
+            List<Map.Entry<String, Integer>> entries = new ArrayList<>();
+            if (source.aspect != null) {
+                entries.addAll(source.aspect.entrySet());
+            }
+            entries.sort((a, b) -> Integer.compare(amount(b.getValue()), amount(a.getValue())));
+            for (Map.Entry<String, Integer> entry : entries) {
+                Aspect aspect = Aspect.getAspect(entry.getKey());
+                if (aspect != null) {
+                    aspects.add(aspect);
+                    amounts.add(amount(entry.getValue()));
+                }
+            }
+        }
+
+        private static int amount(Integer value) {
+            return value == null ? 0 : value;
+        }
+
+        int color() {
+            return aspects.isEmpty() ? 0xFFFFFF : aspects.get(0)
+                .getColor();
+        }
+
+        ResourceLocation image() {
+            return aspects.isEmpty() ? null
+                : aspects.get(0)
+                    .getImage();
+        }
+
+        boolean tracked() {
+            return TCNodeTracker.doGui && TCNodeTracker.xMarker == x
+                && TCNodeTracker.yMarker == y
+                && TCNodeTracker.zMarker == z;
+        }
+    }
+
+    private static List<Node> nodes(int dimension) {
+        List<Node> result = new ArrayList<>();
+        for (NodeList source : new ArrayList<>(TCNodeTracker.nodelist)) {
+            if (source.dim == dimension) {
+                result.add(new Node(source));
+            }
+        }
+        return result;
+    }
+
+    // ---------------------------------------------------------------- search
+
+    private static String[] searchTokens = {};
+
+    /** Aspect search ("ignis", "Aer ordo"): nodes lacking one of the aspects are dimmed. */
+    public static void setSearch(String text) {
+        String q = text == null ? ""
+            : text.trim()
+                .toLowerCase(Locale.ROOT);
+        searchTokens = q.isEmpty() ? new String[0] : q.split("\\s+");
+    }
+
+    private static boolean matches(Node node) {
+        for (String token : searchTokens) {
+            boolean found = false;
+            for (Aspect aspect : node.aspects) {
+                found |= aspect.getName()
+                    .toLowerCase(Locale.ROOT)
+                    .contains(token)
+                    || aspect.getTag()
+                        .toLowerCase(Locale.ROOT)
+                        .contains(token);
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ---------------------------------------------------------------- drawing
+
+    private static Node hovered;
+
+    public static void draw(int dimension, double centerX, double centerZ, double scale, int x, int y, int width,
+        int height, boolean minimap, int mouseX, int mouseY) {
+        if (!minimap) {
+            hovered = null;
+        }
+        List<Node> all = nodes(dimension);
+        if (all.isEmpty()) {
+            return;
+        }
+        double left = centerX - width / 2.0 / scale;
+        double top = centerZ - height / 2.0 / scale;
+        double size = minimap ? 9 : Math.max(10, Math.min(18, 14 * Math.pow(scale, 0.3)));
+        double half = size / 2;
+        boolean searching = !minimap && searchTokens.length > 0;
+
+        List<Node> visible = new ArrayList<>();
+        List<double[]> positions = new ArrayList<>();
+        for (Node node : all) {
+            double sx = x + (node.x + 0.5 - left) * scale;
+            double sy = y + (node.z + 0.5 - top) * scale;
+            if (sx + half < x || sy + half < y || sx - half > x + width || sy - half > y + height) {
+                continue;
+            }
+            visible.add(node);
+            positions.add(new double[] { sx, sy });
+            if (!minimap && (mouseX - sx) * (mouseX - sx) + (mouseY - sy) * (mouseY - sy) <= half * half) {
+                hovered = node;
+            }
+        }
+        if (visible.isEmpty()) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        Tessellator tessellator = Tessellator.instance;
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        // Node rings tinted with the strongest aspect (tracked ones in their own texture), in two batches.
+        for (int pass = 0; pass < 2; pass++) {
+            mc.getTextureManager()
+                .bindTexture(pass == 0 ? NODE : NODE_TRACKED);
+            tessellator.startDrawingQuads();
+            for (int i = 0; i < visible.size(); i++) {
+                Node node = visible.get(i);
+                boolean tracked = node.tracked();
+                if (tracked != (pass == 1)) {
+                    continue;
+                }
+                boolean dim = searching && !matches(node);
+                tessellator.setColorRGBA_I(tracked ? 0xFFFFFF : node.color(), dim ? 70 : 204);
+                quad(tessellator, positions.get(i), half);
+            }
+            tessellator.draw();
+        }
+        // The strongest aspect in the middle.
+        for (int i = 0; i < visible.size(); i++) {
+            Node node = visible.get(i);
+            ResourceLocation image = node.image();
+            if (image == null) {
+                continue;
+            }
+            boolean dim = searching && !matches(node);
+            mc.getTextureManager()
+                .bindTexture(image);
+            tessellator.startDrawingQuads();
+            tessellator.setColorRGBA_I(node.color(), dim ? 90 : 255);
+            quad(tessellator, positions.get(i), half * 0.7);
+            tessellator.draw();
+        }
+        if (searching) {
+            // Search hits get a frame.
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            tessellator.startDrawingQuads();
+            tessellator.setColorRGBA_I(SEARCH_COLOR, 255);
+            for (int i = 0; i < visible.size(); i++) {
+                if (matches(visible.get(i))) {
+                    double[] p = positions.get(i);
+                    frame(tessellator, p[0] - half - 1, p[1] - half - 1, p[0] + half + 1, p[1] + half + 1);
+                }
+            }
+            tessellator.draw();
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+
+        // Aspects under the icons when zoomed in, like a label.
+        if (minimap || scale < 2) {
+            return;
+        }
+        FontRenderer font = mc.fontRenderer;
+        for (int i = 0; i < visible.size(); i++) {
+            Node node = visible.get(i);
+            if (searching && !matches(node) || node.aspects.isEmpty()) {
+                continue;
+            }
+            double[] p = positions.get(i);
+            String text = summary(node, 3);
+            int w = font.getStringWidth(text);
+            int lx = (int) Math.round(p[0] - w / 2.0), ly = (int) Math.round(p[1] + half + 3);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            tessellator.startDrawingQuads();
+            tessellator.setColorRGBA_I(LABEL_BACKGROUND & 0xFFFFFF, LABEL_BACKGROUND >>> 24);
+            tessellator.addVertex(lx - 2, ly + 9, 0);
+            tessellator.addVertex(lx + w + 2, ly + 9, 0);
+            tessellator.addVertex(lx + w + 2, ly - 1, 0);
+            tessellator.addVertex(lx - 2, ly - 1, 0);
+            tessellator.draw();
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            font.drawString(text, lx, ly, 0xFFFFFF);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static void quad(Tessellator tessellator, double[] p, double half) {
+        tessellator.addVertexWithUV(p[0] - half, p[1] + half, 0, 0, 1);
+        tessellator.addVertexWithUV(p[0] + half, p[1] + half, 0, 1, 1);
+        tessellator.addVertexWithUV(p[0] + half, p[1] - half, 0, 1, 0);
+        tessellator.addVertexWithUV(p[0] - half, p[1] - half, 0, 0, 0);
+    }
+
+    private static void frame(Tessellator t, double x0, double y0, double x1, double y1) {
+        rect(t, x0, y0, x1, y0 + 1);
+        rect(t, x0, y1 - 1, x1, y1);
+        rect(t, x0, y0 + 1, x0 + 1, y1 - 1);
+        rect(t, x1 - 1, y0 + 1, x1, y1 - 1);
+    }
+
+    private static void rect(Tessellator t, double x0, double y0, double x1, double y1) {
+        t.addVertex(x0, y1, 0);
+        t.addVertex(x1, y1, 0);
+        t.addVertex(x1, y0, 0);
+        t.addVertex(x0, y0, 0);
+    }
+
+    /** "Aer 25 · Ordo 18 · …" in the aspects' colors. */
+    private static String summary(Node node, int max) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < node.aspects.size() && i < max; i++) {
+            if (i > 0) {
+                text.append("\u00a77 \u00b7 ");
+            }
+            text.append("\u00a7f")
+                .append(
+                    node.aspects.get(i)
+                        .getName())
+                .append(" \u00a77")
+                .append(node.amounts.get(i));
+        }
+        if (node.aspects.size() > max) {
+            text.append("§7 …");
+        }
+        return text.toString();
+    }
+
+    // ---------------------------------------------------------------- world map interaction
+
+    public static Object getHovered() {
+        return hovered;
+    }
+
+    public static int[] position(Object handle) {
+        Node node = (Node) handle;
+        return new int[] { node.x, node.y, node.z, node.dimension };
+    }
+
+    public static boolean isTracked(Object handle) {
+        return ((Node) handle).tracked();
+    }
+
+    /** Points TCNodeTracker's in-world arrow at the node, or turns it off if it points there already. */
+    public static void toggleTracked(Object handle) {
+        Node node = (Node) handle;
+        boolean off = node.tracked();
+        if (TCNodeTracker.isNavigatorLoaded) {
+            // Its map layers show the tracked node as the active waypoint; that is cleared the same way it does.
+            ThaumcraftNodeLayerManager.instance.clearActiveWaypoint();
+        }
+        TCNodeTracker.doGui = !off;
+        TCNodeTracker.xMarker = node.x;
+        TCNodeTracker.yMarker = off ? -1 : node.y;
+        TCNodeTracker.zMarker = node.z;
+    }
+
+    /** Marks the node depleted the way TCNodeTracker does: removes it from its list and saves. */
+    public static void markDepleted(Object handle) {
+        Node node = (Node) handle;
+        if (node.tracked()) {
+            toggleTracked(node);
+        }
+        if (TCNodeTracker.isNavigatorLoaded) {
+            // Also updates its own map layers.
+            ThaumcraftNodeLayerManager.instance.deleteNode(node.source);
+        } else {
+            TCNodeTracker.nodelist.remove(node.source);
+            JsonUtils.writeJson();
+        }
+    }
+
+    public static List<String> getHoveredTooltip() {
+        if (hovered == null) {
+            return null;
+        }
+        Node node = hovered;
+        List<String> lines = new ArrayList<>();
+        if (node.tracked()) {
+            lines.add("§6" + I18n.format("wayfarmap.node.tracked"));
+        }
+        lines.add("§l" + StatCollector.translateToLocal("tile.blockAiry.0.name"));
+        String kind = StatCollector.translateToLocal("nodetype." + node.source.type + ".name");
+        if (node.source.mod != null && !"BLANK".equals(node.source.mod)) {
+            kind += ", " + StatCollector.translateToLocal("nodemod." + node.source.mod + ".name");
+        }
+        lines.add("\u00a77" + kind);
+        for (int i = 0; i < node.aspects.size(); i++) {
+            lines.add(
+                "\u00a7f" + node.aspects.get(i)
+                    .getName() + " \u00a77" + node.amounts.get(i));
+        }
+        lines.add("§7" + node.x + ", " + node.y + ", " + node.z);
+        lines.add("§8" + I18n.format("wayfarmap.node.hint"));
+        return lines;
+    }
+}

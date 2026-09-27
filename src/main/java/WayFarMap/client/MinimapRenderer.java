@@ -22,6 +22,7 @@ import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
+import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.Waypoint;
@@ -192,6 +193,10 @@ public class MinimapRenderer {
                 if (Config.showOreVeins) {
                     ProspectingLayer.drawOreVeins(dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
                 }
+            }
+            if (Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable()) {
+                ThaumcraftNodes
+                    .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
             }
             if (Config.showPowerfails && Mods.isPowerfailsAvailable()) {
                 PowerfailLayer

@@ -63,6 +63,7 @@ public class Config {
     /** ServerUtilities claims layer on the world map (only used when it is installed). */
     public static boolean showClaims = false;
     public static boolean showPowerfails = true;
+    public static boolean showThaumcraftNodes = true;
     /** Share the explored map with the ServerUtilities team (where the server has the mod). */
     public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
@@ -204,6 +205,13 @@ public class Config {
             true,
             () -> showPowerfails,
             v -> showPowerfails = v);
+        bool(
+            c,
+            "thaumcraftNodes",
+            "Show the Thaumcraft aura nodes found with TCNodeTracker on the maps (if installed).",
+            true,
+            () -> showThaumcraftNodes,
+            v -> showThaumcraftNodes = v);
         bool(
             c,
             "shareWithTeam",
@@ -418,6 +426,11 @@ public class Config {
         if (showUndergroundFluids) {
             showOreVeins = false;
         }
+        save();
+    }
+
+    public static void toggleThaumcraftNodes() {
+        showThaumcraftNodes = !showThaumcraftNodes;
         save();
     }
 

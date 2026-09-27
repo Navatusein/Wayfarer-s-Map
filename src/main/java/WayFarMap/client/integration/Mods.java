@@ -26,6 +26,16 @@ public final class Mods {
         return Loader.isModLoaded("gregtech") && PowerfailLayer.isAvailable();
     }
 
+    private static Boolean thaumcraftNodes;
+
+    /** Thaumcraft aura nodes found with TCNodeTracker (which needs Thaumcraft); see {@link ThaumcraftNodes}. */
+    public static boolean isThaumcraftNodesAvailable() {
+        if (thaumcraftNodes == null) {
+            thaumcraftNodes = Loader.isModLoaded("tcnodetracker") && Loader.isModLoaded("Thaumcraft");
+        }
+        return thaumcraftNodes;
+    }
+
     public static boolean isVisualProspectingLoaded() {
         if (visualProspecting == null) {
             visualProspecting = Loader.isModLoaded("visualprospecting");

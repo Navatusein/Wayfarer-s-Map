@@ -38,6 +38,7 @@ import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
+import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -169,7 +170,9 @@ public class GuiWorldMap extends ScaledScreen {
             new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
             x);
         addonsButton = null;
-        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable() || Mods.isPowerfailsAvailable()) {
+        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
+            || Mods.isPowerfailsAvailable()
+            || Mods.isThaumcraftNodesAvailable()) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
             addIconButton(addonsButton, x);
         }
@@ -217,7 +220,11 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** The search field shows up in biome view and with the ore vein or fluid layer. */
     private boolean searchAvailable() {
-        return biomeViewShown() || prospectingLayerShown() || powerfailsShown();
+        return biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown();
+    }
+
+    private static boolean nodesShown() {
+        return Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable();
     }
 
     private static boolean powerfailsShown() {
@@ -241,6 +248,9 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Mods.isPowerfailsAvailable()) {
             PowerfailLayer.setSearch(powerfailsShown() ? query : "");
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            ThaumcraftNodes.setSearch(nodesShown() ? query : "");
         }
     }
 
@@ -267,6 +277,9 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Mods.isPowerfailsAvailable()) {
             entries.add(addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails));
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes));
         }
         menu = entries;
         menuKind = MENU_ADDONS;
@@ -335,7 +348,8 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton.tooltip = mobsButtonText(mobFilter);
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
-                || powerfailsShown();
+                || powerfailsShown()
+                || nodesShown();
         }
     }
 
@@ -464,6 +478,9 @@ public class GuiWorldMap extends ScaledScreen {
             ProspectingLayer
                 .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
         }
+        if (nodesShown()) {
+            ThaumcraftNodes.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
         if (powerfailsShown()) {
             PowerfailLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
         }
@@ -563,6 +580,9 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
             // Power failures are drawn on top, so their tooltip comes first.
             List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
+            if (tooltip == null && nodesShown()) {
+                tooltip = ThaumcraftNodes.getHoveredTooltip();
+            }
             if (tooltip == null && prospecting && Config.showOreVeins) {
                 tooltip = ProspectingLayer.getHoveredTooltip();
             }
@@ -819,6 +839,26 @@ public class GuiWorldMap extends ScaledScreen {
             : null;
         // Same for the power failure under the mouse.
         final Object powerfail = powerfailsShown() ? PowerfailLayer.getHovered() : null;
+        // And for the Thaumcraft node under the mouse.
+        final Object node = powerfail == null && nodesShown() ? ThaumcraftNodes.getHovered() : null;
+        if (node != null) {
+            entries.add(
+                new MenuEntry(
+                    I18n.format(ThaumcraftNodes.isTracked(node) ? "wayfarmap.node.untrack" : "wayfarmap.node.track"),
+                    true,
+                    () -> ThaumcraftNodes.toggleTracked(node)));
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.node.deplete"),
+                    true,
+                    () -> ThaumcraftNodes.markDepleted(node)));
+            final int[] at = ThaumcraftNodes.position(node);
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.powerfail.waypoint"),
+                    true,
+                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1], at[2], at[3]))));
+        }
         if (powerfail != null) {
             entries.add(
                 new MenuEntry(I18n.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail)));
@@ -1240,6 +1280,9 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Mods.isPowerfailsAvailable()) {
             PowerfailLayer.setSearch("");
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            ThaumcraftNodes.setSearch("");
         }
         saveView();
         MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
