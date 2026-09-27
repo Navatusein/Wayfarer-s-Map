@@ -155,4 +155,4 @@ wayfarmap.option.minimap.shape.desc=Square or round minimap.
 wayfarmap.option.minimap.shape.square=Square
 wayfarmap.option.minimap.shape.round=Round
 wayfarmap.option.minimap.rotate=Rotate with view
-wayfarmap.option.minimap.rotate.desc=The minimap turns with the player: the view direction is always up, the N letter shows north.
+wayfarmap.option.minimap.rotate.desc=The minimap turns with the player: the view direction is always up, N, E, S and W on the edge show the compass points.

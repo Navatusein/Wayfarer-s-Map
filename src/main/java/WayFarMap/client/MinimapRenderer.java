@@ -7,7 +7,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -90,14 +92,88 @@ public class MinimapRenderer {
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
         }
 
-        // A turned map needs a bigger square under it to fill the corners; the shape cuts everything to size.
-        int inner = Config.minimapRotate ? (int) Math.ceil(size * Math.sqrt(2)) + 2 : size;
-        boolean masked = round || Config.minimapRotate;
-        if (masked) {
-            beginMask(centerX, centerY, half, inner / 2.0 + 1, round);
+        // The map is drawn into an offscreen buffer the size of the minimap, which cuts it exactly to the square
+        // (a turned map sticks out otherwise), and the buffer is then put on screen as a square or a circle.
+        int factor = event.resolution.getScaleFactor();
+        if (OpenGlHelper.isFramebufferEnabled()) {
+            int pixels = size * factor;
+            if (buffer == null) {
+                buffer = new Framebuffer(pixels, pixels, false);
+                buffer.setFramebufferColor(0f, 0f, 0f, 0f);
+            } else if (buffer.framebufferWidth != pixels || buffer.framebufferHeight != pixels) {
+                buffer.createBindFramebuffer(pixels, pixels);
+            }
+            buffer.framebufferClear();
+            buffer.bindFramebuffer(true);
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glPushMatrix();
+            GL11.glLoadIdentity();
+            GL11.glOrtho(0, size, size, 0, 1000, 3000);
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glPushMatrix();
+            GL11.glLoadIdentity();
+            GL11.glTranslatef(0f, 0f, -2000f);
+            try {
+                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks);
+            } finally {
+                GL11.glMatrixMode(GL11.GL_PROJECTION);
+                GL11.glPopMatrix();
+                GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                GL11.glPopMatrix();
+                mc.getFramebuffer()
+                    .bindFramebuffer(true);
+            }
+            drawBuffer(x, y, size, round);
+        } else {
+            // Offscreen buffers are off in the video settings: cut to the square only.
+            GL11.glPushMatrix();
+            GL11.glTranslatef(x, y, 0f);
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            GL11.glScissor(x * factor, mc.displayHeight - (y + size) * factor, size * factor, size * factor);
+            try {
+                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks);
+            } finally {
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+                GL11.glPopMatrix();
+            }
         }
+
+        if (Config.waypointsOnMinimap) {
+            drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation);
+        }
+        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f, 0xFFFFFFFF);
+        drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
+
+        int textY = y + size + 3;
+        for (String line : lines) {
+            font.drawStringWithShadow(line, x + size / 2 - font.getStringWidth(line) / 2, textY, 0xFFFFFF);
+            textY += LINE_HEIGHT;
+        }
+
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glPopMatrix();
+    }
+
+    /** Turns the offset (dx, dz) by the map's rotation in degrees, like glRotatef does on screen. */
+    private static double[] rotate(double dx, double dz, float degrees) {
+        if (degrees == 0f) {
+            return new double[] { dx, dz };
+        }
+        double r = Math.toRadians(degrees);
+        double cos = Math.cos(r), sin = Math.sin(r);
+        return new double[] { dx * cos - dz * sin, dx * sin + dz * cos };
+    }
+
+    private static Framebuffer buffer;
+
+    /** The map and everything on it, into the square (0, 0, size, size), turned by {@code rotation} degrees. */
+    private static void drawLayers(Minecraft mc, MapDimension dimension, double px, double pz, double scale, int size,
+        float rotation, float partialTicks) {
+        Gui.drawRect(0, 0, size, size, 0xFF0C0E11);
+        // A turned map needs a bigger square under it to fill the corners.
+        int inner = Config.minimapRotate ? (int) Math.ceil(size * Math.sqrt(2)) + 2 : size;
         GL11.glPushMatrix();
-        GL11.glTranslated(centerX, centerY, 0);
+        GL11.glTranslated(size / 2.0, size / 2.0, 0);
         GL11.glRotatef(rotation, 0f, 0f, 1f);
         GL11.glTranslated(-inner / 2.0, -inner / 2.0, 0);
         MapDrawer.iconRotation = rotation;
@@ -119,103 +195,60 @@ public class MinimapRenderer {
         } finally {
             MapDrawer.iconRotation = 0f;
             GL11.glPopMatrix();
-            if (masked) {
-                endMask(centerX, centerY, inner / 2.0 + 1);
-            }
+            GL11.glColor4f(1f, 1f, 1f, 1f);
         }
-
-        if (Config.waypointsOnMinimap) {
-            drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation);
-        }
-        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f, 0xFFFFFFFF);
-
-        // "N" where north is: at the top, or on the edge when the map turns.
-        FontRenderer font = mc.fontRenderer;
-        double[] north = rotate(0, -1, rotation);
-        double edge = half - 6;
-        double reach = round ? edge : edge / Math.max(Math.abs(north[0]), Math.abs(north[1]));
-        int nx = (int) Math.round(centerX + north[0] * reach);
-        int ny = (int) Math.round(centerY + north[1] * reach);
-        font.drawStringWithShadow("N", nx - font.getStringWidth("N") / 2, ny - 3, 0xFFFFFF);
-        int textY = y + size + 3;
-        for (String line : lines) {
-            font.drawStringWithShadow(line, x + size / 2 - font.getStringWidth(line) / 2, textY, 0xFFFFFF);
-            textY += LINE_HEIGHT;
-        }
-
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-        GL11.glPopMatrix();
     }
 
-    /** Turns the offset (dx, dz) by the map's rotation in degrees, like glRotatef does on screen. */
-    private static double[] rotate(double dx, double dz, float degrees) {
-        if (degrees == 0f) {
-            return new double[] { dx, dz };
-        }
-        double r = Math.toRadians(degrees);
-        double cos = Math.cos(r), sin = Math.sin(r);
-        return new double[] { dx * cos - dz * sin, dx * sin + dz * cos };
-    }
-
-    // Depth values in the HUD's orthographic projection (z from -1000 to 1000, larger is nearer).
-    private static final double MASK_BLOCK_Z = 200, MASK_OPEN_Z = -200, MASK_CLEAR_Z = -999;
-
-    /**
-     * Cuts what is drawn next to the minimap's shape using the depth buffer (always there, unlike stencil in
-     * 1.7.10): the square around it is marked "near" so drawing at z = 0 fails, and the shape itself "far".
-     */
-    private static void beginMask(double cx, double cy, double half, double outer, boolean round) {
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_COLOR_BUFFER_BIT);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_DEPTH_TEST);
-        GL11.glDepthMask(true);
-        GL11.glColorMask(false, false, false, false);
-        GL11.glDepthFunc(GL11.GL_ALWAYS);
-        depthQuad(cx - outer, cy - outer, cx + outer, cy + outer, MASK_BLOCK_Z);
-        if (round) {
-            depthCircle(cx, cy, half, MASK_OPEN_Z);
-        } else {
-            depthQuad(cx - half, cy - half, cx + half, cy + half, MASK_OPEN_Z);
-        }
-        GL11.glColorMask(true, true, true, true);
-        GL11.glDepthFunc(GL11.GL_LEQUAL);
-        GL11.glDepthMask(false);
+    /** Puts the offscreen buffer on screen as a square or a circle (its image is upside down, v = 0 at the bottom). */
+    private static void drawBuffer(int x, int y, int size, boolean round) {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
-    }
-
-    /** Puts the depth back to "empty" (as the HUD starts with) and restores the GL state. */
-    private static void endMask(double cx, double cy, double outer) {
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_DEPTH_TEST);
-        GL11.glColorMask(false, false, false, false);
-        GL11.glDepthMask(true);
-        GL11.glDepthFunc(GL11.GL_ALWAYS);
-        depthQuad(cx - outer, cy - outer, cx + outer, cy + outer, MASK_CLEAR_Z);
-        GL11.glPopAttrib();
-    }
-
-    private static void depthQuad(double x0, double y0, double x1, double y1, double z) {
+        // The buffer's alpha is meaningless after blending into it; the map inside is opaque anyway.
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        buffer.bindFramebufferTexture();
         Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawingQuads();
-        tessellator.addVertex(x0, y1, z);
-        tessellator.addVertex(x1, y1, z);
-        tessellator.addVertex(x1, y0, z);
-        tessellator.addVertex(x0, y0, z);
-        tessellator.draw();
+        if (round) {
+            double half = size / 2.0;
+            tessellator.startDrawing(GL11.GL_TRIANGLE_FAN);
+            tessellator.addVertexWithUV(x + half, y + half, 0, 0.5, 0.5);
+            for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
+                double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
+                double cos = Math.cos(a), sin = Math.sin(a);
+                tessellator.addVertexWithUV(x + half + cos * half, y + half + sin * half, 0, 0.5 + cos * 0.5, 0.5 - sin * 0.5);
+            }
+            tessellator.draw();
+        } else {
+            tessellator.startDrawingQuads();
+            tessellator.addVertexWithUV(x, y + size, 0, 0, 0);
+            tessellator.addVertexWithUV(x + size, y + size, 0, 1, 0);
+            tessellator.addVertexWithUV(x + size, y, 0, 1, 1);
+            tessellator.addVertexWithUV(x, y, 0, 0, 1);
+            tessellator.draw();
+        }
+        buffer.unbindFramebufferTexture();
+        GL11.glEnable(GL11.GL_BLEND);
+    }
+
+    private static final String[] COMPASS_LETTERS = { "N", "E", "S", "W" };
+    private static final double[][] COMPASS_DIRECTIONS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+
+    /** N, E, S and W on the edge of the minimap, turning with it; north stands out in red. */
+    private static void drawCompass(FontRenderer font, double cx, double cy, double half, boolean round,
+        float rotation) {
+        double edge = half - 5;
+        for (int i = 0; i < COMPASS_LETTERS.length; i++) {
+            double[] direction = rotate(COMPASS_DIRECTIONS[i][0], COMPASS_DIRECTIONS[i][1], rotation);
+            // On a square the letter slides along the border, on a circle along the rim.
+            double reach = round ? edge : edge / Math.max(Math.abs(direction[0]), Math.abs(direction[1]));
+            int lx = (int) Math.round(cx + direction[0] * reach);
+            int ly = (int) Math.round(cy + direction[1] * reach);
+            String letter = COMPASS_LETTERS[i];
+            font.drawStringWithShadow(letter, lx - font.getStringWidth(letter) / 2 + 1, ly - 3, i == 0 ? 0xFF5555 : 0xFFFFFF);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static final int CIRCLE_SEGMENTS = 64;
-
-    private static void depthCircle(double cx, double cy, double radius, double z) {
-        Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawing(GL11.GL_TRIANGLE_FAN);
-        tessellator.addVertex(cx, cy, z);
-        for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
-            double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
-            tessellator.addVertex(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, z);
-        }
-        tessellator.draw();
-    }
 
     private static void fillCircle(double cx, double cy, double radius, int color) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);

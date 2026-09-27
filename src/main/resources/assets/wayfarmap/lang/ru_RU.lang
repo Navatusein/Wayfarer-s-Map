@@ -155,4 +155,4 @@ wayfarmap.option.minimap.shape.desc=Квадратная или круглая �
 wayfarmap.option.minimap.shape.square=Квадратная
 wayfarmap.option.minimap.shape.round=Круглая
 wayfarmap.option.minimap.rotate=Поворот по взгляду
-wayfarmap.option.minimap.rotate.desc=Миникарта поворачивается вместе с игроком: направление взгляда всегда вверху, буква N показывает север.
+wayfarmap.option.minimap.rotate.desc=Миникарта поворачивается вместе с игроком: направление взгляда всегда вверху, буквы N, E, S, W по краю показывают стороны света.
