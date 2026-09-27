@@ -285,7 +285,14 @@ public final class PowerfailLayer {
             double[] p = positions.get(i);
             boolean dim = searching && !matches(visible.get(i));
             int frame = searching && !dim ? SEARCH_COLOR : FRAME_COLOR;
-            quad(tessellator, p[0] - half - 1, p[1] - half - 1, p[0] + half + 1, p[1] + half + 1, frame, dim ? 90 : 255);
+            quad(
+                tessellator,
+                p[0] - half - 1,
+                p[1] - half - 1,
+                p[0] + half + 1,
+                p[1] + half + 1,
+                frame,
+                dim ? 90 : 255);
             quad(tessellator, p[0] - half, p[1] - half, p[0] + half, p[1] + half, 0x000000, dim ? 90 : 170);
         }
         tessellator.draw();

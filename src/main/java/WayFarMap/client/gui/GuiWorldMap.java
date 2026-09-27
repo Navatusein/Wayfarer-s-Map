@@ -59,9 +59,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13,
-        ID_TEAM = 14;
+    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14;
     /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3;
     private static final int SLIDER_WIDTH = 10;
@@ -459,17 +458,7 @@ public class GuiWorldMap extends ScaledScreen {
         boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
-            ClaimsLayer.draw(
-                dimensionId,
-                centerX,
-                centerZ,
-                scale,
-                0,
-                0,
-                width,
-                height,
-                claimSelection,
-                claimAction);
+            ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
         }
         if (prospecting && Config.showUndergroundFluids) {
             ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
@@ -488,8 +477,7 @@ public class GuiWorldMap extends ScaledScreen {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
         }
         // Teammates always, also in another dimension being looked at.
-        MapDrawer
-            .drawTeammates(mc, dimensionId, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
+        MapDrawer.drawTeammates(mc, dimensionId, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
 
@@ -497,7 +485,10 @@ public class GuiWorldMap extends ScaledScreen {
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
         double playerScreenX = width / 2.0 + (px - centerX) * scale;
         double playerScreenY = height / 2.0 + (pz - centerZ) * scale;
-        if (!otherDimension && playerScreenX >= 0 && playerScreenY >= 0 && playerScreenX <= width && playerScreenY <= height) {
+        if (!otherDimension && playerScreenX >= 0
+            && playerScreenY >= 0
+            && playerScreenX <= width
+            && playerScreenY <= height) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
             MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
@@ -509,7 +500,8 @@ public class GuiWorldMap extends ScaledScreen {
         drawTitle(mouseX, mouseY, dimensionId, otherDimension);
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
-        Theme.text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
+        Theme
+            .text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
@@ -532,8 +524,13 @@ public class GuiWorldMap extends ScaledScreen {
         }
         Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
         if (hoveredWaypoint != null) {
-            cursorText = hoveredWaypoint.name + "  (" + hoveredWaypoint.x + ", " + hoveredWaypoint.y + ", "
-                + hoveredWaypoint.z + ")";
+            cursorText = hoveredWaypoint.name + "  ("
+                + hoveredWaypoint.x
+                + ", "
+                + hoveredWaypoint.y
+                + ", "
+                + hoveredWaypoint.z
+                + ")";
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         if (claimsShown()) {
@@ -632,7 +629,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     private boolean onCaveSlider(int mouseX, int mouseY) {
         return MapManager.INSTANCE.getViewCaveLayer() >= 0 && !biomeViewShown()
-            && Theme.inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
+            && Theme
+                .inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
     }
 
     private void drawCaveSlider(int mouseX, int mouseY) {
@@ -680,7 +678,8 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
         String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
         int titleWidth = fontRendererObj.getStringWidth(title);
-        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8 || width / 2 + titleWidth / 2 >= rightButtonsStart() - 8) {
+        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8
+            || width / 2 + titleWidth / 2 >= rightButtonsStart() - 8) {
             // No room for the name: the id alone still opens the list.
             title = "[" + dimensionId + "] \u25BE";
             titleWidth = fontRendererObj.getStringWidth(title);
@@ -708,7 +707,8 @@ public class GuiWorldMap extends ScaledScreen {
         for (MapManager.SavedDimension dimension : dimensionList) {
             widest = Math.max(
                 widest,
-                fontRendererObj.getStringWidth(dimensionLabel(dimension)) + fontRendererObj.getStringWidth("  " + here));
+                fontRendererObj.getStringWidth(dimensionLabel(dimension))
+                    + fontRendererObj.getStringWidth("  " + here));
         }
         dimensionListWidth = Math.max(titleX1 - titleX0 + 8, widest + 12);
         dimensionListX = Math.max(2, Math.min(width / 2 - dimensionListWidth / 2, width - dimensionListWidth - 2));
@@ -729,15 +729,21 @@ public class GuiWorldMap extends ScaledScreen {
             MapManager.SavedDimension dimension = dimensionList.get(i);
             int y = top + 2 + i * MENU_ROW;
             if (dimension.id == shown) {
-                Theme.fill(dimensionListX + 1, y, dimensionListX + dimensionListWidth - 1, y + MENU_ROW, Theme.ACCENT_DIM);
-            } else if (Theme.inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
                 Theme.fill(
                     dimensionListX + 1,
                     y,
                     dimensionListX + dimensionListWidth - 1,
                     y + MENU_ROW,
-                    Theme.CONTROL_HOVER);
-            }
+                    Theme.ACCENT_DIM);
+            } else if (Theme
+                .inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
+                    Theme.fill(
+                        dimensionListX + 1,
+                        y,
+                        dimensionListX + dimensionListWidth - 1,
+                        y + MENU_ROW,
+                        Theme.CONTROL_HOVER);
+                }
             String label = dimensionLabel(dimension);
             Theme.text(fontRendererObj, label, dimensionListX + 6, y + 3, Theme.TEXT);
             if (dimension.id == playerDimension) {
@@ -848,10 +854,7 @@ public class GuiWorldMap extends ScaledScreen {
                     true,
                     () -> ThaumcraftNodes.toggleTracked(node)));
             entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.node.deplete"),
-                    true,
-                    () -> ThaumcraftNodes.markDepleted(node)));
+                new MenuEntry(I18n.format("wayfarmap.node.deplete"), true, () -> ThaumcraftNodes.markDepleted(node)));
         }
         if (powerfail != null) {
             entries.add(
@@ -873,7 +876,8 @@ public class GuiWorldMap extends ScaledScreen {
             entries.add(
                 new MenuEntry(
                     I18n.format(
-                        ProspectingLayer.isDepleted(vein) ? "wayfarmap.gui.vein_restore" : "wayfarmap.gui.vein_deplete"),
+                        ProspectingLayer.isDepleted(vein) ? "wayfarmap.gui.vein_restore"
+                            : "wayfarmap.gui.vein_deplete"),
                     true,
                     () -> ProspectingLayer.toggleDepleted(vein)));
         }
@@ -1237,10 +1241,10 @@ public class GuiWorldMap extends ScaledScreen {
                 searchField.setText("");
             } else if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN
                 || keyCode == Keyboard.KEY_NUMPADENTER) {
-                searchField.setFocused(false);
-            } else {
-                searchField.textboxKeyTyped(typedChar, keyCode);
-            }
+                    searchField.setFocused(false);
+                } else {
+                    searchField.textboxKeyTyped(typedChar, keyCode);
+                }
             if (!searchField.getText()
                 .equals(searchText)) {
                 searchText = searchField.getText();

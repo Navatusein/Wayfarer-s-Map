@@ -560,7 +560,6 @@ public class MapManager implements IResourceManagerReloadListener {
         tick++;
         updateCaveMode(world, mc.thePlayer);
 
-
         int budget = Config.chunksScannedPerTick;
         if (activeCaveLayer >= 0) {
             caveTracker.scan(mc, world, mc.thePlayer, getCaveLayer(activeCaveLayer), activeCaveLayer, null, budget);
@@ -737,8 +736,9 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         File account = new File(worldFolder, ACCOUNT_PREFIX + sanitize(id));
         if (!account.exists()) {
-            File[] legacy = worldFolder.listFiles(file -> !file.getName()
-                .startsWith(ACCOUNT_PREFIX));
+            File[] legacy = worldFolder.listFiles(
+                file -> !file.getName()
+                    .startsWith(ACCOUNT_PREFIX));
             if (legacy != null && legacy.length > 0 && account.mkdirs()) {
                 for (File file : legacy) {
                     if (!file.renameTo(new File(account, file.getName()))) {

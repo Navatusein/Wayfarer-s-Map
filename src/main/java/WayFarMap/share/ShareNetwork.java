@@ -118,8 +118,7 @@ public final class ShareNetwork {
             backfill = buf.readBoolean();
             byte[] data = new byte[Math.max(0, Math.min(buf.readInt(), buf.readableBytes()))];
             buf.readBytes(data);
-            try (DataInputStream in = new DataInputStream(
-                new InflaterInputStream(new ByteArrayInputStream(data)))) {
+            try (DataInputStream in = new DataInputStream(new InflaterInputStream(new ByteArrayInputStream(data)))) {
                 int count = in.readShort();
                 for (int i = 0; i < count && i < MAX_RECORDS * 2; i++) {
                     records.add(ChunkRecord.read(in));

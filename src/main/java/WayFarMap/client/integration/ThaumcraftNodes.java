@@ -79,8 +79,9 @@ public final class ThaumcraftNodes {
         }
 
         int color() {
-            return aspects.isEmpty() ? 0xFFFFFF : aspects.get(0)
-                .getColor();
+            return aspects.isEmpty() ? 0xFFFFFF
+                : aspects.get(0)
+                    .getColor();
         }
 
         ResourceLocation image() {
