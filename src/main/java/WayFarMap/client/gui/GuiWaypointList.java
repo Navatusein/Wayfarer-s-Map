@@ -71,6 +71,12 @@ public class GuiWaypointList extends GuiScreen {
     private FlatTextField groupField;
     private FlatButton groupActionButton;
     private WaypointGroup renamingGroup;
+    /** Waypoint under the mouse when the left button went down; becomes a drag once the mouse moves. */
+    private Waypoint pressedWaypoint;
+    private int pressX, pressY;
+    private boolean draggingWaypoint;
+    private long lastAutoScroll;
+
     private Object pendingDelete;
     private long pendingDeleteTime;
 
@@ -244,6 +250,70 @@ public class GuiWaypointList extends GuiScreen {
                 return;
             }
         }
+        Row row = rowAt(mouseX, mouseY);
+        if (row != null && row.waypoint != null) {
+            pressedWaypoint = row.waypoint;
+            pressX = mouseX;
+            pressY = mouseY;
+        }
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
+        super.mouseMovedOrUp(mouseX, mouseY, button);
+        if (button != 0) {
+            return;
+        }
+        if (draggingWaypoint) {
+            Row target = rowAt(mouseX, mouseY);
+            if (target != null) {
+                String group = target.ungrouped ? null : target.group.name;
+                if (group == null ? pressedWaypoint.group != null : !group.equals(pressedWaypoint.group)) {
+                    WaypointManager.INSTANCE.moveToGroup(pressedWaypoint, group);
+                    rebuildRows();
+                }
+            }
+        }
+        pressedWaypoint = null;
+        draggingWaypoint = false;
+    }
+
+    private Row rowAt(int mouseX, int mouseY) {
+        if (mouseX < listLeft || mouseX >= listRight || mouseY < listTop || mouseY >= listBottom) {
+            return null;
+        }
+        int index = scroll + (mouseY - listTop) / ROW_HEIGHT;
+        return index >= 0 && index < rows.size() ? rows.get(index) : null;
+    }
+
+    /** Whether the row belongs to the same group as the target row (header or waypoint). */
+    private static boolean sameGroup(Row row, Row target) {
+        return row.ungrouped == target.ungrouped && row.group == target.group;
+    }
+
+    private void updateDrag(int mouseX, int mouseY) {
+        if (pressedWaypoint == null) {
+            return;
+        }
+        if (!Mouse.isButtonDown(0)) {
+            pressedWaypoint = null;
+            draggingWaypoint = false;
+            return;
+        }
+        if (!draggingWaypoint && Math.abs(mouseX - pressX) + Math.abs(mouseY - pressY) > 3) {
+            draggingWaypoint = true;
+        }
+        // Scroll while holding the waypoint near the top or bottom of the list.
+        long now = System.currentTimeMillis();
+        if (draggingWaypoint && now - lastAutoScroll > 80) {
+            if (mouseY < listTop + 10 && scroll > 0) {
+                scroll--;
+                lastAutoScroll = now;
+            } else if (mouseY > listBottom - 10 && scroll < maxScroll()) {
+                scroll++;
+                lastAutoScroll = now;
+            }
+        }
     }
 
     @Override
@@ -264,6 +334,13 @@ public class GuiWaypointList extends GuiScreen {
         Theme.fill(listLeft, listTop - 1, listRight, listBottom + 1, 0xFF0F1216);
         Theme.outline(listLeft - 1, listTop - 2, listRight + 1, listBottom + 2, Theme.BORDER);
 
+        updateDrag(mouseX, mouseY);
+        if (!draggingWaypoint) {
+            String hint = I18n.format("wayfarmap.gui.drag_hint");
+            Theme.text(fontRendererObj, hint, listRight - fontRendererObj.getStringWidth(hint), 14, Theme.TEXT_DISABLED);
+        }
+        Row dropTarget = draggingWaypoint ? rowAt(mouseX, mouseY) : null;
+
         hits.clear();
         int visibleRows = (listBottom - listTop) / ROW_HEIGHT;
         for (int i = 0; i < visibleRows && scroll + i < rows.size(); i++) {
@@ -273,10 +350,20 @@ public class GuiWaypointList extends GuiScreen {
             if (row.waypoint == null) {
                 drawGroupRow(row, y, mouseX, mouseY);
             } else {
-                if (hovered) {
+                if (hovered && !draggingWaypoint) {
                     drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.ROW_HOVER);
                 }
                 drawWaypointRow(row.waypoint, y, mouseX, mouseY);
+                if (draggingWaypoint && row.waypoint == pressedWaypoint) {
+                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, 0x80101418);
+                }
+            }
+            if (dropTarget != null && sameGroup(row, dropTarget)) {
+                // Every row of the group the waypoint would land in.
+                drawRect(listLeft, y, listLeft + 2, y + ROW_HEIGHT, Theme.ACCENT);
+                if (row.waypoint == null) {
+                    Theme.outline(listLeft, y, listRight, y + ROW_HEIGHT, Theme.ACCENT);
+                }
             }
         }
         if (rows.size() > visibleRows) {
@@ -289,6 +376,18 @@ public class GuiWaypointList extends GuiScreen {
 
         groupField.drawTextBox();
         super.drawScreen(mouseX, mouseY, partialTicks);
+
+        if (draggingWaypoint) {
+            // The dragged waypoint follows the mouse.
+            String name = pressedWaypoint.name.isEmpty() ? "-"
+                : Theme.ellipsize(fontRendererObj, pressedWaypoint.name, 140);
+            int w = fontRendererObj.getStringWidth(name) + 24;
+            int x = mouseX + 6, y = mouseY - 6;
+            Theme.fill(x, y, x + w, y + 14, Theme.PANEL);
+            Theme.outline(x, y, x + w, y + 14, Theme.ACCENT);
+            WaypointRenderer.drawMapMarker(pressedWaypoint, x + 8, y + 7, 9f, false);
+            Theme.text(fontRendererObj, name, x + 17, y + 3, Theme.TEXT);
+        }
     }
 
     private void drawGroupRow(Row row, int y, int mouseX, int mouseY) {

@@ -176,6 +176,12 @@ public class WaypointManager {
         save();
     }
 
+    /** Moves the waypoint into the named group, or out of any group for null. */
+    public void moveToGroup(Waypoint waypoint, String group) {
+        waypoint.group = group != null && getGroup(group) != null ? group : null;
+        save();
+    }
+
     /** Call after changing a waypoint's fields. */
     public void waypointChanged() {
         save();

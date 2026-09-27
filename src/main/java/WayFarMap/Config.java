@@ -53,7 +53,7 @@ public class Config {
     public static boolean showPassiveMobs = true;
     public static boolean showOtherEntities = true;
     public static boolean entityIcons = true;
-    public static int entityIconLimit = 48;
+    public static int entityIconLimit = 128;
     public static int entityVerticalRange = 32;
 
     public static boolean waypointsInWorld = true;
@@ -160,12 +160,18 @@ public class Config {
             true,
             () -> showOtherEntities,
             v -> showOtherEntities = v);
-        bool(c, "icons", "Draw mobs as small models instead of dots.", true, () -> entityIcons, v -> entityIcons = v);
+        bool(
+            c,
+            "icons",
+            "Draw mobs as a small icon of their face instead of dots.",
+            true,
+            () -> entityIcons,
+            v -> entityIcons = v);
         integer(
             c,
             "iconLimit",
-            "Only the nearest this many mobs are drawn as models, the rest as dots.",
-            48,
+            "Only the nearest this many mobs get an icon, the rest are dots.",
+            128,
             4,
             256,
             4,
