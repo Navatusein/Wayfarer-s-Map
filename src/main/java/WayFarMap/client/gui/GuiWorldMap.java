@@ -243,7 +243,8 @@ public class GuiWorldMap extends GuiScreen {
         // Header and footer.
         Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
         Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
-        String title = I18n.format("wayfarmap.gui.title");
+        // "[id] Name" of the dimension the map shows.
+        String title = "[" + mc.theWorld.provider.dimensionId + "] " + mc.theWorld.provider.getDimensionName();
         int titleWidth = fontRendererObj.getStringWidth(title);
         if (width / 2 - titleWidth / 2 > headerLeftEnd() + 8 && width / 2 + titleWidth / 2 < gridButton.xPosition - 8) {
             Theme.centered(fontRendererObj, title, width / 2, 8, Theme.TEXT_MUTED);
