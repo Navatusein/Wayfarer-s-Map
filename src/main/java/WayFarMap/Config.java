@@ -54,6 +54,8 @@ public class Config {
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
+    /** ServerUtilities claims layer on the world map (only used when it is installed). */
+    public static boolean showClaims = false;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -155,6 +157,13 @@ public class Config {
                 showUndergroundFluids = v;
                 if (v) showOreVeins = false;
             });
+        bool(
+            c,
+            "claims",
+            "Show ServerUtilities chunk claims on the world map (if installed).",
+            false,
+            () -> showClaims,
+            v -> showClaims = v);
         choice(
             c,
             "caveMode",
@@ -362,6 +371,11 @@ public class Config {
         if (showUndergroundFluids) {
             showOreVeins = false;
         }
+        save();
+    }
+
+    public static void toggleClaims() {
+        showClaims = !showClaims;
         save();
     }
 

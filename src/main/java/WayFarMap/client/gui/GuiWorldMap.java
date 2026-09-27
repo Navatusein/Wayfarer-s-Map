@@ -1,7 +1,9 @@
 package WayFarMap.client.gui;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
@@ -19,6 +21,7 @@ import WayFarMap.client.MapDrawer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.gui.ui.Theme;
@@ -43,7 +46,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8;
+        ID_BIOMES = 5, ID_GRID = 6, ID_ORES = 7, ID_FLUIDS = 8, ID_CLAIMS = 9;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -71,6 +74,14 @@ public class GuiWorldMap extends GuiScreen {
     private FlatTextField searchField;
     /** VisualProspecting layers; null when it isn't installed. */
     private FlatButton oreButton, fluidButton;
+    /** ServerUtilities claims layer; null when it isn't installed. */
+    private FlatButton claimsButton;
+
+    /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
+    private final Set<Long> claimSelection = new LinkedHashSet<>();
+    private int claimButton = -1;
+    private int claimAction;
+    private double lastClaimX, lastClaimZ;
 
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
@@ -117,7 +128,11 @@ public class GuiWorldMap extends GuiScreen {
             oreButton = new FlatButton(ID_ORES, x, 4, 0, 16, I18n.format("wayfarmap.gui.ores"));
             x = addHeaderButton(oreButton, x);
             fluidButton = new FlatButton(ID_FLUIDS, x, 4, 0, 16, I18n.format("wayfarmap.gui.fluids"));
-            addHeaderButton(fluidButton, x);
+            x = addHeaderButton(fluidButton, x);
+        }
+        if (Mods.isClaimsAvailable()) {
+            claimsButton = new FlatButton(ID_CLAIMS, x, 4, 0, 16, I18n.format("wayfarmap.gui.claims"));
+            addHeaderButton(claimsButton, x);
         }
 
         // Right side, laid out right to left before the zoom text.
@@ -199,12 +214,21 @@ public class GuiWorldMap extends GuiScreen {
             oreButton.active = Config.showOreVeins;
             fluidButton.active = Config.showUndergroundFluids;
         }
+        if (claimsButton != null) {
+            claimsButton.active = Config.showClaims;
+        }
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_CLAIMS) {
+            Config.toggleClaims();
+            if (Config.showClaims) {
+                ClaimsLayer.onShow();
+            }
+            updateLightButtons();
         } else if (button.id == ID_ORES) {
             Config.toggleOreVeins();
             updateLightButtons();
@@ -294,6 +318,20 @@ public class GuiWorldMap extends GuiScreen {
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
+        if (claimsShown()) {
+            updateClaimPaint(mouseX, mouseY);
+            ClaimsLayer.draw(
+                mc.theWorld.provider.dimensionId,
+                centerX,
+                centerZ,
+                scale,
+                0,
+                0,
+                width,
+                height,
+                claimSelection,
+                claimAction);
+        }
         int dimensionId = mc.theWorld.provider.dimensionId;
         if (prospecting && Config.showUndergroundFluids) {
             ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
@@ -353,7 +391,8 @@ public class GuiWorldMap extends GuiScreen {
                 + hoveredWaypoint.z + ")";
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
-        String help = I18n.format("wayfarmap.gui.help");
+        String help = claimsShown() ? ClaimsLayer.countsText() + "   " + I18n.format("wayfarmap.claims.help")
+            : I18n.format("wayfarmap.gui.help");
         Theme.text(fontRendererObj, help, width - 6 - fontRendererObj.getStringWidth(help), height - 10, Theme.TEXT_MUTED);
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -367,8 +406,11 @@ public class GuiWorldMap extends GuiScreen {
         }
         if (menu != null) {
             drawMenu(mouseX, mouseY);
-        } else if (prospecting && Config.showOreVeins && mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT) {
-            List<String> tooltip = ProspectingLayer.getHoveredTooltip();
+        } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
+            List<String> tooltip = prospecting && Config.showOreVeins ? ProspectingLayer.getHoveredTooltip() : null;
+            if (tooltip == null && claimsShown()) {
+                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, mc.theWorld.provider.dimensionId);
+            }
             if (tooltip != null) {
                 drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
             }
@@ -379,7 +421,10 @@ public class GuiWorldMap extends GuiScreen {
         int end = 0;
         for (Object o : buttonList) {
             GuiButton button = (GuiButton) o;
-            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS || button.id == ID_ORES || button.id == ID_FLUIDS) {
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS
+                || button.id == ID_ORES
+                || button.id == ID_FLUIDS
+                || button.id == ID_CLAIMS) {
                 end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
             }
         }
@@ -665,6 +710,9 @@ public class GuiWorldMap extends GuiScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
+        if (claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
+            return;
+        }
         if (button == 0 && onCaveSlider(mouseX, mouseY)) {
             if (mouseY < sliderTop()) {
                 MapManager.INSTANCE.setCaveLayerOverride(-1);
@@ -698,6 +746,77 @@ public class GuiWorldMap extends GuiScreen {
         if (button == 0) {
             dragging = false;
         }
+        if (button == claimButton) {
+            finishClaimPaint();
+        }
+    }
+
+    // ---------------------------------------------------------------- claims painting
+
+    private static boolean claimsShown() {
+        return Config.showClaims && Mods.isClaimsAvailable();
+    }
+
+    /**
+     * With Ctrl and/or Shift held, a drag paints chunks instead of moving the map. Left button: Ctrl claims, Shift
+     * chunk loads own claims, both claim and load. Right button: Ctrl unclaims, Shift unloads.
+     */
+    private boolean startClaimPaint(int mouseX, int mouseY, int button) {
+        boolean ctrl = Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
+        boolean shift = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
+        if (!ctrl && !shift) {
+            return false;
+        }
+        if (button == 0) {
+            claimAction = ctrl && shift ? ClaimsLayer.CLAIM_AND_LOAD : ctrl ? ClaimsLayer.CLAIM : ClaimsLayer.LOAD;
+        } else {
+            claimAction = ctrl ? ClaimsLayer.UNCLAIM : ClaimsLayer.UNLOAD;
+        }
+        claimButton = button;
+        claimSelection.clear();
+        lastClaimX = centerX + (mouseX - width / 2.0) / scale;
+        lastClaimZ = centerZ + (mouseY - height / 2.0) / scale;
+        addClaimLine(lastClaimX, lastClaimZ);
+        return true;
+    }
+
+    /** Called every frame: adds the chunks under the mouse, and finishes when the button was released. */
+    private void updateClaimPaint(int mouseX, int mouseY) {
+        if (claimButton < 0) {
+            return;
+        }
+        if (!Mouse.isButtonDown(claimButton)) {
+            finishClaimPaint();
+            return;
+        }
+        double wx = centerX + (mouseX - width / 2.0) / scale;
+        double wz = centerZ + (mouseY - height / 2.0) / scale;
+        addClaimLine(wx, wz);
+    }
+
+    /** Adds every chunk on the line from the last mouse position, so fast moves don't skip chunks. */
+    private void addClaimLine(double wx, double wz) {
+        int dimension = mc.theWorld.provider.dimensionId;
+        double dx = wx - lastClaimX, dz = wz - lastClaimZ;
+        int steps = Math.max(1, (int) Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 4));
+        for (int i = 0; i <= steps; i++) {
+            int chunkX = MathHelper.floor_double(lastClaimX + dx * i / steps) >> 4;
+            int chunkZ = MathHelper.floor_double(lastClaimZ + dz * i / steps) >> 4;
+            if (ClaimsLayer.accepts(claimAction, chunkX, chunkZ, dimension)) {
+                claimSelection.add(ClaimsLayer.pack(chunkX, chunkZ));
+            }
+        }
+        lastClaimX = wx;
+        lastClaimZ = wz;
+    }
+
+    private void finishClaimPaint() {
+        if (claimButton < 0) {
+            return;
+        }
+        claimButton = -1;
+        ClaimsLayer.apply(claimAction, new ArrayList<>(claimSelection));
+        claimSelection.clear();
     }
 
     @Override

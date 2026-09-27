@@ -37,4 +37,7 @@ dependencies {
     // Optional VisualProspecting (GTNH fork) integration: ore veins and underground fluids on the map.
     // Pulls in Navigator, GT5-Unofficial, NEI and GTNHLib for compiling; none of them is needed at runtime.
     compileOnly("com.github.GTNewHorizons:VisualProspecting:1.5.41:dev")
+    // Optional ServerUtilities integration: chunk claims and chunk loading from the map.
+    compileOnly("com.github.GTNewHorizons:ServerUtilities:2.4.13:dev")
+    compileOnly("it.unimi.dsi:fastutil:8.5.18")
 }

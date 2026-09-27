@@ -8,6 +8,8 @@ import net.minecraftforge.common.MinecraftForge;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.Teleport;
+import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.Mods;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -40,6 +42,10 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(Teleport.INSTANCE);
+
+        if (Mods.isClaimsAvailable()) {
+            ClaimsLayer.register();
+        }
 
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
