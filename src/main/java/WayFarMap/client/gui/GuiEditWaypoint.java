@@ -14,6 +14,7 @@ import org.lwjgl.input.Keyboard;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
@@ -21,7 +22,7 @@ import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 
 /** Creates or edits a waypoint: name, coordinates, group, icon and outline color. */
-public class GuiEditWaypoint extends GuiScreen {
+public class GuiEditWaypoint extends ScaledScreen {
 
     private static final int DEFAULT_OUTLINE = 0xFF5555;
     /** Color sample next to the outline switch; a click opens the color picker. */
@@ -330,7 +331,7 @@ public class GuiEditWaypoint extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left - 10, top - 8, left + 230, top + BUTTON_ROW + 27);
         Theme.text(
@@ -365,7 +366,7 @@ public class GuiEditWaypoint extends GuiScreen {
             sy + 5,
             !on ? Theme.TEXT_MUTED : light ? 0xFF000000 : 0xFFFFFFFF);
 
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
 
         // Preview of the marker next to the icon button.
         Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, 0xFF0F1216);

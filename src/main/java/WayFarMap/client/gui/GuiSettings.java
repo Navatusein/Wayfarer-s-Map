@@ -12,11 +12,12 @@ import org.lwjgl.input.Mouse;
 
 import WayFarMap.Config;
 import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.BlockColors;
 
 /** All mod settings: categories in a sidebar, the options of the selected one on the right. */
-public class GuiSettings extends GuiScreen {
+public class GuiSettings extends ScaledScreen {
 
     private static final int SIDEBAR_WIDTH = 112;
     private static final int ROW_HEIGHT = 22;
@@ -179,7 +180,7 @@ public class GuiSettings extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         if (draggingSlider != null) {
             if (Mouse.isButtonDown(0)) {
                 updateSlider(mouseX);
@@ -241,7 +242,7 @@ public class GuiSettings extends GuiScreen {
             }
         }
 
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
     private void drawControl(Config.Option option, int x, int y, int mouseX, int mouseY) {

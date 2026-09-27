@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.world.ChunkCoordIntPair;
@@ -19,6 +18,7 @@ import org.lwjgl.opengl.GL11;
 
 import com.gtnewhorizon.gtnhlib.util.CoordinatePacker;
 
+import WayFarMap.client.gui.ui.ScaledScreen;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
@@ -185,8 +185,7 @@ public final class ClaimsLayer {
         update(minChunkX, maxChunkX, minChunkZ, maxChunkZ);
         expireUnclaimed(dimension);
 
-        Minecraft mc = Minecraft.getMinecraft();
-        double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        double pixel = 1.0 / ScaledScreen.currentFactor();
         double cell = 16 * scale;
         double border = Math.max(pixel, Math.min(2, cell / 12));
 

@@ -16,6 +16,7 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
@@ -25,7 +26,7 @@ import WayFarMap.client.gui.ui.Theme;
  * section, "! " marks an important note, "> " a tip, "- " a list item, an empty line a gap. Minecraft color codes
  * (§) can be used anywhere.
  */
-public class GuiHelp extends GuiScreen {
+public class GuiHelp extends ScaledScreen {
 
     private static final int SIDEBAR_WIDTH = 124;
     private static final int LINE_HEIGHT = 10;
@@ -216,7 +217,7 @@ public class GuiHelp extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, right, bottom);
         Theme.fill(left + 1, top + 1, left + SIDEBAR_WIDTH, bottom - 1, Theme.PANEL_ALT);
@@ -255,7 +256,7 @@ public class GuiHelp extends GuiScreen {
             int barY = contentTop + (track - bar) * scroll / maxScroll();
             Theme.fill(right - 6, barY, right - 4, barY + bar, Theme.BORDER);
         }
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
     @Override

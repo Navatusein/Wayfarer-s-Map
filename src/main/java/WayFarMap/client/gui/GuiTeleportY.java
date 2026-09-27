@@ -10,10 +10,11 @@ import org.lwjgl.input.Keyboard;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 
 /** Asks for the height to teleport to when the ground at the target isn't known (unexplored, not loaded). */
-public class GuiTeleportY extends GuiScreen {
+public class GuiTeleportY extends ScaledScreen {
 
     private static final int WIDTH = 220, HEIGHT = 78;
     private static final int ID_TELEPORT = 0, ID_CANCEL = 1;
@@ -118,7 +119,7 @@ public class GuiTeleportY extends GuiScreen {
     }
 
     @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, left + WIDTH, top + HEIGHT);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.teleport_y_title"), left + 10, top + 8, Theme.ACCENT);
@@ -129,7 +130,7 @@ public class GuiTeleportY extends GuiScreen {
             top + 19,
             Theme.TEXT_MUTED);
         yField.drawTextBox();
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
     @Override

@@ -6,7 +6,6 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.IMob;
@@ -16,6 +15,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.map.LodTile;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -51,8 +51,7 @@ public final class MapDrawer {
      * screen pixel wide the full resolution can't be seen anyway, and it would need far more memory.
      */
     public static boolean useLod(double scale) {
-        Minecraft mc = Minecraft.getMinecraft();
-        int factor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        int factor = ScaledScreen.currentFactor();
         return scale * factor <= 0.5;
     }
 
@@ -152,8 +151,7 @@ public final class MapDrawer {
 
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
         // jump behind the smoothly moving map.
-        Minecraft mc = Minecraft.getMinecraft();
-        double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        double pixel = 1.0 / ScaledScreen.currentFactor();
 
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
