@@ -70,7 +70,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §bDay§r / §bNight§r — force a bright or dark map
 - Both off — the map §ffollows the time of day§r
 - §bGrid§r — the 16×16 chunk grid
-- §bMobs§r — a menu: §fshow all§r, §fhide hostile§r, §fhide friendly§r or §fhide all§r. The button shows who is shown now
+- §bMobs§r — a menu: §fshow all§r, §fshow friendly only§r, §fshow hostile only§r or §fhide all§r. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
 # Ores and fluids
