@@ -1,0 +1,650 @@
+package WayFarMap.client.map.iso;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.Tessellator;
+
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+
+import WayFarMap.WayFarMap;
+import WayFarMap.client.MapDrawer;
+
+/**
+ * The tiles of the 3D map: squares of the projection plane, 128x128 pixels, at eight levels of detail (16 pixels per
+ * block down to 1 pixel per 8 blocks), like Dynmap's tiles. The ones on screen are drawn by background threads,
+ * nearest to the middle first; the coarser levels are kept on disk ({@code dim<id>/iso/}) and drawn again only when a
+ * chunk they show changed. Changes while the map is open redraw the tiles they touch.
+ */
+final class IsoTiles {
+
+    /** Tiles kept in video memory. */
+    private static final int MAX_TILES = 700;
+    /** Levels from this one on are saved to disk (finer ones are quick to draw and would be too many files). */
+    private static final int DISK_LEVEL = 3;
+    private static final int MAGIC = 0x57465431; // "WFT1"
+    /** Tiles uploaded to the graphics card per frame. */
+    private static final int UPLOADS_PER_FRAME = 12;
+    /** A queued tile that has been off screen this long is not drawn. */
+    private static final long UNWANTED_MS = 1500;
+    private static final int PIXELS = IsoProjection.TILE_PIXELS;
+
+    /** Which tile: dimension, view side, level and position on the projection plane. */
+    static final class Key {
+
+        final int dimension, rotation, level, tu, tv;
+
+        Key(int dimension, int rotation, int level, int tu, int tv) {
+            this.dimension = dimension;
+            this.rotation = rotation;
+            this.level = level;
+            this.tu = tu;
+            this.tv = tv;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof Key)) {
+                return false;
+            }
+            Key k = (Key) o;
+            return k.dimension == dimension && k.rotation == rotation
+                && k.level == level
+                && k.tu == tu
+                && k.tv == tv;
+        }
+
+        @Override
+        public int hashCode() {
+            return (((dimension * 31 + rotation) * 31 + level) * 92821 + tu) * 31 + tv;
+        }
+    }
+
+    private static final class Tile {
+
+        final Key key;
+        int texture = -1;
+        boolean empty;
+        boolean ready;
+        /** Height and side of what each pixel shows, for finding the block under the mouse. */
+        short[] hits;
+        long renderedAt;
+        /** Last time a chunk it shows changed. */
+        volatile long dirtyAt;
+        volatile long wantedAt;
+        boolean queued;
+        long lastDrawn;
+
+        Tile(Key key) {
+            this.key = key;
+        }
+
+        boolean stale() {
+            return ready && dirtyAt > renderedAt;
+        }
+    }
+
+    private static final class Job implements Comparable<Job> {
+
+        final Tile tile;
+        final IsoMap.Dimension dimension;
+        final double priority;
+        final long order;
+
+        Job(Tile tile, IsoMap.Dimension dimension, double priority, long order) {
+            this.tile = tile;
+            this.dimension = dimension;
+            this.priority = priority;
+            this.order = order;
+        }
+
+        @Override
+        public int compareTo(Job o) {
+            int c = Double.compare(priority, o.priority);
+            return c != 0 ? c : Long.compare(order, o.order);
+        }
+    }
+
+    private static final class Result {
+
+        final Tile tile;
+        final int[] pixels;
+        final short[] hits;
+        final long renderedAt;
+        /** Not drawn (no longer on screen): the tile is only free to be queued again. */
+        final boolean skipped;
+
+        Result(Tile tile, int[] pixels, short[] hits, long renderedAt) {
+            this(tile, pixels, hits, renderedAt, false);
+        }
+
+        Result(Tile tile, int[] pixels, short[] hits, long renderedAt, boolean skipped) {
+            this.tile = tile;
+            this.pixels = pixels;
+            this.hits = hits;
+            this.renderedAt = renderedAt;
+            this.skipped = skipped;
+        }
+    }
+
+    private final IsoMap map;
+    private final Map<Key, Tile> tiles = new HashMap<>();
+    private final PriorityBlockingQueue<Job> queue = new PriorityBlockingQueue<>();
+    private final Queue<Result> done = new ConcurrentLinkedQueue<>();
+    private final AtomicLong order = new AtomicLong();
+    private final Thread[] workers;
+    private volatile boolean running = true;
+    private IntBuffer uploadBuffer;
+    private long frame;
+
+    IsoTiles(IsoMap map) {
+        this.map = map;
+        int threads = Math.max(1, Math.min(3, Runtime.getRuntime()
+            .availableProcessors() / 2));
+        workers = new Thread[threads];
+        for (int i = 0; i < threads; i++) {
+            Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
+            thread.setDaemon(true);
+            thread.setPriority(Thread.MIN_PRIORITY + 1);
+            thread.start();
+            workers[i] = thread;
+        }
+    }
+
+    // ---------------------------------------------------------------- drawing (render thread)
+
+    /**
+     * Draws the 3D map into the screen rectangle.
+     *
+     * @param centerU,centerV point of the projection plane in the middle of the rectangle
+     * @param scale           screen (GUI) pixels per block
+     * @param factor          real pixels per GUI pixel
+     */
+    void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor,
+        int x, int y, int width, int height) {
+        frame++;
+        uploadResults();
+        int level = IsoProjection.levelFor(scale * factor);
+        int blocks = IsoProjection.tileBlocks(level);
+        double left = centerU - width / 2.0 / scale, top = centerV - height / 2.0 / scale;
+        int tu0 = (int) Math.floor(left / blocks), tv0 = (int) Math.floor(top / blocks);
+        int tu1 = (int) Math.floor((left + width / scale) / blocks);
+        int tv1 = (int) Math.floor((top + height / scale) / blocks);
+        long now = System.currentTimeMillis();
+        double middleU = centerU / blocks, middleV = centerV / blocks;
+
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        float[] tint = MapDrawer.lightTint(Minecraft.getMinecraft());
+        GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+        for (int tv = tv0; tv <= tv1; tv++) {
+            for (int tu = tu0; tu <= tu1; tu++) {
+                Key key = new Key(dimension.id, rotation, level, tu, tv);
+                Tile tile = tiles.get(key);
+                if (tile == null) {
+                    tile = new Tile(key);
+                    tiles.put(key, tile);
+                }
+                tile.wantedAt = now;
+                tile.lastDrawn = frame;
+                if ((!tile.ready || tile.stale()) && !tile.queued) {
+                    double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
+                    tile.queued = true;
+                    queue.add(new Job(tile, dimension, du * du + dv * dv, order.incrementAndGet()));
+                }
+                double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
+                double sy = y + height / 2.0 + ((double) tv * blocks - centerV) * scale;
+                double size = blocks * scale;
+                if (tile.ready) {
+                    if (!tile.empty) {
+                        GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
+                        quad(sx, sy, sx + size, sy + size, 0, 0, 1, 1);
+                    }
+                } else {
+                    drawFromCoarser(key, sx, sy, size);
+                }
+            }
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        evict();
+    }
+
+    /** Until a tile is ready, the matching part of a coarser one that is. */
+    private void drawFromCoarser(Key key, double sx, double sy, double size) {
+        for (int up = 1; up <= 4 && key.level + up < IsoProjection.LEVELS; up++) {
+            int shift = up;
+            Key parent = new Key(
+                key.dimension,
+                key.rotation,
+                key.level + up,
+                Math.floorDiv(key.tu, 1 << shift),
+                Math.floorDiv(key.tv, 1 << shift));
+            Tile tile = tiles.get(parent);
+            if (tile == null || !tile.ready) {
+                continue;
+            }
+            tile.lastDrawn = frame;
+            if (tile.empty) {
+                return;
+            }
+            double part = 1.0 / (1 << shift);
+            double u0 = Math.floorMod(key.tu, 1 << shift) * part, v0 = Math.floorMod(key.tv, 1 << shift) * part;
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
+            quad(sx, sy, sx + size, sy + size, u0, v0, u0 + part, v0 + part);
+            return;
+        }
+    }
+
+    private static void quad(double x0, double y0, double x1, double y1, double u0, double v0, double u1, double v1) {
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        tessellator.addVertexWithUV(x0, y1, 0, u0, v1);
+        tessellator.addVertexWithUV(x1, y1, 0, u1, v1);
+        tessellator.addVertexWithUV(x1, y0, 0, u1, v0);
+        tessellator.addVertexWithUV(x0, y0, 0, u0, v0);
+        tessellator.draw();
+    }
+
+    /** Puts the tiles the renderers finished on the graphics card, a few per frame. */
+    private void uploadResults() {
+        for (int n = 0; n < UPLOADS_PER_FRAME; n++) {
+            Result result = done.poll();
+            if (result == null) {
+                return;
+            }
+            Tile tile = result.tile;
+            tile.queued = false;
+            if (result.skipped || tiles.get(tile.key) != tile) {
+                continue;
+            }
+            tile.renderedAt = result.renderedAt;
+            tile.hits = result.hits;
+            tile.empty = result.pixels == null;
+            tile.ready = true;
+            if (tile.empty) {
+                deleteTexture(tile);
+                continue;
+            }
+            if (tile.texture == -1) {
+                tile.texture = GL11.glGenTextures();
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            } else {
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
+            }
+            if (uploadBuffer == null) {
+                uploadBuffer = BufferUtils.createIntBuffer(PIXELS * PIXELS);
+            }
+            uploadBuffer.clear();
+            uploadBuffer.put(result.pixels);
+            uploadBuffer.flip();
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+            GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+            GL11.glTexImage2D(
+                GL11.GL_TEXTURE_2D,
+                0,
+                GL11.GL_RGBA,
+                PIXELS,
+                PIXELS,
+                0,
+                GL12.GL_BGRA,
+                GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+                uploadBuffer);
+        }
+    }
+
+    /** Frees the tiles not drawn lately while there are too many. */
+    private void evict() {
+        if (tiles.size() <= MAX_TILES) {
+            return;
+        }
+        List<Tile> old = new ArrayList<>();
+        for (Tile tile : tiles.values()) {
+            if (tile.lastDrawn < frame) {
+                old.add(tile);
+            }
+        }
+        old.sort((a, b) -> Long.compare(a.lastDrawn, b.lastDrawn));
+        for (int i = 0; i < old.size() && tiles.size() > MAX_TILES * 3 / 4; i++) {
+            Tile tile = old.get(i);
+            deleteTexture(tile);
+            tiles.remove(tile.key);
+        }
+    }
+
+    private static void deleteTexture(Tile tile) {
+        if (tile.texture != -1) {
+            GL11.glDeleteTextures(tile.texture);
+            tile.texture = -1;
+        }
+    }
+
+    /**
+     * The block seen at the point (u, v) of the projection plane, from the tiles drawn: {x, y, z}, or null if nothing
+     * is known there.
+     */
+    int[] pick(int dimension, int rotation, double u, double v, double scale, int factor) {
+        IsoProjection projection = IsoProjection.of(rotation);
+        for (int level = IsoProjection.levelFor(scale * factor); level < IsoProjection.LEVELS; level++) {
+            int blocks = IsoProjection.tileBlocks(level);
+            int tu = (int) Math.floor(u / blocks), tv = (int) Math.floor(v / blocks);
+            Tile tile = tiles.get(new Key(dimension, rotation, level, tu, tv));
+            if (tile == null || !tile.ready) {
+                continue;
+            }
+            if (tile.empty || tile.hits == null) {
+                return null;
+            }
+            double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
+            int px = Math.min(PIXELS - 1, (int) ((u - (double) tu * blocks) * pixelsPerBlock));
+            int py = Math.min(PIXELS - 1, (int) ((v - (double) tv * blocks) * pixelsPerBlock));
+            int hit = tile.hits[py * PIXELS + px] & 0xFFFF;
+            int side = (hit >>> 13) - 1;
+            if (side < 0) {
+                return null;
+            }
+            double y = (hit & 0x1FFF) / 32.0;
+            double[] ground = projection.unproject(u, v, y);
+            // Step into the block from the side that was hit.
+            double nx = side == 4 ? -1 : side == 5 ? 1 : 0;
+            double ny = side == 0 ? -1 : side == 1 ? 1 : 0;
+            double nz = side == 2 ? -1 : side == 3 ? 1 : 0;
+            return new int[] { (int) Math.floor(ground[0] - nx * 0.02), (int) Math.floor(y - ny * 0.02),
+                (int) Math.floor(ground[1] - nz * 0.02) };
+        }
+        return null;
+    }
+
+    /** A chunk changed: the tiles in memory that show it are drawn again (render thread). */
+    void chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time) {
+        double x0 = chunkX * 16.0, z0 = chunkZ * 16.0;
+        double[][] boxes = new double[4][];
+        for (Tile tile : tiles.values()) {
+            Key key = tile.key;
+            if (key.dimension != dimension) {
+                continue;
+            }
+            double[] box = boxes[key.rotation];
+            if (box == null) {
+                box = IsoProjection.of(key.rotation)
+                    .projectBox(x0, 0, z0, x0 + 16, top + 1, z0 + 16);
+                boxes[key.rotation] = box;
+            }
+            int blocks = IsoProjection.tileBlocks(key.level);
+            double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
+            if (box[0] < u0 + blocks && box[2] > u0 && box[1] < v0 + blocks && box[3] > v0) {
+                tile.dirtyAt = Math.max(tile.dirtyAt, time);
+            }
+        }
+    }
+
+    /** Everything must be drawn again (resource packs changed). */
+    void invalidateAll() {
+        long now = System.currentTimeMillis();
+        for (Tile tile : tiles.values()) {
+            tile.dirtyAt = now;
+        }
+    }
+
+    /** Stops the renderers and frees the textures (render thread). */
+    void shutdown() {
+        running = false;
+        queue.clear();
+        for (Thread worker : workers) {
+            worker.interrupt();
+        }
+        for (Tile tile : tiles.values()) {
+            deleteTexture(tile);
+        }
+        tiles.clear();
+        done.clear();
+    }
+
+    // ---------------------------------------------------------------- rendering (background threads)
+
+    private void work() {
+        while (running) {
+            Job job;
+            try {
+                job = queue.poll(1, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                return;
+            }
+            if (job == null) {
+                continue;
+            }
+            Tile tile = job.tile;
+            if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS) {
+                // Scrolled or zoomed away before its turn.
+                done.add(new Result(tile, null, null, 0, true));
+                continue;
+            }
+            try {
+                Result result = produce(job);
+                if (running) {
+                    done.add(result);
+                }
+            } catch (Throwable t) {
+                WayFarMap.LOG.warn("Could not draw a 3D map tile", t);
+                done.add(new Result(tile, null, null, System.currentTimeMillis()));
+            }
+        }
+    }
+
+    private Result produce(Job job) {
+        Tile tile = job.tile;
+        Key key = tile.key;
+        IsoMap.Dimension dimension = job.dimension;
+        File file = key.level >= DISK_LEVEL ? tileFile(dimension, key) : null;
+        long dirtyAt = tile.dirtyAt;
+        if (file != null && file.isFile()) {
+            Result cached = readCached(tile, file, dimension, dirtyAt);
+            if (cached != null) {
+                return cached;
+            }
+        }
+        long start = System.currentTimeMillis();
+        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback);
+        IsoProjection projection = IsoProjection.of(key.rotation);
+        tracer.reset(projection, key.level);
+        int blocks = IsoProjection.tileBlocks(key.level);
+        double pixelsPerBlock = IsoProjection.pixelsPerBlock(key.level);
+        double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
+        int[] pixels = new int[PIXELS * PIXELS];
+        short[] hits = new short[PIXELS * PIXELS];
+        boolean any = false;
+        // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
+        boolean supersample = pixelsPerBlock < 1;
+        // Column by column: the rays of one column pass through nearly the same chunks, the rays of a row don't.
+        for (int px = 0; px < PIXELS && running; px++) {
+            for (int py = 0; py < PIXELS; py++) {
+                double u = u0 + (px + 0.5) / pixelsPerBlock, v = v0 + (py + 0.5) / pixelsPerBlock;
+                int color = tracer.trace(u, v);
+                hits[py * PIXELS + px] = hitCode(tracer);
+                if (supersample) {
+                    double q = 0.25 / pixelsPerBlock;
+                    color = average(
+                        color,
+                        tracer.trace(u - q, v - q),
+                        tracer.trace(u + q, v - q),
+                        tracer.trace(u - q, v + q));
+                }
+                pixels[py * PIXELS + px] = color;
+                any |= color != 0;
+            }
+        }
+        Result result = new Result(tile, any ? pixels : null, any ? hits : null, start);
+        if (file != null && running) {
+            writeCached(file, result, tracer.minToward);
+        }
+        return result;
+    }
+
+    private static short hitCode(IsoTracer tracer) {
+        if (tracer.hitSide < 0) {
+            return 0;
+        }
+        int y = (int) Math.round(Math.max(0, Math.min(255.9, tracer.hitY)) * 32);
+        return (short) ((tracer.hitSide + 1) << 13 | Math.min(0x1FFF, y));
+    }
+
+    /** Average of colors with straight alpha, weighted by alpha. */
+    private static int average(int... colors) {
+        long a = 0, r = 0, g = 0, b = 0;
+        for (int c : colors) {
+            int alpha = c >>> 24;
+            a += alpha;
+            r += ((c >> 16) & 0xFF) * alpha;
+            g += ((c >> 8) & 0xFF) * alpha;
+            b += (c & 0xFF) * alpha;
+        }
+        if (a == 0) {
+            return 0;
+        }
+        return (int) (a / colors.length) << 24 | (int) (r / a) << 16 | (int) (g / a) << 8 | (int) (b / a);
+    }
+
+    private File tileFile(IsoMap.Dimension dimension, Key key) {
+        File directory = new File(
+            new File(new File(new File(dimension.directory, "iso"), map.cacheId()), String.valueOf(key.rotation)),
+            String.valueOf(key.level));
+        return new File(directory, key.tu + "." + key.tv + ".wft");
+    }
+
+    /** The tile from disk if nothing it shows changed since it was drawn, else null. */
+    private Result readCached(Tile tile, File file, IsoMap.Dimension dimension, long dirtyAt) {
+        try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file), 1 << 15))) {
+            if (in.readInt() != MAGIC) {
+                return null;
+            }
+            long renderedAt = in.readLong();
+            double minToward = in.readDouble();
+            boolean empty = in.readBoolean();
+            if (renderedAt < dirtyAt || newestChange(dimension, tile.key, minToward) > renderedAt) {
+                return null;
+            }
+            if (empty) {
+                return new Result(tile, null, null, renderedAt);
+            }
+            byte[] raw = new byte[PIXELS * PIXELS * 6];
+            DataInputStream data = new DataInputStream(new InflaterInputStream(in, new Inflater(), 1 << 15));
+            data.readFully(raw);
+            ByteBuffer buffer = ByteBuffer.wrap(raw);
+            int[] pixels = new int[PIXELS * PIXELS];
+            short[] hits = new short[PIXELS * PIXELS];
+            buffer.asIntBuffer()
+                .get(pixels);
+            buffer.position(pixels.length * 4);
+            buffer.asShortBuffer()
+                .get(hits);
+            return new Result(tile, pixels, hits, renderedAt);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static void writeCached(File file, Result result, double minToward) {
+        File parent = file.getParentFile();
+        if (!parent.isDirectory() && !parent.mkdirs()) {
+            return;
+        }
+        File tmp = new File(file.getPath() + ".tmp");
+        Deflater deflater = new Deflater(4);
+        try (DataOutputStream out = new DataOutputStream(
+            new BufferedOutputStream(new FileOutputStream(tmp), 1 << 15))) {
+            out.writeInt(MAGIC);
+            out.writeLong(result.renderedAt);
+            out.writeDouble(minToward);
+            out.writeBoolean(result.pixels == null);
+            if (result.pixels != null) {
+                ByteBuffer buffer = ByteBuffer.allocate(PIXELS * PIXELS * 6);
+                buffer.asIntBuffer()
+                    .put(result.pixels);
+                buffer.position(result.pixels.length * 4);
+                buffer.asShortBuffer()
+                    .put(result.hits);
+                DeflaterOutputStream compressed = new DeflaterOutputStream(out, deflater, 1 << 15);
+                compressed.write(buffer.array());
+                compressed.finish();
+            }
+        } catch (IOException e) {
+            WayFarMap.LOG.debug("Could not save a 3D map tile {}", file);
+            return;
+        } finally {
+            deflater.end();
+        }
+        if ((file.exists() && !file.delete()) || !tmp.renameTo(file)) {
+            tmp.delete();
+        }
+    }
+
+    /**
+     * Newest change of any chunk the tile's rays can pass through: the strip of the ground under the tile, from
+     * where rays start above the world to the farthest point they reached.
+     */
+    private static long newestChange(IsoMap.Dimension dimension, Key key, double minToward) {
+        IsoProjection projection = IsoProjection.of(key.rotation);
+        int blocks = IsoProjection.tileBlocks(key.level);
+        double u0 = (double) key.tu * blocks, u1 = u0 + blocks;
+        double t0 = minToward - 1;
+        double t1 = ((double) key.tv * blocks + blocks + IsoProjection.TOP * IsoProjection.COS) / IsoProjection.SIN;
+        double minX = Double.MAX_VALUE, minZ = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        for (double u : new double[] { u0, u1 }) {
+            for (double t : new double[] { t0, t1 }) {
+                double[] p = projection.ground(u, t);
+                minX = Math.min(minX, p[0]);
+                minZ = Math.min(minZ, p[1]);
+                maxX = Math.max(maxX, p[0]);
+                maxZ = Math.max(maxZ, p[1]);
+            }
+        }
+        long newest = 0;
+        // A chunk's center within this distance of the strip can have a part in it.
+        double reach = 12;
+        for (int cx = (int) Math.floor(minX) >> 4; cx <= (int) Math.floor(maxX) >> 4; cx++) {
+            for (int cz = (int) Math.floor(minZ) >> 4; cz <= (int) Math.floor(maxZ) >> 4; cz++) {
+                double centerX = cx * 16 + 8, centerZ = cz * 16 + 8;
+                double u = projection.u(centerX, centerZ), t = projection.toward(centerX, centerZ);
+                if (u < u0 - reach || u > u1 + reach || t < t0 - reach || t > t1 + reach) {
+                    continue;
+                }
+                long time = dimension.store.time(cx, cz);
+                if (time == 0) {
+                    time = dimension.fallback.time(cx, cz);
+                }
+                newest = Math.max(newest, time);
+            }
+        }
+        return newest;
+    }
+}

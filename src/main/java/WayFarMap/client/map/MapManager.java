@@ -26,12 +26,14 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.world.WorldProvider;
 import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
+import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.share.ChunkRecord;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -358,6 +360,10 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             pending.addAll(map.save(saveExecutor));
         }
+        Future<?> blocks = IsoMap.INSTANCE.save();
+        if (blocks != null) {
+            pending.add(blocks);
+        }
         return pending;
     }
 
@@ -507,6 +513,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             }
         }
+        if (record.layer < 0) {
+            IsoMap.INSTANCE.onFlatChunkChanged(dimension, record.chunkX, record.chunkZ);
+        }
         return true;
     }
 
@@ -538,6 +547,7 @@ public class MapManager implements IResourceManagerReloadListener {
     @Override
     public void onResourceManagerReload(IResourceManager resourceManager) {
         BlockColors.clearCache();
+        IsoMap.INSTANCE.onResourcesReloaded();
     }
 
     @SubscribeEvent
@@ -558,6 +568,7 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
+        IsoMap.INSTANCE.tick();
         updateCaveMode(world, mc.thePlayer);
 
         int budget = Config.chunksScannedPerTick;
@@ -588,6 +599,7 @@ public class MapManager implements IResourceManagerReloadListener {
             for (MapDimension map : allMaps()) {
                 map.save(saveExecutor);
             }
+            IsoMap.INSTANCE.save();
             if (!(mc.currentScreen instanceof GuiWorldMap)) {
                 trimAroundPlayer(mc.thePlayer);
             }
@@ -674,6 +686,7 @@ public class MapManager implements IResourceManagerReloadListener {
         surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
         biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
         lastAutosave = System.currentTimeMillis();
+        IsoMap.INSTANCE.open(worldDirectory);
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, dimensionDirectory);
     }
 
@@ -693,6 +706,8 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             map.deleteTextures();
         }
+        // Saves the blocks of the 3D map and waits for it too.
+        IsoMap.INSTANCE.close();
         BiomeHighlight.clear();
         viewed = null;
         others.clear();
@@ -793,7 +808,12 @@ public class MapManager implements IResourceManagerReloadListener {
                     continue;
                 }
                 try {
-                    ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap);
+                    Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+                    ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
+                    if (caveLayer < 0) {
+                        // The 3D map keeps the surface's blocks.
+                        IsoMap.INSTANCE.onChunkScanned(world, chunk);
+                    }
                     MapRegion scanned = map.getLoadedRegion(rx, rz);
                     if (scanned != null) {
                         scanned.setChunkTime(

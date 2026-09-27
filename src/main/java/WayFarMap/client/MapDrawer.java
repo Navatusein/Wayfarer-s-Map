@@ -414,6 +414,30 @@ public final class MapDrawer {
      */
     public static void drawTeammates(Minecraft mc, int dimension, double centerX, double centerZ, double scale, int x,
         int y, int width, int height, float partialTicks, float playerSize, boolean showNames) {
+        drawTeammates(
+            mc,
+            dimension,
+            (px, py, pz) -> new double[] { x + width / 2.0 + (px - centerX) * scale,
+                y + height / 2.0 + (pz - centerZ) * scale },
+            scale,
+            x,
+            y,
+            width,
+            height,
+            partialTicks,
+            playerSize,
+            showNames);
+    }
+
+    /** Where a world point is drawn on the screen: {x, y}. */
+    public interface Projection {
+
+        double[] toScreen(double x, double y, double z);
+    }
+
+    /** Like the other drawTeammates, with any projection (the 3D map's). */
+    public static void drawTeammates(Minecraft mc, int dimension, Projection projection, double scale, int x, int y,
+        int width, int height, float partialTicks, float playerSize, boolean showNames) {
         List<TeamMates.Mate> mates = TeamMates.INSTANCE.all();
         if (mates.isEmpty()) {
             return;
@@ -427,8 +451,8 @@ public final class MapDrawer {
                 continue;
             }
             double[] position = TeamMates.INSTANCE.position(mate, partialTicks);
-            double sx = x + width / 2.0 + (position[0] - centerX) * scale;
-            double sy = y + height / 2.0 + (position[2] - centerZ) * scale;
+            double[] screen = projection.toScreen(position[0], position[1], position[2]);
+            double sx = screen[0], sy = screen[1];
             if (sx < x + half || sy < y + half || sx > x + width - half || sy > y + height - half) {
                 continue;
             }

@@ -1,0 +1,279 @@
+package WayFarMap.client.map.iso;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.World;
+import net.minecraft.world.chunk.Chunk;
+
+import WayFarMap.Config;
+import WayFarMap.WayFarMap;
+
+/**
+ * The 3D (isometric) world map, drawn like Dynmap's HD maps from the blocks themselves: while playing, the blocks
+ * of every explored chunk are kept ({@link BlockStore}); on the world map, tiles are drawn from them by ray tracing
+ * ({@link IsoTracer}, {@link IsoTiles}). Chunks without blocks (explored before, or by a teammate) are shown from the
+ * flat map's colors and heights.
+ */
+public final class IsoMap implements BlockStore.Listener {
+
+    public static final IsoMap INSTANCE = new IsoMap();
+
+    /** Changes when tiles would look different; old saved tiles are then not used. */
+    private static final int RENDER_VERSION = 1;
+    /** Chunks copied per game tick at most (each takes a fraction of a millisecond). */
+    private static final int CAPTURES_PER_TICK = 4;
+    /** A chunk is copied again at most this often while the player stays near it. */
+    private static final long RECAPTURE_MS = 10_000;
+    /** Time per frame the render thread spends working out block looks for the renderers. */
+    private static final long LOOK_BUDGET_NANOS = 6_000_000L;
+
+    /** The maps of one dimension. */
+    static final class Dimension {
+
+        final int id;
+        final File directory;
+        final BlockStore store;
+        final SurfaceFallback fallback;
+
+        Dimension(int id, File directory, BlockStore.Listener listener) {
+            this.id = id;
+            this.directory = directory;
+            this.store = new BlockStore(id, directory, listener);
+            this.fallback = new SurfaceFallback(directory);
+        }
+    }
+
+    private File worldDirectory;
+    private final Map<Integer, Dimension> dimensions = new HashMap<>();
+    /** Copies chunks and saves the block files, one after the other. */
+    private ExecutorService writer;
+    private IsoTiles tiles;
+    private String cacheId;
+    /** Chunk changes from the writer, for the tiles on screen: {dimension, chunk x, chunk z, top, time}. */
+    private final Queue<long[]> changes = new ConcurrentLinkedQueue<>();
+    private final Map<Long, Long> lastCapture = new HashMap<>();
+    private int lastCaptureDimension = Integer.MIN_VALUE;
+    private int capturesThisTick;
+
+    private IsoMap() {}
+
+    /** A world was joined: its maps live in {@code worldDirectory/dim<id>/}. */
+    public void open(File worldDirectory) {
+        close();
+        this.worldDirectory = worldDirectory;
+        writer = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "WayFarMap 3D writer");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.MIN_PRIORITY + 1);
+            return thread;
+        });
+    }
+
+    /** The world was left: saves the blocks, waits for it, and frees everything (render thread). */
+    public void close() {
+        if (tiles != null) {
+            tiles.shutdown();
+            tiles = null;
+        }
+        if (writer != null) {
+            List<Dimension> all = new ArrayList<>(dimensions.values());
+            writer.submit(() -> all.forEach(d -> d.store.save()));
+            writer.shutdown();
+            try {
+                if (!writer.awaitTermination(30, TimeUnit.SECONDS)) {
+                    WayFarMap.LOG.warn("Saving the 3D map took too long");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread()
+                    .interrupt();
+            }
+            writer = null;
+        }
+        dimensions.clear();
+        changes.clear();
+        lastCapture.clear();
+        lastCaptureDimension = Integer.MIN_VALUE;
+        worldDirectory = null;
+    }
+
+    Dimension dimension(int id) {
+        if (worldDirectory == null) {
+            return null;
+        }
+        Dimension dimension = dimensions.get(id);
+        if (dimension == null) {
+            dimension = new Dimension(id, new File(worldDirectory, "dim" + id), this);
+            dimensions.put(id, dimension);
+        }
+        return dimension;
+    }
+
+    // ---------------------------------------------------------------- recording blocks while playing
+
+    /** Called once per client tick (render thread). */
+    public void tick() {
+        capturesThisTick = 0;
+        BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
+        drainChanges();
+    }
+
+    /** The surface map just scanned this chunk: its blocks are kept too, now and then (render thread). */
+    public void onChunkScanned(World world, Chunk chunk) {
+        if (!Config.record3d || writer == null || capturesThisTick >= CAPTURES_PER_TICK) {
+            return;
+        }
+        int dimensionId = world.provider.dimensionId;
+        if (dimensionId != lastCaptureDimension) {
+            lastCapture.clear();
+            lastCaptureDimension = dimensionId;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        long now = System.currentTimeMillis();
+        Long last = lastCapture.get(key);
+        if (last != null && now - last < RECAPTURE_MS) {
+            return;
+        }
+        Dimension dimension = dimension(dimensionId);
+        if (dimension == null) {
+            return;
+        }
+        ChunkBlocks blocks;
+        try {
+            blocks = BlockCapture.capture(world, chunk);
+        } catch (RuntimeException e) {
+            WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);
+            return;
+        }
+        capturesThisTick++;
+        lastCapture.put(key, now);
+        if (lastCapture.size() > 20_000) {
+            lastCapture.clear();
+        }
+        if (blocks == null) {
+            return;
+        }
+        int cx = chunk.xPosition, cz = chunk.zPosition;
+        writer.submit(() -> {
+            try {
+                dimension.store.put(cx, cz, blocks);
+            } catch (RuntimeException e) {
+                WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
+            }
+        });
+    }
+
+    /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */
+    public void onFlatChunkChanged(int dimension, int chunkX, int chunkZ) {
+        changes.add(new long[] { dimension, chunkX, chunkZ, 255, System.currentTimeMillis() });
+    }
+
+    @Override
+    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top) {
+        changes.add(new long[] { store.dimension, chunkX, chunkZ, top, System.currentTimeMillis() });
+    }
+
+    private void drainChanges() {
+        long[] change;
+        while ((change = changes.poll()) != null) {
+            if (tiles != null) {
+                tiles.chunkChanged((int) change[0], (int) change[1], (int) change[2], (int) change[3], change[4]);
+            }
+        }
+    }
+
+    /** Starts writing the changed block files in the background. */
+    public Future<?> save() {
+        if (writer == null) {
+            return null;
+        }
+        List<Dimension> all = new ArrayList<>(dimensions.values());
+        return writer.submit(() -> all.forEach(d -> d.store.save()));
+    }
+
+    /** Resource packs changed: blocks look different. */
+    public void onResourcesReloaded() {
+        BlockLooks.clear();
+        cacheId = null;
+        if (tiles != null) {
+            tiles.invalidateAll();
+        }
+    }
+
+    /** Folder name of the saved tiles: they depend on the textures. */
+    String cacheId() {
+        String id = cacheId;
+        if (id == null) {
+            Minecraft mc = Minecraft.getMinecraft();
+            String packs = mc.gameSettings == null ? "" : String.valueOf(mc.gameSettings.resourcePacks);
+            id = "v" + RENDER_VERSION + "-" + Integer.toHexString((packs + "|" + RENDER_VERSION).hashCode());
+            cacheId = id;
+        }
+        return id;
+    }
+
+    // ---------------------------------------------------------------- the world map
+
+    private IsoTiles tiles() {
+        if (tiles == null) {
+            tiles = new IsoTiles(this);
+        }
+        return tiles;
+    }
+
+    /**
+     * Draws the 3D map of a dimension into the screen rectangle (render thread).
+     *
+     * @param centerX,centerZ point of the plane at {@link IsoProjection#REFERENCE_Y} in the middle of the rectangle
+     * @param scale           GUI pixels per block
+     * @param factor          screen pixels per GUI pixel
+     */
+    public void draw(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor, int x,
+        int y, int width, int height) {
+        Dimension dimension = dimension(dimensionId);
+        if (dimension == null) {
+            return;
+        }
+        BlockLooks.pump(LOOK_BUDGET_NANOS);
+        drainChanges();
+        IsoProjection projection = IsoProjection.of(rotation);
+        IsoTiles view = tiles();
+        view.draw(
+            dimension,
+            rotation,
+            projection.u(centerX, centerZ),
+            projection.v(centerX, IsoProjection.REFERENCE_Y, centerZ),
+            scale,
+            factor,
+            x,
+            y,
+            width,
+            height);
+    }
+
+    /**
+     * The block seen at a screen point: {x, y, z}, or null if nothing is drawn there yet.
+     *
+     * @param offsetX,offsetY screen point relative to the middle of the map, in GUI pixels
+     */
+    public int[] pick(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor,
+        double offsetX, double offsetY) {
+        if (tiles == null) {
+            return null;
+        }
+        IsoProjection projection = IsoProjection.of(rotation);
+        double u = projection.u(centerX, centerZ) + offsetX / scale;
+        double v = projection.v(centerX, IsoProjection.REFERENCE_Y, centerZ) + offsetY / scale;
+        return tiles.pick(dimensionId, rotation, u, v, scale, factor);
+    }
+}
