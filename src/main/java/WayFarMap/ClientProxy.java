@@ -8,6 +8,7 @@ import net.minecraftforge.common.MinecraftForge;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 
@@ -36,5 +37,6 @@ public class ClientProxy extends CommonProxy {
         }
 
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
+        MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
     }
 }

@@ -2,10 +2,13 @@ package WayFarMap.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.util.MathHelper;
 
 import org.lwjgl.input.Keyboard;
 
 import WayFarMap.Config;
+import WayFarMap.client.gui.GuiEditWaypoint;
+import WayFarMap.client.gui.GuiWaypointList;
 import WayFarMap.client.gui.GuiWorldMap;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -22,12 +25,19 @@ public class KeyHandler {
         CATEGORY);
     public static final KeyBinding ZOOM_IN = new KeyBinding("key.wayfarmap.zoom_in", Keyboard.KEY_EQUALS, CATEGORY);
     public static final KeyBinding ZOOM_OUT = new KeyBinding("key.wayfarmap.zoom_out", Keyboard.KEY_MINUS, CATEGORY);
+    public static final KeyBinding NEW_WAYPOINT = new KeyBinding("key.wayfarmap.new_waypoint", Keyboard.KEY_B, CATEGORY);
+    public static final KeyBinding WAYPOINT_LIST = new KeyBinding(
+        "key.wayfarmap.waypoint_list",
+        Keyboard.KEY_U,
+        CATEGORY);
 
     public void register() {
         ClientRegistry.registerKeyBinding(OPEN_MAP);
         ClientRegistry.registerKeyBinding(TOGGLE_MINIMAP);
         ClientRegistry.registerKeyBinding(ZOOM_IN);
         ClientRegistry.registerKeyBinding(ZOOM_OUT);
+        ClientRegistry.registerKeyBinding(NEW_WAYPOINT);
+        ClientRegistry.registerKeyBinding(WAYPOINT_LIST);
     }
 
     @SubscribeEvent
@@ -47,6 +57,18 @@ public class KeyHandler {
         }
         if (ZOOM_OUT.isPressed()) {
             Config.setMinimapZoom(Config.minimapZoom - 1);
+        }
+        if (NEW_WAYPOINT.isPressed() && mc.thePlayer != null) {
+            mc.displayGuiScreen(
+                GuiEditWaypoint.create(
+                    null,
+                    MathHelper.floor_double(mc.thePlayer.posX),
+                    MathHelper.floor_double(mc.thePlayer.boundingBox.minY),
+                    MathHelper.floor_double(mc.thePlayer.posZ),
+                    mc.theWorld.provider.dimensionId));
+        }
+        if (WAYPOINT_LIST.isPressed()) {
+            mc.displayGuiScreen(new GuiWaypointList(null));
         }
     }
 }

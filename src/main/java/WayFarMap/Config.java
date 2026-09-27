@@ -8,6 +8,7 @@ public class Config {
 
     private static final String CATEGORY_MINIMAP = "minimap";
     private static final String CATEGORY_MAP = "map";
+    private static final String CATEGORY_WAYPOINTS = "waypoints";
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
@@ -21,6 +22,10 @@ public class Config {
     public static boolean minimapShowCoordinates = true;
     public static boolean minimapShowBiome = true;
     public static boolean showOtherPlayers = true;
+
+    public static boolean waypointsInWorld = true;
+    public static boolean waypointsOnMinimap = true;
+    public static int waypointMaxDistance = 0;
 
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
@@ -52,6 +57,18 @@ public class Config {
             .getBoolean("showCoordinates", CATEGORY_MINIMAP, minimapShowCoordinates, "Show coordinates under the minimap.");
         minimapShowBiome = configuration
             .getBoolean("showBiome", CATEGORY_MINIMAP, minimapShowBiome, "Show the current biome under the minimap.");
+
+        waypointsInWorld = configuration
+            .getBoolean("showInWorld", CATEGORY_WAYPOINTS, waypointsInWorld, "Show waypoint markers in the world.");
+        waypointsOnMinimap = configuration
+            .getBoolean("showOnMinimap", CATEGORY_WAYPOINTS, waypointsOnMinimap, "Show waypoints on the minimap.");
+        waypointMaxDistance = configuration.getInt(
+            "maxDistance",
+            CATEGORY_WAYPOINTS,
+            waypointMaxDistance,
+            0,
+            1000000,
+            "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.");
 
         showOtherPlayers = configuration
             .getBoolean("showOtherPlayers", CATEGORY_MAP, showOtherPlayers, "Show other nearby players on the maps.");

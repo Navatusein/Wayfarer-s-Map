@@ -25,6 +25,7 @@ import net.minecraftforge.event.world.WorldEvent;
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.waypoint.WaypointManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -121,7 +122,9 @@ public class MapManager implements IResourceManagerReloadListener {
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
-        File directory = new File(new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc)), "dim" + dimensionId);
+        File worldDirectory = new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc));
+        File directory = new File(worldDirectory, "dim" + dimensionId);
+        WaypointManager.INSTANCE.load(worldDirectory);
         dimension = new MapDimension(dimensionId, directory, loadExecutor);
         lastAutosave = System.currentTimeMillis();
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, directory);

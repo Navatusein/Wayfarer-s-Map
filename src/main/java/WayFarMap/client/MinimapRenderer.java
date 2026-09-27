@@ -16,6 +16,9 @@ import WayFarMap.Config;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.client.waypoint.Waypoint;
+import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /** Draws the minimap in a corner of the HUD. */
@@ -68,6 +71,9 @@ public class MinimapRenderer {
         if (Config.showOtherPlayers) {
             MapDrawer.drawOtherPlayers(mc, px, pz, scale, x, y, size, size, partialTicks, false);
         }
+        if (Config.waypointsOnMinimap) {
+            drawWaypoints(mc, px, pz, scale, x, y, size);
+        }
         float yaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
         MapDrawer.drawPlayerArrow(x + size / 2.0, y + size / 2.0, yaw, 3.5f, 0xFFFFFFFF);
 
@@ -81,5 +87,21 @@ public class MinimapRenderer {
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glPopMatrix();
+    }
+
+    /** Waypoints outside the minimap stick to its border, so their direction stays visible. */
+    private static void drawWaypoints(Minecraft mc, double px, double pz, double scale, int x, int y, int size) {
+        double half = size / 2.0;
+        double limit = half - 5;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
+            double dx = (waypoint.x + 0.5 - px) * scale;
+            double dz = (waypoint.z + 0.5 - pz) * scale;
+            double outside = Math.max(Math.abs(dx), Math.abs(dz));
+            if (outside > limit) {
+                dx *= limit / outside;
+                dz *= limit / outside;
+            }
+            WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, 8f, false);
+        }
     }
 }

@@ -1,5 +1,6 @@
 package WayFarMap.client.gui;
 
+import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
@@ -14,6 +15,9 @@ import WayFarMap.client.MapDrawer;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
+import WayFarMap.client.waypoint.Waypoint;
+import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.client.waypoint.WaypointRenderer;
 
 /** Fullscreen world map: drag to pan, mouse wheel to zoom. */
 public class GuiWorldMap extends GuiScreen {
@@ -22,6 +26,11 @@ public class GuiWorldMap extends GuiScreen {
 
     /** Zoom level is kept between openings of the map. */
     private static int zoomIndex = DEFAULT_ZOOM;
+
+    private static final int HEADER_HEIGHT = 24;
+    private static final int FOOTER_HEIGHT = 14;
+    private static final float MARKER_SIZE = 12f;
+    private static final int ID_WAYPOINTS = 0;
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -51,6 +60,15 @@ public class GuiWorldMap extends GuiScreen {
             initialized = true;
         }
         lastFrameNanos = System.nanoTime();
+        buttonList.clear();
+        buttonList.add(new GuiButton(ID_WAYPOINTS, 4, 2, 90, 20, I18n.format("wayfarmap.gui.waypoints")));
+    }
+
+    @Override
+    protected void actionPerformed(GuiButton button) {
+        if (button.id == ID_WAYPOINTS) {
+            mc.displayGuiScreen(new GuiWaypointList(this));
+        }
     }
 
     /** Moves and zooms the view once per frame, so panning is as smooth as the frame rate allows. */
@@ -110,6 +128,15 @@ public class GuiWorldMap extends GuiScreen {
             MapDrawer.drawOtherPlayers(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, true);
         }
 
+        int dimensionId = mc.theWorld.provider.dimensionId;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(dimensionId)) {
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+            if (wx > -50 && wy > -20 && wx < width + 50 && wy < height + 20) {
+                WaypointRenderer.drawMapMarker(waypoint, wx, wy, MARKER_SIZE, true);
+            }
+        }
+
         double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
         double playerScreenX = width / 2.0 + (px - centerX) * scale;
@@ -121,18 +148,23 @@ public class GuiWorldMap extends GuiScreen {
         }
 
         // Header and footer.
-        drawRect(0, 0, width, 14, 0xA0000000);
-        drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 3, 0xFFFFFF);
+        drawRect(0, 0, width, HEADER_HEIGHT, 0xA0000000);
+        drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 8, 0xFFFFFF);
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
-        fontRendererObj.drawStringWithShadow(zoomText, width - 4 - fontRendererObj.getStringWidth(zoomText), 3, 0xAAAAAA);
+        fontRendererObj.drawStringWithShadow(zoomText, width - 4 - fontRendererObj.getStringWidth(zoomText), 8, 0xAAAAAA);
 
-        drawRect(0, height - 14, width, height, 0xA0000000);
+        drawRect(0, height - FOOTER_HEIGHT, width, height, 0xA0000000);
         int hoverX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
         int hoverZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
         String cursorText = "X: " + hoverX + "  Z: " + hoverZ;
         if (!isExplored(dimension, hoverX, hoverZ)) {
             cursorText += "  (?)";
+        }
+        Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
+        if (hoveredWaypoint != null) {
+            cursorText = hoveredWaypoint.name + "  (" + hoveredWaypoint.x + ", " + hoveredWaypoint.y + ", "
+                + hoveredWaypoint.z + ")";
         }
         fontRendererObj.drawStringWithShadow(cursorText, 4, height - 11, 0xFFFFFF);
         String help = I18n.format("wayfarmap.gui.help");
@@ -141,6 +173,32 @@ public class GuiWorldMap extends GuiScreen {
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScreen(mouseX, mouseY, partialTicks);
+    }
+
+    private Waypoint waypointAt(int mouseX, int mouseY) {
+        Waypoint best = null;
+        double bestDistance = MARKER_SIZE / 2 + 2;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+            double distance = Math.max(Math.abs(wx - mouseX), Math.abs(wy - mouseY));
+            if (distance <= bestDistance) {
+                best = waypoint;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    /** Height of the ground at the column if its chunk is loaded, otherwise the player's height. */
+    private int surfaceY(int x, int z) {
+        int playerY = MathHelper.floor_double(mc.thePlayer.boundingBox.minY);
+        if (mc.theWorld.provider.hasNoSky || mc.theWorld.getChunkFromBlockCoords(x, z)
+            .isEmpty()) {
+            return playerY;
+        }
+        int y = mc.theWorld.getHeightValue(x, z);
+        return y > 0 ? y : playerY;
     }
 
     private static boolean isExplored(MapDimension dimension, int x, int z) {
@@ -172,6 +230,22 @@ public class GuiWorldMap extends GuiScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         super.mouseClicked(mouseX, mouseY, button);
+        if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
+            return;
+        }
+        if (button == 1) {
+            // Right click: edit the waypoint under the cursor, or create one here.
+            Waypoint hovered = waypointAt(mouseX, mouseY);
+            if (hovered != null) {
+                mc.displayGuiScreen(GuiEditWaypoint.edit(this, hovered));
+            } else {
+                int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+                int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
+                mc.displayGuiScreen(
+                    GuiEditWaypoint.create(this, bx, surfaceY(bx, bz), bz, mc.theWorld.provider.dimensionId));
+            }
+            return;
+        }
         if (button == 0) {
             dragging = true;
             lastRawMouseX = Mouse.getX();
