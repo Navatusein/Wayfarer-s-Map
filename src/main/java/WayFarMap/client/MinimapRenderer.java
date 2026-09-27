@@ -146,7 +146,7 @@ public class MinimapRenderer {
 
         int textY = y + size + 3;
         for (String line : lines) {
-            font.drawStringWithShadow(line, x + size / 2 - font.getStringWidth(line) / 2, textY, 0xFFFFFF);
+            mc.fontRenderer.drawStringWithShadow(line, x + size / 2 - mc.fontRenderer.getStringWidth(line) / 2, textY, 0xFFFFFF);
             textY += LINE_HEIGHT;
         }
 
