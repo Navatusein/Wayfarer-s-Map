@@ -96,26 +96,41 @@ public class WaypointRenderer {
      * has no name.
      */
     public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, boolean fullName) {
+        return getLabelRect(waypoint, sx, sy, size, 1f);
+    }
+
+    /**
+     * Screen rectangle {x0, y0, x1, y1} of the name label under a marker, with the text drawn at {@code textScale}
+     * (1 = normal size), or null if the waypoint has no name.
+     */
+    public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, float textScale) {
         if (waypoint.name.isEmpty()) {
             return null;
         }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int width = font.getStringWidth(mapLabelName(waypoint, fullName)) + font.getStringWidth(distanceSuffix(waypoint));
-        int tx = (int) Math.round(sx) - width / 2;
-        int ty = (int) Math.round(sy) + Math.round(size / 2f) + 3;
-        return new int[] { tx - 2, ty - 1, tx + width + 2, ty + 9 };
+        int textWidth = font.getStringWidth(mapLabelName(waypoint)) + font.getStringWidth(distanceSuffix(waypoint));
+        int width = (int) Math.ceil((textWidth + 4) * textScale);
+        int height = (int) Math.ceil(10 * textScale);
+        int x0 = (int) Math.round(sx) - width / 2;
+        int y0 = (int) Math.round(sy) + Math.round(size / 2f) + 2;
+        return new int[] { x0, y0, x0 + width, y0 + height };
     }
 
     public static void drawMapLabel(Waypoint waypoint, int[] rect, boolean fullName) {
+        drawMapLabel(waypoint, rect, 1f);
+    }
+
+    /** Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}. */
+    public static void drawMapLabel(Waypoint waypoint, int[] rect, float textScale) {
         Gui.drawRect(rect[0], rect[1], rect[2], rect[3], Theme.LABEL_BG);
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        String name = mapLabelName(waypoint, fullName);
-        font.drawString(name, rect[0] + 2, rect[1] + 1, Theme.TEXT);
-        font.drawString(
-            distanceSuffix(waypoint),
-            rect[0] + 2 + font.getStringWidth(name),
-            rect[1] + 1,
-            Theme.TEXT_MUTED);
+        String name = mapLabelName(waypoint);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(rect[0] + 2 * textScale, rect[1] + textScale, 0f);
+        GL11.glScalef(textScale, textScale, 1f);
+        font.drawString(name, 0, 0, Theme.TEXT);
+        font.drawString(distanceSuffix(waypoint), font.getStringWidth(name), 0, Theme.TEXT_MUTED);
+        GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
@@ -124,7 +139,7 @@ public class WaypointRenderer {
      * so the name is cut shorter to leave room for the distance. The full name of the hovered waypoint is shown in
      * the map's bottom bar instead.
      */
-    private static String mapLabelName(Waypoint waypoint, boolean fullName) {
+    private static String mapLabelName(Waypoint waypoint) {
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         int room = Config.waypointLabelMaxWidth - font.getStringWidth(distanceSuffix(waypoint));
         return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));

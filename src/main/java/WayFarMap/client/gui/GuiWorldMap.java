@@ -515,13 +515,14 @@ public class GuiWorldMap extends GuiScreen {
             WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
         }
 
+        // Labels shrink with the markers when zooming out and stop growing at normal size when zooming in.
+        float textScale = size / MARKER_SIZE;
         // Labels: skip any that would overlap a label already placed, starting with the hovered one.
         List<Waypoint> labelled = new ArrayList<>();
         List<int[]> rects = new ArrayList<>();
         for (int i = onScreen.size() - 1; i >= 0; i--) {
             Waypoint waypoint = onScreen.get(i);
-            int[] rect = WaypointRenderer
-                .getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, waypoint == hovered);
+            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, textScale);
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
                 continue;
             }
@@ -529,7 +530,7 @@ public class GuiWorldMap extends GuiScreen {
             rects.add(rect);
         }
         for (int i = labelled.size() - 1; i >= 0; i--) {
-            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i), labelled.get(i) == hovered);
+            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i), textScale);
         }
     }
 

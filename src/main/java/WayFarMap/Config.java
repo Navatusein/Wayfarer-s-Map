@@ -71,7 +71,7 @@ public class Config {
     public static int waypointMaxDistance = 0;
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
-    public static int waypointLabelMaxWidth = 50;
+    public static int waypointLabelMaxWidth = 100;
 
     public static final List<Option> OPTIONS = new ArrayList<>();
 
@@ -284,7 +284,7 @@ public class Config {
             c,
             "labelMaxWidth",
             "Maximum width of waypoint names on the maps and in the world, in pixels; longer names end with '...'.",
-            50,
+            100,
             30,
             300,
             10,
