@@ -55,8 +55,9 @@ public class GuiTeleportY extends ScaledScreen {
     /** @return the entered height, or -1 if it isn't a valid Y */
     private int enteredY() {
         try {
-            int y = Integer.parseInt(yField.getText()
-                .trim());
+            int y = Integer.parseInt(
+                yField.getText()
+                    .trim());
             return y >= 0 && y <= 255 ? y : -1;
         } catch (NumberFormatException e) {
             return -1;

@@ -64,9 +64,14 @@ public class GuiSettings extends ScaledScreen {
             buttonList.add(button);
         }
         buttonList.add(
-            new FlatButton(ID_RESET, left + 6, bottom - 48, SIDEBAR_WIDTH - 12, 18, I18n.format("wayfarmap.settings.reset")));
-        buttonList.add(
-            new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
+            new FlatButton(
+                ID_RESET,
+                left + 6,
+                bottom - 48,
+                SIDEBAR_WIDTH - 12,
+                18,
+                I18n.format("wayfarmap.settings.reset")));
+        buttonList.add(new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
         clampScroll();
     }
 
@@ -214,7 +219,8 @@ public class GuiSettings extends ScaledScreen {
                 Theme.fill(contentLeft - 4, visibleTop, right - 6, visibleBottom, Theme.ROW_HOVER);
             }
             if (y >= contentTop && y + ROW_HEIGHT <= contentBottom) {
-                String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), controlX() - contentLeft - 48);
+                String name = Theme
+                    .ellipsize(fontRendererObj, I18n.format(option.langKey()), controlX() - contentLeft - 48);
                 Theme.text(fontRendererObj, name, contentLeft, y + 7, Theme.TEXT);
                 drawControl(option, controlX(), y + 3, mouseX, mouseY);
             }
@@ -229,9 +235,8 @@ public class GuiSettings extends ScaledScreen {
         // Description of the option under the mouse, like a footer.
         Theme.fill(contentLeft, contentBottom + 2, right - 10, contentBottom + 3, Theme.BORDER);
         if (hovered != null) {
-            List<?> lines = fontRendererObj.listFormattedStringToWidth(
-                I18n.format(hovered.langKey() + ".desc"),
-                right - 10 - contentLeft);
+            List<?> lines = fontRendererObj
+                .listFormattedStringToWidth(I18n.format(hovered.langKey() + ".desc"), right - 10 - contentLeft);
             for (int i = 0; i < lines.size() && i < 2; i++) {
                 Theme.text(
                     fontRendererObj,

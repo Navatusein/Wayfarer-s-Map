@@ -345,7 +345,8 @@ public class GuiWaypointList extends ScaledScreen {
         updateDrag(mouseX, mouseY);
         if (!draggingWaypoint) {
             String hint = I18n.format("wayfarmap.gui.drag_hint");
-            Theme.text(fontRendererObj, hint, listRight - fontRendererObj.getStringWidth(hint), 14, Theme.TEXT_DISABLED);
+            Theme
+                .text(fontRendererObj, hint, listRight - fontRendererObj.getStringWidth(hint), 14, Theme.TEXT_DISABLED);
         }
         Row dropTarget = draggingWaypoint ? rowAt(mouseX, mouseY) : null;
 

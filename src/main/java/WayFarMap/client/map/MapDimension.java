@@ -173,8 +173,8 @@ public class MapDimension {
                 lods.put(key, tile);
             } else if (tile.sourceChanges != region.getChanges()
                 && System.currentTimeMillis() - tile.builtAt >= LOD_REBUILD_MS) {
-                tile.update(region);
-            }
+                    tile.update(region);
+                }
             return tile;
         }
         if (tile != null || missing.contains(key)) {

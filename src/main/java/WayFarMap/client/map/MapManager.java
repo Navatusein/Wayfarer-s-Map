@@ -172,7 +172,10 @@ public class MapManager implements IResourceManagerReloadListener {
         MapDimension cave(int layer) {
             MapDimension cave = caves.get(layer);
             if (cave == null) {
-                cave = new MapDimension(id, new File(new File(directory, "caves"), String.valueOf(layer)), loadExecutor);
+                cave = new MapDimension(
+                    id,
+                    new File(new File(directory, "caves"), String.valueOf(layer)),
+                    loadExecutor);
                 caves.put(layer, cave);
             }
             return cave;
@@ -296,8 +299,8 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             } else if (file.getName()
                 .endsWith(".png")) {
-                return true;
-            }
+                    return true;
+                }
         }
         return false;
     }

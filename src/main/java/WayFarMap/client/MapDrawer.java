@@ -143,7 +143,8 @@ public final class MapDrawer {
      * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
      * are left out when zoomed out so far that they would be closer than a few pixels.
      */
-    public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width, int height) {
+    public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,
+        int height) {
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
         boolean chunks = 16 * scale >= 6;
@@ -158,7 +159,7 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         Tessellator tessellator = Tessellator.instance;
         int firstX = (int) Math.floor(left / step) * step;
-        for (int bx = firstX; ; bx += step) {
+        for (int bx = firstX;; bx += step) {
             double sx = x + (bx - left) * scale;
             if (sx > x + width) {
                 break;
@@ -170,7 +171,7 @@ public final class MapDrawer {
             }
         }
         int firstZ = (int) Math.floor(top / step) * step;
-        for (int bz = firstZ; ; bz += step) {
+        for (int bz = firstZ;; bz += step) {
             double sy = y + (bz - top) * scale;
             if (sy > y + height) {
                 break;
@@ -195,15 +196,15 @@ public final class MapDrawer {
             day = 1f;
         } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
             day = 0f;
-        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
-            || MapManager.INSTANCE.getActiveCaveLayer() >= 0) {
-            // No sunlight underground: caves look the same at any time of day.
-            day = 1f;
-        } else {
-            // Sun brightness goes from about 0.2 at midnight to 1.0 at noon.
-            float sun = mc.theWorld.getSunBrightness(1f);
-            day = Math.max(0f, Math.min(1f, (sun - 0.2f) / 0.8f));
-        }
+        } else
+            if (mc.theWorld == null || mc.theWorld.provider.hasNoSky || MapManager.INSTANCE.getActiveCaveLayer() >= 0) {
+                // No sunlight underground: caves look the same at any time of day.
+                day = 1f;
+            } else {
+                // Sun brightness goes from about 0.2 at midnight to 1.0 at noon.
+                float sun = mc.theWorld.getSunBrightness(1f);
+                day = Math.max(0f, Math.min(1f, (sun - 0.2f) / 0.8f));
+            }
         return new float[] { NIGHT_TINT[0] + (1f - NIGHT_TINT[0]) * day, NIGHT_TINT[1] + (1f - NIGHT_TINT[1]) * day,
             NIGHT_TINT[2] + (1f - NIGHT_TINT[2]) * day };
     }
@@ -318,7 +319,10 @@ public final class MapDrawer {
             double sy = y + height / 2.0 + (ez - centerZ) * scale;
             int color = entityColor(entity);
             float half = iconSize / 2f;
-            if (i >= firstIcon && sx >= x + half && sy >= y + half && sx <= x + width - half && sy <= y + height - half) {
+            if (i >= firstIcon && sx >= x + half
+                && sy >= y + half
+                && sx <= x + width - half
+                && sy <= y + height - half) {
                 pushUpright(sx, sy);
                 drawEntityIcon(entity, sx, sy, iconSize, color);
                 GL11.glPopMatrix();

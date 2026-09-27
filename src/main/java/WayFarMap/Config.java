@@ -557,8 +557,8 @@ public class Config {
         /** Suffixes of the value translation keys: {@code langKey() + "." + values[i]}. */
         public final String[] values;
 
-        ChoiceOption(String category, String key, String comment, int defaultValue, String[] values,
-            IntSupplier getter, IntConsumer setter) {
+        ChoiceOption(String category, String key, String comment, int defaultValue, String[] values, IntSupplier getter,
+            IntConsumer setter) {
             super(category, key, comment, defaultValue, 0, values.length - 1, 1, getter, setter);
             this.values = values;
         }

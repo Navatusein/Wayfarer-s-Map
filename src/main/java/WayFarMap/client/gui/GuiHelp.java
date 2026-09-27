@@ -101,8 +101,7 @@ public class GuiHelp extends ScaledScreen {
             button.active = i == selected;
             buttonList.add(button);
         }
-        buttonList.add(
-            new FlatButton(ID_BACK, left + 6, bottom - 24, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
+        buttonList.add(new FlatButton(ID_BACK, left + 6, bottom - 24, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
         layout();
     }
 
@@ -167,8 +166,9 @@ public class GuiHelp extends ScaledScreen {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("# ")) {
-                    current = new Section(line.substring(2)
-                        .trim());
+                    current = new Section(
+                        line.substring(2)
+                            .trim());
                     sections.add(current);
                 } else if (current != null) {
                     current.lines.add(line);

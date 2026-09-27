@@ -27,7 +27,10 @@ public class KeyHandler {
         CATEGORY);
     public static final KeyBinding ZOOM_IN = new KeyBinding("key.wayfarmap.zoom_in", Keyboard.KEY_EQUALS, CATEGORY);
     public static final KeyBinding ZOOM_OUT = new KeyBinding("key.wayfarmap.zoom_out", Keyboard.KEY_MINUS, CATEGORY);
-    public static final KeyBinding NEW_WAYPOINT = new KeyBinding("key.wayfarmap.new_waypoint", Keyboard.KEY_B, CATEGORY);
+    public static final KeyBinding NEW_WAYPOINT = new KeyBinding(
+        "key.wayfarmap.new_waypoint",
+        Keyboard.KEY_B,
+        CATEGORY);
     public static final KeyBinding CAVE_MODE = new KeyBinding("key.wayfarmap.cave_mode", Keyboard.KEY_K, CATEGORY);
     public static final KeyBinding WAYPOINT_LIST = new KeyBinding(
         "key.wayfarmap.waypoint_list",

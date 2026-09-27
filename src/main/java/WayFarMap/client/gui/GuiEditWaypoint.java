@@ -94,7 +94,13 @@ public class GuiEditWaypoint extends ScaledScreen {
         List<FlatButton> row = new ArrayList<>();
         row.add(saveButton);
         if (target != null) {
-            FlatButton teleport = new FlatButton(ID_TELEPORT, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.teleport"));
+            FlatButton teleport = new FlatButton(
+                ID_TELEPORT,
+                0,
+                top + BUTTON_ROW,
+                0,
+                18,
+                I18n.format("wayfarmap.gui.teleport"));
             teleport.enabled = Teleport.isAllowed() && mc.theWorld != null
                 && target.dimension == mc.theWorld.provider.dimensionId;
             row.add(teleport);
@@ -144,7 +150,8 @@ public class GuiEditWaypoint extends ScaledScreen {
                         + I18n.format(edited.outlineColor != null ? "options.on" : "options.off");
                     break;
                 case ID_DELETE:
-                    button.displayString = I18n.format(confirmDelete ? "wayfarmap.gui.confirm" : "wayfarmap.gui.delete");
+                    button.displayString = I18n
+                        .format(confirmDelete ? "wayfarmap.gui.confirm" : "wayfarmap.gui.delete");
                     break;
                 default:
                     break;
@@ -165,12 +172,15 @@ public class GuiEditWaypoint extends ScaledScreen {
         edited.name = nameField.getText()
             .trim();
         try {
-            edited.x = Integer.parseInt(xField.getText()
-                .trim());
-            edited.y = Integer.parseInt(yField.getText()
-                .trim());
-            edited.z = Integer.parseInt(zField.getText()
-                .trim());
+            edited.x = Integer.parseInt(
+                xField.getText()
+                    .trim());
+            edited.y = Integer.parseInt(
+                yField.getText()
+                    .trim());
+            edited.z = Integer.parseInt(
+                zField.getText()
+                    .trim());
             return true;
         } catch (NumberFormatException e) {
             return false;
@@ -209,9 +219,7 @@ public class GuiEditWaypoint extends ScaledScreen {
             }
             case ID_ICON:
                 readFields();
-                mc.displayGuiScreen(new GuiItemPicker(this, stack -> {
-                    edited.setIcon(stack);
-                }));
+                mc.displayGuiScreen(new GuiItemPicker(this, stack -> { edited.setIcon(stack); }));
                 return;
             case ID_OUTLINE:
                 edited.outlineColor = edited.outlineColor == null ? (Integer) outlineColor : null;

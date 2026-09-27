@@ -85,7 +85,13 @@ public class GuiColorPicker extends ScaledScreen {
         done.active = true;
         buttonList.add(done);
         buttonList.add(
-            new FlatButton(ID_CANCEL, left + PANEL_WIDTH - 10 - w, top + PANEL_HEIGHT - 28, w, 18, I18n.format("gui.cancel")));
+            new FlatButton(
+                ID_CANCEL,
+                left + PANEL_WIDTH - 10 - w,
+                top + PANEL_HEIGHT - 28,
+                w,
+                18,
+                I18n.format("gui.cancel")));
     }
 
     private void updateHexField() {

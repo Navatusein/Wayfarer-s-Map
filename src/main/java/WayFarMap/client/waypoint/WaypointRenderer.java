@@ -162,7 +162,7 @@ public class WaypointRenderer {
         return waypoint.name.isEmpty() ? distance.trim() : distance;
     }
 
-    /** "  123m": distance from the player, shown after the name on the world map. */
+    /** " 123m": distance from the player, shown after the name on the world map. */
     public static String distanceSuffix(Waypoint waypoint) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null || player.dimension != waypoint.dimension) {
@@ -206,11 +206,7 @@ public class WaypointRenderer {
                     continue;
                 }
                 int color = item.getColorFromItemStack(stack, pass);
-                GL11.glColor4f(
-                    ((color >> 16) & 0xFF) / 255f,
-                    ((color >> 8) & 0xFF) / 255f,
-                    (color & 0xFF) / 255f,
-                    1f);
+                GL11.glColor4f(((color >> 16) & 0xFF) / 255f, ((color >> 8) & 0xFF) / 255f, (color & 0xFF) / 255f, 1f);
                 tessellator.startDrawingQuads();
                 tessellator.addVertexWithUV(x0, y1, 0, icon.getMinU(), icon.getMaxV());
                 tessellator.addVertexWithUV(x1, y1, 0, icon.getMaxU(), icon.getMaxV());
