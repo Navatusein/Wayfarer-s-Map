@@ -238,7 +238,9 @@ public class GuiEditWaypoint extends ScaledScreen {
                 break;
             case ID_SHARE:
                 // Shares what the editor shows now, saved or not.
-                readFields();
+                if (!readFields()) {
+                    return;
+                }
                 WaypointShare.share(edited);
                 mc.displayGuiScreen(null);
                 return;

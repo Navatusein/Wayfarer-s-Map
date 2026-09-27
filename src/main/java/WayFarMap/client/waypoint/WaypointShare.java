@@ -81,7 +81,7 @@ public final class WaypointShare {
             + "|"
             + waypoint.dimension
             + "|"
-            + (waypoint.outlineColor == null ? "" : Integer.toHexString(waypoint.outlineColor))
+            + (waypoint.outlineColor == null ? "" : Integer.toHexString(waypoint.outlineColor & 0xFFFFFF))
             + "|"
             + icon
             + "|"
@@ -102,6 +102,8 @@ public final class WaypointShare {
 
     /** The waypoint in a chat line, or null if there is none. */
     static Waypoint decode(String text) {
+        // Servers may color chat lines; the codes would break the numbers.
+        text = EnumChatFormatting.getTextWithoutFormattingCodes(text);
         int start = text.indexOf(PREFIX);
         if (start < 0) {
             return null;
@@ -150,8 +152,25 @@ public final class WaypointShare {
         if (waypoint == null) {
             return;
         }
-        // Whatever the server put before the line ("<Steve> "), then the waypoint and the button.
-        IChatComponent line = new ChatComponentText(text.substring(0, start));
+        // Whatever the server put before the line ("<Steve> ", with its colors and click actions), then the waypoint
+        // and the button.
+        IChatComponent line = new ChatComponentText("");
+        int position = 0;
+        for (Object object : event.message) {
+            // The iterator gives copies with the inherited style resolved, in the order of getUnformattedText().
+            IChatComponent part = (IChatComponent) object;
+            String piece = part.getUnformattedTextForChat();
+            int keep = Math.min(piece.length(), start - position);
+            if (keep > 0) {
+                ChatComponentText copy = new ChatComponentText(piece.substring(0, keep));
+                copy.setChatStyle(part.getChatStyle());
+                line.appendSibling(copy);
+            }
+            position += piece.length();
+            if (position >= start) {
+                break;
+            }
+        }
         IChatComponent shared = new ChatComponentText(I18n.format("wayfarmap.share.shared") + " ");
         shared.getChatStyle()
             .setColor(EnumChatFormatting.GRAY);

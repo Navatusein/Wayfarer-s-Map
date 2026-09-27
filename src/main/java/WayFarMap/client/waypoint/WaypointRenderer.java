@@ -263,6 +263,10 @@ public class WaypointRenderer {
         double x = waypoint.x - RenderManager.renderPosX;
         double y = waypoint.y - RenderManager.renderPosY;
         double z = waypoint.z - RenderManager.renderPosZ;
+        double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
+        if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
+            return;
+        }
         double height = Math.max(1, 256 - waypoint.y);
         int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
         int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
@@ -281,6 +285,15 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
+        // Past the view distance the beam would be cut by the far plane: it is drawn closer and smaller instead, which
+        // looks the same on screen (the camera is at the origin), so far waypoints keep their beams.
+        double limit = Math.max(16, mc.gameSettings.renderDistanceChunks * 16 - 8);
+        boolean far = distance > limit;
+        if (far) {
+            GL11.glPushMatrix();
+            double factor = limit / distance;
+            GL11.glScaled(factor, factor, factor);
+        }
         Tessellator tessellator = Tessellator.instance;
 
         // Inner beam: a turning square, blended additively so it glows.
@@ -321,6 +334,9 @@ public class WaypointRenderer {
         }
         tessellator.draw();
 
+        if (far) {
+            GL11.glPopMatrix();
+        }
         GL11.glDepthMask(true);
         GL11.glPopAttrib();
         GL11.glColor4f(1f, 1f, 1f, 1f);
