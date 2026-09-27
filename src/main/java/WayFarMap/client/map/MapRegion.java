@@ -2,6 +2,7 @@ package WayFarMap.client.map;
 
 import java.awt.image.BufferedImage;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -27,6 +28,8 @@ public class MapRegion implements PixelSource {
 
     public static final int SIZE = 512;
     public static final int SHIFT = 9;
+    /** Chunks per side. */
+    public static final int CHUNKS = SIZE / 16;
 
     /** Upload buffer shared by all regions; uploads only happen on the render thread. */
     private static IntBuffer uploadBuffer;
@@ -41,6 +44,11 @@ public class MapRegion implements PixelSource {
     private final int[] pixels = new int[SIZE * SIZE];
     /** Allocated on first use; most maps (caves) never need it. */
     private byte[] extra;
+    /**
+     * When each of the 32x32 chunks was last mapped (by us or a teammate), in milliseconds; 0 = never. When maps
+     * are merged, the newer chunk wins.
+     */
+    private final long[] chunkTimes = new long[CHUNKS * CHUNKS];
 
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
@@ -125,6 +133,19 @@ public class MapRegion implements PixelSource {
             dirtyMinZ = Math.min(dirtyMinZ, localZ);
             dirtyMaxZ = Math.max(dirtyMaxZ, localZ);
         }
+    }
+
+    /** True if any column of the chunk (region-local chunk coordinates) is explored. */
+    public boolean hasPixels(int localChunkX, int localChunkZ) {
+        for (int z = 0; z < 16; z++) {
+            int row = (localChunkZ * 16 + z) * SIZE + localChunkX * 16;
+            for (int x = 0; x < 16; x++) {
+                if ((pixels[row + x] >>> 24) != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -212,6 +233,19 @@ public class MapRegion implements PixelSource {
         BiomeHighlight.forget(this);
     }
 
+    /** When the chunk (region-local chunk coordinates 0-31) was last mapped; 0 = never. */
+    public long getChunkTime(int localChunkX, int localChunkZ) {
+        return chunkTimes[localChunkZ * CHUNKS + localChunkX];
+    }
+
+    public void setChunkTime(int localChunkX, int localChunkZ, long time) {
+        int index = localChunkZ * CHUNKS + localChunkX;
+        if (chunkTimes[index] != time) {
+            chunkTimes[index] = time;
+            saveDirty = true;
+        }
+    }
+
     public boolean isSaveDirty() {
         return saveDirty;
     }
@@ -220,17 +254,19 @@ public class MapRegion implements PixelSource {
     public Snapshot snapshotForSave() {
         saveDirty = false;
         saving = true;
-        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null);
+        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null, chunkTimes.clone());
     }
 
     public static final class Snapshot {
 
         final int[] pixels;
         final byte[] extra;
+        final long[] chunkTimes;
 
-        Snapshot(int[] pixels, byte[] extra) {
+        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes) {
             this.pixels = pixels;
             this.extra = extra;
+            this.chunkTimes = chunkTimes;
         }
     }
 
@@ -252,6 +288,11 @@ public class MapRegion implements PixelSource {
         return new File(path.substring(0, path.length() - 4) + ".dat");
     }
 
+    private static File getTimesFile(File imageFile) {
+        String path = imageFile.getPath();
+        return new File(path.substring(0, path.length() - 4) + ".time");
+    }
+
     public static void write(File file, Snapshot snapshot) throws IOException {
         writeImage(file, snapshot.pixels);
         if (snapshot.extra != null) {
@@ -262,6 +303,14 @@ public class MapRegion implements PixelSource {
             }
             replace(tmp, extraFile);
         }
+        File timesFile = getTimesFile(file);
+        File tmp = new File(timesFile.getPath() + ".tmp");
+        try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(new FileOutputStream(tmp)))) {
+            for (long time : snapshot.chunkTimes) {
+                out.writeLong(time);
+            }
+        }
+        replace(tmp, timesFile);
     }
 
     private static void replace(File tmp, File file) throws IOException {
@@ -302,6 +351,29 @@ public class MapRegion implements PixelSource {
                 region.extra = extra;
             } catch (IOException e) {
                 // Only the extra data is lost; the map image is still fine.
+            }
+        }
+        File timesFile = getTimesFile(file);
+        boolean haveTimes = false;
+        if (timesFile.isFile()) {
+            try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(timesFile)))) {
+                for (int i = 0; i < region.chunkTimes.length; i++) {
+                    region.chunkTimes[i] = in.readLong();
+                }
+                haveTimes = true;
+            } catch (IOException e) {
+                // Fall back to the file's date below.
+            }
+        }
+        if (!haveTimes) {
+            // Saved before chunk times existed: every explored chunk counts as mapped when the file was written.
+            long modified = file.lastModified();
+            for (int cz = 0; cz < CHUNKS; cz++) {
+                for (int cx = 0; cx < CHUNKS; cx++) {
+                    if (region.hasPixels(cx, cz)) {
+                        region.chunkTimes[cz * CHUNKS + cx] = modified;
+                    }
+                }
             }
         }
         return region;

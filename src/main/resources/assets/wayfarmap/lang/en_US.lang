@@ -176,4 +176,4 @@ wayfarmap.powerfail.waypoint=Place a waypoint here
 wayfarmap.option.map.powerfails=GregTech power failures
 wayfarmap.option.map.powerfails.desc=Show GregTech machines that ran out of power on the map and the minimap (if this GregTech version has them).
 wayfarmap.option.map.shareWithTeam=Team map
-wayfarmap.option.map.shareWithTeam.desc=On servers that have this mod and ServerUtilities too, the explored map is shared between the members of a team: their discoveries appear on your map and yours on theirs. On joining you get everything the team mapped while you were away.
+wayfarmap.option.map.shareWithTeam.desc=Every player has their own map. In a ServerUtilities team (on a server with this mod) it is also shared: on joining a team your whole map is sent to it, the members' maps merge (newer parts win), new discoveries show up for everyone right away, and whoever joins later gets everything the team mapped meanwhile.

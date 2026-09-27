@@ -1,12 +1,22 @@
 package WayFarMap.client.map;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 
 import net.minecraft.client.Minecraft;
 
@@ -19,9 +29,16 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 
 /**
- * Client side of the team map. On joining a server the client says hello; if the server shares team maps it
- * answers, and from then on every chunk the client maps is uploaded (unless it looks the same as when it was last
- * sent) and the chunks teammates map are written into this map as they arrive.
+ * Client side of the team map. Every account keeps its own map; in a ServerUtilities team (on a server with this
+ * mod) it is also the team's:
+ * <ul>
+ * <li>on joining the server the client says hello, and the server answers with the player's team (and again
+ * whenever the player creates, joins or leaves one);</li>
+ * <li>in a team, the client uploads in the background the whole map it already has (all dimensions and caves),
+ * only what it hasn't given this team yet, and from then on every chunk it maps;</li>
+ * <li>the server sends what the team mapped meanwhile, and teammates' new chunks as they come.</li>
+ * </ul>
+ * Every chunk carries the time it was mapped, so when maps merge the newer chunk wins on both sides.
  */
 public final class TeamMapClient {
 
@@ -32,6 +49,8 @@ public final class TeamMapClient {
     /** Chunks waiting to be uploaded at most; the oldest are dropped (they get rescanned anyway). */
     private static final int MAX_OUTGOING = 2048;
     private static final int SENT_MEMORY = 8192;
+    /** Old map chunks uploaded per tick: 160 a second, a large map takes minutes but costs little bandwidth. */
+    private static final int BACKFILL_PER_TICK = 8;
 
     private final Queue<IMessage> inbox = new ConcurrentLinkedQueue<>();
     private final ArrayDeque<ChunkRecord> outgoing = new ArrayDeque<>();
@@ -46,13 +65,16 @@ public final class TeamMapClient {
     };
     private boolean helloSent;
     private boolean serverShares;
+    /** The player's team as the server last said; empty without one. */
+    private String team = "";
     private int dimension = Integer.MIN_VALUE;
+    private Backfill backfill;
 
     private TeamMapClient() {}
 
-    /** True while connected to a server that shares team maps (and sharing is on). */
+    /** True while connected to a server that shares team maps, in a team, with sharing on. */
     public boolean isActive() {
-        return serverShares && Config.shareMapWithTeam;
+        return serverShares && !team.isEmpty() && Config.shareMapWithTeam;
     }
 
     /** From the network thread. */
@@ -71,6 +93,8 @@ public final class TeamMapClient {
             if (helloSent || serverShares) {
                 helloSent = false;
                 serverShares = false;
+                team = "";
+                stopBackfill();
                 inbox.clear();
                 outgoing.clear();
                 incoming.clear();
@@ -92,16 +116,19 @@ public final class TeamMapClient {
         IMessage message;
         while ((message = inbox.poll()) != null) {
             if (message instanceof ShareNetwork.Hello) {
-                if (!serverShares) {
-                    WayFarMap.LOG.info("This server shares the map between team members");
-                }
-                serverShares = true;
+                onServerHello((ShareNetwork.Hello) message);
             } else if (message instanceof ShareNetwork.Chunks && Config.shareMapWithTeam) {
                 ShareNetwork.Chunks chunks = (ShareNetwork.Chunks) message;
                 for (ChunkRecord record : chunks.records) {
                     incoming.add(new Object[] { chunks.dimension, record });
                 }
             }
+        }
+        if (backfill == null && isActive()) {
+            // Sharing was turned back on, or the world folder is ready now.
+            startBackfill();
+        } else if (backfill != null && !isActive()) {
+            stopBackfill();
         }
 
         // Teammates' chunks: written as their regions are ready, without waiting for disk reads.
@@ -115,12 +142,50 @@ public final class TeamMapClient {
             incoming.poll();
         }
 
-        if (isActive() && !outgoing.isEmpty()) {
+        if (!isActive()) {
+            return;
+        }
+        if (!outgoing.isEmpty()) {
             List<ChunkRecord> part = new ArrayList<>();
             while (part.size() < ShareNetwork.MAX_UPLOAD_RECORDS && !outgoing.isEmpty()) {
                 part.add(outgoing.poll());
             }
             ShareNetwork.sendToServer(new ShareNetwork.Chunks(dimension, part));
+        }
+        if (backfill != null) {
+            backfill.sendSome();
+        }
+    }
+
+    private void onServerHello(ShareNetwork.Hello hello) {
+        if (!serverShares) {
+            WayFarMap.LOG.info("This server shares the map between team members");
+        }
+        serverShares = true;
+        if (!hello.team.equals(team)) {
+            team = hello.team;
+            WayFarMap.LOG.info(team.isEmpty() ? "Team map: not in a team" : "Team map: in team " + team);
+            stopBackfill();
+            sent.clear();
+        }
+    }
+
+    private void startBackfill() {
+        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        if (worldDirectory == null) {
+            return;
+        }
+        backfill = new Backfill(worldDirectory, team);
+        Thread thread = new Thread(backfill, "WayFarMap team map upload");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.start();
+    }
+
+    private void stopBackfill() {
+        if (backfill != null) {
+            backfill.cancelled = true;
+            backfill = null;
         }
     }
 
@@ -135,6 +200,26 @@ public final class TeamMapClient {
             return;
         }
         MapRegion biomeRegion = layer < 0 && biomeMap != null ? biomeMap.getLoadedRegion(rx, rz) : null;
+        ChunkRecord record = toRecord(region, biomeRegion, layer, chunkX, chunkZ);
+        if (record == null) {
+            return;
+        }
+        record.time = System.currentTimeMillis();
+        long key = ((long) chunkX << 36) ^ ((long) (chunkZ & 0xFFFFFFFL) << 4) ^ (layer + 1);
+        int hash = record.contentHash();
+        Integer previous = sent.get(key);
+        if (previous != null && previous == hash) {
+            return;
+        }
+        sent.put(key, hash);
+        if (outgoing.size() >= MAX_OUTGOING) {
+            outgoing.poll();
+        }
+        outgoing.add(record);
+    }
+
+    /** The chunk of a region as a record (time not set), or null if nothing of it is explored. */
+    static ChunkRecord toRecord(MapRegion region, MapRegion biomeRegion, int layer, int chunkX, int chunkZ) {
         ChunkRecord record = new ChunkRecord();
         record.chunkX = chunkX;
         record.chunkZ = chunkZ;
@@ -156,19 +241,179 @@ public final class TeamMapClient {
                 }
             }
         }
-        if (!record.hasPixels()) {
-            return;
+        return record.hasPixels() ? record : null;
+    }
+
+    /**
+     * Uploads the map the account already has to its team: reads the saved regions of every dimension and cave
+     * layer on a background thread and hands the chunks newer than what this team already got from us to the
+     * game thread, which sends a few per tick. What was sent is remembered per team in {@code team-<id>.dat}.
+     */
+    private static final class Backfill implements Runnable {
+
+        private final File worldDirectory;
+        private final File progressFile;
+        private final BlockingQueue<Object[]> ready = new ArrayBlockingQueue<>(256);
+        volatile boolean cancelled;
+
+        Backfill(File worldDirectory, String team) {
+            this.worldDirectory = worldDirectory;
+            this.progressFile = new File(worldDirectory, "team-" + team.replaceAll("[^a-zA-Z0-9_-]", "_") + ".dat");
         }
-        long key = ((long) chunkX << 36) ^ ((long) (chunkZ & 0xFFFFFFFL) << 4) ^ (layer + 1);
-        int hash = record.contentHash();
-        Integer previous = sent.get(key);
-        if (previous != null && previous == hash) {
-            return;
+
+        @Override
+        public void run() {
+            Properties progress = new Properties();
+            if (progressFile.isFile()) {
+                try (InputStream in = new FileInputStream(progressFile)) {
+                    progress.load(in);
+                } catch (IOException e) {
+                    WayFarMap.LOG.warn("Team map: could not read " + progressFile, e);
+                }
+            }
+            File[] dimensions = worldDirectory.listFiles(file -> file.isDirectory() && file.getName()
+                .matches("dim-?\\d+"));
+            if (dimensions == null) {
+                return;
+            }
+            int total = 0;
+            for (File dimensionDir : dimensions) {
+                int dimensionId = Integer.parseInt(
+                    dimensionDir.getName()
+                        .substring(3));
+                // The surface (with its biomes), then every cave layer.
+                total += upload(progress, dimensionId, -1, dimensionDir, new File(dimensionDir, "biomes"));
+                for (int layer = 0; layer < 16; layer++) {
+                    File caveDir = new File(new File(dimensionDir, "caves"), String.valueOf(layer));
+                    if (caveDir.isDirectory()) {
+                        total += upload(progress, dimensionId, layer, caveDir, null);
+                    }
+                }
+                if (cancelled) {
+                    return;
+                }
+            }
+            if (total > 0) {
+                WayFarMap.LOG.info("Team map: uploaded {} chunks of the existing map", total);
+            }
         }
-        sent.put(key, hash);
-        if (outgoing.size() >= MAX_OUTGOING) {
-            outgoing.poll();
+
+        /** Uploads one layer of one dimension; returns the number of chunks queued. */
+        private int upload(Properties progress, int dimensionId, int layer, File dir, File biomeDir) {
+            String key = "dim" + dimensionId + (layer < 0 ? ".surface" : ".cave" + layer);
+            long since = parseLong(progress.getProperty(key));
+            long started = System.currentTimeMillis();
+            File[] files = dir.listFiles(
+                file -> file.getName()
+                    .startsWith("r.")
+                    && file.getName()
+                        .endsWith(".png"));
+            if (files == null) {
+                return 0;
+            }
+            int count = 0;
+            for (File file : files) {
+                if (cancelled) {
+                    return count;
+                }
+                // Nothing in a file older than what this team already got can be newer.
+                if (file.lastModified() <= since) {
+                    continue;
+                }
+                String[] parts = file.getName()
+                    .split("\\.");
+                int rx, rz;
+                try {
+                    rx = Integer.parseInt(parts[1]);
+                    rz = Integer.parseInt(parts[2]);
+                } catch (Exception e) {
+                    continue;
+                }
+                MapRegion region, biomeRegion = null;
+                try {
+                    region = MapRegion.read(file, rx, rz);
+                    File biomeFile = biomeDir != null ? MapRegion.getFile(biomeDir, rx, rz) : null;
+                    if (biomeFile != null && biomeFile.isFile()) {
+                        biomeRegion = MapRegion.read(biomeFile, rx, rz);
+                    }
+                } catch (IOException e) {
+                    continue;
+                }
+                for (int cz = 0; cz < MapRegion.CHUNKS; cz++) {
+                    for (int cx = 0; cx < MapRegion.CHUNKS; cx++) {
+                        long time = region.getChunkTime(cx, cz);
+                        if (time <= since) {
+                            continue;
+                        }
+                        ChunkRecord record = toRecord(
+                            region,
+                            biomeRegion,
+                            layer,
+                            rx * MapRegion.CHUNKS + cx,
+                            rz * MapRegion.CHUNKS + cz);
+                        if (record == null) {
+                            continue;
+                        }
+                        record.time = time;
+                        try {
+                            while (!ready.offer(new Object[] { dimensionId, record }, 1, TimeUnit.SECONDS)) {
+                                if (cancelled) {
+                                    return count;
+                                }
+                            }
+                        } catch (InterruptedException e) {
+                            return count;
+                        }
+                        count++;
+                    }
+                }
+            }
+            // Wait until the game thread sent it all before remembering this layer as done.
+            while (!ready.isEmpty()) {
+                if (cancelled) {
+                    return count;
+                }
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    return count;
+                }
+            }
+            synchronized (this) {
+                progress.setProperty(key, String.valueOf(started));
+                try (OutputStream out = new FileOutputStream(progressFile)) {
+                    progress.store(out, "WayFarMap: map already uploaded to this team, per dimension and layer");
+                } catch (IOException e) {
+                    WayFarMap.LOG.warn("Team map: could not save " + progressFile, e);
+                }
+            }
+            return count;
         }
-        outgoing.add(record);
+
+        private static long parseLong(String value) {
+            try {
+                return value == null ? 0 : Long.parseLong(value);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+
+        /** Game thread: sends a few of the prepared chunks, one dimension per message. */
+        void sendSome() {
+            List<ChunkRecord> part = new ArrayList<>();
+            int dimensionId = 0;
+            while (part.size() < BACKFILL_PER_TICK) {
+                Object[] next = ready.peek();
+                if (next == null || !part.isEmpty() && (Integer) next[0] != dimensionId) {
+                    break;
+                }
+                ready.poll();
+                dimensionId = (Integer) next[0];
+                part.add((ChunkRecord) next[1]);
+            }
+            if (!part.isEmpty()) {
+                ShareNetwork.sendToServer(new ShareNetwork.Chunks(dimensionId, part, true));
+            }
+        }
     }
 }

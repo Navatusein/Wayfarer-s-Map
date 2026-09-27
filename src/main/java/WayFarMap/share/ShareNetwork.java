@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.DeflaterOutputStream;
@@ -28,7 +29,7 @@ import io.netty.buffer.ByteBuf;
  */
 public final class ShareNetwork {
 
-    public static final int PROTOCOL = 1;
+    public static final int PROTOCOL = 2;
     /** Records per message from the server: at most ~50 KB even uncompressed. */
     public static final int MAX_RECORDS = 32;
     /**
@@ -57,19 +58,35 @@ public final class ShareNetwork {
         channel.sendTo(message, player);
     }
 
-    /** Client hello (asks whether the server shares team maps) and the server's answer. */
+    /**
+     * Client hello (asks whether the server shares team maps) and the server's answer, which it sends again
+     * whenever the player's team changes: {@code team} is the team id, empty without a team.
+     */
     public static final class Hello implements IMessage {
 
         public int protocol = PROTOCOL;
+        public String team = "";
+
+        public Hello() {}
+
+        public Hello(String team) {
+            this.team = team == null ? "" : team;
+        }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             protocol = buf.readInt();
+            byte[] bytes = new byte[Math.min(64, Math.max(0, buf.readShort()))];
+            buf.readBytes(bytes);
+            team = new String(bytes, StandardCharsets.UTF_8);
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeInt(protocol);
+            byte[] bytes = team.getBytes(StandardCharsets.UTF_8);
+            buf.writeShort(bytes.length);
+            buf.writeBytes(bytes);
         }
     }
 
@@ -77,6 +94,8 @@ public final class ShareNetwork {
     public static final class Chunks implements IMessage {
 
         public int dimension;
+        /** An upload of the map the player already had (any dimension, anywhere), not of chunks just mapped. */
+        public boolean backfill;
         public final List<ChunkRecord> records = new ArrayList<>();
 
         public Chunks() {}
@@ -86,9 +105,15 @@ public final class ShareNetwork {
             this.records.addAll(records);
         }
 
+        public Chunks(int dimension, List<ChunkRecord> records, boolean backfill) {
+            this(dimension, records);
+            this.backfill = backfill;
+        }
+
         @Override
         public void fromBytes(ByteBuf buf) {
             dimension = buf.readInt();
+            backfill = buf.readBoolean();
             byte[] data = new byte[Math.min(buf.readInt(), buf.readableBytes())];
             buf.readBytes(data);
             try (DataInputStream in = new DataInputStream(
@@ -115,6 +140,7 @@ public final class ShareNetwork {
                 throw new IllegalStateException(e);
             }
             buf.writeInt(dimension);
+            buf.writeBoolean(backfill);
             buf.writeInt(bytes.size());
             buf.writeBytes(bytes.toByteArray());
         }

@@ -24,6 +24,7 @@ import java.util.zip.GZIPOutputStream;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.DimensionManager;
 
 import WayFarMap.WayFarMap;
@@ -35,9 +36,10 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 
 /**
  * Server side of the team map: every ServerUtilities team gets a shared map. Clients with the mod upload the chunks
- * they map; the server keeps the newest version of each chunk per team (stamped with the time it arrived), passes
- * new chunks on to online teammates in the same dimension, and when a player joins or changes dimension sends
- * everything the team mapped there since that player last got it, nearest first.
+ * they map, and on joining a team (or the server, while in one) the whole map they already had; the server keeps
+ * the most recently mapped version of each chunk per team, passes new chunks on to online teammates in the same
+ * dimension, and when a player joins or changes dimension sends everything the team got there since that player
+ * last synced, nearest first. So the maps of a team merge, newer chunks winning.
  * <p>
  * Stored in {@code <world>/wayfarmap/teams/<team>/dim<id>/<surface|caveN>/r.X.Z.bin}, one file per 32x32 chunks.
  */
@@ -47,7 +49,7 @@ public final class TeamMapServer {
 
     private static final int REGION_SHIFT = 5;
     private static final int FILE_MAGIC = 0x57464D54;
-    private static final int FILE_VERSION = 1;
+    private static final int FILE_VERSION = 2;
     /** Upload sanity limits: chunks must be near the uploader, and not too many per second. */
     private static final int MAX_UPLOAD_DISTANCE = 96;
     private static final int MAX_UPLOADS_PER_SECOND = 400;
@@ -71,6 +73,8 @@ public final class TeamMapServer {
     private final Map<String, TeamStore> teams = new HashMap<>();
     private final Map<UUID, Sync> syncs = new HashMap<>();
     private final Map<UUID, int[]> uploadBudget = new HashMap<>();
+    /** The team each capable player was last told about, to notice joining, creating or leaving one. */
+    private final Map<UUID, String> knownTeams = new HashMap<>();
     private File root;
     private long lastSave;
     private int tick;
@@ -94,6 +98,9 @@ public final class TeamMapServer {
         tick++;
         if (tick % 20 == 0) {
             uploadBudget.clear();
+        }
+        if (tick % 100 == 0) {
+            checkTeams();
         }
         Object[] entry;
         while ((entry = inbox.poll()) != null) {
@@ -135,6 +142,7 @@ public final class TeamMapServer {
         finishSync(id);
         capable.remove(id);
         uploadBudget.remove(id);
+        knownTeams.remove(id);
     }
 
     @SubscribeEvent
@@ -156,6 +164,7 @@ public final class TeamMapServer {
         teams.clear();
         syncs.clear();
         capable.clear();
+        knownTeams.clear();
         inbox.clear();
         root = null;
     }
@@ -164,14 +173,38 @@ public final class TeamMapServer {
 
     private void onHello(EntityPlayerMP player) {
         capable.add(player.getUniqueID());
-        ShareNetwork.sendTo(new ShareNetwork.Hello(), player);
+        String team = SuTeams.teamId(player);
+        knownTeams.put(player.getUniqueID(), team == null ? "" : team);
+        // The client learns its team: with one it starts uploading the map it already has.
+        ShareNetwork.sendTo(new ShareNetwork.Hello(team), player);
         startSync(player);
+    }
+
+    /** A player who created, joined or left a team gets the new team's map, and uploads theirs to it. */
+    private void checkTeams() {
+        for (Object o : MinecraftServer.getServer()
+            .getConfigurationManager().playerEntityList) {
+            EntityPlayerMP player = (EntityPlayerMP) o;
+            UUID id = player.getUniqueID();
+            if (!capable.contains(id)) {
+                continue;
+            }
+            String team = SuTeams.teamId(player);
+            String current = team == null ? "" : team;
+            if (!current.equals(knownTeams.get(id))) {
+                knownTeams.put(id, current);
+                finishSync(id);
+                ShareNetwork.sendTo(new ShareNetwork.Hello(team), player);
+                startSync(player);
+            }
+        }
     }
 
     private void onUpload(EntityPlayerMP player, ShareNetwork.Chunks message) {
         UUID id = player.getUniqueID();
         String teamId = SuTeams.teamId(player);
-        if (teamId == null || !capable.contains(id) || message.dimension != player.dimension) {
+        // Chunks just mapped must be in the player's dimension; the map a player already had can be anywhere.
+        if (teamId == null || !capable.contains(id) || !message.backfill && message.dimension != player.dimension) {
             return;
         }
         int[] budget = uploadBudget.computeIfAbsent(id, k -> new int[1]);
@@ -183,13 +216,15 @@ public final class TeamMapServer {
             if (budget[0]++ >= MAX_UPLOADS_PER_SECOND) {
                 break;
             }
-            if (Math.abs(record.chunkX - playerChunkX) > MAX_UPLOAD_DISTANCE
-                || Math.abs(record.chunkZ - playerChunkZ) > MAX_UPLOAD_DISTANCE) {
+            if (!message.backfill && (Math.abs(record.chunkX - playerChunkX) > MAX_UPLOAD_DISTANCE
+                || Math.abs(record.chunkZ - playerChunkZ) > MAX_UPLOAD_DISTANCE)) {
                 continue;
             }
-            record.time = now;
-            store.put(message.dimension, record, id);
-            accepted.add(record);
+            // The client's time of mapping it (clocks may differ a little; never in the future).
+            record.time = record.time <= 0 ? now : Math.min(record.time, now);
+            if (store.put(message.dimension, record, id)) {
+                accepted.add(record);
+            }
         }
         if (accepted.isEmpty()) {
             return;
@@ -269,7 +304,7 @@ public final class TeamMapServer {
                 if (region != null) {
                     UUID id = player.getUniqueID();
                     for (StoredChunk chunk : region.chunks.values()) {
-                        if (chunk.record.time > since && !id.equals(chunk.author)) {
+                        if (chunk.received > since && !id.equals(chunk.author)) {
                             pending.add(chunk.record);
                         }
                     }
@@ -337,10 +372,16 @@ public final class TeamMapServer {
 
         final ChunkRecord record;
         final UUID author;
+        /**
+         * When the server got it. Catching up goes by this, not by when it was mapped: an old map uploaded today
+         * is news for a player who synced yesterday.
+         */
+        final long received;
 
-        StoredChunk(ChunkRecord record, UUID author) {
+        StoredChunk(ChunkRecord record, UUID author, long received) {
             this.record = record;
             this.author = author;
+            this.received = received;
         }
     }
 
@@ -372,7 +413,8 @@ public final class TeamMapServer {
                 "r." + key.rx + "." + key.rz + ".bin");
         }
 
-        void put(int dimension, ChunkRecord record, UUID author) {
+        /** Keeps the chunk if it is newer than the team's version; returns whether it did. */
+        boolean put(int dimension, ChunkRecord record, UUID author) {
             RegionKey key = new RegionKey(
                 dimension,
                 record.layer,
@@ -380,10 +422,16 @@ public final class TeamMapServer {
                 record.chunkZ >> REGION_SHIFT);
             StoredRegion region = region(key, true);
             int index = (record.chunkX & 31) | (record.chunkZ & 31) << REGION_SHIFT;
-            region.chunks.put(index, new StoredChunk(record, author));
-            region.newest = Math.max(region.newest, record.time);
+            StoredChunk existing = region.chunks.get(index);
+            if (existing != null && existing.record.time >= record.time) {
+                return false;
+            }
+            long received = System.currentTimeMillis();
+            region.chunks.put(index, new StoredChunk(record, author, received));
+            region.newest = Math.max(region.newest, received);
             region.dirty = true;
             index(dimension).put(key, region.newest);
+            return true;
         }
 
         StoredRegion region(RegionKey key, boolean create) {
@@ -530,6 +578,7 @@ public final class TeamMapServer {
                     for (StoredChunk chunk : region.chunks.values()) {
                         out.writeLong(chunk.author.getMostSignificantBits());
                         out.writeLong(chunk.author.getLeastSignificantBits());
+                        out.writeLong(chunk.received);
                         chunk.record.write(out);
                     }
                 }
@@ -550,7 +599,8 @@ public final class TeamMapServer {
                 return null;
             }
             try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(file)))) {
-                if (in.readInt() != FILE_MAGIC || in.readInt() != FILE_VERSION) {
+                int version;
+                if (in.readInt() != FILE_MAGIC || (version = in.readInt()) < 1 || version > FILE_VERSION) {
                     return null;
                 }
                 StoredRegion region = new StoredRegion();
@@ -558,9 +608,11 @@ public final class TeamMapServer {
                 int count = in.readInt();
                 for (int i = 0; i < count; i++) {
                     UUID author = new UUID(in.readLong(), in.readLong());
+                    long received = version >= 2 ? in.readLong() : 0;
                     ChunkRecord record = ChunkRecord.read(in);
-                    region.chunks.put((record.chunkX & 31) | (record.chunkZ & 31) << REGION_SHIFT,
-                        new StoredChunk(record, author));
+                    region.chunks.put(
+                        (record.chunkX & 31) | (record.chunkZ & 31) << REGION_SHIFT,
+                        new StoredChunk(record, author, version >= 2 ? received : record.time));
                 }
                 return region;
             } catch (IOException e) {
@@ -571,7 +623,8 @@ public final class TeamMapServer {
 
         private static long readNewest(File file) throws IOException {
             try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(file)))) {
-                if (in.readInt() != FILE_MAGIC || in.readInt() != FILE_VERSION) {
+                int version;
+                if (in.readInt() != FILE_MAGIC || (version = in.readInt()) < 1 || version > FILE_VERSION) {
                     throw new IOException("Not a team map region");
                 }
                 return in.readLong();

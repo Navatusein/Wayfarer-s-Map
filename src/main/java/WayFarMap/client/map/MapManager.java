@@ -337,6 +337,11 @@ public class MapManager implements IResourceManagerReloadListener {
         return viewed != null;
     }
 
+    /** This world's (or server's) map folder of the current account, or null outside of a world. */
+    public File getWorldDirectory() {
+        return worldDirectory;
+    }
+
     /** Id of the dimension shown on the world map. */
     public int getViewedDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
@@ -416,6 +421,12 @@ public class MapManager implements IResourceManagerReloadListener {
             return false;
         }
         MapRegion region = map.getRegion(rx, rz, true);
+        int localX = record.chunkX & (MapRegion.CHUNKS - 1), localZ = record.chunkZ & (MapRegion.CHUNKS - 1);
+        if (region.getChunkTime(localX, localZ) >= record.time) {
+            // Ours is as new or newer: keep it.
+            return true;
+        }
+        region.setChunkTime(localX, localZ, record.time);
         MapRegion biomeRegion = biomeMap != null ? biomeMap.getRegion(rx, rz, true) : null;
         int baseX = (record.chunkX * 16) & (MapRegion.SIZE - 1);
         int baseZ = (record.chunkZ * 16) & (MapRegion.SIZE - 1);
@@ -730,6 +741,13 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 try {
                     ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap);
+                    MapRegion scanned = map.getLoadedRegion(rx, rz);
+                    if (scanned != null) {
+                        scanned.setChunkTime(
+                            cx & (MapRegion.CHUNKS - 1),
+                            cz & (MapRegion.CHUNKS - 1),
+                            System.currentTimeMillis());
+                    }
                     TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
                 } catch (Exception e) {
                     WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
