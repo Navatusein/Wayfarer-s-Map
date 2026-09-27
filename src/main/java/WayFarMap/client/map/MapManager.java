@@ -358,12 +358,12 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     /** Id of the dimension shown on the world map. */
-    public int getOtherDimensionId() {
+    public int getViewedDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
     }
 
     /** Name of the dimension shown on the world map. */
-    public String getOtherDimensionName() {
+    public String getViewedDimensionName() {
         if (viewed != null) {
             return viewed.name;
         }
