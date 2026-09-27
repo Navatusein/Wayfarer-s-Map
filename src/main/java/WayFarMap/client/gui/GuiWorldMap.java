@@ -1,0 +1,1385 @@
+package WayFarMap.client.gui;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
+
+import net.minecraft.client.gui.GuiButton;
+import net.minecraft.client.resources.I18n;
+import net.minecraft.util.MathHelper;
+import net.minecraft.world.biome.BiomeGenBase;
+
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.GL11;
+
+import WayFarMap.Config;
+import WayFarMap.WayFarMap;
+import WayFarMap.client.KeyHandler;
+import WayFarMap.client.MapDrawer;
+import WayFarMap.client.TeamMates;
+import WayFarMap.client.Teleport;
+import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.IconButton;
+import WayFarMap.client.gui.ui.Icons;
+import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.PowerfailLayer;
+import WayFarMap.client.integration.ProspectingLayer;
+import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.map.BiomeHighlight;
+import WayFarMap.client.map.MapDimension;
+import WayFarMap.client.map.MapManager;
+import WayFarMap.client.map.MapRegion;
+import WayFarMap.client.waypoint.Waypoint;
+import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.client.waypoint.WaypointRenderer;
+
+/** Fullscreen world map: drag to pan, mouse wheel to zoom. */
+public class GuiWorldMap extends ScaledScreen {
+
+    private static final int DEFAULT_ZOOM = 3;
+
+    /** Zoom level is kept between openings of the map. */
+    private static int zoomIndex = DEFAULT_ZOOM;
+
+    private static final int HEADER_HEIGHT = 24;
+    private static final int FOOTER_HEIGHT = 14;
+    private static final float MARKER_SIZE = 12f;
+    private static final float MIN_MARKER_SIZE = 6f;
+    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14;
+    /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3;
+    private static final int SLIDER_WIDTH = 10;
+    private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
+    private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
+    /** Lang key suffixes of {@link Config#getMobFilter()} values. */
+    private static final String[] MOB_FILTER_KEYS = { "all", "friendly", "hostile", "none" };
+
+    /** How fast the zoom animation approaches the target zoom (higher is faster). */
+    private static final double ZOOM_SPEED = 18.0;
+
+    private double centerX;
+    private double centerZ;
+    /** Currently displayed scale; animates towards {@code Config.MAP_ZOOMS[zoomIndex]}. */
+    private double scale = Config.MAP_ZOOMS[zoomIndex];
+    private boolean initialized;
+
+    /** World point that stays under {@link #anchorScreenX}/{@link #anchorScreenY} while the zoom animates. */
+    private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
+    private boolean zooming;
+
+    private IconButton dayButton;
+    private IconButton nightButton;
+    private IconButton caveButton;
+    private IconButton biomeButton;
+    private IconButton gridButton;
+    private IconButton mobsButton;
+    /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
+    private IconButton addonsButton;
+    /** Online teammates, to jump to them; shown only while there are some. */
+    private IconButton teamButton;
+    /** Search of biomes, ore veins, fluids or power failures; kept between openings of the map. */
+    private static String searchText = "";
+    private FlatTextField searchField;
+    private IconButton helpButton;
+
+    /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
+    private final Set<Long> claimSelection = new LinkedHashSet<>();
+    private int claimButton = -1;
+    private int claimAction;
+    /** Chunk where the drag started: the selection is the rectangle from it to the chunk under the mouse. */
+    private int claimStartX, claimStartZ, claimEndX = Integer.MIN_VALUE, claimEndZ;
+
+    /** Dimension picker under the title; null when closed. */
+    private List<MapManager.SavedDimension> dimensionList;
+    private int dimensionListX, dimensionListWidth;
+    /** Title bounds in the header, clickable to open the dimension picker. */
+    private int titleX0, titleX1;
+
+    /** Right click menu; null when closed. */
+    private List<MenuEntry> menu;
+    private int menuX, menuY;
+    private int menuKind;
+    private int menuWidth = MENU_WIDTH;
+    private boolean draggingCaveSlider;
+
+    /** One line of the right click menu. */
+    private static final class MenuEntry {
+
+        final String label;
+        final boolean enabled;
+        final Runnable action;
+        /** Checkbox state for a toggle (the menu then stays open), null for a plain entry. */
+        final Boolean checked;
+
+        MenuEntry(String label, boolean enabled, Runnable action) {
+            this(label, enabled, action, null);
+        }
+
+        MenuEntry(String label, boolean enabled, Runnable action, Boolean checked) {
+            this.label = label;
+            this.enabled = enabled;
+            this.action = action;
+            this.checked = checked;
+        }
+    }
+
+    private boolean dragging;
+    private int lastRawMouseX;
+    private int lastRawMouseY;
+    private long lastFrameNanos;
+    private int ticks;
+
+    @Override
+    public void initGui() {
+        super.initGui();
+        if (!initialized && mc.thePlayer != null) {
+            // Only on first open, not when the window is resized: back where the map was closed, or at the player.
+            initialized = true;
+            MapManager.INSTANCE.stopViewing();
+            if (!restoreView()) {
+                centerX = mc.thePlayer.posX;
+                centerZ = mc.thePlayer.posZ;
+            }
+            if (Mods.isVisualProspectingLoaded()) {
+                ProspectingLayer.onOpenMap();
+            }
+        }
+        lastFrameNanos = System.nanoTime();
+        buttonList.clear();
+        // Header: icons with tooltips. Left: settings, waypoints, add-on layers; right (before the zoom text):
+        // mobs, grid, biomes, caves, day, night.
+        int x = 4;
+        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
+        x = addIconButton(
+            new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
+            x);
+        addonsButton = null;
+        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
+            || Mods.isPowerfailsAvailable()
+            || Mods.isThaumcraftNodesAvailable()) {
+            addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
+            addIconButton(addonsButton, x);
+        }
+
+        int right = width - 34;
+        nightButton = new IconButton(ID_NIGHT, 0, 4, Icons.NIGHT, I18n.format("wayfarmap.gui.night"));
+        dayButton = new IconButton(ID_DAY, 0, 4, Icons.DAY, I18n.format("wayfarmap.gui.day"));
+        caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
+        biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
+        gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
+        mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
+        for (IconButton button : new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton,
+            mobsButton }) {
+            right -= button.getWidth();
+            button.xPosition = right;
+            right -= 3;
+            buttonList.add(button);
+        }
+        teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
+        teamButton.xPosition = right - teamButton.getWidth();
+        teamButton.visible = !TeamMates.INSTANCE.all()
+            .isEmpty();
+        buttonList.add(teamButton);
+        updateLightButtons();
+        menu = null;
+        dimensionList = null;
+
+        // Bottom right: the help screen with every feature explained.
+        helpButton = new IconButton(
+            ID_HELP,
+            width - 22,
+            height - FOOTER_HEIGHT + 1,
+            Icons.HELP,
+            I18n.format("wayfarmap.gui.help_button"));
+        helpButton.setHeight(13);
+        buttonList.add(helpButton);
+
+        Keyboard.enableRepeatEvents(true);
+        searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
+            .setHint(I18n.format("wayfarmap.gui.search_hint"));
+        searchField.setMaxStringLength(40);
+        searchField.setText(searchText);
+        applySearch();
+    }
+
+    /** The search field shows up in biome view and with the ore vein or fluid layer. */
+    private boolean searchAvailable() {
+        return biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown();
+    }
+
+    private static boolean nodesShown() {
+        return Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable();
+    }
+
+    private static boolean powerfailsShown() {
+        return Config.showPowerfails && Mods.isPowerfailsAvailable();
+    }
+
+    private boolean biomeViewShown() {
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES;
+    }
+
+    private static boolean prospectingLayerShown() {
+        return Mods.isVisualProspectingLoaded() && (Config.showOreVeins || Config.showUndergroundFluids);
+    }
+
+    /** Sends the search text to the layers that are shown; the others search for nothing. */
+    private void applySearch() {
+        String query = searchAvailable() ? searchText : "";
+        BiomeHighlight.setQuery(biomeViewShown() ? query : "");
+        if (Mods.isVisualProspectingLoaded()) {
+            ProspectingLayer.setSearch(prospectingLayerShown() ? query : "");
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            PowerfailLayer.setSearch(powerfailsShown() ? query : "");
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            ThaumcraftNodes.setSearch(nodesShown() ? query : "");
+        }
+    }
+
+    private int addIconButton(IconButton button, int x) {
+        buttonList.add(button);
+        return x + button.getWidth() + 3;
+    }
+
+    /** Menu under the add-ons button: a checkbox per layer; it stays open to switch several. */
+    private void openAddonsMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        if (Mods.isVisualProspectingLoaded()) {
+            entries.add(addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins));
+            entries.add(
+                addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids));
+        }
+        if (Mods.isClaimsAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.claims", Config.showClaims, () -> {
+                Config.toggleClaims();
+                if (Config.showClaims) {
+                    ClaimsLayer.onShow();
+                }
+            }));
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails));
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes));
+        }
+        menu = entries;
+        menuKind = MENU_ADDONS;
+        menuWidth = MENU_WIDTH;
+        menuX = Math.max(2, Math.min(addonsButton.xPosition, width - MENU_WIDTH - 2));
+        menuY = addonsButton.yPosition + 18;
+    }
+
+    private MenuEntry addonToggle(String key, boolean on, Runnable toggle) {
+        return new MenuEntry(I18n.format(key), true, () -> {
+            toggle.run();
+            updateLightButtons();
+        }, on);
+    }
+
+    private static String mobsButtonText(int filter) {
+        return I18n.format("wayfarmap.gui.mobs") + ": " + I18n.format("wayfarmap.gui.mobs." + MOB_FILTER_KEYS[filter]);
+    }
+
+    /** Menu under the "Mobs" button: show all mobs, only friendly, only hostile or none. */
+    private void openMobsMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        int current = Config.getMobFilter();
+        for (int filter = 0; filter < MOB_FILTER_KEYS.length; filter++) {
+            final int value = filter;
+            String label = (filter == current ? "\u25CF " : "   ")
+                + I18n.format("wayfarmap.gui.mobs.menu." + MOB_FILTER_KEYS[filter]);
+            entries.add(new MenuEntry(label, true, () -> {
+                Config.setMobFilter(value);
+                updateLightButtons();
+            }));
+        }
+        menu = entries;
+        menuKind = MENU_MOBS;
+        menuWidth = MENU_WIDTH;
+        menuX = Math.max(2, Math.min(mobsButton.xPosition, width - MENU_WIDTH - 2));
+        menuY = mobsButton.yPosition + 18;
+    }
+
+    private static String caveButtonText() {
+        return I18n.format("wayfarmap.gui.caves") + ": "
+            + I18n.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode]);
+    }
+
+    /** The forced mode is highlighted; with both off the map follows the time of day. */
+    private void updateLightButtons() {
+        if (searchField != null) {
+            // The layers shown may have changed; send them the search.
+            applySearch();
+        }
+        dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
+        nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
+        // Caves: highlighted when on, a dot when automatic, dimmed when off.
+        caveButton.active = Config.caveMode == Config.CAVES_ON;
+        caveButton.dim = Config.caveMode == Config.CAVES_OFF;
+        caveButton.badge = Config.caveMode == Config.CAVES_AUTO ? Theme.ACCENT : 0;
+        caveButton.tooltip = caveButtonText();
+        biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
+        gridButton.active = Config.chunkGrid;
+        // Mobs: highlighted while some are hidden, the dot tells which kind is left.
+        int mobFilter = Config.getMobFilter();
+        mobsButton.active = mobFilter != Config.MOBS_ALL;
+        mobsButton.dim = mobFilter == Config.MOBS_NONE;
+        mobsButton.badge = mobFilter == Config.MOBS_FRIENDLY ? Theme.SUCCESS
+            : mobFilter == Config.MOBS_HOSTILE ? Theme.DANGER : 0;
+        mobsButton.tooltip = mobsButtonText(mobFilter);
+        if (addonsButton != null) {
+            addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
+                || powerfailsShown()
+                || nodesShown();
+        }
+    }
+
+    @Override
+    protected void actionPerformed(GuiButton button) {
+        if (button.id == ID_WAYPOINTS) {
+            mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_TEAM) {
+            openTeamMenu();
+        } else if (button.id == ID_ADDONS) {
+            openAddonsMenu();
+        } else if (button.id == ID_GRID) {
+            Config.toggleChunkGrid();
+            updateLightButtons();
+        } else if (button.id == ID_BIOMES) {
+            Config.toggleBiomeView();
+            updateLightButtons();
+        } else if (button.id == ID_CAVES) {
+            Config.cycleCaveMode();
+            updateLightButtons();
+        } else if (button.id == ID_SETTINGS) {
+            mc.displayGuiScreen(new GuiSettings(this));
+        } else if (button.id == ID_MOBS) {
+            openMobsMenu();
+        } else if (button.id == ID_HELP) {
+            mc.displayGuiScreen(new GuiHelp(this));
+        } else if (button.id == ID_DAY) {
+            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_AUTO : Config.LIGHT_DAY);
+            updateLightButtons();
+        } else if (button.id == ID_NIGHT) {
+            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_NIGHT ? Config.LIGHT_AUTO : Config.LIGHT_NIGHT);
+            updateLightButtons();
+        }
+    }
+
+    /** Moves and zooms the view once per frame, so panning is as smooth as the frame rate allows. */
+    private void updateView() {
+        long now = System.nanoTime();
+        double seconds = Math.min(0.1, (now - lastFrameNanos) / 1.0e9);
+        lastFrameNanos = now;
+
+        if (dragging) {
+            if (!Mouse.isButtonDown(0)) {
+                dragging = false;
+            } else {
+                // Raw window coordinates give sub-GUI-pixel precision at any GUI scale.
+                int rawX = Mouse.getX();
+                int rawY = Mouse.getY();
+                double dx = (rawX - lastRawMouseX) * (double) width / mc.displayWidth;
+                double dy = -(rawY - lastRawMouseY) * (double) height / mc.displayHeight;
+                lastRawMouseX = rawX;
+                lastRawMouseY = rawY;
+                centerX -= dx / scale;
+                centerZ -= dy / scale;
+                if (zooming) {
+                    anchorWorldX -= dx / scale;
+                    anchorWorldZ -= dy / scale;
+                }
+            }
+        }
+
+        if (zooming) {
+            double target = Config.MAP_ZOOMS[zoomIndex];
+            // Interpolate in log space so every zoom step feels equally fast.
+            double t = 1.0 - Math.exp(-ZOOM_SPEED * seconds);
+            double logScale = Math.log(scale) + (Math.log(target) - Math.log(scale)) * t;
+            scale = Math.exp(logScale);
+            if (Math.abs(scale - target) < target * 0.002) {
+                scale = target;
+                zooming = false;
+            }
+            centerX = anchorWorldX - (anchorScreenX - width / 2.0) / scale;
+            centerZ = anchorWorldZ - (anchorScreenY - height / 2.0) / scale;
+        }
+    }
+
+    @Override
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        drawRect(0, 0, width, height, 0xFF0C0E11);
+
+        MapDimension dimension = MapManager.INSTANCE.getViewMap();
+        if (dimension == null || mc.thePlayer == null) {
+            super.drawScaled(mouseX, mouseY, partialTicks);
+            return;
+        }
+        // Teammates come and go while the map is open.
+        teamButton.visible = !TeamMates.INSTANCE.all()
+            .isEmpty();
+        if (!teamButton.visible && menuKind == MENU_TEAM) {
+            menu = null;
+        }
+
+        updateView();
+        MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        boolean prospecting = Mods.isVisualProspectingLoaded();
+        // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
+        if (biomeViewShown() && BiomeHighlight.isActive()) {
+            BiomeHighlight.draw(MapManager.INSTANCE.getViewBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
+        } else if (prospecting && prospectingLayerShown() && ProspectingLayer.isSearchActive()) {
+            Theme.fill(0, 0, width, height, 0xB0202428);
+        }
+        if (Config.chunkGrid) {
+            MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
+        }
+        // The dimension shown: the player's, or another one picked from the title.
+        int dimensionId = viewDimension();
+        boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
+        if (claimsShown()) {
+            updateClaimPaint(mouseX, mouseY);
+            ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
+        }
+        if (prospecting && Config.showUndergroundFluids) {
+            ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
+        }
+        if (prospecting && Config.showOreVeins) {
+            ProspectingLayer
+                .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
+        if (nodesShown()) {
+            ThaumcraftNodes.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
+        if (powerfailsShown()) {
+            PowerfailLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        }
+        if (!otherDimension) {
+            MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
+        }
+        // Teammates always, also in another dimension being looked at.
+        MapDrawer.drawTeammates(mc, dimensionId, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
+
+        drawWaypoints(mouseX, mouseY);
+
+        double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
+        double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
+        double playerScreenX = width / 2.0 + (px - centerX) * scale;
+        double playerScreenY = height / 2.0 + (pz - centerZ) * scale;
+        if (!otherDimension && playerScreenX >= 0
+            && playerScreenY >= 0
+            && playerScreenX <= width
+            && playerScreenY <= height) {
+            float yaw = mc.thePlayer.prevRotationYaw
+                + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
+            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
+        }
+
+        // Header and footer.
+        Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
+        Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
+        drawTitle(mouseX, mouseY, dimensionId, otherDimension);
+        double targetScale = Config.MAP_ZOOMS[zoomIndex];
+        String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
+        Theme
+            .text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
+
+        Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
+        Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
+        int hoverX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+        int hoverZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
+        String cursorText = "X: " + hoverX + "  Z: " + hoverZ;
+        if (!isExplored(dimension, hoverX, hoverZ)) {
+            cursorText += "  (?)";
+        }
+        // Biome view shows biomes of whole columns, so there is no cave layer to pick.
+        int caveLayer = biomeViewShown() ? -1 : MapManager.INSTANCE.getViewCaveLayer();
+        if (caveLayer >= 0) {
+            cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
+        }
+        if (biomeViewShown()) {
+            BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
+            if (biome != null) {
+                cursorText += "  |  " + biome.biomeName;
+            }
+        }
+        Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
+        if (hoveredWaypoint != null) {
+            cursorText = hoveredWaypoint.name + "  ("
+                + hoveredWaypoint.x
+                + ", "
+                + hoveredWaypoint.y
+                + ", "
+                + hoveredWaypoint.z
+                + ")";
+        }
+        Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
+        if (claimsShown()) {
+            String counts = ClaimsLayer.countsText();
+            Theme.text(
+                fontRendererObj,
+                counts,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(counts),
+                height - 10,
+                Theme.TEXT_MUTED);
+        } else if (Config.showClaims && Mods.isClaimsAvailable() && otherDimension) {
+            // ServerUtilities takes the dimension of every claim change from the player, so claims can only be
+            // shown and changed in the dimension the player is in.
+            String note = I18n.format("wayfarmap.claims.other_dimension");
+            Theme.text(
+                fontRendererObj,
+                note,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
+                height - 10,
+                Theme.DANGER);
+        }
+
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        super.drawScaled(mouseX, mouseY, partialTicks);
+
+        if (caveLayer >= 0) {
+            drawCaveSlider(mouseX, mouseY);
+        }
+        if (searchAvailable()) {
+            searchField.drawTextBox();
+        }
+        IconButton hoveredIcon = null;
+        for (Object o : buttonList) {
+            if (o instanceof IconButton && ((IconButton) o).isMouseOver(mouseX, mouseY)) {
+                hoveredIcon = (IconButton) o;
+            }
+        }
+        if (dimensionList != null) {
+            drawDimensionList(mouseX, mouseY);
+        } else if (menu != null) {
+            drawMenu(mouseX, mouseY);
+        } else if (hoveredIcon != null && !hoveredIcon.tooltip.isEmpty()) {
+            drawHoveringText(Collections.singletonList(hoveredIcon.tooltip), mouseX, mouseY, fontRendererObj);
+        } else if (mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
+            // Power failures are drawn on top, so their tooltip comes first.
+            List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
+            if (tooltip == null && nodesShown()) {
+                tooltip = ThaumcraftNodes.getHoveredTooltip();
+            }
+            if (tooltip == null && prospecting && Config.showOreVeins) {
+                tooltip = ProspectingLayer.getHoveredTooltip();
+            }
+            if (tooltip == null && claimsShown()) {
+                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
+            }
+            if (tooltip != null) {
+                drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
+            }
+        }
+    }
+
+    private int headerLeftEnd() {
+        int end = 0;
+        for (Object o : buttonList) {
+            GuiButton button = (GuiButton) o;
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS || button.id == ID_ADDONS) {
+                end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
+            }
+        }
+        return end;
+    }
+
+    // ---------------------------------------------------------------- cave layer slider
+
+    private int sliderX() {
+        return width - SLIDER_WIDTH - 6;
+    }
+
+    private int sliderAutoTop() {
+        return HEADER_HEIGHT + 6;
+    }
+
+    private int sliderTop() {
+        return sliderAutoTop() + 18;
+    }
+
+    private int sliderBottom() {
+        return height - FOOTER_HEIGHT - 8;
+    }
+
+    /** Layer (0-15) at the height of the mouse on the slider track; the top is the highest layer. */
+    private int sliderLayerAt(int mouseY) {
+        double t = (mouseY - sliderTop()) / (double) Math.max(1, sliderBottom() - sliderTop());
+        return 15 - Math.max(0, Math.min(15, (int) Math.floor(t * 16)));
+    }
+
+    private boolean onCaveSlider(int mouseX, int mouseY) {
+        return MapManager.INSTANCE.getViewCaveLayer() >= 0 && !biomeViewShown()
+            && Theme
+                .inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
+    }
+
+    private void drawCaveSlider(int mouseX, int mouseY) {
+        if (draggingCaveSlider) {
+            if (Mouse.isButtonDown(0)) {
+                MapManager.INSTANCE.setCaveLayerOverride(sliderLayerAt(mouseY));
+            } else {
+                draggingCaveSlider = false;
+            }
+        }
+        int x = sliderX();
+        int top = sliderTop(), bottom = sliderBottom();
+        int override = MapManager.INSTANCE.getCaveLayerOverride();
+        int layer = MapManager.INSTANCE.getViewCaveLayer();
+
+        // "Auto" follows the player's height.
+        int autoTop = sliderAutoTop();
+        boolean autoHovered = Theme.inside(mouseX, mouseY, x - 4, autoTop, x + SLIDER_WIDTH + 4, autoTop + 14);
+        Theme.fill(x - 4, autoTop, x + SLIDER_WIDTH + 4, autoTop + 14, override < 0 ? Theme.ACCENT_DIM : Theme.CONTROL);
+        Theme.outline(x - 4, autoTop, x + SLIDER_WIDTH + 4, autoTop + 14, autoHovered ? Theme.ACCENT : Theme.BORDER);
+        Theme.centered(fontRendererObj, "A", x + SLIDER_WIDTH / 2, autoTop + 3, Theme.TEXT);
+
+        Theme.fill(x - 1, top - 1, x + SLIDER_WIDTH + 1, bottom + 1, Theme.BORDER);
+        Theme.fill(x, top, x + SLIDER_WIDTH, bottom, Theme.PANEL);
+        double step = (bottom - top) / 16.0;
+        for (int i = 1; i < 16; i++) {
+            int y = top + (int) Math.round(i * step);
+            Theme.fill(x + 2, y, x + SLIDER_WIDTH - 2, y + 1, Theme.CONTROL_HOVER);
+        }
+        int knobTop = top + (int) Math.round((15 - layer) * step);
+        int knobBottom = top + (int) Math.round((16 - layer) * step);
+        Theme.fill(x, knobTop, x + SLIDER_WIDTH, knobBottom, override >= 0 ? Theme.ACCENT : Theme.TEXT_MUTED);
+
+        boolean hovered = onCaveSlider(mouseX, mouseY) || draggingCaveSlider;
+        String label = "Y " + layer * 16 + "-" + (layer * 16 + 15);
+        int labelWidth = fontRendererObj.getStringWidth(label);
+        int labelY = (knobTop + knobBottom) / 2 - 4;
+        Theme.fill(x - labelWidth - 10, labelY - 2, x - 4, labelY + 10, Theme.LABEL_BG);
+        Theme.text(fontRendererObj, label, x - labelWidth - 7, labelY, hovered ? Theme.TEXT : Theme.TEXT_MUTED);
+    }
+
+    // ---------------------------------------------------------------- dimension picker
+
+    /** "[id] Name ▼" in the middle of the header; it opens the list of saved dimensions. */
+    private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
+        String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
+        int titleWidth = fontRendererObj.getStringWidth(title);
+        if (width / 2 - titleWidth / 2 <= headerLeftEnd() + 8
+            || width / 2 + titleWidth / 2 >= rightButtonsStart() - 8) {
+            // No room for the name: the id alone still opens the list.
+            title = "[" + dimensionId + "] \u25BE";
+            titleWidth = fontRendererObj.getStringWidth(title);
+        }
+        titleX0 = width / 2 - titleWidth / 2;
+        titleX1 = titleX0 + titleWidth;
+        boolean hovered = dimensionList != null || Theme.inside(mouseX, mouseY, titleX0 - 4, 4, titleX1 + 4, 20);
+        if (hovered) {
+            Theme.fill(titleX0 - 4, 4, titleX1 + 4, 20, Theme.CONTROL_HOVER);
+        }
+        // Accent while looking at another dimension than the player's.
+        int color = otherDimension ? Theme.ACCENT : hovered ? Theme.TEXT : Theme.TEXT_MUTED;
+        Theme.text(fontRendererObj, title, titleX0, 8, color);
+    }
+
+    private void openDimensionList() {
+        if (dimensionList != null) {
+            dimensionList = null;
+            return;
+        }
+        menu = null;
+        dimensionList = MapManager.INSTANCE.listSavedDimensions();
+        String here = I18n.format("wayfarmap.gui.dimension_here");
+        int widest = 0;
+        for (MapManager.SavedDimension dimension : dimensionList) {
+            widest = Math.max(
+                widest,
+                fontRendererObj.getStringWidth(dimensionLabel(dimension))
+                    + fontRendererObj.getStringWidth("  " + here));
+        }
+        dimensionListWidth = Math.max(titleX1 - titleX0 + 8, widest + 12);
+        dimensionListX = Math.max(2, Math.min(width / 2 - dimensionListWidth / 2, width - dimensionListWidth - 2));
+    }
+
+    private static String dimensionLabel(MapManager.SavedDimension dimension) {
+        return "[" + dimension.id + "] " + dimension.name;
+    }
+
+    private void drawDimensionList(int mouseX, int mouseY) {
+        int top = HEADER_HEIGHT - 2;
+        int h = dimensionList.size() * MENU_ROW + 4;
+        Theme.panel(dimensionListX, top, dimensionListX + dimensionListWidth, top + h);
+        int shown = viewDimension();
+        int playerDimension = mc.theWorld.provider.dimensionId;
+        String here = I18n.format("wayfarmap.gui.dimension_here");
+        for (int i = 0; i < dimensionList.size(); i++) {
+            MapManager.SavedDimension dimension = dimensionList.get(i);
+            int y = top + 2 + i * MENU_ROW;
+            if (dimension.id == shown) {
+                Theme.fill(
+                    dimensionListX + 1,
+                    y,
+                    dimensionListX + dimensionListWidth - 1,
+                    y + MENU_ROW,
+                    Theme.ACCENT_DIM);
+            } else if (Theme
+                .inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
+                    Theme.fill(
+                        dimensionListX + 1,
+                        y,
+                        dimensionListX + dimensionListWidth - 1,
+                        y + MENU_ROW,
+                        Theme.CONTROL_HOVER);
+                }
+            String label = dimensionLabel(dimension);
+            Theme.text(fontRendererObj, label, dimensionListX + 6, y + 3, Theme.TEXT);
+            if (dimension.id == playerDimension) {
+                Theme.text(
+                    fontRendererObj,
+                    here,
+                    dimensionListX + dimensionListWidth - 6 - fontRendererObj.getStringWidth(here),
+                    y + 3,
+                    Theme.TEXT_MUTED);
+            }
+        }
+    }
+
+    /** @return true if the click was taken by the dimension list (which then closes) */
+    private boolean clickDimensionList(int mouseX, int mouseY) {
+        if (dimensionList == null) {
+            return false;
+        }
+        List<MapManager.SavedDimension> entries = dimensionList;
+        dimensionList = null;
+        int top = HEADER_HEIGHT - 2;
+        for (int i = 0; i < entries.size(); i++) {
+            int y = top + 2 + i * MENU_ROW;
+            if (Theme.inside(mouseX, mouseY, dimensionListX, y, dimensionListX + dimensionListWidth, y + MENU_ROW)) {
+                showDimension(entries.get(i).id);
+            }
+        }
+        return true;
+    }
+
+    /** Left edge of the buttons on the right of the header. */
+    private int rightButtonsStart() {
+        return teamButton.visible ? teamButton.xPosition : mobsButton.xPosition;
+    }
+
+    /** Menu under the team button: every online teammate and the dimension they are in; a click goes there. */
+    private void openTeamMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        for (TeamMates.Mate mate : TeamMates.INSTANCE.all()) {
+            String where = "[" + mate.dimension + "] " + MapManager.INSTANCE.getDimensionName(mate.dimension);
+            String label = mate.name + " \u00a77" + where;
+            entries.add(
+                new MenuEntry(
+                    Theme.ellipsize(fontRendererObj, label, TEAM_MENU_WIDTH - 12),
+                    true,
+                    () -> goToTeammate(mate)));
+        }
+        menu = entries;
+        menuKind = MENU_TEAM;
+        menuWidth = TEAM_MENU_WIDTH;
+        menuX = Math.max(2, Math.min(teamButton.xPosition, width - TEAM_MENU_WIDTH - 2));
+        menuY = teamButton.yPosition + 18;
+    }
+
+    /** Centers the map on the teammate, switching to their dimension if needed. */
+    private void goToTeammate(TeamMates.Mate mate) {
+        if (mate.dimension != viewDimension()) {
+            showDimension(mate.dimension);
+        }
+        double[] position = TeamMates.INSTANCE.position(mate, 1f);
+        centerX = position[0];
+        centerZ = position[2];
+        zooming = false;
+    }
+
+    /** Switches the map to a saved dimension, keeping the view roughly in place (Nether coordinates are 1:8). */
+    private void showDimension(int id) {
+        int from = viewDimension();
+        if (id == from) {
+            return;
+        }
+        MapManager.INSTANCE.viewDimension(id);
+        if (id == mc.theWorld.provider.dimensionId) {
+            centerX = mc.thePlayer.posX;
+            centerZ = mc.thePlayer.posZ;
+        } else if (id == -1 && from != -1) {
+            centerX /= 8;
+            centerZ /= 8;
+        } else if (from == -1 && id != -1) {
+            centerX *= 8;
+            centerZ *= 8;
+        }
+        zooming = false;
+        scale = Config.MAP_ZOOMS[zoomIndex];
+        claimButton = -1;
+        claimSelection.clear();
+        applySearch();
+    }
+
+    // ---------------------------------------------------------------- right click menu
+
+    private void openMenu(int mouseX, int mouseY) {
+        int dimension = viewDimension();
+        // Teleporting works only within the player's dimension.
+        boolean here = !MapManager.INSTANCE.isViewingOtherDimension();
+        List<MenuEntry> entries = new ArrayList<>();
+        // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
+        final Object vein = Mods.isVisualProspectingLoaded() && Config.showOreVeins ? ProspectingLayer.getHoveredVein()
+            : null;
+        // Same for the power failure under the mouse.
+        final Object powerfail = powerfailsShown() ? PowerfailLayer.getHovered() : null;
+        // And for the Thaumcraft node under the mouse.
+        final Object node = powerfail == null && nodesShown() ? ThaumcraftNodes.getHovered() : null;
+        if (node != null) {
+            entries.add(
+                new MenuEntry(
+                    I18n.format(ThaumcraftNodes.isTracked(node) ? "wayfarmap.node.untrack" : "wayfarmap.node.track"),
+                    true,
+                    () -> ThaumcraftNodes.toggleTracked(node)));
+            entries.add(
+                new MenuEntry(I18n.format("wayfarmap.node.deplete"), true, () -> ThaumcraftNodes.markDepleted(node)));
+        }
+        if (powerfail != null) {
+            entries.add(
+                new MenuEntry(I18n.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail)));
+            final int[] at = PowerfailLayer.position(powerfail);
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.powerfail.waypoint"),
+                    true,
+                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1] + 1, at[2], at[3]))));
+        }
+        if (vein != null) {
+            entries.add(
+                new MenuEntry(
+                    I18n.format(
+                        ProspectingLayer.isTracked(vein) ? "wayfarmap.gui.vein_untrack" : "wayfarmap.gui.vein_track"),
+                    true,
+                    () -> ProspectingLayer.toggleTracked(vein)));
+            entries.add(
+                new MenuEntry(
+                    I18n.format(
+                        ProspectingLayer.isDepleted(vein) ? "wayfarmap.gui.vein_restore"
+                            : "wayfarmap.gui.vein_deplete"),
+                    true,
+                    () -> ProspectingLayer.toggleDepleted(vein)));
+        }
+        final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
+        final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
+        final int safeY = here ? Teleport.findSafeY(mc.theWorld, bx, bz) : 0;
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport_here"), here && Teleport.isAllowed(), () -> {
+            if (safeY > 0) {
+                Teleport.teleport(bx, safeY, bz);
+            } else {
+                // Unexplored or unknown height: ask which Y to go to.
+                mc.displayGuiScreen(new GuiTeleportY(this, bx, bz));
+            }
+        }));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.new_waypoint"),
+                true,
+                () -> mc.displayGuiScreen(
+                    GuiEditWaypoint.create(this, bx, safeY > 0 ? safeY : waypointY(bx, bz), bz, dimension))));
+        menu = entries;
+        menuKind = MENU_MAP;
+        menuWidth = MENU_WIDTH;
+        menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
+        menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
+    }
+
+    private void drawMenu(int mouseX, int mouseY) {
+        int h = menu.size() * MENU_ROW + 4;
+        Theme.panel(menuX, menuY, menuX + menuWidth, menuY + h);
+        for (int i = 0; i < menu.size(); i++) {
+            MenuEntry entry = menu.get(i);
+            int y = menuY + 2 + i * MENU_ROW;
+            if (entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW)) {
+                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
+            }
+            int textX = menuX + 6;
+            if (entry.checked != null) {
+                // Checkbox.
+                Theme.outline(menuX + 5, y + 3, menuX + 13, y + 11, entry.checked ? Theme.ACCENT : Theme.BORDER);
+                if (entry.checked) {
+                    Theme.fill(menuX + 7, y + 5, menuX + 11, y + 9, Theme.ACCENT);
+                }
+                textX = menuX + 18;
+            }
+            Theme.text(fontRendererObj, entry.label, textX, y + 3, entry.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
+        }
+        if (menuKind == MENU_MAP && !Teleport.isAllowed()) {
+            String note = I18n.format("wayfarmap.gui.no_teleport_permission");
+            Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
+        }
+    }
+
+    /** @return true if the click was taken by the menu (which then closes) */
+    private boolean clickMenu(int mouseX, int mouseY) {
+        if (menu == null) {
+            return false;
+        }
+        List<MenuEntry> entries = menu;
+        menu = null;
+        for (int i = 0; i < entries.size(); i++) {
+            int y = menuY + 2 + i * MENU_ROW;
+            MenuEntry entry = entries.get(i);
+            if (Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW) && entry.enabled) {
+                entry.action.run();
+                if (entry.checked != null && menuKind == MENU_ADDONS) {
+                    // Toggles keep the menu open, showing the new state.
+                    openAddonsMenu();
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Marker size in GUI pixels: markers shrink when zooming out so nearby waypoints don't pile up. */
+    private float markerSize() {
+        return (float) Math.max(MIN_MARKER_SIZE, Math.min(MARKER_SIZE, MARKER_SIZE * Math.pow(scale, 0.4)));
+    }
+
+    private void drawWaypoints(int mouseX, int mouseY) {
+        float size = markerSize();
+        Waypoint hovered = waypointAt(mouseX, mouseY);
+        List<Waypoint> onScreen = new ArrayList<>();
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+            if (wx > -size && wy > -size && wx < width + size && wy < height + size && waypoint != hovered) {
+                onScreen.add(waypoint);
+            }
+        }
+        if (hovered != null) {
+            // Drawn last so it is on top, and its label always wins.
+            onScreen.add(hovered);
+        }
+
+        for (Waypoint waypoint : onScreen) {
+            WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+        }
+
+        // Labels shrink with the markers when zooming out and stop growing at normal size when zooming in.
+        float textScale = size / MARKER_SIZE;
+        // Labels: skip any that would overlap a label already placed, starting with the hovered one.
+        List<Waypoint> labelled = new ArrayList<>();
+        List<int[]> rects = new ArrayList<>();
+        for (int i = onScreen.size() - 1; i >= 0; i--) {
+            Waypoint waypoint = onScreen.get(i);
+            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, textScale);
+            if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
+                continue;
+            }
+            labelled.add(waypoint);
+            rects.add(rect);
+        }
+        for (int i = labelled.size() - 1; i >= 0; i--) {
+            // Moved by the same sub-pixel remainder as its marker, so the two glide together.
+            Waypoint waypoint = labelled.get(i);
+            double sx = screenX(waypoint), sy = screenY(waypoint);
+            GL11.glPushMatrix();
+            GL11.glTranslated(sx - Math.round(sx), sy - Math.round(sy), 0);
+            WaypointRenderer.drawMapLabel(waypoint, rects.get(i), textScale);
+            GL11.glPopMatrix();
+        }
+    }
+
+    private static boolean overlapsAny(int[] rect, List<int[]> others) {
+        for (int[] other : others) {
+            if (rect[0] < other[2] && other[0] < rect[2] && rect[1] < other[3] && other[1] < rect[3]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private double screenX(Waypoint waypoint) {
+        return width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+    }
+
+    private double screenY(Waypoint waypoint) {
+        return height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+    }
+
+    private Waypoint waypointAt(int mouseX, int mouseY) {
+        Waypoint best = null;
+        double bestDistance = markerSize() / 2 + 2;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
+            double wx = width / 2.0 + (waypoint.x + 0.5 - centerX) * scale;
+            double wy = height / 2.0 + (waypoint.z + 0.5 - centerZ) * scale;
+            double distance = Math.max(Math.abs(wx - mouseX), Math.abs(wy - mouseY));
+            if (distance <= bestDistance) {
+                best = waypoint;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    /** Id of the dimension the map shows: the player's, or another one picked from the title. */
+    private static int viewDimension() {
+        return MapManager.INSTANCE.getViewedDimensionId();
+    }
+
+    /** Height for a new waypoint: the ground if known, in another dimension from its saved map. */
+    private int waypointY(int x, int z) {
+        if (!MapManager.INSTANCE.isViewingOtherDimension()) {
+            return surfaceY(x, z);
+        }
+        int y = MapManager.INSTANCE.getViewSurfaceHeight(x, z);
+        return y > 0 ? y : 64;
+    }
+
+    /** Height of the ground at the column if its chunk is loaded, otherwise the player's height. */
+    private int surfaceY(int x, int z) {
+        int playerY = MathHelper.floor_double(mc.thePlayer.boundingBox.minY);
+        if (mc.theWorld.provider.hasNoSky || mc.theWorld.getChunkFromBlockCoords(x, z)
+            .isEmpty()) {
+            return playerY;
+        }
+        int y = mc.theWorld.getHeightValue(x, z);
+        return y > 0 ? y : playerY;
+    }
+
+    private static boolean isExplored(MapDimension dimension, int x, int z) {
+        return (dimension.peekPixel(x, z) >>> 24) != 0;
+    }
+
+    @Override
+    public void handleMouseInput() {
+        super.handleMouseInput();
+        int wheel = Mouse.getEventDWheel();
+        if (wheel == 0) {
+            return;
+        }
+        int newIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoomIndex + (wheel > 0 ? 1 : -1)));
+        if (newIndex == zoomIndex) {
+            return;
+        }
+        // Keep the block under the cursor in place while zooming.
+        anchorScreenX = Mouse.getEventX() * (double) width / mc.displayWidth;
+        anchorScreenY = height - Mouse.getEventY() * (double) height / mc.displayHeight;
+        anchorWorldX = centerX + (anchorScreenX - width / 2.0) / scale;
+        anchorWorldZ = centerZ + (anchorScreenY - height / 2.0) / scale;
+        zoomIndex = newIndex;
+        zooming = true;
+    }
+
+    @Override
+    protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (clickDimensionList(mouseX, mouseY)) {
+            return;
+        }
+        if (clickMenu(mouseX, mouseY)) {
+            return;
+        }
+        if (button == 0 && titleX1 > titleX0 && Theme.inside(mouseX, mouseY, titleX0 - 4, 4, titleX1 + 4, 20)) {
+            openDimensionList();
+            return;
+        }
+        if (searchAvailable()) {
+            searchField.mouseClicked(mouseX, mouseY, button);
+            if (searchField.isMouseOver(mouseX, mouseY)) {
+                return;
+            }
+        }
+        super.mouseClicked(mouseX, mouseY, button);
+        if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
+            return;
+        }
+        if (claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
+            return;
+        }
+        if (button == 0 && onCaveSlider(mouseX, mouseY)) {
+            if (mouseY < sliderTop()) {
+                MapManager.INSTANCE.setCaveLayerOverride(-1);
+            } else {
+                draggingCaveSlider = true;
+                MapManager.INSTANCE.setCaveLayerOverride(sliderLayerAt(mouseY));
+            }
+            return;
+        }
+        if (button == 1) {
+            // Right click on a waypoint edits it (teleport is in the editor); elsewhere a small menu to teleport
+            // there or create a waypoint.
+            Waypoint hovered = waypointAt(mouseX, mouseY);
+            if (hovered != null) {
+                mc.displayGuiScreen(GuiEditWaypoint.edit(this, hovered));
+            } else {
+                openMenu(mouseX, mouseY);
+            }
+            return;
+        }
+        if (button == 0) {
+            dragging = true;
+            lastRawMouseX = Mouse.getX();
+            lastRawMouseY = Mouse.getY();
+        }
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
+        super.mouseMovedOrUp(mouseX, mouseY, button);
+        if (button == 0) {
+            dragging = false;
+        }
+        if (button == claimButton) {
+            finishClaimPaint();
+        }
+    }
+
+    // ---------------------------------------------------------------- claims painting
+
+    /** Claims come from the server for the player's dimension only, so other dimensions don't show them. */
+    private static boolean claimsShown() {
+        return Config.showClaims && Mods.isClaimsAvailable() && !MapManager.INSTANCE.isViewingOtherDimension();
+    }
+
+    /**
+     * With Ctrl and/or Shift held, a drag selects the rectangle of chunks between where it started and the mouse
+     * instead of moving the map. Left button: Ctrl claims, Shift chunk loads own claims, both claim and load. Right
+     * button: Ctrl unclaims, Shift unloads, both unload and unclaim.
+     */
+    private boolean startClaimPaint(int mouseX, int mouseY, int button) {
+        boolean ctrl = Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
+        boolean shift = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
+        if (!ctrl && !shift) {
+            return false;
+        }
+        if (button == 0) {
+            claimAction = ctrl && shift ? ClaimsLayer.CLAIM_AND_LOAD : ctrl ? ClaimsLayer.CLAIM : ClaimsLayer.LOAD;
+        } else {
+            claimAction = ctrl && shift ? ClaimsLayer.UNLOAD_AND_UNCLAIM
+                : ctrl ? ClaimsLayer.UNCLAIM : ClaimsLayer.UNLOAD;
+        }
+        claimButton = button;
+        claimStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        claimStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        claimEndX = Integer.MIN_VALUE;
+        updateClaimRectangle(claimStartX, claimStartZ);
+        return true;
+    }
+
+    /** Called every frame: adds the chunks under the mouse, and finishes when the button was released. */
+    private void updateClaimPaint(int mouseX, int mouseY) {
+        if (claimButton < 0) {
+            return;
+        }
+        if (!Mouse.isButtonDown(claimButton)) {
+            finishClaimPaint();
+            return;
+        }
+        int chunkX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        int chunkZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        updateClaimRectangle(chunkX, chunkZ);
+    }
+
+    /** Selects every fitting chunk in the rectangle from the start chunk to the given one. */
+    private void updateClaimRectangle(int endX, int endZ) {
+        if (endX == claimEndX && endZ == claimEndZ) {
+            return;
+        }
+        claimEndX = endX;
+        claimEndZ = endZ;
+        claimSelection.clear();
+        int dimension = mc.theWorld.provider.dimensionId;
+        int minX = Math.min(claimStartX, endX), maxX = Math.max(claimStartX, endX);
+        int minZ = Math.min(claimStartZ, endZ), maxZ = Math.max(claimStartZ, endZ);
+        // Capped so a huge accidental drag can't send thousands of chunks.
+        maxX = Math.min(maxX, minX + 63);
+        maxZ = Math.min(maxZ, minZ + 63);
+        for (int chunkX = minX; chunkX <= maxX; chunkX++) {
+            for (int chunkZ = minZ; chunkZ <= maxZ; chunkZ++) {
+                if (ClaimsLayer.accepts(claimAction, chunkX, chunkZ, dimension)) {
+                    claimSelection.add(ClaimsLayer.pack(chunkX, chunkZ));
+                }
+            }
+        }
+    }
+
+    private void finishClaimPaint() {
+        if (claimButton < 0) {
+            return;
+        }
+        claimButton = -1;
+        ClaimsLayer.apply(claimAction, new ArrayList<>(claimSelection));
+        claimSelection.clear();
+    }
+
+    @Override
+    protected void keyTyped(char typedChar, int keyCode) {
+        if (dimensionList != null && keyCode == Keyboard.KEY_ESCAPE) {
+            dimensionList = null;
+            return;
+        }
+        if (menu != null && keyCode == Keyboard.KEY_ESCAPE) {
+            menu = null;
+            return;
+        }
+        if (searchAvailable() && searchField.isFocused()) {
+            // Typing goes to the search; Esc clears it (or leaves the field when empty), Enter leaves the field.
+            if (keyCode == Keyboard.KEY_ESCAPE && !searchField.getText()
+                .isEmpty()) {
+                searchField.setText("");
+            } else if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN
+                || keyCode == Keyboard.KEY_NUMPADENTER) {
+                    searchField.setFocused(false);
+                } else {
+                    searchField.textboxKeyTyped(typedChar, keyCode);
+                }
+            if (!searchField.getText()
+                .equals(searchText)) {
+                searchText = searchField.getText();
+                applySearch();
+            }
+            return;
+        }
+        if (keyCode == KeyHandler.OPEN_MAP.getKeyCode()) {
+            mc.displayGuiScreen(null);
+            return;
+        }
+        if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
+            MapManager.INSTANCE.stopViewing();
+            applySearch();
+            centerX = mc.thePlayer.posX;
+            centerZ = mc.thePlayer.posZ;
+            zooming = false;
+            scale = Config.MAP_ZOOMS[zoomIndex];
+            return;
+        }
+        super.keyTyped(typedChar, keyCode);
+    }
+
+    @Override
+    public void onGuiClosed() {
+        super.onGuiClosed();
+        Keyboard.enableRepeatEvents(false);
+        // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
+        if (Mods.isVisualProspectingLoaded()) {
+            ProspectingLayer.setSearch("");
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            PowerfailLayer.setSearch("");
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            ThaumcraftNodes.setSearch("");
+        }
+        saveView();
+        MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+    }
+
+    // ---------------------------------------------------------------- where the map was left
+
+    /**
+     * Where the map was last closed, per dimension the player was in: the dimension looked at, the center and the
+     * zoom, as "dimension;x;z;zoom" in the account's world folder, so it survives restarts.
+     */
+    private static final String VIEW_FILE = "map-view.properties";
+
+    private static Properties readViews(File file) {
+        Properties views = new Properties();
+        if (file.isFile()) {
+            try (InputStream in = new FileInputStream(file)) {
+                views.load(in);
+            } catch (IOException e) {
+                // Lost view positions only mean the map opens at the player.
+            }
+        }
+        return views;
+    }
+
+    /** Opens the map where it was closed; false if there is nothing saved (or its dimension has no map). */
+    private boolean restoreView() {
+        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        if (worldDirectory == null) {
+            return false;
+        }
+        int playerDimension = mc.theWorld.provider.dimensionId;
+        String saved = readViews(new File(worldDirectory, VIEW_FILE)).getProperty("dim" + playerDimension);
+        if (saved == null) {
+            return false;
+        }
+        try {
+            String[] parts = saved.split(";");
+            int dimension = Integer.parseInt(parts[0]);
+            double x = Double.parseDouble(parts[1]);
+            double z = Double.parseDouble(parts[2]);
+            int zoom = Integer.parseInt(parts[3]);
+            if (dimension != playerDimension) {
+                boolean known = false;
+                for (MapManager.SavedDimension other : MapManager.INSTANCE.listSavedDimensions()) {
+                    known |= other.id == dimension;
+                }
+                if (!known) {
+                    return false;
+                }
+                MapManager.INSTANCE.viewDimension(dimension);
+            }
+            centerX = x;
+            centerZ = z;
+            zoomIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoom));
+            scale = Config.MAP_ZOOMS[zoomIndex];
+            zooming = false;
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private void saveView() {
+        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        if (worldDirectory == null || mc.theWorld == null || !initialized) {
+            return;
+        }
+        File file = new File(worldDirectory, VIEW_FILE);
+        Properties views = readViews(file);
+        views.setProperty(
+            "dim" + mc.theWorld.provider.dimensionId,
+            viewDimension() + ";" + centerX + ";" + centerZ + ";" + zoomIndex);
+        try (OutputStream out = new FileOutputStream(file)) {
+            views.store(out, "WayFarMap: where the world map was last closed, per dimension the player was in");
+        } catch (IOException e) {
+            WayFarMap.LOG.warn("Could not save the map position to " + file, e);
+        }
+    }
+
+    @Override
+    public void updateScreen() {
+        if (searchField != null) {
+            searchField.updateCursorCounter();
+        }
+        // Twice a second: free the regions scrolled away from, so a long look around doesn't fill the memory.
+        if (++ticks % 10 == 0 && mc.thePlayer != null) {
+            double halfWidth = width / 2.0 / scale, halfHeight = height / 2.0 / scale;
+            MapManager.INSTANCE.trimForView(
+                mc.thePlayer,
+                (MathHelper.floor_double(centerX - halfWidth) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerZ - halfHeight) >> MapRegion.SHIFT) - 1,
+                (MathHelper.floor_double(centerX + halfWidth) >> MapRegion.SHIFT) + 1,
+                (MathHelper.floor_double(centerZ + halfHeight) >> MapRegion.SHIFT) + 1);
+        }
+    }
+
+    @Override
+    public boolean doesGuiPauseGame() {
+        return false;
+    }
+}

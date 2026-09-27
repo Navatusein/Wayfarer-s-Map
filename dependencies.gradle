@@ -18,7 +18,7 @@
  *  - testCONFIG("g:n:v:c") - replace CONFIG by one of the above (except api), same as above but for the test sources instead of main
  *
  *  - shadowImplementation("g:n:v:c"): effectively the same as API, but the dependency is included in your jar under a renamed package name
- *       Requires you to enable usesShadowedDependencies in gradle.properties
+ *       Requires you to enable usesShadowedDependencies in gradle.propertiesь
  *
  *  - compile("g:n:v:c"): deprecated, replace with "api" (works like the old "compile") or "implementation" (can be more efficient)
  *
@@ -34,5 +34,13 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
-    //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
+    // Optional VisualProspecting (GTNH fork) integration: ore veins and underground fluids on the map.
+    // Pulls in Navigator, GT5-Unofficial, NEI and GTNHLib for compiling; none of them is needed at runtime.
+    compileOnly("com.github.GTNewHorizons:VisualProspecting:1.5.41:dev")
+    // Optional ServerUtilities integration: chunk claims and chunk loading from the map.
+    compileOnly("com.github.GTNewHorizons:ServerUtilities:2.4.13:dev")
+    compileOnly("it.unimi.dsi:fastutil:8.5.18")
+    // Optional TCNodeTracker integration: the Thaumcraft aura nodes it recorded, on the map.
+    compileOnly("com.github.GTNewHorizons:TCNodeTracker:1.4.6:dev")
+    compileOnly("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
 }

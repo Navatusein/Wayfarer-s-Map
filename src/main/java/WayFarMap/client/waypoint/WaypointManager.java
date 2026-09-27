@@ -1,0 +1,239 @@
+package WayFarMap.client.waypoint;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
+import WayFarMap.WayFarMap;
+
+/** Waypoints and groups of the current world or server, saved to {@code waypoints.json}. */
+public class WaypointManager {
+
+    public static final WaypointManager INSTANCE = new WaypointManager();
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
+        .create();
+
+    /** On-disk format. */
+    private static class Data {
+
+        List<WaypointGroup> groups = new ArrayList<>();
+        List<Waypoint> waypoints = new ArrayList<>();
+        boolean ungroupedVisible = true;
+    }
+
+    private File file;
+    private Data data = new Data();
+
+    private WaypointManager() {}
+
+    public boolean isLoaded() {
+        return file != null;
+    }
+
+    public void load(File worldDirectory) {
+        File newFile = new File(worldDirectory, "waypoints.json");
+        if (newFile.equals(file)) {
+            return;
+        }
+        file = newFile;
+        data = new Data();
+        if (!file.isFile()) {
+            return;
+        }
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Data loaded = GSON.fromJson(reader, Data.class);
+            if (loaded != null) {
+                data = loaded;
+                if (data.groups == null) data.groups = new ArrayList<>();
+                if (data.waypoints == null) data.waypoints = new ArrayList<>();
+                data.groups.removeIf(g -> g == null || g.name == null);
+                data.waypoints.removeIf(w -> w == null);
+                for (Waypoint waypoint : data.waypoints) {
+                    if (waypoint.name == null) waypoint.name = "";
+                    if (waypoint.group != null && getGroup(waypoint.group) == null) waypoint.group = null;
+                }
+            }
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Could not read waypoints from " + file, e);
+        }
+    }
+
+    public void unload() {
+        file = null;
+        data = new Data();
+    }
+
+    public void save() {
+        if (file == null) {
+            return;
+        }
+        try {
+            File parent = file.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
+            File tmp = new File(file.getPath() + ".tmp");
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
+                GSON.toJson(data, writer);
+            }
+            if (file.exists() && !file.delete()) {
+                WayFarMap.LOG.warn("Could not replace " + file);
+            }
+            if (!tmp.renameTo(file)) {
+                WayFarMap.LOG.warn("Could not rename " + tmp + " to " + file);
+            }
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Could not save waypoints to " + file, e);
+        }
+    }
+
+    public List<Waypoint> getWaypoints() {
+        return Collections.unmodifiableList(data.waypoints);
+    }
+
+    public List<WaypointGroup> getGroups() {
+        return Collections.unmodifiableList(data.groups);
+    }
+
+    public WaypointGroup getGroup(String name) {
+        if (name == null) {
+            return null;
+        }
+        for (WaypointGroup group : data.groups) {
+            if (group.name.equals(name)) {
+                return group;
+            }
+        }
+        return null;
+    }
+
+    public List<Waypoint> getWaypointsInGroup(String group) {
+        List<Waypoint> result = new ArrayList<>();
+        for (Waypoint waypoint : data.waypoints) {
+            if (group == null ? waypoint.group == null : group.equals(waypoint.group)) {
+                result.add(waypoint);
+            }
+        }
+        return result;
+    }
+
+    /** Whether the waypoint should be drawn: it and its group are both enabled. */
+    public boolean isVisible(Waypoint waypoint) {
+        if (!waypoint.enabled) {
+            return false;
+        }
+        if (waypoint.group == null) {
+            return data.ungroupedVisible;
+        }
+        WaypointGroup group = getGroup(waypoint.group);
+        return group == null || group.visible;
+    }
+
+    /** Waypoints to draw in the given dimension. */
+    public List<Waypoint> getVisibleWaypoints(int dimension) {
+        List<Waypoint> result = new ArrayList<>();
+        for (Waypoint waypoint : data.waypoints) {
+            if (waypoint.dimension == dimension && isVisible(waypoint)) {
+                result.add(waypoint);
+            }
+        }
+        return result;
+    }
+
+    public boolean isUngroupedVisible() {
+        return data.ungroupedVisible;
+    }
+
+    public void setUngroupedVisible(boolean visible) {
+        data.ungroupedVisible = visible;
+        save();
+    }
+
+    public void setGroupVisible(WaypointGroup group, boolean visible) {
+        group.visible = visible;
+        save();
+    }
+
+    public void addWaypoint(Waypoint waypoint) {
+        data.waypoints.add(waypoint);
+        save();
+    }
+
+    public void removeWaypoint(Waypoint waypoint) {
+        data.waypoints.remove(waypoint);
+        save();
+    }
+
+    /** Moves the waypoint into the named group, or out of any group for null. */
+    public void moveToGroup(Waypoint waypoint, String group) {
+        waypoint.group = group != null && getGroup(group) != null ? group : null;
+        save();
+    }
+
+    /** Call after changing a waypoint's fields. */
+    public void waypointChanged() {
+        save();
+    }
+
+    /** @return the new group, or the existing one with that name. */
+    public WaypointGroup createGroup(String name) {
+        name = name.trim();
+        WaypointGroup existing = getGroup(name);
+        if (existing != null) {
+            return existing;
+        }
+        WaypointGroup group = new WaypointGroup(name);
+        data.groups.add(group);
+        save();
+        return group;
+    }
+
+    /** @return false if another group already has the new name */
+    public boolean renameGroup(WaypointGroup group, String newName) {
+        newName = newName.trim();
+        if (newName.isEmpty() || (getGroup(newName) != null && getGroup(newName) != group)) {
+            return false;
+        }
+        for (Waypoint waypoint : data.waypoints) {
+            if (group.name.equals(waypoint.group)) {
+                waypoint.group = newName;
+            }
+        }
+        group.name = newName;
+        save();
+        return true;
+    }
+
+    /** Deletes the group; its waypoints are kept and moved to "no group". */
+    public void removeGroup(WaypointGroup group) {
+        for (Waypoint waypoint : data.waypoints) {
+            if (group.name.equals(waypoint.group)) {
+                waypoint.group = null;
+            }
+        }
+        data.groups.remove(group);
+        save();
+    }
+
+    public void moveGroup(WaypointGroup group, int offset) {
+        int index = data.groups.indexOf(group);
+        int target = index + offset;
+        if (index < 0 || target < 0 || target >= data.groups.size()) {
+            return;
+        }
+        Collections.swap(data.groups, index, target);
+        save();
+    }
+}

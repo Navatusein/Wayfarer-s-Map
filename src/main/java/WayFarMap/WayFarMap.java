@@ -9,8 +9,14 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 
-@Mod(modid = WayFarMap.MODID, version = Tags.VERSION, name = "WayFarMap", acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+    modid = WayFarMap.MODID,
+    version = Tags.VERSION,
+    name = "WayFarMap",
+    acceptedMinecraftVersions = "[1.7.10]",
+    acceptableRemoteVersions = "*")
 public class WayFarMap {
 
     public static final String MODID = "wayfarmap";
@@ -42,5 +48,11 @@ public class WayFarMap {
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+    }
+
+    @Mod.EventHandler
+    // Saves the shared team maps.
+    public void serverStopping(FMLServerStoppingEvent event) {
+        proxy.serverStopping(event);
     }
 }

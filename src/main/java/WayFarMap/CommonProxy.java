@@ -1,27 +1,43 @@
 package WayFarMap;
 
+import WayFarMap.share.ShareNetwork;
+import WayFarMap.share.TeamMapServer;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
+import cpw.mods.fml.common.network.simpleimpl.IMessage;
 
 public class CommonProxy {
 
-    // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
-    // GameRegistry." (Remove if not needed)
+    // The map itself is client-side. On a server (dedicated or the integrated one) the mod shares maps between the
+    // members of a ServerUtilities team.
     public void preInit(FMLPreInitializationEvent event) {
         Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
-
-        WayFarMap.LOG.info(Config.greeting);
-        WayFarMap.LOG.info("I am WayFarMap at version " + Tags.VERSION);
+        WayFarMap.LOG.info("WayFarMap version " + Tags.VERSION);
+        ShareNetwork.register();
     }
 
-    // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
-    public void init(FMLInitializationEvent event) {}
+    public void init(FMLInitializationEvent event) {
+        if (TeamMapServer.isActive()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(TeamMapServer.INSTANCE);
+        }
+    }
 
-    // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {}
 
-    // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
+
+    public void serverStopping(FMLServerStoppingEvent event) {
+        if (TeamMapServer.isActive()) {
+            TeamMapServer.INSTANCE.stop();
+        }
+    }
+
+    /** A team map message for the client; only the client proxy handles it. */
+    public void receiveTeamMap(IMessage message) {}
 }
