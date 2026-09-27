@@ -280,11 +280,7 @@ public class MapRegion implements PixelSource {
     public Snapshot snapshotForSave() {
         saveDirty = false;
         saving = true;
-        return new Snapshot(
-            pixels.clone(),
-            extra != null ? extra.clone() : null,
-            chunkTimes.clone(),
-            fromTeam.clone());
+        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null, chunkTimes.clone(), fromTeam.clone());
     }
 
     public static final class Snapshot {

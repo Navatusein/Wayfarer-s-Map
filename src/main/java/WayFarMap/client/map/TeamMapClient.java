@@ -275,9 +275,7 @@ public final class TeamMapClient {
         Backfill(File worldDirectory, String team, List<Future<?>> saves) {
             this.worldDirectory = worldDirectory;
             // "v2": the first version could skip chunks that weren't saved yet, so everything is sent once more.
-            this.progressFile = new File(
-                worldDirectory,
-                "team-" + team.replaceAll("[^a-zA-Z0-9_-]", "_") + ".v2.dat");
+            this.progressFile = new File(worldDirectory, "team-" + team.replaceAll("[^a-zA-Z0-9_-]", "_") + ".v2.dat");
             this.saves = saves;
         }
 
@@ -301,8 +299,9 @@ public final class TeamMapClient {
                     WayFarMap.LOG.warn("Team map: could not read " + progressFile, e);
                 }
             }
-            File[] dimensions = worldDirectory.listFiles(file -> file.isDirectory() && file.getName()
-                .matches("dim-?\\d+"));
+            File[] dimensions = worldDirectory.listFiles(
+                file -> file.isDirectory() && file.getName()
+                    .matches("dim-?\\d+"));
             if (dimensions == null) {
                 return;
             }

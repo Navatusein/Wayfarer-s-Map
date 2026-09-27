@@ -195,12 +195,10 @@ public class MinimapRenderer {
                 }
             }
             if (Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable()) {
-                ThaumcraftNodes
-                    .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
+                ThaumcraftNodes.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
             }
             if (Config.showPowerfails && Mods.isPowerfailsAvailable()) {
-                PowerfailLayer
-                    .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
+                PowerfailLayer.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
             }
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
             MapDrawer.drawTeammates(

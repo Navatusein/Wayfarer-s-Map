@@ -89,8 +89,7 @@ public final class ChunkScanner {
                 }
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
-                    int biomeArgb = biome == null ? 0
-                        : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
+                    int biomeArgb = biome == null ? 0 : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
                     int biomeId = biome == null || biome.biomeID >= 255 ? 0 : biome.biomeID + 1;
                     biomeRegion.setPixel(baseX + lx, baseZ + lz, biomeArgb, biomeId);
                 }
@@ -179,8 +178,8 @@ public final class ChunkScanner {
         }
         Block above = chunk.getBlock(lx, y + 1, lz);
         Material material = above.getMaterial();
-        if (above.getRenderType() == -1 || material != Material.plants && material != Material.vine
-            && material != Material.circuits) {
+        if (above.getRenderType() == -1
+            || material != Material.plants && material != Material.vine && material != Material.circuits) {
             return -1;
         }
         int x = chunk.xPosition * 16 + lx;
