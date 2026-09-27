@@ -412,14 +412,22 @@ public class GuiWorldMap extends GuiScreen {
     private void openMenu(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
         List<MenuEntry> entries = new ArrayList<>();
-        if (Mods.isVisualProspectingLoaded() && Config.showOreVeins && ProspectingLayer.hasHoveredVein()) {
+        // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
+        final Object vein = Mods.isVisualProspectingLoaded() && Config.showOreVeins ? ProspectingLayer.getHoveredVein()
+            : null;
+        if (vein != null) {
             entries.add(
                 new MenuEntry(
                     I18n.format(
-                        ProspectingLayer.isHoveredVeinDepleted() ? "wayfarmap.gui.vein_restore"
-                            : "wayfarmap.gui.vein_deplete"),
+                        ProspectingLayer.isTracked(vein) ? "wayfarmap.gui.vein_untrack" : "wayfarmap.gui.vein_track"),
                     true,
-                    ProspectingLayer::toggleHoveredVein));
+                    () -> ProspectingLayer.toggleTracked(vein)));
+            entries.add(
+                new MenuEntry(
+                    I18n.format(
+                        ProspectingLayer.isDepleted(vein) ? "wayfarmap.gui.vein_restore" : "wayfarmap.gui.vein_deplete"),
+                    true,
+                    () -> ProspectingLayer.toggleDepleted(vein)));
         }
         final int bx = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
         final int bz = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);

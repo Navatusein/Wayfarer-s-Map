@@ -3,7 +3,9 @@ package WayFarMap.client.integration;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -11,6 +13,7 @@ import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
 
@@ -29,6 +32,7 @@ import com.sinthoras.visualprospecting.integration.model.locations.UndergroundFl
 import com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBackground;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.waypoint.WaypointRenderer;
 import gregtech.api.interfaces.IIconContainer;
 
 /**
@@ -48,11 +52,40 @@ public final class ProspectingLayer {
     private static int cachedDimension = Integer.MIN_VALUE;
     private static long lastRefresh;
     private static List<OreVeinLocation> veins = Collections.emptyList();
+    /** Database entry of each vein location, for its height range. */
+    private static Map<OreVeinLocation, OreVeinPosition> positions = new IdentityHashMap<>();
     private static List<UndergroundFluidLocation> fluids = Collections.emptyList();
     private static boolean failed;
 
     /** Vein under the mouse on the last drawn fullscreen map, or null. */
     private static OreVeinLocation hovered;
+
+    /** The vein being tracked: shown in the world with its distance, framed in gold on the maps. */
+    private static final class Tracked {
+
+        final int dimension, chunkX, chunkZ;
+        final double x, z;
+        final int y;
+        final OreVeinLocation location;
+
+        Tracked(OreVeinLocation location, OreVeinPosition position) {
+            this.location = location;
+            this.dimension = position.dimensionId;
+            this.chunkX = position.chunkX;
+            this.chunkZ = position.chunkZ;
+            this.x = location.getBlockX();
+            this.z = location.getBlockZ();
+            // Middle of the vein's height range, where the ores are.
+            this.y = (position.veinType.minBlockY + position.veinType.maxBlockY) / 2;
+        }
+
+        boolean is(OreVeinPosition position) {
+            return position.dimensionId == dimension && position.chunkX == chunkX && position.chunkZ == chunkZ;
+        }
+    }
+
+    private static Tracked tracked;
+    private static final int TRACKED_COLOR = 0xFFD700;
 
     private ProspectingLayer() {}
 
@@ -75,9 +108,12 @@ public final class ProspectingLayer {
         lastRefresh = now;
         try {
             List<OreVeinLocation> newVeins = new ArrayList<>();
+            Map<OreVeinLocation, OreVeinPosition> newPositions = new IdentityHashMap<>();
             for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
                 if (vein.veinType != VeinType.NO_VEIN && vein.dimensionId == dimension) {
-                    newVeins.add(new OreVeinLocation(vein));
+                    OreVeinLocation location = new OreVeinLocation(vein);
+                    newVeins.add(location);
+                    newPositions.put(location, vein);
                 }
             }
             List<UndergroundFluidLocation> newFluids = new ArrayList<>();
@@ -89,6 +125,7 @@ public final class ProspectingLayer {
                 }
             }
             veins = newVeins;
+            positions = newPositions;
             fluids = newFluids;
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Could not read VisualProspecting data; its map layers are turned off", t);
@@ -273,18 +310,7 @@ public final class ProspectingLayer {
         for (OreVeinLocation vein : visible) {
             double sx = x + (vein.getBlockX() - left) * scale - half;
             double sy = y + (vein.getBlockZ() - top) * scale - half;
-            try {
-                IIcon stone = DimensionStoneBackground.getBackgroundIcon(vein.getDimensionId());
-                iconQuad(stone, sx, sy, size, 0xFFFFFF);
-                IIconContainer ore = vein.getIconFromPrimaryOre();
-                iconQuad(ore.getIcon(), sx, sy, size, vein.getColor());
-                IIcon overlay = ore.getOverlayIcon();
-                if (overlay != null) {
-                    iconQuad(overlay, sx, sy, size, 0xFFFFFF);
-                }
-            } catch (Throwable t) {
-                // Missing textures only cost the icon, the rest of the map keeps drawing.
-            }
+            drawVeinIcon(vein, sx, sy, size);
             if (!vein.drawSearchHighlight() || vein.isDepleted()) {
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 begin();
@@ -298,6 +324,25 @@ public final class ProspectingLayer {
                     mc.getTextureManager()
                         .bindTexture(TextureMap.locationBlocksTexture);
                 }
+            }
+            if (isTrackedLocation(vein)) {
+                // Gold frame, like VisualProspecting's "active as waypoint".
+                begin();
+                hollowRect(
+                    sx - 1,
+                    sy - 1,
+                    size + 2,
+                    size + 2,
+                    Math.max(1, size / 8),
+                    TRACKED_COLOR,
+                    204,
+                    x,
+                    y,
+                    width,
+                    height);
+                end();
+                mc.getTextureManager()
+                    .bindTexture(TextureMap.locationBlocksTexture);
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -333,6 +378,9 @@ public final class ProspectingLayer {
         if (hovered.isDepleted()) {
             lines.add(hovered.getDepletedHint());
         }
+        if (isTrackedLocation(hovered)) {
+            lines.add("\u00a76" + I18n.format("wayfarmap.gui.vein_tracked"));
+        }
         lines.add(hovered.getName());
         if (!hovered.isDepleted()) {
             lines.addAll(hovered.getMaterialNames());
@@ -341,20 +389,88 @@ public final class ProspectingLayer {
         return lines;
     }
 
-    public static boolean hasHoveredVein() {
-        return hovered != null;
+    /**
+     * The vein under the mouse, as an opaque handle for the other methods; null if none. Callers keep it (e.g. while a
+     * menu is open) instead of asking again, since the vein under the mouse changes as the mouse moves.
+     */
+    public static Object getHoveredVein() {
+        OreVeinPosition position = hovered == null ? null : positions.get(hovered);
+        return position == null ? null : new Handle(hovered, position);
     }
 
-    public static boolean isHoveredVeinDepleted() {
-        return hovered != null && hovered.isDepleted();
-    }
+    /** A vein kept by a caller; stays valid when the vein list is rebuilt. */
+    private static final class Handle {
 
-    /** Marks the vein under the mouse depleted, or not depleted anymore. */
-    public static void toggleHoveredVein() {
-        if (hovered != null) {
-            hovered.toggleOreVein();
-            lastRefresh = 0;
+        final OreVeinLocation location;
+        final OreVeinPosition position;
+
+        Handle(OreVeinLocation location, OreVeinPosition position) {
+            this.location = location;
+            this.position = position;
         }
+    }
+
+    public static boolean isDepleted(Object vein) {
+        return ((Handle) vein).location.isDepleted();
+    }
+
+    /** Marks the vein depleted, or not depleted anymore. */
+    public static void toggleDepleted(Object vein) {
+        ((Handle) vein).location.toggleOreVein();
+        lastRefresh = 0;
+    }
+
+    public static boolean isTracked(Object vein) {
+        return tracked != null && tracked.is(((Handle) vein).position);
+    }
+
+    private static boolean isTrackedLocation(OreVeinLocation location) {
+        OreVeinPosition position = positions.get(location);
+        return tracked != null && position != null && tracked.is(position);
+    }
+
+    /** Starts tracking the vein, or stops if it is the tracked one. */
+    public static void toggleTracked(Object vein) {
+        Handle handle = (Handle) vein;
+        tracked = isTracked(vein) ? null : new Tracked(handle.location, handle.position);
+    }
+
+    /** Draws the tracked vein in the world: its ore icon, name and distance, like a waypoint. */
+    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+        final Tracked target = tracked;
+        if (target == null || target.dimension != dimension) {
+            return;
+        }
+        String name = I18n.format("wayfarmap.gui.vein_tracked_name", strip(target.location.getName()));
+        WaypointRenderer.renderBillboard(mc, target.x, target.y, target.z, name, TRACKED_COLOR, (cx, cy, size) -> {
+            drawVeinIcon(target.location, cx - size / 2, cy - size / 2, size);
+            return true;
+        });
+    }
+
+    private static String strip(String text) {
+        String plain = EnumChatFormatting.getTextWithoutFormattingCodes(text);
+        return plain != null ? plain : text;
+    }
+
+    /** Stone background and ore icon of the vein, with the top-left corner at (sx, sy). */
+    private static void drawVeinIcon(OreVeinLocation vein, double sx, double sy, double size) {
+        Minecraft.getMinecraft()
+            .getTextureManager()
+            .bindTexture(TextureMap.locationBlocksTexture);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        try {
+            iconQuad(DimensionStoneBackground.getBackgroundIcon(vein.getDimensionId()), sx, sy, size, 0xFFFFFF);
+            IIconContainer ore = vein.getIconFromPrimaryOre();
+            iconQuad(ore.getIcon(), sx, sy, size, vein.getColor());
+            IIcon overlay = ore.getOverlayIcon();
+            if (overlay != null) {
+                iconQuad(overlay, sx, sy, size, 0xFFFFFF);
+            }
+        } catch (Throwable t) {
+            // Missing textures only cost the icon.
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     // ---------------------------------------------------------------- drawing helpers

@@ -19,6 +19,8 @@ import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.map.MapManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
@@ -98,7 +100,7 @@ public class WaypointRenderer {
             return null;
         }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int width = font.getStringWidth(labelText(waypoint, fullName));
+        int width = font.getStringWidth(labelText(waypoint, fullName)) + font.getStringWidth(distanceSuffix(waypoint));
         int tx = (int) Math.round(sx) - width / 2;
         int ty = (int) Math.round(sy) + Math.round(size / 2f) + 3;
         return new int[] { tx - 2, ty - 1, tx + width + 2, ty + 9 };
@@ -106,9 +108,21 @@ public class WaypointRenderer {
 
     public static void drawMapLabel(Waypoint waypoint, int[] rect, boolean fullName) {
         Gui.drawRect(rect[0], rect[1], rect[2], rect[3], Theme.LABEL_BG);
-        Minecraft.getMinecraft().fontRenderer
-            .drawString(labelText(waypoint, fullName), rect[0] + 2, rect[1] + 1, Theme.TEXT);
+        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
+        String name = labelText(waypoint, fullName);
+        font.drawString(name, rect[0] + 2, rect[1] + 1, Theme.TEXT);
+        font.drawString(distanceSuffix(waypoint), rect[0] + 2 + font.getStringWidth(name), rect[1] + 1, Theme.TEXT_MUTED);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** "  123m": distance from the player, shown after the name on the world map. */
+    public static String distanceSuffix(Waypoint waypoint) {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        if (player == null || player.dimension != waypoint.dimension) {
+            return "";
+        }
+        double dx = waypoint.x + 0.5 - player.posX, dy = waypoint.y - player.posY, dz = waypoint.z + 0.5 - player.posZ;
+        return "  " + Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz)) + "m";
     }
 
     /** The name, cut to {@link Config#waypointLabelMaxWidth} unless the full name is wanted (e.g. on hover). */
@@ -168,28 +182,56 @@ public class WaypointRenderer {
     @SubscribeEvent
     public void onRenderWorldLast(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (!Config.waypointsInWorld || mc.theWorld == null
-            || mc.thePlayer == null
-            || MapManager.INSTANCE.getDimension() == null
-            || mc.gameSettings.hideGUI) {
+        if (mc.theWorld == null || mc.thePlayer == null || mc.gameSettings.hideGUI) {
             return;
         }
         int dimension = mc.theWorld.provider.dimensionId;
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(dimension)) {
-            renderInWorld(mc, waypoint);
+        if (Config.waypointsInWorld && MapManager.INSTANCE.getDimension() != null) {
+            for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(dimension)) {
+                renderInWorld(mc, waypoint);
+            }
+        }
+        if (Mods.isVisualProspectingLoaded()) {
+            ProspectingLayer.renderTrackedInWorld(mc, dimension);
         }
     }
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
+        final ItemStack icon = waypoint.getIcon();
+        renderBillboard(
+            mc,
+            waypoint.x + 0.5,
+            waypoint.y,
+            waypoint.z + 0.5,
+            labelText(waypoint, false),
+            waypoint.outlineColor,
+            icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size));
+    }
+
+    /** Draws a 16x16 icon centered on (cx, cy) in the billboard's plane; returns false to use the colored square. */
+    public interface BillboardIcon {
+
+        boolean draw(float cx, float cy, float size);
+    }
+
+    /**
+     * Draws a marker in the world at the given block position (x, z are block centers, y is the feet height): the
+     * icon above a box with the name and the distance. Seen through walls and kept readable from far away.
+     *
+     * @param outlineColor RGB of the box outline, or null for none
+     * @param icon         draws the icon, or null for a colored square
+     */
+    public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon) {
         EntityPlayer player = mc.thePlayer;
-        double dx = waypoint.x + 0.5 - RenderManager.renderPosX;
-        double dy = waypoint.y + 1.5 - RenderManager.renderPosY;
-        double dz = waypoint.z + 0.5 - RenderManager.renderPosZ;
+        double dx = x - RenderManager.renderPosX;
+        double dy = y + 1.5 - RenderManager.renderPosY;
+        double dz = z - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
             return;
         }
-        // Far waypoints are drawn closer (inside the view distance) and scaled to look as if they were at their real
+        // Far markers are drawn closer (inside the view distance) and scaled to look as if they were at their real
         // distance. Up close they keep a constant size on screen; farther away they shrink like real objects until
         // they reach the minimum on-screen size, from where they stop shrinking so they stay readable.
         double viewDistance = Math.min(distance, 48.0);
@@ -197,9 +239,8 @@ public class WaypointRenderer {
         double apparentSize = Math.max(Config.waypointMinScale, Math.min(1.0, NEAR_DISTANCE / distance));
         float scale = (float) (0.0045 * Config.waypointScale * Math.max(viewDistance, 5.0) * apparentSize);
 
-        int blocks = (int) Math.round(Math.sqrt(
-            Math.pow(waypoint.x + 0.5 - player.posX, 2) + Math.pow(waypoint.y - player.posY, 2)
-                + Math.pow(waypoint.z + 0.5 - player.posZ, 2)));
+        int blocks = (int) Math.round(
+            Math.sqrt(Math.pow(x - player.posX, 2) + Math.pow(y - player.posY, 2) + Math.pow(z - player.posZ, 2)));
         String distanceText = blocks + "m";
         FontRenderer font = mc.fontRenderer;
         RenderManager renderManager = RenderManager.instance;
@@ -217,30 +258,28 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-        String name = labelText(waypoint, false);
         int nameWidth = font.getStringWidth(name);
         int distanceWidth = font.getStringWidth(distanceText);
         int boxHalf = Math.max(nameWidth, distanceWidth) / 2 + 3;
         int top = 0;
-        int bottom = waypoint.name.isEmpty() ? 11 : 21;
+        int bottom = name.isEmpty() ? 11 : 21;
 
-        if (waypoint.outlineColor != null) {
-            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, 0xFF000000 | waypoint.outlineColor);
+        if (outlineColor != null) {
+            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, 0xFF000000 | outlineColor);
         }
         fillRect(-boxHalf, top, boxHalf, bottom, 0xA0000000);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         int textY = top + 2;
-        if (!waypoint.name.isEmpty()) {
+        if (!name.isEmpty()) {
             font.drawString(name, -nameWidth / 2, textY, 0xFFFFFFFF);
             textY += 10;
         }
         font.drawString(distanceText, -distanceWidth / 2, textY, 0xFFC0C0C0);
 
-        ItemStack icon = waypoint.getIcon();
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
-        if (icon == null || !drawFlatItem(icon, 0f, top - 11f, 16f)) {
-            int color = 0xFF000000 | (waypoint.outlineColor != null ? waypoint.outlineColor : DEFAULT_COLOR);
+        if (icon == null || !icon.draw(0f, top - 11f, 16f)) {
+            int color = 0xFF000000 | (outlineColor != null ? outlineColor : DEFAULT_COLOR);
             fillRect(-4, top - 12, 4, top - 4, 0xFF000000);
             fillRect(-3, top - 11, 3, top - 5, color);
         }
