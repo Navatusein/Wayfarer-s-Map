@@ -61,7 +61,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 > Caves get on the map when you walk through them — the map draws what is around you.
 
 # Biomes and search
-- §bBiomes§r — colors the map by biome; hovering shows the biome at the bottom
+- §bBiomes§r — colors the map by biome (in any dimension, also in the Nether and underground); hovering shows the biome at the bottom
 - The §fsearch field§r shows up at the top in biome, ore or fluid view
 - Example: type §e"Ocean"§r — everything else turns §7gray§r and oceans get §6outlined§r
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
@@ -97,6 +97,8 @@ Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bCl
 - §eCtrl+Shift§r — §cremove everything§r (load and claim)
 
 Colors: §9blue§r — your claims, §agreen§r — loaded, other teams in their team color.
+
+! Claims are shown and changed §fonly in the dimension you stand in§r: the ServerUtilities server always uses the player's dimension. To claim in the Nether, go to the Nether.
 
 ! A selection is at most §f64×64§r chunks. Claim and load limits come from the server — see the counter at the bottom right.
 

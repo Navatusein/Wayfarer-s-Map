@@ -149,3 +149,4 @@ wayfarmap.gui.mobs.menu.all=Показать всех мобов
 wayfarmap.gui.mobs.menu.friendly=Скрыть враждебных
 wayfarmap.gui.mobs.menu.hostile=Скрыть мирных
 wayfarmap.gui.mobs.menu.none=Скрыть всех мобов
+wayfarmap.claims.other_dimension=Приваты меняются только в измерении, где вы находитесь (ограничение ServerUtilities)

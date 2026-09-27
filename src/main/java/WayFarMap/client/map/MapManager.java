@@ -87,14 +87,17 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     /**
-     * Map to show right now: the active cave layer in cave mode, otherwise the surface or the biome map. Null outside
-     * of a world.
+     * Map to show right now: the biome map in biome view (biomes are per column, so also underground and in the
+     * Nether), otherwise the active cave layer in cave mode or the surface. Null outside of a world.
      */
     public MapDimension getDimension() {
+        if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
+            return biomes;
+        }
         if (activeCaveLayer >= 0) {
             return getCaveLayer(activeCaveLayer);
         }
-        return Config.mapDisplayMode == Config.DISPLAY_BIOMES ? biomes : surface;
+        return surface;
     }
 
     /** Biome map of the current dimension, or null outside of a world. */
@@ -359,11 +362,11 @@ public class MapManager implements IResourceManagerReloadListener {
         if (viewed == null) {
             return getDimension();
         }
-        int layer = getViewCaveLayer();
-        if (layer >= 0) {
-            return viewed.cave(layer);
+        if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
+            return viewed.biomes;
         }
-        return Config.mapDisplayMode == Config.DISPLAY_BIOMES ? viewed.biomes : viewed.surface;
+        int layer = getViewCaveLayer();
+        return layer >= 0 ? viewed.cave(layer) : viewed.surface;
     }
 
     /** Biome map of the dimension shown on the world map. */

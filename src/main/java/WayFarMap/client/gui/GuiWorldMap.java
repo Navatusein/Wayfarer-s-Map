@@ -201,7 +201,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private boolean biomeViewShown() {
-        return Config.mapDisplayMode == Config.DISPLAY_BIOMES && MapManager.INSTANCE.getViewCaveLayer() < 0;
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES;
     }
 
     private static boolean prospectingLayerShown() {
@@ -439,11 +439,12 @@ public class GuiWorldMap extends GuiScreen {
         if (!isExplored(dimension, hoverX, hoverZ)) {
             cursorText += "  (?)";
         }
-        int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
+        // Biome view shows biomes of whole columns, so there is no cave layer to pick.
+        int caveLayer = biomeViewShown() ? -1 : MapManager.INSTANCE.getViewCaveLayer();
         if (caveLayer >= 0) {
             cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
         }
-        if (caveLayer < 0 && Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
+        if (biomeViewShown()) {
             BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
             if (biome != null) {
                 cursorText += "  |  " + biome.biomeName;
@@ -463,6 +464,16 @@ public class GuiWorldMap extends GuiScreen {
                 helpButton.xPosition - 8 - fontRendererObj.getStringWidth(counts),
                 height - 10,
                 Theme.TEXT_MUTED);
+        } else if (Config.showClaims && Mods.isClaimsAvailable() && otherDimension) {
+            // ServerUtilities takes the dimension of every claim change from the player, so claims can only be
+            // shown and changed in the dimension the player is in.
+            String note = I18n.format("wayfarmap.claims.other_dimension");
+            Theme.text(
+                fontRendererObj,
+                note,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
+                height - 10,
+                Theme.DANGER);
         }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -528,7 +539,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private boolean onCaveSlider(int mouseX, int mouseY) {
-        return MapManager.INSTANCE.getViewCaveLayer() >= 0
+        return MapManager.INSTANCE.getViewCaveLayer() >= 0 && !biomeViewShown()
             && Theme.inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
     }
 

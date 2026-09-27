@@ -149,3 +149,4 @@ wayfarmap.gui.mobs.menu.all=Show all mobs
 wayfarmap.gui.mobs.menu.friendly=Hide hostile
 wayfarmap.gui.mobs.menu.hostile=Hide friendly
 wayfarmap.gui.mobs.menu.none=Hide all mobs
+wayfarmap.claims.other_dimension=Claims can only be changed in the dimension you are in (ServerUtilities limitation)

@@ -57,7 +57,7 @@ public class MinimapRenderer {
             lines.add(blockX + ", " + MathHelper.floor_double(player.boundingBox.minY) + ", " + blockZ);
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
-        if (caveLayer >= 0) {
+        if (caveLayer >= 0 && Config.mapDisplayMode != Config.DISPLAY_BIOMES) {
             lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
