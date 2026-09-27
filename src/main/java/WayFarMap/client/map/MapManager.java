@@ -352,6 +352,15 @@ public class MapManager implements IResourceManagerReloadListener {
         return viewed != null;
     }
 
+    /** Starts saving every changed region now; the futures finish when they are on disk. */
+    public List<Future<?>> saveAll() {
+        List<Future<?>> pending = new ArrayList<>();
+        for (MapDimension map : allMaps()) {
+            pending.addAll(map.save(saveExecutor));
+        }
+        return pending;
+    }
+
     /** This world's (or server's) map folder of the current account, or null outside of a world. */
     public File getWorldDirectory() {
         return worldDirectory;

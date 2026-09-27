@@ -16,6 +16,7 @@ import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import net.minecraft.client.Minecraft;
@@ -176,7 +177,8 @@ public final class TeamMapClient {
         if (worldDirectory == null) {
             return;
         }
-        backfill = new Backfill(worldDirectory, team);
+        // What was mapped so far may still be only in memory: saved first, and the upload reads the files after.
+        backfill = new Backfill(worldDirectory, team, MapManager.INSTANCE.saveAll());
         Thread thread = new Thread(backfill, "WayFarMap team map upload");
         thread.setDaemon(true);
         thread.setPriority(Thread.MIN_PRIORITY);
@@ -254,16 +256,31 @@ public final class TeamMapClient {
 
         private final File worldDirectory;
         private final File progressFile;
+        private final List<Future<?>> saves;
         private final BlockingQueue<Object[]> ready = new ArrayBlockingQueue<>(256);
         volatile boolean cancelled;
 
-        Backfill(File worldDirectory, String team) {
+        Backfill(File worldDirectory, String team, List<Future<?>> saves) {
             this.worldDirectory = worldDirectory;
-            this.progressFile = new File(worldDirectory, "team-" + team.replaceAll("[^a-zA-Z0-9_-]", "_") + ".dat");
+            // "v2": the first version could skip chunks that weren't saved yet, so everything is sent once more.
+            this.progressFile = new File(
+                worldDirectory,
+                "team-" + team.replaceAll("[^a-zA-Z0-9_-]", "_") + ".v2.dat");
+            this.saves = saves;
         }
 
         @Override
         public void run() {
+            // Only read the map once everything mapped so far is on disk; what is mapped from now on is uploaded
+            // as it is mapped, so marking a layer as sent "up to when we started reading it" loses nothing.
+            for (Future<?> save : saves) {
+                try {
+                    save.get();
+                } catch (Exception e) {
+                    // A failed save is logged by the saver; its chunks go with the next upload.
+                }
+            }
+            WayFarMap.LOG.info("Team map: uploading the existing map from {}", worldDirectory);
             Properties progress = new Properties();
             if (progressFile.isFile()) {
                 try (InputStream in = new FileInputStream(progressFile)) {
@@ -294,9 +311,7 @@ public final class TeamMapClient {
                     return;
                 }
             }
-            if (total > 0) {
-                WayFarMap.LOG.info("Team map: uploaded {} chunks of the existing map", total);
-            }
+            WayFarMap.LOG.info("Team map: existing map uploaded ({} chunks)", total);
         }
 
         /** Uploads one layer of one dimension; returns the number of chunks queued. */
