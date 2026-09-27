@@ -147,13 +147,13 @@ public class GuiWorldMap extends ScaledScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
-        // Header: icons with tooltips. Left: waypoints, settings, add-on layers; right (before the zoom text):
+        // Header: icons with tooltips. Left: settings, waypoints, add-on layers; right (before the zoom text):
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
+        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
         x = addIconButton(
             new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
             x);
-        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
         addonsButton = null;
         if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable() || Mods.isPowerfailsAvailable()) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));

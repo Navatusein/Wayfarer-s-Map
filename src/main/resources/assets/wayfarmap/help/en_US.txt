@@ -14,8 +14,8 @@
 The top of the map has §ficons§r; hover one to see its name.
 
 §fLeft:§r
-- §bFlag§r — waypoint list
 - §bGear§r — settings
+- §bFlag§r — waypoint list
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims and power failures (only for installed mods); it stays open to switch several
 
 §fRight:§r
