@@ -175,3 +175,5 @@ wayfarmap.powerfail.clear=Убрать отметку о сбое
 wayfarmap.powerfail.waypoint=Поставить метку здесь
 wayfarmap.option.map.powerfails=Сбои питания GregTech
 wayfarmap.option.map.powerfails.desc=Показывать на карте и миникарте машины GregTech, у которых кончилась энергия (если версия GregTech это поддерживает).
+wayfarmap.option.map.shareWithTeam=Общая карта команды
+wayfarmap.option.map.shareWithTeam.desc=На серверах, где тоже стоит этот мод и ServerUtilities, исследованная карта делится между участниками одной команды: чужие открытия появляются у вас, ваши — у них. При входе догружается всё, что команда открыла без вас.

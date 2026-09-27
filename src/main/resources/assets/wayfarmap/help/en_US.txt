@@ -113,6 +113,17 @@ Colors: §9blue§r — your claims, §agreen§r — loaded, other teams in their
 
 ! A selection is at most §f64×64§r chunks. Claim and load limits come from the server — see the counter at the bottom right.
 
+# Team map
+If the mod is on the §fserver§r too (with §fServerUtilities§r), the map is §ashared between the members of a team§r.
+
+- What a teammate explores appears on your map — surface, biomes and caves
+- Your discoveries reach your teammates the same way
+- On joining the server or another dimension you §fget everything§r the team mapped meanwhile — nearby first
+- Stored on the server, in the world's §7wayfarmap/teams§r folder
+
+! You need to be in a §fServerUtilities team§r. Without one the map stays yours only.
+> To turn it off: §bSettings → Map → Team map§r.
+
 # Settings
 The §bSettings§r button on the map opens all options by category:
 

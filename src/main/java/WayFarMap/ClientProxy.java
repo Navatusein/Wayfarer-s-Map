@@ -11,9 +11,11 @@ import WayFarMap.client.Teleport;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.network.simpleimpl.IMessage;
 
 public class ClientProxy extends CommonProxy {
 
@@ -47,7 +49,16 @@ public class ClientProxy extends CommonProxy {
             ClaimsLayer.register();
         }
 
+        FMLCommonHandler.instance()
+            .bus()
+            .register(TeamMapClient.INSTANCE);
+
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
+    }
+
+    @Override
+    public void receiveTeamMap(IMessage message) {
+        TeamMapClient.INSTANCE.receive(message);
     }
 }

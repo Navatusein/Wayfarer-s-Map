@@ -63,6 +63,8 @@ public class Config {
     /** ServerUtilities claims layer on the world map (only used when it is installed). */
     public static boolean showClaims = false;
     public static boolean showPowerfails = true;
+    /** Share the explored map with the ServerUtilities team (where the server has the mod). */
+    public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -202,6 +204,13 @@ public class Config {
             true,
             () -> showPowerfails,
             v -> showPowerfails = v);
+        bool(
+            c,
+            "shareWithTeam",
+            "Share the explored map with your ServerUtilities team, on servers that have this mod too.",
+            true,
+            () -> shareMapWithTeam,
+            v -> shareMapWithTeam = v);
         choice(
             c,
             "caveMode",

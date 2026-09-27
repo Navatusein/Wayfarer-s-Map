@@ -33,6 +33,7 @@ import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.share.ChunkRecord;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -399,6 +400,59 @@ public class MapManager implements IResourceManagerReloadListener {
         return region == null ? 0 : region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
     }
 
+    /**
+     * Writes a chunk a teammate mapped into this dimension's map. Returns false (nothing written) while its region is
+     * still being read from disk; the caller tries again later.
+     */
+    public boolean applySharedChunk(int dimension, ChunkRecord record) {
+        if (surface == null || dimension != surface.dimensionId) {
+            // Another dimension (the player moved on): dropped.
+            return true;
+        }
+        MapDimension map = record.layer < 0 ? surface : getCaveLayer(record.layer);
+        MapDimension biomeMap = record.layer < 0 && record.biomes != null ? biomes : null;
+        int rx = record.chunkX >> (MapRegion.SHIFT - 4), rz = record.chunkZ >> (MapRegion.SHIFT - 4);
+        if (map == null || !map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+            return false;
+        }
+        MapRegion region = map.getRegion(rx, rz, true);
+        MapRegion biomeRegion = biomeMap != null ? biomeMap.getRegion(rx, rz, true) : null;
+        int baseX = (record.chunkX * 16) & (MapRegion.SIZE - 1);
+        int baseZ = (record.chunkZ * 16) & (MapRegion.SIZE - 1);
+        for (int lz = 0; lz < 16; lz++) {
+            for (int lx = 0; lx < 16; lx++) {
+                int i = lz * 16 + lx;
+                int color = record.colors[i];
+                if ((color >>> 24) == 0) {
+                    // The teammate hasn't seen this column: keep ours.
+                    continue;
+                }
+                if (record.layer < 0) {
+                    region.setPixel(baseX + lx, baseZ + lz, color, record.extra[i] & 0xFF);
+                } else {
+                    region.setPixel(baseX + lx, baseZ + lz, color);
+                }
+                if (biomeRegion != null) {
+                    int biomeId = record.biomes[i] & 0xFF;
+                    BiomeGenBase biome = biomeId == 0 ? null : BiomeGenBase.getBiome(biomeId - 1);
+                    if (biome != null) {
+                        // Same light relief as ChunkScanner, from the heights within the chunk.
+                        int height = record.extra[i] & 0xFF;
+                        int north = lz > 0 ? record.extra[i - 16] & 0xFF : 0;
+                        float relief = height == 0 || north == 0 ? 1f
+                            : 1f + Math.max(-4, Math.min(4, height - north)) * 0.03f;
+                        biomeRegion.setPixel(
+                            baseX + lx,
+                            baseZ + lz,
+                            0xFF000000 | BlockColors.shade(ChunkScanner.biomeColor(biome), relief),
+                            biomeId);
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     private MapDimension getCaveLayer(int layer) {
         MapDimension cave = caveLayers.get(layer);
         if (cave == null && dimensionDirectory != null) {
@@ -646,6 +700,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 try {
                     ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap);
+                    TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
                 } catch (Exception e) {
                     WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
                 }
