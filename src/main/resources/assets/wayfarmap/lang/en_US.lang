@@ -131,3 +131,4 @@ wayfarmap.gui.vein_untrack=Stop tracking
 wayfarmap.gui.vein_tracked=Tracked
 wayfarmap.gui.vein_tracked_name=Tracked: %s
 wayfarmap.gui.vein_toggle_hint=Right click: track / mark as depleted
+wayfarmap.gui.search_hint=Search biome / ore / fluid...

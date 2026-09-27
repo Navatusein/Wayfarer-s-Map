@@ -85,6 +85,11 @@ public class MapManager implements IResourceManagerReloadListener {
         return Config.mapDisplayMode == Config.DISPLAY_BIOMES ? biomes : surface;
     }
 
+    /** Biome map of the current dimension, or null outside of a world. */
+    public MapDimension getBiomeMap() {
+        return biomes;
+    }
+
     /** Pins the cave view to a layer (0-15), or -1 to follow the player's height. */
     public void setCaveLayerOverride(int layer) {
         caveLayerOverride = layer < 0 ? -1 : Math.min(15, layer);
@@ -260,6 +265,7 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             map.deleteTextures();
         }
+        BiomeHighlight.clear();
         surface = null;
         biomes = null;
         caveLayers.clear();

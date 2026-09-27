@@ -42,6 +42,8 @@ public class MapRegion {
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
     private volatile boolean saveDirty;
     private volatile boolean saving;
+    /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
+    private int changes;
 
     public MapRegion(int rx, int rz) {
         this.rx = rx;
@@ -53,6 +55,7 @@ public class MapRegion {
         if (pixels[index] != argb) {
             pixels[index] = argb;
             saveDirty = true;
+            changes++;
             if (textureId != -1) {
                 markTextureDirty(localX, localZ);
             }
@@ -72,7 +75,12 @@ public class MapRegion {
         if (extra[index] != (byte) extraValue) {
             extra[index] = (byte) extraValue;
             saveDirty = true;
+            changes++;
         }
+    }
+
+    public int getChanges() {
+        return changes;
     }
 
     /** @return the extra byte of the pixel, 0 if unknown */

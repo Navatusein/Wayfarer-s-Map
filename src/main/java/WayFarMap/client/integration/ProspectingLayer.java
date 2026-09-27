@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -18,6 +19,7 @@ import net.minecraft.client.resources.I18n;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.fluids.Fluid;
 
 import org.lwjgl.opengl.GL11;
 
@@ -90,14 +92,50 @@ public final class ProspectingLayer {
 
     private ProspectingLayer() {}
 
+    /** Search text of the world map, lower case; empty when not searching. */
+    private static String search = "";
+    private static final int SEARCH_COLOR = 0xFFD34D;
+
     /** Like VisualProspecting's onOpenMap: dims the veins that don't match the NEI search. */
     public static void onOpenMap() {
-        try {
-            VeinTypeCaching.recalculateSearch(Utils.getNEISearchPattern(), Utils.getNEISearchItemFilter());
-        } catch (Throwable t) {
-            // NEI search highlighting is optional.
-        }
+        setSearch("");
         lastRefresh = 0;
+    }
+
+    public static boolean isSearchActive() {
+        return !search.isEmpty();
+    }
+
+    /**
+     * Searches ore veins (with VisualProspecting's own search, by vein and ore names) and underground fluids (by
+     * fluid name). An empty text goes back to NEI's search, like VisualProspecting does.
+     */
+    public static void setSearch(String text) {
+        search = text == null ? ""
+            : text.trim()
+                .toLowerCase(Locale.ROOT);
+        try {
+            if (search.isEmpty()) {
+                VeinTypeCaching.recalculateSearch(Utils.getNEISearchPattern(), Utils.getNEISearchItemFilter());
+            } else {
+                VeinTypeCaching.recalculateSearch(Utils.getSearchPattern(search), Utils.getItemFilter(search));
+            }
+        } catch (Throwable t) {
+            // Search highlighting is optional.
+        }
+    }
+
+    private static boolean fluidMatches(Fluid fluid) {
+        if (fluid == null) {
+            return false;
+        }
+        for (String name : new String[] { fluid.getLocalizedName(), fluid.getUnlocalizedName(), fluid.getName() }) {
+            if (name != null && name.toLowerCase(Locale.ROOT)
+                .contains(search)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void refresh(int dimension) {
@@ -179,6 +217,8 @@ public final class ProspectingLayer {
         Minecraft mc = Minecraft.getMinecraft();
         double pixel = 1.0 / new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
 
+        // While searching (world map only), fields of other fluids fade out like in VisualProspecting.
+        boolean searching = !minimap && isSearchActive();
         begin();
         for (UndergroundFluidLocation location : fluids) {
             double fx = x + (Math.floor(location.getBlockX()) - left) * scale;
@@ -187,13 +227,30 @@ public final class ProspectingLayer {
                 continue;
             }
             int max = location.getMaxProduction();
-            if (zoom >= Config.minZoomLevelForUndergroundFluidDetails - 1 && max > 0) {
+            boolean active = !searching || (max > 0 && fluidMatches(location.getFluid()));
+            if (active && zoom >= Config.minZoomLevelForUndergroundFluidDetails - 1 && max > 0) {
                 drawFluidChunks(location, fx, fy, scale, zoom, x, y, width, height, minimap);
             }
             if (max > 0) {
-                hollowRect(fx, fy, fieldSize, fieldSize, 2 * pixel, location.getColor(), 255, x, y, width, height);
+                int alpha = active ? 255 : 74;
+                hollowRect(fx, fy, fieldSize, fieldSize, 2 * pixel, location.getColor(), alpha, x, y, width, height);
             } else {
                 hollowRect(fx, fy, fieldSize, fieldSize, 2 * pixel, 0xFFFFFF, 74, x, y, width, height);
+            }
+            if (searching && active) {
+                // Search hits get an outline around the field.
+                hollowRect(
+                    fx - 2 * pixel,
+                    fy - 2 * pixel,
+                    fieldSize + 4 * pixel,
+                    fieldSize + 4 * pixel,
+                    2 * pixel,
+                    SEARCH_COLOR,
+                    255,
+                    x,
+                    y,
+                    width,
+                    height);
             }
         }
         end();
@@ -221,9 +278,11 @@ public final class ProspectingLayer {
             }
             int maxWidth = (int) fieldSize - 6;
             double labelX = fx + fieldSize / 2;
-            label(font, ellipsize(font, title, maxWidth), labelX, fy + 3, 0xFFFFFF);
+            int textColor = !isSearchActive() ? 0xFFFFFF
+                : max > 0 && fluidMatches(location.getFluid()) ? 0xFFFF00 : 0x444444;
+            label(font, ellipsize(font, title, maxWidth), labelX, fy + 3, textColor);
             if (values != null) {
-                label(font, ellipsize(font, values, maxWidth), labelX, fy + 14, 0xFFFFFF);
+                label(font, ellipsize(font, values, maxWidth), labelX, fy + 14, textColor);
             }
         }
     }
@@ -345,6 +404,14 @@ public final class ProspectingLayer {
                     mc.getTextureManager()
                         .bindTexture(TextureMap.locationBlocksTexture);
                 }
+            }
+            if (!minimap && isSearchActive() && vein.drawSearchHighlight() && !vein.isDepleted()) {
+                // Search hit.
+                begin();
+                hollowRect(sx - 1, sy - 1, size + 2, size + 2, 1, SEARCH_COLOR, 255, x, y, width, height);
+                end();
+                mc.getTextureManager()
+                    .bindTexture(TextureMap.locationBlocksTexture);
             }
             if (isTrackedLocation(vein)) {
                 // Gold frame, like VisualProspecting's "active as waypoint".

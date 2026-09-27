@@ -131,3 +131,4 @@ wayfarmap.gui.vein_untrack=Не отслеживать
 wayfarmap.gui.vein_tracked=Отслеживается
 wayfarmap.gui.vein_tracked_name=Цель: %s
 wayfarmap.gui.vein_toggle_hint=ПКМ — отслеживать / отметить выработанной
+wayfarmap.gui.search_hint=Поиск: биом / руда / жидкость...

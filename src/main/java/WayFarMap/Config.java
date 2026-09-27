@@ -140,14 +140,21 @@ public class Config {
             "Show ore veins prospected with VisualProspecting (if installed).",
             true,
             () -> showOreVeins,
-            v -> showOreVeins = v);
+            v -> {
+                showOreVeins = v;
+                // Ore veins and underground fluids are shown one at a time.
+                if (v) showUndergroundFluids = false;
+            });
         bool(
             c,
             "undergroundFluids",
             "Show underground fluids prospected with VisualProspecting (if installed).",
             false,
             () -> showUndergroundFluids,
-            v -> showUndergroundFluids = v);
+            v -> {
+                showUndergroundFluids = v;
+                if (v) showOreVeins = false;
+            });
         choice(
             c,
             "caveMode",
@@ -341,13 +348,20 @@ public class Config {
         save();
     }
 
+    /** Ore veins and underground fluids are exclusive: turning one on turns the other off. */
     public static void toggleOreVeins() {
         showOreVeins = !showOreVeins;
+        if (showOreVeins) {
+            showUndergroundFluids = false;
+        }
         save();
     }
 
     public static void toggleUndergroundFluids() {
         showUndergroundFluids = !showUndergroundFluids;
+        if (showUndergroundFluids) {
+            showOreVeins = false;
+        }
         save();
     }
 

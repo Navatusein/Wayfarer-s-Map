@@ -18,9 +18,11 @@ import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
@@ -64,6 +66,9 @@ public class GuiWorldMap extends GuiScreen {
     private FlatButton caveButton;
     private FlatButton biomeButton;
     private FlatButton gridButton;
+    /** Search of biomes, ore veins or fluids; kept between openings of the map. */
+    private static String searchText = "";
+    private FlatTextField searchField;
     /** VisualProspecting layers; null when it isn't installed. */
     private FlatButton oreButton, fluidButton;
 
@@ -136,6 +141,35 @@ public class GuiWorldMap extends GuiScreen {
         }
         updateLightButtons();
         menu = null;
+
+        Keyboard.enableRepeatEvents(true);
+        searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
+            .setHint(I18n.format("wayfarmap.gui.search_hint"));
+        searchField.setMaxStringLength(40);
+        searchField.setText(searchText);
+        applySearch();
+    }
+
+    /** The search field shows up in biome view and with the ore vein or fluid layer. */
+    private boolean searchAvailable() {
+        return biomeViewShown() || prospectingLayerShown();
+    }
+
+    private boolean biomeViewShown() {
+        return Config.mapDisplayMode == Config.DISPLAY_BIOMES && MapManager.INSTANCE.getActiveCaveLayer() < 0;
+    }
+
+    private static boolean prospectingLayerShown() {
+        return Mods.isVisualProspectingLoaded() && (Config.showOreVeins || Config.showUndergroundFluids);
+    }
+
+    /** Sends the search text to the layers that are shown; the others search for nothing. */
+    private void applySearch() {
+        String query = searchAvailable() ? searchText : "";
+        BiomeHighlight.setQuery(biomeViewShown() ? query : "");
+        if (Mods.isVisualProspectingLoaded()) {
+            ProspectingLayer.setSearch(prospectingLayerShown() ? query : "");
+        }
     }
 
     private int addHeaderButton(FlatButton button, int x) {
@@ -151,6 +185,10 @@ public class GuiWorldMap extends GuiScreen {
 
     /** The forced mode is highlighted; with both off the map follows the time of day. */
     private void updateLightButtons() {
+        if (searchField != null) {
+            // The layers shown may have changed; send them the search.
+            applySearch();
+        }
         dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
         nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
         caveButton.active = Config.caveMode == Config.CAVES_ON;
@@ -246,10 +284,16 @@ public class GuiWorldMap extends GuiScreen {
 
         updateView();
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        boolean prospecting = Mods.isVisualProspectingLoaded();
+        // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
+        if (biomeViewShown() && BiomeHighlight.isActive()) {
+            BiomeHighlight.draw(MapManager.INSTANCE.getBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
+        } else if (prospecting && prospectingLayerShown() && ProspectingLayer.isSearchActive()) {
+            Theme.fill(0, 0, width, height, 0xB0202428);
+        }
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
-        boolean prospecting = Mods.isVisualProspectingLoaded();
         int dimensionId = mc.theWorld.provider.dimensionId;
         if (prospecting && Config.showUndergroundFluids) {
             ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
@@ -317,6 +361,9 @@ public class GuiWorldMap extends GuiScreen {
 
         if (caveLayer >= 0) {
             drawCaveSlider(mouseX, mouseY);
+        }
+        if (searchAvailable()) {
+            searchField.drawTextBox();
         }
         if (menu != null) {
             drawMenu(mouseX, mouseY);
@@ -608,6 +655,12 @@ public class GuiWorldMap extends GuiScreen {
         if (clickMenu(mouseX, mouseY)) {
             return;
         }
+        if (searchAvailable()) {
+            searchField.mouseClicked(mouseX, mouseY, button);
+            if (searchField.isMouseOver(mouseX, mouseY)) {
+                return;
+            }
+        }
         super.mouseClicked(mouseX, mouseY, button);
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
@@ -653,6 +706,24 @@ public class GuiWorldMap extends GuiScreen {
             menu = null;
             return;
         }
+        if (searchAvailable() && searchField.isFocused()) {
+            // Typing goes to the search; Esc clears it (or leaves the field when empty), Enter leaves the field.
+            if (keyCode == Keyboard.KEY_ESCAPE && !searchField.getText()
+                .isEmpty()) {
+                searchField.setText("");
+            } else if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN
+                || keyCode == Keyboard.KEY_NUMPADENTER) {
+                searchField.setFocused(false);
+            } else {
+                searchField.textboxKeyTyped(typedChar, keyCode);
+            }
+            if (!searchField.getText()
+                .equals(searchText)) {
+                searchText = searchField.getText();
+                applySearch();
+            }
+            return;
+        }
         if (keyCode == KeyHandler.OPEN_MAP.getKeyCode()) {
             mc.displayGuiScreen(null);
             return;
@@ -670,7 +741,19 @@ public class GuiWorldMap extends GuiScreen {
     @Override
     public void onGuiClosed() {
         super.onGuiClosed();
+        Keyboard.enableRepeatEvents(false);
+        // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
+        if (Mods.isVisualProspectingLoaded()) {
+            ProspectingLayer.setSearch("");
+        }
         MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+    }
+
+    @Override
+    public void updateScreen() {
+        if (searchField != null) {
+            searchField.updateCursorCounter();
+        }
     }
 
     @Override
