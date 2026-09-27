@@ -23,23 +23,75 @@ public class GuiWorldMap extends GuiScreen {
     /** Zoom level is kept between openings of the map. */
     private static int zoomIndex = DEFAULT_ZOOM;
 
+    /** How fast the zoom animation approaches the target zoom (higher is faster). */
+    private static final double ZOOM_SPEED = 18.0;
+
     private double centerX;
     private double centerZ;
+    /** Currently displayed scale; animates towards {@code Config.MAP_ZOOMS[zoomIndex]}. */
+    private double scale = Config.MAP_ZOOMS[zoomIndex];
+    private boolean initialized;
+
+    /** World point that stays under {@link #anchorScreenX}/{@link #anchorScreenY} while the zoom animates. */
+    private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
+    private boolean zooming;
+
     private boolean dragging;
-    private int lastMouseX;
-    private int lastMouseY;
+    private int lastRawMouseX;
+    private int lastRawMouseY;
+    private long lastFrameNanos;
 
     @Override
     public void initGui() {
         super.initGui();
-        if (mc.thePlayer != null) {
+        if (!initialized && mc.thePlayer != null) {
+            // Only on first open, not when the window is resized.
             centerX = mc.thePlayer.posX;
             centerZ = mc.thePlayer.posZ;
+            initialized = true;
         }
+        lastFrameNanos = System.nanoTime();
     }
 
-    private double scale() {
-        return Config.MAP_ZOOMS[zoomIndex];
+    /** Moves and zooms the view once per frame, so panning is as smooth as the frame rate allows. */
+    private void updateView() {
+        long now = System.nanoTime();
+        double seconds = Math.min(0.1, (now - lastFrameNanos) / 1.0e9);
+        lastFrameNanos = now;
+
+        if (dragging) {
+            if (!Mouse.isButtonDown(0)) {
+                dragging = false;
+            } else {
+                // Raw window coordinates give sub-GUI-pixel precision at any GUI scale.
+                int rawX = Mouse.getX();
+                int rawY = Mouse.getY();
+                double dx = (rawX - lastRawMouseX) * (double) width / mc.displayWidth;
+                double dy = -(rawY - lastRawMouseY) * (double) height / mc.displayHeight;
+                lastRawMouseX = rawX;
+                lastRawMouseY = rawY;
+                centerX -= dx / scale;
+                centerZ -= dy / scale;
+                if (zooming) {
+                    anchorWorldX -= dx / scale;
+                    anchorWorldZ -= dy / scale;
+                }
+            }
+        }
+
+        if (zooming) {
+            double target = Config.MAP_ZOOMS[zoomIndex];
+            // Interpolate in log space so every zoom step feels equally fast.
+            double t = 1.0 - Math.exp(-ZOOM_SPEED * seconds);
+            double logScale = Math.log(scale) + (Math.log(target) - Math.log(scale)) * t;
+            scale = Math.exp(logScale);
+            if (Math.abs(scale - target) < target * 0.002) {
+                scale = target;
+                zooming = false;
+            }
+            centerX = anchorWorldX - (anchorScreenX - width / 2.0) / scale;
+            centerZ = anchorWorldZ - (anchorScreenY - height / 2.0) / scale;
+        }
     }
 
     @Override
@@ -52,7 +104,7 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
 
-        double scale = scale();
+        updateView();
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
         if (Config.showOtherPlayers) {
             MapDrawer.drawOtherPlayers(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, true);
@@ -63,13 +115,16 @@ public class GuiWorldMap extends GuiScreen {
         double playerScreenX = width / 2.0 + (px - centerX) * scale;
         double playerScreenY = height / 2.0 + (pz - centerZ) * scale;
         if (playerScreenX >= 0 && playerScreenY >= 0 && playerScreenX <= width && playerScreenY <= height) {
-            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, mc.thePlayer.rotationYaw, 5f, 0xFFFFFFFF);
+            float yaw = mc.thePlayer.prevRotationYaw
+                + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
+            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
         }
 
         // Header and footer.
         drawRect(0, 0, width, 14, 0xA0000000);
         drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 3, 0xFFFFFF);
-        String zoomText = scale >= 1 ? (int) scale + ":1" : "1:" + (int) Math.round(1 / scale);
+        double targetScale = Config.MAP_ZOOMS[zoomIndex];
+        String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
         fontRendererObj.drawStringWithShadow(zoomText, width - 4 - fontRendererObj.getStringWidth(zoomText), 3, 0xAAAAAA);
 
         drawRect(0, height - 14, width, height, 0xA0000000);
@@ -101,16 +156,17 @@ public class GuiWorldMap extends GuiScreen {
         if (wheel == 0) {
             return;
         }
-        int mouseX = Mouse.getEventX() * width / mc.displayWidth;
-        int mouseY = height - Mouse.getEventY() * height / mc.displayHeight - 1;
+        int newIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoomIndex + (wheel > 0 ? 1 : -1)));
+        if (newIndex == zoomIndex) {
+            return;
+        }
         // Keep the block under the cursor in place while zooming.
-        double oldScale = scale();
-        double anchorX = centerX + (mouseX - width / 2.0) / oldScale;
-        double anchorZ = centerZ + (mouseY - height / 2.0) / oldScale;
-        zoomIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoomIndex + (wheel > 0 ? 1 : -1)));
-        double newScale = scale();
-        centerX = anchorX - (mouseX - width / 2.0) / newScale;
-        centerZ = anchorZ - (mouseY - height / 2.0) / newScale;
+        anchorScreenX = Mouse.getEventX() * (double) width / mc.displayWidth;
+        anchorScreenY = height - Mouse.getEventY() * (double) height / mc.displayHeight;
+        anchorWorldX = centerX + (anchorScreenX - width / 2.0) / scale;
+        anchorWorldZ = centerZ + (anchorScreenY - height / 2.0) / scale;
+        zoomIndex = newIndex;
+        zooming = true;
     }
 
     @Override
@@ -118,19 +174,8 @@ public class GuiWorldMap extends GuiScreen {
         super.mouseClicked(mouseX, mouseY, button);
         if (button == 0) {
             dragging = true;
-            lastMouseX = mouseX;
-            lastMouseY = mouseY;
-        }
-    }
-
-    @Override
-    protected void mouseClickMove(int mouseX, int mouseY, int button, long timeSinceClick) {
-        super.mouseClickMove(mouseX, mouseY, button, timeSinceClick);
-        if (dragging && button == 0) {
-            centerX -= (mouseX - lastMouseX) / scale();
-            centerZ -= (mouseY - lastMouseY) / scale();
-            lastMouseX = mouseX;
-            lastMouseY = mouseY;
+            lastRawMouseX = Mouse.getX();
+            lastRawMouseY = Mouse.getY();
         }
     }
 
@@ -151,6 +196,8 @@ public class GuiWorldMap extends GuiScreen {
         if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
             centerX = mc.thePlayer.posX;
             centerZ = mc.thePlayer.posZ;
+            zooming = false;
+            scale = Config.MAP_ZOOMS[zoomIndex];
             return;
         }
         super.keyTyped(typedChar, keyCode);

@@ -18,13 +18,17 @@ public class MapDimension {
 
     public final int dimensionId;
     private final File directory;
+    private final ExecutorService loadExecutor;
     private final Map<Long, MapRegion> regions = new HashMap<>();
+    /** Regions being read from disk in the background. */
+    private final Map<Long, Future<MapRegion>> loading = new HashMap<>();
     /** Regions known to have no file on disk, so we don't probe the file system every frame. */
     private final Set<Long> missing = new HashSet<>();
 
-    public MapDimension(int dimensionId, File directory) {
+    public MapDimension(int dimensionId, File directory, ExecutorService loadExecutor) {
         this.dimensionId = dimensionId;
         this.directory = directory;
+        this.loadExecutor = loadExecutor;
     }
 
     private static long key(int rx, int rz) {
@@ -37,7 +41,7 @@ public class MapDimension {
     }
 
     /**
-     * Returns the region, loading it from disk if needed.
+     * Returns the region, loading it from disk if needed. Blocks while the region is being read.
      *
      * @param create create an empty region if none exists on disk
      * @return the region, or null if it doesn't exist and {@code create} is false
@@ -48,33 +52,73 @@ public class MapDimension {
         if (region != null) {
             return region;
         }
-        if (!missing.contains(key)) {
-            File file = MapRegion.getFile(directory, rx, rz);
-            if (file.isFile()) {
-                try {
-                    region = MapRegion.read(file, rx, rz);
-                } catch (Exception e) {
-                    WayFarMap.LOG.warn("Could not load map region " + file, e);
-                }
-            }
-            if (region == null) {
-                missing.add(key);
-            }
+        Future<MapRegion> pending = loading.remove(key);
+        if (pending != null) {
+            region = await(pending);
+        } else if (!missing.contains(key)) {
+            region = readFile(directory, rx, rz);
         }
-        if (region == null && create) {
+        if (region == null) {
+            missing.add(key);
+            if (!create) {
+                return null;
+            }
             region = new MapRegion(rx, rz);
             missing.remove(key);
         }
-        if (region != null) {
+        regions.put(key, region);
+        return region;
+    }
+
+    /**
+     * Non-blocking lookup for rendering: returns the region if it is in memory, otherwise starts reading it in the
+     * background and returns null until it is ready.
+     */
+    public MapRegion requestRegion(int rx, int rz) {
+        long key = key(rx, rz);
+        MapRegion region = regions.get(key);
+        if (region != null || missing.contains(key)) {
+            return region;
+        }
+        Future<MapRegion> pending = loading.get(key);
+        if (pending == null) {
+            final File dir = directory;
+            loading.put(key, loadExecutor.submit(() -> readFile(dir, rx, rz)));
+            return null;
+        }
+        if (!pending.isDone()) {
+            return null;
+        }
+        loading.remove(key);
+        region = await(pending);
+        if (region == null) {
+            missing.add(key);
+        } else {
             regions.put(key, region);
         }
         return region;
     }
 
-    /** Whether a region may exist but has not been loaded yet (i.e. loading it would touch the disk). */
-    public boolean needsDiskLoad(int rx, int rz) {
-        long key = key(rx, rz);
-        return !regions.containsKey(key) && !missing.contains(key);
+    private static MapRegion await(Future<MapRegion> future) {
+        try {
+            return future.get();
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Could not load map region", e);
+            return null;
+        }
+    }
+
+    private static MapRegion readFile(File directory, int rx, int rz) {
+        File file = MapRegion.getFile(directory, rx, rz);
+        if (!file.isFile()) {
+            return null;
+        }
+        try {
+            return MapRegion.read(file, rx, rz);
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Could not load map region " + file, e);
+            return null;
+        }
     }
 
     /** Queues all modified regions for writing on the given executor. */

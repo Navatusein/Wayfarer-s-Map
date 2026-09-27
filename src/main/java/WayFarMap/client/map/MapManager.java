@@ -39,11 +39,8 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Regions farther than this from the player are released when no fullscreen map is open. */
     private static final int KEEP_REGION_RADIUS = 2;
 
-    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread thread = new Thread(r, "WayFarMap saver");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService saveExecutor = createExecutor("WayFarMap saver");
+    private final ExecutorService loadExecutor = createExecutor("WayFarMap loader");
 
     private WorldClient currentWorld;
     private MapDimension dimension;
@@ -55,6 +52,14 @@ public class MapManager implements IResourceManagerReloadListener {
     private long lastAutosave;
 
     private MapManager() {}
+
+    private static ExecutorService createExecutor(String name) {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, name);
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
 
     /** Map of the dimension the player is in, or null outside of a world. */
     public MapDimension getDimension() {
@@ -117,7 +122,7 @@ public class MapManager implements IResourceManagerReloadListener {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
         File directory = new File(new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc)), "dim" + dimensionId);
-        dimension = new MapDimension(dimensionId, directory);
+        dimension = new MapDimension(dimensionId, directory, loadExecutor);
         lastAutosave = System.currentTimeMillis();
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, directory);
     }

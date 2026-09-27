@@ -13,9 +13,6 @@ import WayFarMap.client.map.MapRegion;
 /** Shared drawing code of the minimap and the fullscreen map. */
 public final class MapDrawer {
 
-    /** How many regions may be read from disk per frame, to avoid freezing when zooming out. */
-    private static final int DISK_LOADS_PER_FRAME = 2;
-
     private MapDrawer() {}
 
     /**
@@ -42,20 +39,13 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
-        int diskLoads = 0;
         Tessellator tessellator = Tessellator.instance;
         for (int rx = rx0; rx <= rx1; rx++) {
             for (int rz = rz0; rz <= rz1; rz++) {
-                MapRegion region = dimension.getLoadedRegion(rx, rz);
+                // Regions on disk are read in the background; they pop in once loaded.
+                MapRegion region = dimension.requestRegion(rx, rz);
                 if (region == null) {
-                    if (!dimension.needsDiskLoad(rx, rz) || diskLoads >= DISK_LOADS_PER_FRAME) {
-                        continue;
-                    }
-                    diskLoads++;
-                    region = dimension.getRegion(rx, rz, false);
-                    if (region == null) {
-                        continue;
-                    }
+                    continue;
                 }
 
                 // Part of the region that is inside the view, in block coordinates.
@@ -69,7 +59,7 @@ public final class MapDrawer {
                     continue;
                 }
 
-                GL11.glBindTexture(GL11.GL_TEXTURE_2D, region.getTextureId());
+                region.bindTexture();
                 double u0 = (bx0 - regionX) / MapRegion.SIZE;
                 double v0 = (bz0 - regionZ) / MapRegion.SIZE;
                 double u1 = (bx1 - regionX) / MapRegion.SIZE;
