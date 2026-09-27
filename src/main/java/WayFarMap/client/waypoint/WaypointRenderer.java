@@ -18,6 +18,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.MapManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
@@ -80,9 +81,9 @@ public class WaypointRenderer {
         }
 
         if (label) {
-            int[] rect = getLabelRect(waypoint, sx, sy, size);
+            int[] rect = getLabelRect(waypoint, sx, sy, size, false);
             if (rect != null) {
-                drawMapLabel(waypoint, rect);
+                drawMapLabel(waypoint, rect, false);
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -92,21 +93,30 @@ public class WaypointRenderer {
      * Screen rectangle {x0, y0, x1, y1} of the name label under a marker of the given size, or null if the waypoint
      * has no name.
      */
-    public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size) {
+    public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, boolean fullName) {
         if (waypoint.name.isEmpty()) {
             return null;
         }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int width = font.getStringWidth(waypoint.name);
+        int width = font.getStringWidth(labelText(waypoint, fullName));
         int tx = (int) Math.round(sx) - width / 2;
         int ty = (int) Math.round(sy) + Math.round(size / 2f) + 3;
         return new int[] { tx - 2, ty - 1, tx + width + 2, ty + 9 };
     }
 
-    public static void drawMapLabel(Waypoint waypoint, int[] rect) {
-        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], 0x90000000);
-        Minecraft.getMinecraft().fontRenderer.drawStringWithShadow(waypoint.name, rect[0] + 2, rect[1] + 1, 0xFFFFFF);
+    public static void drawMapLabel(Waypoint waypoint, int[] rect, boolean fullName) {
+        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], Theme.LABEL_BG);
+        Minecraft.getMinecraft().fontRenderer
+            .drawString(labelText(waypoint, fullName), rect[0] + 2, rect[1] + 1, Theme.TEXT);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** The name, cut to {@link Config#waypointLabelMaxWidth} unless the full name is wanted (e.g. on hover). */
+    public static String labelText(Waypoint waypoint, boolean fullName) {
+        if (fullName) {
+            return waypoint.name;
+        }
+        return Theme.ellipsize(Minecraft.getMinecraft().fontRenderer, waypoint.name, Config.waypointLabelMaxWidth);
     }
 
     /**
@@ -207,7 +217,8 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-        int nameWidth = font.getStringWidth(waypoint.name);
+        String name = labelText(waypoint, false);
+        int nameWidth = font.getStringWidth(name);
         int distanceWidth = font.getStringWidth(distanceText);
         int boxHalf = Math.max(nameWidth, distanceWidth) / 2 + 3;
         int top = 0;
@@ -220,7 +231,7 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         int textY = top + 2;
         if (!waypoint.name.isEmpty()) {
-            font.drawString(waypoint.name, -nameWidth / 2, textY, 0xFFFFFFFF);
+            font.drawString(name, -nameWidth / 2, textY, 0xFFFFFFFF);
             textY += 10;
         }
         font.drawString(distanceText, -distanceWidth / 2, textY, 0xFFC0C0C0);

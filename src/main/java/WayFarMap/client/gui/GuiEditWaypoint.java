@@ -11,6 +11,9 @@ import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Keyboard;
 
+import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
@@ -37,7 +40,7 @@ public class GuiEditWaypoint extends GuiScreen {
 
     private GuiTextField nameField, xField, yField, zField, newGroupField, colorField;
     private final List<GuiTextField> fields = new ArrayList<>();
-    private GuiButton deleteButton;
+    private FlatButton deleteButton;
     private boolean confirmDelete;
     private int left, top;
 
@@ -70,23 +73,27 @@ public class GuiEditWaypoint extends GuiScreen {
         yField = field(left + 75, top + 58, 70, String.valueOf(edited.y), 4);
         zField = field(left + 150, top + 58, 70, String.valueOf(edited.z), 9);
         newGroupField = field(left, top + 107, 170, "", 32);
+        ((FlatTextField) newGroupField).setHint(I18n.format("wayfarmap.gui.new_group_hint"));
         colorField = field(left + 144, top + 155, 76, String.format("#%06X", outlineColor), 7);
         nameField.setFocused(true);
 
-        buttonList.add(new GuiButton(ID_GROUP, left, top + 82, 220, 20, ""));
-        buttonList.add(new GuiButton(ID_NEW_GROUP, left + 174, top + 106, 46, 20, "+"));
-        buttonList.add(new GuiButton(ID_ICON, left, top + 130, 220, 20, ""));
-        buttonList.add(new GuiButton(ID_OUTLINE, left, top + 154, 140, 20, ""));
-        buttonList.add(new GuiButton(ID_SAVE, left, top + 198, 70, 20, I18n.format("wayfarmap.gui.save")));
-        deleteButton = new GuiButton(ID_DELETE, left + 75, top + 198, 70, 20, "");
+        buttonList.add(new FlatButton(ID_GROUP, left, top + 83, 220, 18, ""));
+        buttonList.add(new FlatButton(ID_NEW_GROUP, left + 174, top + 107, 46, 18, "+"));
+        buttonList.add(new FlatButton(ID_ICON, left, top + 131, 220, 18, ""));
+        buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
+        FlatButton saveButton = new FlatButton(ID_SAVE, left, top + 199, 70, 18, I18n.format("wayfarmap.gui.save"));
+        saveButton.active = true;
+        buttonList.add(saveButton);
+        deleteButton = new FlatButton(ID_DELETE, left + 75, top + 199, 70, 18, "");
+        deleteButton.danger = true;
         deleteButton.enabled = target != null;
         buttonList.add(deleteButton);
-        buttonList.add(new GuiButton(ID_CANCEL, left + 150, top + 198, 70, 20, I18n.format("gui.cancel")));
+        buttonList.add(new FlatButton(ID_CANCEL, left + 150, top + 199, 70, 18, I18n.format("gui.cancel")));
         updateButtons();
     }
 
     private GuiTextField field(int x, int y, int width, String text, int maxLength) {
-        GuiTextField field = new GuiTextField(fontRendererObj, x, y, width, 18);
+        FlatTextField field = new FlatTextField(fontRendererObj, x, y, width, 18);
         field.setMaxStringLength(maxLength);
         field.setText(text);
         fields.add(field);
@@ -303,31 +310,28 @@ public class GuiEditWaypoint extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        drawDefaultBackground();
-        drawCenteredString(
+        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
+        Theme.panel(left - 30, top - 8, left + 230, top + 226);
+        Theme.text(
             fontRendererObj,
             I18n.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
-            width / 2,
+            left,
             top,
-            0xFFFFFF);
+            Theme.ACCENT);
 
-        fontRendererObj.drawString(I18n.format("wayfarmap.gui.name"), left, top + 14, 0xA0A0A0);
-        fontRendererObj.drawString("X", left, top + 48, 0xA0A0A0);
-        fontRendererObj.drawString("Y", left + 75, top + 48, 0xA0A0A0);
-        fontRendererObj.drawString("Z", left + 150, top + 48, 0xA0A0A0);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.name"), left, top + 14, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, "X", left, top + 48, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, "Y", left + 75, top + 48, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, "Z", left + 150, top + 48, Theme.TEXT_MUTED);
         for (GuiTextField field : fields) {
             field.drawTextBox();
-        }
-        if (newGroupField.getText()
-            .isEmpty() && !newGroupField.isFocused()) {
-            fontRendererObj.drawString(I18n.format("wayfarmap.gui.new_group_hint"), left + 4, top + 112, 0x707070);
         }
 
         for (int i = 0; i < PALETTE.length; i++) {
             int x = left + i * SWATCH;
             int y = top + 179;
             boolean selected = edited.outlineColor != null && edited.outlineColor == PALETTE[i];
-            drawRect(x, y, x + SWATCH - 1, y + 12, selected ? 0xFFFFFFFF : 0xFF000000);
+            drawRect(x, y, x + SWATCH - 1, y + 12, selected ? Theme.ACCENT : Theme.BORDER);
             drawRect(x + 1, y + 1, x + SWATCH - 2, y + 11, 0xFF000000 | PALETTE[i]);
         }
 

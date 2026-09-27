@@ -14,6 +14,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.Waypoint;
@@ -64,8 +65,9 @@ public class MinimapRenderer {
         double scale = Config.MINIMAP_ZOOMS[Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom))];
 
         GL11.glPushMatrix();
-        Gui.drawRect(x - 1, y - 1, x + size + 1, y + size + 1, 0xFF000000);
-        Gui.drawRect(x, y, x + size, y + size, 0xFF202020);
+        Gui.drawRect(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
+        Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, Theme.BORDER);
+        Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
 
         MapDrawer.drawMap(dimension, px, pz, scale, x, y, size, size);
         MapDrawer.drawEntities(mc, px, pz, scale, x, y, size, size, partialTicks, 6f, false);

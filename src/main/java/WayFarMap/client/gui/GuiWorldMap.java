@@ -15,6 +15,8 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
+import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
@@ -34,7 +36,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2;
+    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3;
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -49,8 +51,8 @@ public class GuiWorldMap extends GuiScreen {
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
 
-    private GuiButton dayButton;
-    private GuiButton nightButton;
+    private FlatButton dayButton;
+    private FlatButton nightButton;
 
     private boolean dragging;
     private int lastRawMouseX;
@@ -68,26 +70,27 @@ public class GuiWorldMap extends GuiScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
-        buttonList.add(new GuiButton(ID_WAYPOINTS, 4, 2, 90, 20, I18n.format("wayfarmap.gui.waypoints")));
-        dayButton = new GuiButton(ID_DAY, width - 150, 2, 50, 20, "");
-        nightButton = new GuiButton(ID_NIGHT, width - 98, 2, 50, 20, "");
+        buttonList.add(new FlatButton(ID_WAYPOINTS, 4, 4, 80, 16, I18n.format("wayfarmap.gui.waypoints")));
+        buttonList.add(new FlatButton(ID_SETTINGS, 88, 4, 80, 16, I18n.format("wayfarmap.gui.settings")));
+        dayButton = new FlatButton(ID_DAY, width - 140, 4, 48, 16, I18n.format("wayfarmap.gui.day"));
+        nightButton = new FlatButton(ID_NIGHT, width - 90, 4, 48, 16, I18n.format("wayfarmap.gui.night"));
         buttonList.add(dayButton);
         buttonList.add(nightButton);
         updateLightButtons();
     }
 
-    /** Active mode is shown in green; with both off the map follows the time of day. */
+    /** The forced mode is highlighted; with both off the map follows the time of day. */
     private void updateLightButtons() {
-        dayButton.displayString = (Config.mapLightMode == Config.LIGHT_DAY ? "\u00a7a" : "")
-            + I18n.format("wayfarmap.gui.day");
-        nightButton.displayString = (Config.mapLightMode == Config.LIGHT_NIGHT ? "\u00a7a" : "")
-            + I18n.format("wayfarmap.gui.night");
+        dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
+        nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_SETTINGS) {
+            mc.displayGuiScreen(new GuiSettings(this));
         } else if (button.id == ID_DAY) {
             Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_AUTO : Config.LIGHT_DAY);
             updateLightButtons();
@@ -140,7 +143,7 @@ public class GuiWorldMap extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        drawRect(0, 0, width, height, 0xFF101010);
+        drawRect(0, 0, width, height, 0xFF0C0E11);
 
         MapDimension dimension = MapManager.INSTANCE.getDimension();
         if (dimension == null || mc.thePlayer == null) {
@@ -165,15 +168,17 @@ public class GuiWorldMap extends GuiScreen {
         }
 
         // Header and footer.
-        drawRect(0, 0, width, HEADER_HEIGHT, 0xA0000000);
-        if (width >= 420) {
-            drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 8, 0xFFFFFF);
+        Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
+        Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
+        if (width >= 440) {
+            Theme.centered(fontRendererObj, I18n.format("wayfarmap.gui.title"), width / 2, 8, Theme.TEXT_MUTED);
         }
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
-        fontRendererObj.drawStringWithShadow(zoomText, width - 4 - fontRendererObj.getStringWidth(zoomText), 8, 0xAAAAAA);
+        Theme.text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
 
-        drawRect(0, height - FOOTER_HEIGHT, width, height, 0xA0000000);
+        Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
+        Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
         int hoverX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale);
         int hoverZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale);
         String cursorText = "X: " + hoverX + "  Z: " + hoverZ;
@@ -185,10 +190,9 @@ public class GuiWorldMap extends GuiScreen {
             cursorText = hoveredWaypoint.name + "  (" + hoveredWaypoint.x + ", " + hoveredWaypoint.y + ", "
                 + hoveredWaypoint.z + ")";
         }
-        fontRendererObj.drawStringWithShadow(cursorText, 4, height - 11, 0xFFFFFF);
+        Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String help = I18n.format("wayfarmap.gui.help");
-        fontRendererObj
-            .drawStringWithShadow(help, width - 4 - fontRendererObj.getStringWidth(help), height - 11, 0xAAAAAA);
+        Theme.text(fontRendererObj, help, width - 6 - fontRendererObj.getStringWidth(help), height - 10, Theme.TEXT_MUTED);
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScreen(mouseX, mouseY, partialTicks);
@@ -224,7 +228,8 @@ public class GuiWorldMap extends GuiScreen {
         List<int[]> rects = new ArrayList<>();
         for (int i = onScreen.size() - 1; i >= 0; i--) {
             Waypoint waypoint = onScreen.get(i);
-            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size);
+            int[] rect = WaypointRenderer
+                .getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, waypoint == hovered);
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
                 continue;
             }
@@ -232,7 +237,7 @@ public class GuiWorldMap extends GuiScreen {
             rects.add(rect);
         }
         for (int i = labelled.size() - 1; i >= 0; i--) {
-            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i));
+            WaypointRenderer.drawMapLabel(labelled.get(i), rects.get(i), labelled.get(i) == hovered);
         }
     }
 

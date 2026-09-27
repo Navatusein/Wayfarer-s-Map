@@ -6,7 +6,6 @@ import java.util.Locale;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -14,6 +13,9 @@ import net.minecraft.item.ItemStack;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
+import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.registry.GameData;
 
@@ -36,7 +38,7 @@ public class GuiItemPicker extends GuiScreen {
     private final Callback callback;
     private final List<ItemStack> filtered = new ArrayList<>();
 
-    private GuiTextField search;
+    private FlatTextField search;
     private int gridX, gridY, columns, rows;
     private int scrollRow;
 
@@ -90,15 +92,17 @@ public class GuiItemPicker extends GuiScreen {
         gridY = 44;
 
         String oldText = search != null ? search.getText() : "";
-        search = new GuiTextField(fontRendererObj, gridX, 22, columns * CELL, 16);
+        search = new FlatTextField(fontRendererObj, gridX, 22, columns * CELL, 16)
+            .setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
         search.setFocused(true);
 
         buttonList.clear();
         int buttonY = gridY + rows * CELL + 8;
-        buttonList.add(new GuiButton(0, width / 2 - 154, buttonY, 150, 20, I18n.format("wayfarmap.gui.no_icon")));
-        buttonList.add(new GuiButton(1, width / 2 + 4, buttonY, 150, 20, I18n.format("gui.cancel")));
+        int half = (columns * CELL - 4) / 2;
+        buttonList.add(new FlatButton(0, gridX, buttonY, half, 18, I18n.format("wayfarmap.gui.no_icon")));
+        buttonList.add(new FlatButton(1, gridX + columns * CELL - half, buttonY, half, 18, I18n.format("gui.cancel")));
         applyFilter();
     }
 
@@ -182,12 +186,13 @@ public class GuiItemPicker extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        drawDefaultBackground();
-        drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.pick_icon"), width / 2, 8, 0xFFFFFF);
+        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
+        Theme.panel(gridX - 8, 4, gridX + columns * CELL + 8, gridY + rows * CELL + 34);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_icon"), gridX, 11, Theme.ACCENT);
         search.drawTextBox();
 
-        drawRect(gridX - 1, gridY - 1, gridX + columns * CELL + 1, gridY + rows * CELL + 1, 0xFF000000);
-        drawRect(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, 0xFF303030);
+        Theme.fill(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, 0xFF0F1216);
+        Theme.outline(gridX - 1, gridY - 1, gridX + columns * CELL + 1, gridY + rows * CELL + 1, Theme.BORDER);
         int hovered = stackIndexAt(mouseX, mouseY);
         int first = scrollRow * columns;
         for (int i = 0; i < rows * columns; i++) {
@@ -198,13 +203,14 @@ public class GuiItemPicker extends GuiScreen {
             int cx = gridX + (i % columns) * CELL;
             int cy = gridY + (i / columns) * CELL;
             if (index == hovered) {
-                drawRect(cx, cy, cx + CELL, cy + CELL, 0xFF707070);
+                drawRect(cx, cy, cx + CELL, cy + CELL, Theme.CONTROL_HOVER);
+                Theme.outline(cx, cy, cx + CELL, cy + CELL, Theme.ACCENT);
             }
             WaypointRenderer.drawItem(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
         }
 
         String count = filtered.size() + "";
-        fontRendererObj.drawString(count, gridX + columns * CELL - fontRendererObj.getStringWidth(count), 12, 0x808080);
+        Theme.text(fontRendererObj, count, gridX + columns * CELL - fontRendererObj.getStringWidth(count), 11, Theme.TEXT_MUTED);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
 

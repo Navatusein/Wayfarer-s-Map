@@ -7,13 +7,15 @@ import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
+import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
@@ -66,8 +68,8 @@ public class GuiWaypointList extends GuiScreen {
     private int listLeft, listRight, listTop, listBottom;
     private int scroll;
 
-    private GuiTextField groupField;
-    private GuiButton groupActionButton;
+    private FlatTextField groupField;
+    private FlatButton groupActionButton;
     private WaypointGroup renamingGroup;
     private Object pendingDelete;
     private long pendingDeleteTime;
@@ -82,20 +84,29 @@ public class GuiWaypointList extends GuiScreen {
         int panelWidth = Math.min(width - 20, 380);
         listLeft = (width - panelWidth) / 2;
         listRight = listLeft + panelWidth;
-        listTop = 24;
-        listBottom = height - 56;
+        listTop = 28;
+        listBottom = height - 58;
 
         buttonList.clear();
         int bottom = height - 50;
         String oldText = groupField != null ? groupField.getText() : "";
-        groupField = new GuiTextField(fontRendererObj, listLeft, bottom + 1, panelWidth - 124, 18);
+        groupField = new FlatTextField(fontRendererObj, listLeft, bottom, panelWidth - 124, 18)
+            .setHint(I18n.format("wayfarmap.gui.new_group_hint"));
         groupField.setMaxStringLength(32);
         groupField.setText(oldText);
-        groupActionButton = new GuiButton(ID_GROUP_ACTION, listRight - 120, bottom, 120, 20, "");
+        groupActionButton = new FlatButton(ID_GROUP_ACTION, listRight - 120, bottom, 120, 18, "");
         buttonList.add(groupActionButton);
-        buttonList.add(
-            new GuiButton(ID_NEW_WAYPOINT, width / 2 - 154, bottom + 24, 150, 20, I18n.format("wayfarmap.gui.new_waypoint")));
-        buttonList.add(new GuiButton(ID_DONE, width / 2 + 4, bottom + 24, 150, 20, I18n.format("gui.done")));
+        int half = (panelWidth - 4) / 2;
+        FlatButton newWaypoint = new FlatButton(
+            ID_NEW_WAYPOINT,
+            listLeft,
+            bottom + 24,
+            half,
+            18,
+            I18n.format("wayfarmap.gui.new_waypoint"));
+        newWaypoint.active = true;
+        buttonList.add(newWaypoint);
+        buttonList.add(new FlatButton(ID_DONE, listRight - half, bottom + 24, half, 18, I18n.format("gui.done")));
         updateGroupButton();
         rebuildRows();
     }
@@ -247,10 +258,11 @@ public class GuiWaypointList extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        drawDefaultBackground();
-        drawCenteredString(fontRendererObj, I18n.format("wayfarmap.gui.waypoints"), width / 2, 8, 0xFFFFFF);
-        drawRect(listLeft - 1, listTop - 1, listRight + 1, listBottom + 1, 0xFF000000);
-        drawRect(listLeft, listTop, listRight, listBottom, 0xC0101010);
+        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
+        Theme.panel(listLeft - 8, 6, listRight + 8, height - 6);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.waypoints"), listLeft, 14, Theme.ACCENT);
+        Theme.fill(listLeft, listTop - 1, listRight, listBottom + 1, 0xFF0F1216);
+        Theme.outline(listLeft - 1, listTop - 2, listRight + 1, listBottom + 2, Theme.BORDER);
 
         hits.clear();
         int visibleRows = (listBottom - listTop) / ROW_HEIGHT;
@@ -262,7 +274,7 @@ public class GuiWaypointList extends GuiScreen {
                 drawGroupRow(row, y, mouseX, mouseY);
             } else {
                 if (hovered) {
-                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, 0x30FFFFFF);
+                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.ROW_HOVER);
                 }
                 drawWaypointRow(row.waypoint, y, mouseX, mouseY);
             }
@@ -272,21 +284,17 @@ public class GuiWaypointList extends GuiScreen {
             int trackHeight = listBottom - listTop;
             int barHeight = Math.max(10, trackHeight * visibleRows / rows.size());
             int barY = listTop + (trackHeight - barHeight) * scroll / Math.max(1, maxScroll());
-            drawRect(listRight - 3, barY, listRight - 1, barY + barHeight, 0xFF808080);
+            drawRect(listRight - 3, barY, listRight - 1, barY + barHeight, Theme.BORDER);
         }
 
         groupField.drawTextBox();
-        if (groupField.getText()
-            .isEmpty() && !groupField.isFocused()) {
-            fontRendererObj
-                .drawString(I18n.format("wayfarmap.gui.new_group_hint"), listLeft + 4, height - 44, 0x707070);
-        }
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
     private void drawGroupRow(Row row, int y, int mouseX, int mouseY) {
         WaypointManager manager = WaypointManager.INSTANCE;
-        drawRect(listLeft, y, listRight, y + ROW_HEIGHT, 0x60404060);
+        drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.PANEL_ALT);
+        drawRect(listLeft, y + ROW_HEIGHT - 1, listRight, y + ROW_HEIGHT, Theme.BORDER);
         String key = row.ungrouped ? UNGROUPED_KEY : row.group.name;
         boolean visible = row.ungrouped ? manager.isUngroupedVisible() : row.group.visible;
         final WaypointGroup group = row.group;
@@ -309,7 +317,7 @@ public class GuiWaypointList extends GuiScreen {
                 .size()
             + ")";
         int titleWidth = fontRendererObj.getStringWidth(title);
-        fontRendererObj.drawStringWithShadow(title, x, y + 6, visible ? 0xFFFFA0 : 0x808080);
+        fontRendererObj.drawString(title, x, y + 6, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
         hits.add(new Hit(x, y, x + titleWidth, y + ROW_HEIGHT, () -> {
             if (!collapsed.remove(key)) {
                 collapsed.add(key);
@@ -325,21 +333,21 @@ public class GuiWaypointList extends GuiScreen {
             bx,
             y + 4,
             I18n.format(isPendingDelete(group) ? "wayfarmap.gui.confirm" : "wayfarmap.gui.delete"),
-            0xFF5555,
+            Theme.DANGER,
             mouseX,
             mouseY,
             () -> confirmDelete(group, () -> manager.removeGroup(group)));
-        bx = drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.rename"), 0xFFFFFF, mouseX, mouseY, () -> {
+        bx = drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.rename"), Theme.TEXT, mouseX, mouseY, () -> {
             renamingGroup = group;
             groupField.setText(group.name);
             groupField.setFocused(true);
             updateGroupButton();
         });
-        bx = drawTextButton(bx, y + 4, "v", 0xFFFFFF, mouseX, mouseY, () -> {
+        bx = drawTextButton(bx, y + 4, "v", Theme.TEXT, mouseX, mouseY, () -> {
             manager.moveGroup(group, 1);
             rebuildRows();
         });
-        drawTextButton(bx, y + 4, "^", 0xFFFFFF, mouseX, mouseY, () -> {
+        drawTextButton(bx, y + 4, "^", Theme.TEXT, mouseX, mouseY, () -> {
             manager.moveGroup(group, -1);
             rebuildRows();
         });
@@ -357,8 +365,8 @@ public class GuiWaypointList extends GuiScreen {
         x += 18;
 
         boolean shown = manager.isVisible(waypoint);
-        String name = waypoint.name.isEmpty() ? "-" : waypoint.name;
-        fontRendererObj.drawStringWithShadow(name, x, y + 6, shown ? 0xFFFFFF : 0x808080);
+        String name = waypoint.name.isEmpty() ? "-" : Theme.ellipsize(fontRendererObj, waypoint.name, 140);
+        fontRendererObj.drawString(name, x, y + 6, shown ? Theme.TEXT : Theme.TEXT_DISABLED);
         x += fontRendererObj.getStringWidth(name) + 6;
 
         String info = waypoint.x + " " + waypoint.y + " " + waypoint.z;
@@ -369,14 +377,14 @@ public class GuiWaypointList extends GuiScreen {
             double dz = waypoint.z + 0.5 - mc.thePlayer.posZ;
             info += "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m";
         }
-        fontRendererObj.drawString(info, x, y + 6, 0x909090);
+        fontRendererObj.drawString(info, x, y + 6, Theme.TEXT_MUTED);
 
         int bx = listRight - 4;
         bx = drawTextButton(
             bx,
             y + 4,
             I18n.format(isPendingDelete(waypoint) ? "wayfarmap.gui.confirm" : "wayfarmap.gui.delete"),
-            0xFF5555,
+            Theme.DANGER,
             mouseX,
             mouseY,
             () -> confirmDelete(waypoint, () -> manager.removeWaypoint(waypoint)));
@@ -384,7 +392,7 @@ public class GuiWaypointList extends GuiScreen {
             bx,
             y + 4,
             I18n.format("wayfarmap.gui.edit"),
-            0xFFFFFF,
+            Theme.TEXT,
             mouseX,
             mouseY,
             () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint)));
@@ -392,10 +400,10 @@ public class GuiWaypointList extends GuiScreen {
 
     private void drawCheckbox(int x, int y, boolean checked, int mouseX, int mouseY, Runnable action) {
         boolean hovered = mouseX >= x && mouseX < x + 10 && mouseY >= y && mouseY < y + 10;
-        drawRect(x, y, x + 10, y + 10, hovered ? 0xFFFFFFFF : 0xFFA0A0A0);
-        drawRect(x + 1, y + 1, x + 9, y + 9, 0xFF202020);
+        drawRect(x, y, x + 10, y + 10, checked ? Theme.ACCENT : Theme.CONTROL);
+        Theme.outline(x, y, x + 10, y + 10, hovered ? Theme.TEXT : checked ? Theme.ACCENT : Theme.BORDER);
         if (checked) {
-            drawRect(x + 2, y + 2, x + 8, y + 8, 0xFF55FF55);
+            drawRect(x + 3, y + 3, x + 7, y + 7, Theme.TEXT);
         }
         hits.add(new Hit(x - 1, y - 1, x + 11, y + 11, action));
     }
@@ -405,7 +413,8 @@ public class GuiWaypointList extends GuiScreen {
         int w = fontRendererObj.getStringWidth(label) + 8;
         int x0 = right - w;
         boolean hovered = mouseX >= x0 && mouseX < right && mouseY >= y && mouseY < y + 12;
-        drawRect(x0, y, right, y + 12, hovered ? 0xFF606060 : 0xFF383838);
+        drawRect(x0, y, right, y + 12, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
+        Theme.outline(x0, y, right, y + 12, hovered ? Theme.ACCENT : Theme.BORDER);
         fontRendererObj.drawString(label, x0 + 4, y + 2, color);
         hits.add(new Hit(x0, y, right, y + 12, action));
         return x0 - 3;

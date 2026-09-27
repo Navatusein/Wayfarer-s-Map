@@ -6,13 +6,17 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.IMob;
 import net.minecraft.entity.passive.IAnimals;
 import net.minecraft.entity.player.EntityPlayer;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
 import WayFarMap.client.map.MapDimension;
@@ -179,6 +183,7 @@ public final class MapDrawer {
         int height, float partialTicks, float playerSize, boolean showNames) {
         double playerY = mc.thePlayer.posY;
         List<EntityPlayer> players = new ArrayList<>();
+        List<EntityLivingBase> mobs = new ArrayList<>();
         for (Object o : mc.theWorld.loadedEntityList) {
             if (!(o instanceof EntityLivingBase) || o == mc.thePlayer) {
                 continue;
@@ -190,28 +195,37 @@ public final class MapDrawer {
                 }
                 continue;
             }
-            if (entity.isInvisible() || Math.abs(entity.posY - playerY) > Config.entityVerticalRange) {
+            if (entity.isInvisible() || entity.isDead
+                || Math.abs(entity.posY - playerY) > Config.entityVerticalRange
+                || entityColor(entity) == 0) {
                 continue;
             }
-            int color;
-            if (entity instanceof IMob) {
-                if (!Config.showHostileMobs) continue;
-                color = HOSTILE_COLOR;
-            } else if (entity instanceof IAnimals) {
-                if (!Config.showPassiveMobs) continue;
-                color = PASSIVE_COLOR;
-            } else {
-                if (!Config.showOtherEntities) continue;
-                color = OTHER_COLOR;
+            double sx = x + width / 2.0 + (entity.posX - centerX) * scale;
+            double sy = y + height / 2.0 + (entity.posZ - centerZ) * scale;
+            if (sx < x + 2 || sy < y + 2 || sx > x + width - 2 || sy > y + height - 2) {
+                continue;
             }
+            mobs.add(entity);
+        }
+
+        // The nearest mobs get a model, the rest a dot; far ones are drawn first so near ones end up on top.
+        final double cx = centerX, cz = centerZ;
+        mobs.sort((a, b) -> Double.compare(distanceSq(b, cx, cz), distanceSq(a, cx, cz)));
+        int firstIcon = Config.entityIcons ? Math.max(0, mobs.size() - Config.entityIconLimit) : mobs.size();
+        float iconSize = playerSize + 2f;
+        for (int i = 0; i < mobs.size(); i++) {
+            EntityLivingBase entity = mobs.get(i);
             double ex = entity.prevPosX + (entity.posX - entity.prevPosX) * partialTicks;
             double ez = entity.prevPosZ + (entity.posZ - entity.prevPosZ) * partialTicks;
             double sx = x + width / 2.0 + (ex - centerX) * scale;
             double sy = y + height / 2.0 + (ez - centerZ) * scale;
-            if (sx < x + 2 || sy < y + 2 || sx > x + width - 2 || sy > y + height - 2) {
-                continue;
+            int color = entityColor(entity);
+            float half = iconSize / 2f;
+            if (i >= firstIcon && sx >= x + half && sy >= y + half && sx <= x + width - half && sy <= y + height - half) {
+                drawEntityIcon(entity, sx, sy, iconSize, color);
+            } else {
+                drawDot(sx, sy, 1f, color);
             }
-            drawDot(sx, sy, 1f, color);
         }
 
         // Players on top of mobs.
@@ -235,6 +249,97 @@ public final class MapDrawer {
                     0xFFFFFF);
             }
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static double distanceSq(EntityLivingBase entity, double x, double z) {
+        double dx = entity.posX - x, dz = entity.posZ - z;
+        return dx * dx + dz * dz;
+    }
+
+    /** Marker color by kind of mob, or 0 if that kind is hidden. */
+    private static int entityColor(EntityLivingBase entity) {
+        if (entity instanceof IMob) {
+            return Config.showHostileMobs ? HOSTILE_COLOR : 0;
+        }
+        if (entity instanceof IAnimals) {
+            return Config.showPassiveMobs ? PASSIVE_COLOR : 0;
+        }
+        return Config.showOtherEntities ? OTHER_COLOR : 0;
+    }
+
+    /**
+     * Draws the mob's own model, facing the viewer, on a small tinted tile that tells hostile, passive and other mobs
+     * apart. Follows what the inventory screen does to draw the player.
+     */
+    private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color) {
+        double half = size / 2.0;
+        Tessellator tessellator = Tessellator.instance;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        fillRect(tessellator, sx - half - 1, sy - half - 1, sx + half + 1, sy + half + 1, color);
+        fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, 0xD0101418);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+
+        float extent = Math.max(entity.height, entity.width * 1.3f);
+        if (extent <= 0.05f) {
+            extent = 1f;
+        }
+        float modelScale = (float) (size * 0.85 / extent);
+
+        float renderYawOffset = entity.renderYawOffset, prevRenderYawOffset = entity.prevRenderYawOffset;
+        float rotationYaw = entity.rotationYaw, prevRotationYaw = entity.prevRotationYaw;
+        float rotationPitch = entity.rotationPitch, prevRotationPitch = entity.prevRotationPitch;
+        float yawHead = entity.rotationYawHead, prevYawHead = entity.prevRotationYawHead;
+        RenderManager renderManager = RenderManager.instance;
+        float viewY = renderManager.playerViewY;
+
+        GL11.glPushMatrix();
+        GL11.glPushAttrib(
+            GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_LIGHTING_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glEnable(GL11.GL_COLOR_MATERIAL);
+        // Each model needs its own depth buffer so its parts overlap correctly and it isn't hidden by the last one.
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(true);
+        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glTranslated(sx, sy + extent * modelScale / 2.0, 50.0);
+        GL11.glScalef(-modelScale, modelScale, modelScale);
+        GL11.glRotatef(180f, 0f, 0f, 1f);
+        GL11.glRotatef(135f, 0f, 1f, 0f);
+        RenderHelper.enableStandardItemLighting();
+        GL11.glRotatef(-135f, 0f, 1f, 0f);
+        // A slight turn gives the flat models some depth.
+        GL11.glRotatef(-25f, 0f, 1f, 0f);
+        try {
+            entity.renderYawOffset = entity.prevRenderYawOffset = 0f;
+            entity.rotationYaw = entity.prevRotationYaw = 0f;
+            entity.rotationPitch = entity.prevRotationPitch = 0f;
+            entity.rotationYawHead = entity.prevRotationYawHead = 0f;
+            GL11.glTranslatef(0f, entity.yOffset, 0f);
+            renderManager.playerViewY = 180f;
+            renderManager.renderEntityWithPosYaw(entity, 0.0, 0.0, 0.0, 0f, 1f);
+        } catch (Throwable ignored) {
+            // A modded renderer that can't draw outside the world just leaves the tile empty.
+        } finally {
+            renderManager.playerViewY = viewY;
+            entity.renderYawOffset = renderYawOffset;
+            entity.prevRenderYawOffset = prevRenderYawOffset;
+            entity.rotationYaw = rotationYaw;
+            entity.prevRotationYaw = prevRotationYaw;
+            entity.rotationPitch = rotationPitch;
+            entity.prevRotationPitch = prevRotationPitch;
+            entity.rotationYawHead = yawHead;
+            entity.prevRotationYawHead = prevYawHead;
+        }
+        RenderHelper.disableStandardItemLighting();
+        GL11.glDisable(GL12.GL_RESCALE_NORMAL);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GL11.glPopAttrib();
+        GL11.glPopMatrix();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
