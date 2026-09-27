@@ -93,7 +93,7 @@ public class WaypointRenderer {
 
     /**
      * Screen rectangle {x0, y0, x1, y1} of the name label under a marker of the given size, or null if the waypoint
-     * has no name.
+     * has neither a name nor a distance (another dimension).
      */
     public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, boolean fullName) {
         return getLabelRect(waypoint, sx, sy, size, 1f);
@@ -101,14 +101,16 @@ public class WaypointRenderer {
 
     /**
      * Screen rectangle {x0, y0, x1, y1} of the name label under a marker, with the text drawn at {@code textScale}
-     * (1 = normal size), or null if the waypoint has no name.
+     * (1 = normal size), or null if there is nothing to show.
      */
     public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, float textScale) {
-        if (waypoint.name.isEmpty()) {
+        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
+        String name = mapLabelName(waypoint);
+        String distance = labelDistance(waypoint);
+        if (name.isEmpty() && distance.isEmpty()) {
             return null;
         }
-        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int textWidth = font.getStringWidth(mapLabelName(waypoint)) + font.getStringWidth(distanceSuffix(waypoint));
+        int textWidth = font.getStringWidth(name) + font.getStringWidth(distance);
         int width = (int) Math.ceil((textWidth + 4) * textScale);
         int height = (int) Math.ceil(10 * textScale);
         int x0 = (int) Math.round(sx) - width / 2;
@@ -129,7 +131,7 @@ public class WaypointRenderer {
         GL11.glTranslatef(rect[0] + 2 * textScale, rect[1] + textScale, 0f);
         GL11.glScalef(textScale, textScale, 1f);
         font.drawString(name, 0, 0, Theme.TEXT);
-        font.drawString(distanceSuffix(waypoint), font.getStringWidth(name), 0, Theme.TEXT_MUTED);
+        font.drawString(labelDistance(waypoint), font.getStringWidth(name), 0, Theme.TEXT_MUTED);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
@@ -140,9 +142,18 @@ public class WaypointRenderer {
      * the map's bottom bar instead.
      */
     private static String mapLabelName(Waypoint waypoint) {
+        if (waypoint.name.isEmpty()) {
+            return "";
+        }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         int room = Config.waypointLabelMaxWidth - font.getStringWidth(distanceSuffix(waypoint));
         return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));
+    }
+
+    /** The distance part of the map label: without a name it stands alone, so no gap before it. */
+    private static String labelDistance(Waypoint waypoint) {
+        String distance = distanceSuffix(waypoint);
+        return waypoint.name.isEmpty() ? distance.trim() : distance;
     }
 
     /** "  123m": distance from the player, shown after the name on the world map. */
