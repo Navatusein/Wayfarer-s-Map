@@ -1,0 +1,7 @@
+key.categories.wayfarmap=Wayfarer's Map
+key.wayfarmap.open_map=Открыть карту мира
+key.wayfarmap.toggle_minimap=Вкл/выкл миникарту
+key.wayfarmap.zoom_in=Приблизить миникарту
+key.wayfarmap.zoom_out=Отдалить миникарту
+wayfarmap.gui.title=Карта мира
+wayfarmap.gui.help=Перетаскивайте мышью, колесо — масштаб, Пробел — к игроку

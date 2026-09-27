@@ -1,0 +1,7 @@
+key.categories.wayfarmap=Wayfarer's Map
+key.wayfarmap.open_map=Open world map
+key.wayfarmap.toggle_minimap=Toggle minimap
+key.wayfarmap.zoom_in=Minimap zoom in
+key.wayfarmap.zoom_out=Minimap zoom out
+wayfarmap.gui.title=World Map
+wayfarmap.gui.help=Drag to move, scroll to zoom, Space to center on player
