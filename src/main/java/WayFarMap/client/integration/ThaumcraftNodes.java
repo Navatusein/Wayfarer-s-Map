@@ -95,13 +95,43 @@ public final class ThaumcraftNodes {
         }
     }
 
+    /** How long the nodes of a dimension are reused before being read again from TCNodeTracker's list. */
+    private static final long CACHE_MS = 1000;
+
+    private static List<Node> cachedNodes;
+    private static List<NodeList> cachedSources;
+    private static int cachedDimension, cachedSize;
+    private static long cachedAt;
+
+    /**
+     * Nodes of the dimension, read again once a second or when the list changes size: building them (sorting the
+     * aspects) every frame for hundreds of nodes is wasted work.
+     */
     private static List<Node> nodes(int dimension) {
+        List<NodeList> sources = TCNodeTracker.nodelist;
+        if (sources == null) {
+            // TCNodeTracker leaves it null when its file is empty.
+            return new ArrayList<>();
+        }
+        long now = System.currentTimeMillis();
+        // A new list (another world) or a node added or removed: read again right away.
+        if (cachedNodes != null && cachedSources == sources
+            && cachedDimension == dimension
+            && cachedSize == sources.size()
+            && now - cachedAt < CACHE_MS) {
+            return cachedNodes;
+        }
         List<Node> result = new ArrayList<>();
-        for (NodeList source : new ArrayList<>(TCNodeTracker.nodelist)) {
+        for (NodeList source : sources) {
             if (source.dim == dimension) {
                 result.add(new Node(source));
             }
         }
+        cachedNodes = result;
+        cachedSources = sources;
+        cachedDimension = dimension;
+        cachedSize = sources.size();
+        cachedAt = now;
         return result;
     }
 
@@ -315,10 +345,10 @@ public final class ThaumcraftNodes {
      */
     public static void renderTrackedInWorld(Minecraft mc, int dimension) {
         int[] target = tracked;
-        if (target == null || target[0] != dimension) {
+        if (target == null || target[0] != dimension || TCNodeTracker.nodelist == null) {
             return;
         }
-        for (NodeList source : new ArrayList<>(TCNodeTracker.nodelist)) {
+        for (NodeList source : TCNodeTracker.nodelist) {
             if (source.dim != target[0] || source.x != target[1] || source.y != target[2] || source.z != target[3]) {
                 continue;
             }
@@ -376,10 +406,11 @@ public final class ThaumcraftNodes {
         if (TCNodeTracker.isNavigatorLoaded) {
             // Also updates its own map layers.
             ThaumcraftNodeLayerManager.instance.deleteNode(node.source);
-        } else {
+        } else if (TCNodeTracker.nodelist != null) {
             TCNodeTracker.nodelist.remove(node.source);
             JsonUtils.writeJson();
         }
+        cachedNodes = null;
     }
 
     public static List<String> getHoveredTooltip() {

@@ -768,7 +768,6 @@ public class GuiWorldMap extends ScaledScreen {
         return true;
     }
 
-    /** Switches the map to a saved dimension, keeping the view roughly in place (Nether coordinates are 1:8). */
     /** Left edge of the buttons on the right of the header. */
     private int rightButtonsStart() {
         return teamButton.visible ? teamButton.xPosition : mobsButton.xPosition;
@@ -804,6 +803,7 @@ public class GuiWorldMap extends ScaledScreen {
         zooming = false;
     }
 
+    /** Switches the map to a saved dimension, keeping the view roughly in place (Nether coordinates are 1:8). */
     private void showDimension(int id) {
         int from = viewDimension();
         if (id == from) {

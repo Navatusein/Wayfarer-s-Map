@@ -3,12 +3,14 @@ package WayFarMap.client.map;
 import java.awt.image.BufferedImage;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.IntBuffer;
+import java.util.Arrays;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -49,6 +51,11 @@ public class MapRegion implements PixelSource {
      * are merged, the newer chunk wins.
      */
     private final long[] chunkTimes = new long[CHUNKS * CHUNKS];
+    /**
+     * One bit per chunk: its current version came from a teammate, so it isn't ours to upload to a team again (the
+     * team has it already). Cleared when we map the chunk ourselves.
+     */
+    private final long[] fromTeam = new long[CHUNKS * CHUNKS / 64];
 
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
@@ -238,12 +245,31 @@ public class MapRegion implements PixelSource {
         return chunkTimes[localChunkZ * CHUNKS + localChunkX];
     }
 
+    /** Sets when we mapped the chunk ourselves. */
     public void setChunkTime(int localChunkX, int localChunkZ, long time) {
+        setChunkTime(localChunkX, localChunkZ, time, false);
+    }
+
+    /** Sets when the chunk was mapped, and whether this version of it came from a teammate. */
+    public void setChunkTime(int localChunkX, int localChunkZ, long time, boolean teammate) {
         int index = localChunkZ * CHUNKS + localChunkX;
-        if (chunkTimes[index] != time) {
+        long bit = 1L << (index & 63);
+        boolean wasTeammate = (fromTeam[index >> 6] & bit) != 0;
+        if (chunkTimes[index] != time || wasTeammate != teammate) {
             chunkTimes[index] = time;
+            if (teammate) {
+                fromTeam[index >> 6] |= bit;
+            } else {
+                fromTeam[index >> 6] &= ~bit;
+            }
             saveDirty = true;
         }
+    }
+
+    /** True if the chunk as we have it came from a teammate (see {@link #setChunkTime(int, int, long, boolean)}). */
+    public boolean isFromTeammate(int localChunkX, int localChunkZ) {
+        int index = localChunkZ * CHUNKS + localChunkX;
+        return (fromTeam[index >> 6] & 1L << (index & 63)) != 0;
     }
 
     public boolean isSaveDirty() {
@@ -254,7 +280,11 @@ public class MapRegion implements PixelSource {
     public Snapshot snapshotForSave() {
         saveDirty = false;
         saving = true;
-        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null, chunkTimes.clone());
+        return new Snapshot(
+            pixels.clone(),
+            extra != null ? extra.clone() : null,
+            chunkTimes.clone(),
+            fromTeam.clone());
     }
 
     public static final class Snapshot {
@@ -262,11 +292,13 @@ public class MapRegion implements PixelSource {
         final int[] pixels;
         final byte[] extra;
         final long[] chunkTimes;
+        final long[] fromTeam;
 
-        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes) {
+        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam) {
             this.pixels = pixels;
             this.extra = extra;
             this.chunkTimes = chunkTimes;
+            this.fromTeam = fromTeam;
         }
     }
 
@@ -308,6 +340,10 @@ public class MapRegion implements PixelSource {
         try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(new FileOutputStream(tmp)))) {
             for (long time : snapshot.chunkTimes) {
                 out.writeLong(time);
+            }
+            // Added later: older versions stop reading before it.
+            for (long bits : snapshot.fromTeam) {
+                out.writeLong(bits);
             }
         }
         replace(tmp, timesFile);
@@ -361,6 +397,14 @@ public class MapRegion implements PixelSource {
                     region.chunkTimes[i] = in.readLong();
                 }
                 haveTimes = true;
+                try {
+                    for (int i = 0; i < region.fromTeam.length; i++) {
+                        region.fromTeam[i] = in.readLong();
+                    }
+                } catch (EOFException e) {
+                    // Saved before it was kept: everything counts as ours.
+                    Arrays.fill(region.fromTeam, 0L);
+                }
             } catch (IOException e) {
                 // Fall back to the file's date below.
             }

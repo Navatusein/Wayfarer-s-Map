@@ -116,7 +116,7 @@ public final class ShareNetwork {
         public void fromBytes(ByteBuf buf) {
             dimension = buf.readInt();
             backfill = buf.readBoolean();
-            byte[] data = new byte[Math.min(buf.readInt(), buf.readableBytes())];
+            byte[] data = new byte[Math.max(0, Math.min(buf.readInt(), buf.readableBytes()))];
             buf.readBytes(data);
             try (DataInputStream in = new DataInputStream(
                 new InflaterInputStream(new ByteArrayInputStream(data)))) {

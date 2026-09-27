@@ -54,6 +54,11 @@ public final class TeamMapClient {
     private static final int SENT_MEMORY = 8192;
     /** Old map chunks uploaded per tick: 160 a second, a large map takes minutes but costs little bandwidth. */
     private static final int BACKFILL_PER_TICK = 8;
+    /**
+     * Chunks uploaded per tick in all (new and old ones): 320 a second, under the server's limit of 400, which would
+     * drop the rest.
+     */
+    private static final int UPLOADS_PER_TICK = ShareNetwork.MAX_UPLOAD_RECORDS;
 
     private final Queue<IMessage> inbox = new ConcurrentLinkedQueue<>();
     private final ArrayDeque<ChunkRecord> outgoing = new ArrayDeque<>();
@@ -151,15 +156,17 @@ public final class TeamMapClient {
         if (!isActive()) {
             return;
         }
+        int budget = UPLOADS_PER_TICK;
         if (!outgoing.isEmpty()) {
             List<ChunkRecord> part = new ArrayList<>();
-            while (part.size() < ShareNetwork.MAX_UPLOAD_RECORDS && !outgoing.isEmpty()) {
+            while (part.size() < UPLOADS_PER_TICK && !outgoing.isEmpty()) {
                 part.add(outgoing.poll());
             }
             ShareNetwork.sendToServer(new ShareNetwork.Chunks(dimension, part));
+            budget -= part.size();
         }
         if (backfill != null) {
-            backfill.sendSome();
+            backfill.sendSome(Math.min(BACKFILL_PER_TICK, budget));
         }
     }
 
@@ -363,7 +370,8 @@ public final class TeamMapClient {
                 for (int cz = 0; cz < MapRegion.CHUNKS; cz++) {
                     for (int cx = 0; cx < MapRegion.CHUNKS; cx++) {
                         long time = region.getChunkTime(cx, cz);
-                        if (time <= since) {
+                        // Chunks we got from a team are not ours to upload again.
+                        if (time <= since || region.isFromTeammate(cx, cz)) {
                             continue;
                         }
                         ChunkRecord record = toRecord(
@@ -420,10 +428,10 @@ public final class TeamMapClient {
         }
 
         /** Game thread: sends a few of the prepared chunks, one dimension per message. */
-        void sendSome() {
+        void sendSome(int max) {
             List<ChunkRecord> part = new ArrayList<>();
             int dimensionId = 0;
-            while (part.size() < BACKFILL_PER_TICK) {
+            while (part.size() < max) {
                 Object[] next = ready.peek();
                 if (next == null || !part.isEmpty() && (Integer) next[0] != dimensionId) {
                     break;

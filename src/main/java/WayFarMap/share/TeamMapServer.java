@@ -18,6 +18,11 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -60,6 +65,16 @@ public final class TeamMapServer {
 
     private static Boolean active;
 
+    /**
+     * Region files are written here, not on the server thread: a save of many changed regions (a teammate uploading
+     * a big map) would otherwise lag the server. One thread, so writes of the same file never overlap.
+     */
+    private static final ExecutorService WRITER = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "WayFarMap team map saver");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     /** Team maps are shared only where ServerUtilities (teams) is installed. */
     public static boolean isActive() {
         if (active == null) {
@@ -74,6 +89,8 @@ public final class TeamMapServer {
     private final Map<String, TeamStore> teams = new HashMap<>();
     private final Map<UUID, Sync> syncs = new HashMap<>();
     private final Map<UUID, int[]> uploadBudget = new HashMap<>();
+    /** When the upload budgets were last reset: every real second, whatever the server's tick rate. */
+    private long budgetReset;
     /** The team each capable player was last told about, to notice joining, creating or leaving one. */
     private final Map<UUID, String> knownTeams = new HashMap<>();
     private File root;
@@ -97,7 +114,10 @@ public final class TeamMapServer {
             return;
         }
         tick++;
-        if (tick % 20 == 0) {
+        long now = System.currentTimeMillis();
+        if (now - budgetReset >= 1000) {
+            // By the clock: on a lagging server 20 ticks take longer, and clients would lose chunks to the limit.
+            budgetReset = now;
             uploadBudget.clear();
         }
         if (tick % 100 == 0) {
@@ -127,7 +147,6 @@ public final class TeamMapServer {
                 syncs.remove(sync.player.getUniqueID());
             }
         }
-        long now = System.currentTimeMillis();
         if (now - lastSave >= SAVE_INTERVAL_MS) {
             lastSave = now;
             for (TeamStore store : teams.values()) {
@@ -157,6 +176,13 @@ public final class TeamMapServer {
         }
         for (TeamStore store : teams.values()) {
             store.save(true);
+        }
+        // Wait for the writes, so the files are complete even if the server exits right after.
+        Future<?> done = WRITER.submit(() -> {});
+        try {
+            done.get(60, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            WayFarMap.LOG.warn("Team map: saving took too long", e);
         }
         teams.clear();
         syncs.clear();
@@ -362,7 +388,8 @@ public final class TeamMapServer {
             }
             // Read the next region file when the queue runs low (one per tick, to spread the disk reads).
             if (pending.size() < ShareNetwork.MAX_RECORDS * SYNC_MESSAGES_PER_TICK && !regions.isEmpty()) {
-                StoredRegion region = store.region(regions.poll(), false);
+                // Read without keeping it loaded: catching up on a big map would otherwise fill the memory.
+                StoredRegion region = store.peek(regions.poll());
                 if (region != null) {
                     UUID id = player.getUniqueID();
                     for (StoredChunk chunk : region.chunks.values()) {
@@ -454,6 +481,9 @@ public final class TeamMapServer {
         long newest;
         boolean dirty;
         long lastUse;
+        /** Writes queued or running (changed by the writer thread too), and whether the last one failed. */
+        final AtomicInteger writing = new AtomicInteger();
+        volatile boolean failed;
     }
 
     /** One team's map on disk, with its regions loaded on demand. */
@@ -511,6 +541,12 @@ public final class TeamMapServer {
             }
             region.lastUse = System.currentTimeMillis();
             return region;
+        }
+
+        /** The region as loaded, or read from its file without loading it; null if there is none. */
+        StoredRegion peek(RegionKey key) {
+            StoredRegion region = loaded.get(key);
+            return region != null ? region : read(file(key));
         }
 
         Map<RegionKey, Long> index(int dimension) {
@@ -621,8 +657,25 @@ public final class TeamMapServer {
 
         void save(boolean all) {
             for (Map.Entry<RegionKey, StoredRegion> entry : loaded.entrySet()) {
-                if (entry.getValue().dirty) {
-                    write(file(entry.getKey()), entry.getValue());
+                StoredRegion region = entry.getValue();
+                if (region.dirty || region.failed) {
+                    // The chunks are never changed once stored, so a copy of the map is enough.
+                    List<StoredChunk> chunks = new ArrayList<>(region.chunks.values());
+                    long newest = region.newest;
+                    File file = file(entry.getKey());
+                    region.dirty = false;
+                    region.failed = false;
+                    region.writing.incrementAndGet();
+                    WRITER.execute(() -> {
+                        try {
+                            write(file, newest, chunks);
+                        } catch (IOException e) {
+                            WayFarMap.LOG.warn("Team map: could not save " + file, e);
+                            region.failed = true;
+                        } finally {
+                            region.writing.decrementAndGet();
+                        }
+                    });
                 }
             }
             if (lastSyncsDirty && lastSyncs != null) {
@@ -641,38 +694,36 @@ public final class TeamMapServer {
                 .iterator();
             while (it.hasNext()) {
                 StoredRegion region = it.next();
-                if (!region.dirty && now - region.lastUse > IDLE_UNLOAD_MS) {
+                // Not while its file is being written: it would be read back half written or outdated.
+                boolean saved = !region.dirty && !region.failed && region.writing.get() == 0;
+                if (saved && now - region.lastUse > IDLE_UNLOAD_MS) {
                     it.remove();
                 }
             }
         }
 
-        private static void write(File file, StoredRegion region) {
+        /** Writer thread. */
+        private static void write(File file, long newest, List<StoredChunk> chunks) throws IOException {
             File tmp = new File(file.getPath() + ".tmp");
-            try {
-                file.getParentFile()
-                    .mkdirs();
-                try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(new FileOutputStream(tmp)))) {
-                    out.writeInt(FILE_MAGIC);
-                    out.writeInt(FILE_VERSION);
-                    out.writeLong(region.newest);
-                    out.writeInt(region.chunks.size());
-                    for (StoredChunk chunk : region.chunks.values()) {
-                        out.writeLong(chunk.author.getMostSignificantBits());
-                        out.writeLong(chunk.author.getLeastSignificantBits());
-                        out.writeLong(chunk.received);
-                        chunk.record.write(out);
-                    }
+            file.getParentFile()
+                .mkdirs();
+            try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(new FileOutputStream(tmp)))) {
+                out.writeInt(FILE_MAGIC);
+                out.writeInt(FILE_VERSION);
+                out.writeLong(newest);
+                out.writeInt(chunks.size());
+                for (StoredChunk chunk : chunks) {
+                    out.writeLong(chunk.author.getMostSignificantBits());
+                    out.writeLong(chunk.author.getLeastSignificantBits());
+                    out.writeLong(chunk.received);
+                    chunk.record.write(out);
                 }
-                if (file.exists() && !file.delete()) {
-                    throw new IOException("Could not replace " + file);
-                }
-                if (!tmp.renameTo(file)) {
-                    throw new IOException("Could not rename " + tmp);
-                }
-                region.dirty = false;
-            } catch (IOException e) {
-                WayFarMap.LOG.warn("Team map: could not save " + file, e);
+            }
+            if (file.exists() && !file.delete()) {
+                throw new IOException("Could not replace " + file);
+            }
+            if (!tmp.renameTo(file)) {
+                throw new IOException("Could not rename " + tmp);
             }
         }
 

@@ -472,7 +472,7 @@ public class MapManager implements IResourceManagerReloadListener {
             // Ours is as new or newer: keep it.
             return true;
         }
-        region.setChunkTime(localX, localZ, record.time);
+        region.setChunkTime(localX, localZ, record.time, true);
         MapRegion biomeRegion = biomeMap != null ? biomeMap.getRegion(rx, rz, true) : null;
         int baseX = (record.chunkX * 16) & (MapRegion.SIZE - 1);
         int baseZ = (record.chunkZ * 16) & (MapRegion.SIZE - 1);
