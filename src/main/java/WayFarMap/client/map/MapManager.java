@@ -604,7 +604,7 @@ public class MapManager implements IResourceManagerReloadListener {
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
-        worldDirectory = new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc));
+        worldDirectory = accountDirectory(mc, new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc)));
         dimensionDirectory = new File(worldDirectory, "dim" + dimensionId);
         // Name and sky saved so the world map can show this dimension from elsewhere.
         writeInfo(dimensionDirectory, world.provider);
@@ -655,6 +655,36 @@ public class MapManager implements IResourceManagerReloadListener {
         ServerData serverData = mc.func_147104_D(); // getCurrentServerData
         String address = serverData != null && serverData.serverIP != null ? serverData.serverIP : "unknown";
         return "multiplayer" + File.separator + sanitize(address);
+    }
+
+    private static final String ACCOUNT_PREFIX = "player-";
+
+    /**
+     * Each account has its own map and waypoints: several accounts playing from the same game folder (two
+     * players on one computer, or one launcher instance) must not see what the other explored. Maps saved before
+     * this, directly in the world folder, go to the first account that plays there.
+     */
+    private static File accountDirectory(Minecraft mc, File worldFolder) {
+        String id = mc.getSession()
+            .getPlayerID();
+        if (id == null || id.isEmpty()) {
+            id = mc.getSession()
+                .getUsername();
+        }
+        File account = new File(worldFolder, ACCOUNT_PREFIX + sanitize(id));
+        if (!account.exists()) {
+            File[] legacy = worldFolder.listFiles(file -> !file.getName()
+                .startsWith(ACCOUNT_PREFIX));
+            if (legacy != null && legacy.length > 0 && account.mkdirs()) {
+                for (File file : legacy) {
+                    if (!file.renameTo(new File(account, file.getName()))) {
+                        WayFarMap.LOG.warn("Could not move {} into {}", file, account);
+                    }
+                }
+                WayFarMap.LOG.info("Moved the map saved before per-account maps to {}", account);
+            }
+        }
+        return account;
     }
 
     private static String sanitize(String name) {
