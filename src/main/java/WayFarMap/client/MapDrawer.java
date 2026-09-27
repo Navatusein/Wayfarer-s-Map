@@ -26,6 +26,22 @@ public final class MapDrawer {
 
     private MapDrawer() {}
 
+    /**
+     * Degrees the drawing is turned by (the minimap turning with the player); entity icons and player heads are
+     * turned back so they stay upright.
+     */
+    public static float iconRotation;
+
+    /** Turns the next drawing around (sx, sy) so it stays upright on a turned map; pair with glPopMatrix. */
+    private static void pushUpright(double sx, double sy) {
+        GL11.glPushMatrix();
+        if (iconRotation != 0f) {
+            GL11.glTranslated(sx, sy, 0);
+            GL11.glRotatef(-iconRotation, 0f, 0f, 1f);
+            GL11.glTranslated(-sx, -sy, 0);
+        }
+    }
+
     /** New region textures created per frame; the rest pop in over the next frames instead of one long stall. */
     private static final int NEW_TEXTURES_PER_FRAME = 4;
     private static final int NEW_LOD_TEXTURES_PER_FRAME = 32;
@@ -305,7 +321,9 @@ public final class MapDrawer {
             int color = entityColor(entity);
             float half = iconSize / 2f;
             if (i >= firstIcon && sx >= x + half && sy >= y + half && sx <= x + width - half && sy <= y + height - half) {
+                pushUpright(sx, sy);
                 drawEntityIcon(entity, sx, sy, iconSize, color);
+                GL11.glPopMatrix();
             } else {
                 drawDot(sx, sy, 1f, color);
             }
@@ -322,7 +340,9 @@ public final class MapDrawer {
             if (sx < x + half || sy < y + half || sx > x + width - half || sy > y + height - half) {
                 continue;
             }
+            pushUpright(sx, sy);
             drawPlayerHead(mc, other, sx, sy, playerSize);
+            GL11.glPopMatrix();
             if (showNames) {
                 String name = other.getCommandSenderName();
                 font.drawStringWithShadow(

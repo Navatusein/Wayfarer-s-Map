@@ -43,6 +43,10 @@ public class Config {
     public static int minimapZoom = 1;
     public static boolean minimapShowCoordinates = true;
     public static boolean minimapShowBiome = true;
+    public static final int SHAPE_SQUARE = 0, SHAPE_ROUND = 1;
+    public static int minimapShape = SHAPE_SQUARE;
+    /** Turn the minimap with the player, so the view direction is always up. */
+    public static boolean minimapRotate = false;
 
     /** Map lighting: {@link #LIGHT_AUTO} follows the day/night cycle. */
     public static int mapLightMode = LIGHT_AUTO;
@@ -97,6 +101,21 @@ public class Config {
             new String[] { "z0", "z1", "z2", "z3" },
             () -> minimapZoom,
             v -> minimapZoom = v);
+        choice(
+            c,
+            "shape",
+            "Minimap shape: 0 = square, 1 = round.",
+            SHAPE_SQUARE,
+            new String[] { "square", "round" },
+            () -> minimapShape,
+            v -> minimapShape = v);
+        bool(
+            c,
+            "rotate",
+            "Turn the minimap with the player so the view direction is always up.",
+            false,
+            () -> minimapRotate,
+            v -> minimapRotate = v);
         bool(
             c,
             "showCoordinates",
