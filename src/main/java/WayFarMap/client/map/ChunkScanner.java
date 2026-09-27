@@ -195,6 +195,88 @@ public final class ChunkScanner {
         return BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
     }
 
+    /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */
+    public static int biomeColor(BiomeGenBase biome) {
+        int color = biome.color & 0xFFFFFF;
+        if (color != 0) {
+            return color;
+        }
+        int hash = biome.biomeID * 0x9E3779B1;
+        return 0x404040 | (hash >>> 8) & 0xBFBFBF;
+    }
+
+    private static int findTop(Chunk chunk, int lx, int lz, boolean noSky, int caveLayer) {
+        return caveLayer >= 0 ? findCaveFloor(chunk, lx, lz, caveLayer) : findSurface(chunk, lx, lz, noSky);
+    }
+
+    /**
+     * Floor of the open space in the cave layer: rock at the top of the layer is skipped, then the first block below
+     * the open space is the floor (searched down to one layer below, for pits). Solid rock gives {@link #NO_BLOCK}.
+     */
+    private static int findCaveFloor(Chunk chunk, int lx, int lz, int layer) {
+        int layerBottom = layer * 16;
+        int y = Math.min(255, layerBottom + 15);
+        while (y >= layerBottom && isSolid(chunk.getBlock(lx, y, lz))) {
+            y--;
+        }
+        if (y < layerBottom) {
+            return NO_BLOCK;
+        }
+        int lowest = Math.max(0, layerBottom - 16);
+        for (; y >= lowest; y--) {
+            if (isVisible(chunk.getBlock(lx, y, lz))) {
+                return y;
+            }
+        }
+        return NO_BLOCK;
+    }
+
+    /** A block that fills the space (not air, plants, torches or liquids). */
+    private static boolean isSolid(Block block) {
+        return isVisible(block) && !block.getMaterial()
+            .isLiquid();
+    }
+
+    /** @return y of the topmost block that should be drawn, or {@link #NO_BLOCK}. */
+    private static int findSurface(Chunk chunk, int lx, int lz, boolean noSky) {
+        int top = chunk.getTopFilledSegment() + 15;
+        if (top < 0) {
+            return NO_BLOCK;
+        }
+        int y = top;
+        if (noSky) {
+            // Under a ceiling (Nether): skip the ceiling, then look for the floor below the first open space.
+            top = Math.min(top, 127);
+            y = top;
+            while (y > 0 && !isAir(chunk.getBlock(lx, y, lz))) {
+                y--;
+            }
+        }
+        for (; y >= 0; y--) {
+            Block block = chunk.getBlock(lx, y, lz);
+            if (isVisible(block)) {
+                return y;
+            }
+        }
+        return NO_BLOCK;
+    }
+
+    private static boolean isAir(Block block) {
+        return block.getMaterial() == Material.air;
+    }
+
+    private static boolean isVisible(Block block) {
+        Material material = block.getMaterial();
+        if (material == Material.air || material == Material.plants
+            || material == Material.vine
+            || material == Material.circuits
+            || material == Material.web
+            || material == Material.fire) {
+            return false;
+        }
+        return block.getRenderType() != -1 || material.isLiquid();
+    }
+
     private static int columnColor(World world, Chunk chunk, int lx, int y, int lz) {
         int x = chunk.xPosition * 16 + lx;
         int z = chunk.zPosition * 16 + lz;
