@@ -39,7 +39,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4,
-        ID_BIOMES = 5;
+        ID_BIOMES = 5, ID_GRID = 6;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -61,6 +61,7 @@ public class GuiWorldMap extends GuiScreen {
     private FlatButton nightButton;
     private FlatButton caveButton;
     private FlatButton biomeButton;
+    private FlatButton gridButton;
 
     /** Right click menu; null when closed. */
     private List<MenuEntry> menu;
@@ -107,7 +108,8 @@ public class GuiWorldMap extends GuiScreen {
         dayButton = new FlatButton(ID_DAY, 0, 4, 0, 16, I18n.format("wayfarmap.gui.day"));
         caveButton = new FlatButton(ID_CAVES, 0, 4, 0, 16, caveButtonText());
         biomeButton = new FlatButton(ID_BIOMES, 0, 4, 0, 16, I18n.format("wayfarmap.gui.biomes"));
-        for (FlatButton button : new FlatButton[] { nightButton, dayButton, caveButton, biomeButton }) {
+        gridButton = new FlatButton(ID_GRID, 0, 4, 0, 16, I18n.format("wayfarmap.gui.grid"));
+        for (FlatButton button : new FlatButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton }) {
             int w = fontRendererObj.getStringWidth(button.displayString) + 12;
             if (button == caveButton) {
                 // Room for longer mode names, so the button doesn't jump when cycling.
@@ -141,12 +143,16 @@ public class GuiWorldMap extends GuiScreen {
         caveButton.active = Config.caveMode == Config.CAVES_ON;
         caveButton.displayString = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
+        gridButton.active = Config.chunkGrid;
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_GRID) {
+            Config.toggleChunkGrid();
+            updateLightButtons();
         } else if (button.id == ID_BIOMES) {
             Config.toggleBiomeView();
             updateLightButtons();
@@ -217,6 +223,9 @@ public class GuiWorldMap extends GuiScreen {
 
         updateView();
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        if (Config.chunkGrid) {
+            MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
+        }
         MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
 
         drawWaypoints(mouseX, mouseY);
@@ -236,7 +245,7 @@ public class GuiWorldMap extends GuiScreen {
         Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
         String title = I18n.format("wayfarmap.gui.title");
         int titleWidth = fontRendererObj.getStringWidth(title);
-        if (width / 2 - titleWidth / 2 > headerLeftEnd() + 8 && width / 2 + titleWidth / 2 < biomeButton.xPosition - 8) {
+        if (width / 2 - titleWidth / 2 > headerLeftEnd() + 8 && width / 2 + titleWidth / 2 < gridButton.xPosition - 8) {
             Theme.centered(fontRendererObj, title, width / 2, 8, Theme.TEXT_MUTED);
         }
         double targetScale = Config.MAP_ZOOMS[zoomIndex];

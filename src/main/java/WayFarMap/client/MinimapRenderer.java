@@ -75,6 +75,9 @@ public class MinimapRenderer {
         Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
 
         MapDrawer.drawMap(dimension, px, pz, scale, x, y, size, size);
+        if (Config.chunkGrid) {
+            MapDrawer.drawChunkGrid(px, pz, scale, x, y, size, size);
+        }
         MapDrawer.drawEntities(mc, px, pz, scale, x, y, size, size, partialTicks, 6f, false);
         if (Config.waypointsOnMinimap) {
             drawWaypoints(mc, px, pz, scale, x, y, size);

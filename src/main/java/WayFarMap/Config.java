@@ -50,6 +50,7 @@ public class Config {
     public static int caveMode = CAVES_AUTO;
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
+    public static boolean chunkGrid = false;
     public static boolean useTextureColors = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -123,6 +124,13 @@ public class Config {
             new String[] { "blocks", "biomes" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
+        bool(
+            c,
+            "chunkGrid",
+            "Draw chunk borders on the world map and the minimap.",
+            false,
+            () -> chunkGrid,
+            v -> chunkGrid = v);
         choice(
             c,
             "caveMode",
@@ -313,6 +321,11 @@ public class Config {
     /** Auto -> off -> on -> auto. */
     public static void cycleCaveMode() {
         caveMode = (caveMode + 1) % 3;
+        save();
+    }
+
+    public static void toggleChunkGrid() {
+        chunkGrid = !chunkGrid;
         save();
     }
 

@@ -90,6 +90,49 @@ public final class MapDrawer {
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
+    private static final int CHUNK_LINE = 0x30FFFFFF;
+    private static final int REGION_LINE = 0x70FFFFFF;
+
+    /**
+     * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
+     * are left out when zoomed out so far that they would be closer than a few pixels.
+     */
+    public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width, int height) {
+        double left = centerX - width / 2.0 / scale;
+        double top = centerZ - height / 2.0 / scale;
+        boolean chunks = 16 * scale >= 6;
+        int step = chunks ? 16 : MapRegion.SIZE;
+
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        int firstX = (int) Math.floor(left / step) * step;
+        for (int bx = firstX; ; bx += step) {
+            double sx = x + (bx - left) * scale;
+            if (sx > x + width) {
+                break;
+            }
+            if (sx >= x) {
+                int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
+                fillRect(tessellator, Math.floor(sx), y, Math.floor(sx) + 1, y + height, color);
+            }
+        }
+        int firstZ = (int) Math.floor(top / step) * step;
+        for (int bz = firstZ; ; bz += step) {
+            double sy = y + (bz - top) * scale;
+            if (sy > y + height) {
+                break;
+            }
+            if (sy >= y) {
+                int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
+                fillRect(tessellator, x, Math.floor(sy), x + width, Math.floor(sy) + 1, color);
+            }
+        }
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
     /** Map color multiplier for night. */
     private static final float[] NIGHT_TINT = { 0.28f, 0.32f, 0.5f };
 
