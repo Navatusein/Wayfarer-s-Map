@@ -29,6 +29,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.map.ChunkScanner;
 
 /**
  * Takes sprites of blocks as the game draws them in place, for blocks the 3D map can't draw by itself: connected
@@ -110,6 +111,8 @@ final class FaceRenderer {
         final boolean cube;
         final boolean ownRenderer;
         final int[] ids = new int[ChunkBlocks.PER_CELL];
+        /** A chunk it touches wasn't loaded: its pictures may be wrong at the chunk's edge. */
+        boolean unsure;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -149,6 +152,8 @@ final class FaceRenderer {
      */
     static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
         if (!available()) {
+            // The ones of the copy before are kept.
+            blocks.picturesMissing = true;
             return true;
         }
         if (cacheGeneration != palette.generation) {
@@ -157,6 +162,14 @@ final class FaceRenderer {
             cacheGeneration = palette.generation;
         }
         int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
+        // Which chunks around are there: without them, blocks at the edge are drawn as if the world ended there.
+        boolean[] around = new boolean[9];
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                around[(dz + 1) * 3 + dx + 1] = ChunkScanner
+                    .isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz);
+            }
+        }
         List<Pending> found = new ArrayList<>();
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
@@ -169,14 +182,20 @@ final class FaceRenderer {
             }
             int key = ChunkBlocks.lookKey(cell);
             BlockLooks.Look look = BlockLooks.get(key);
-            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID) {
+            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
+                || look.noPictures) {
                 continue;
             }
             Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
             int meta = ChunkBlocks.meta(cell);
+            // Glass and other see-through cubes: connected textures may come from outside the block (a mod hooking
+            // the game's block renderer, resource packs), so they are drawn by the game wherever one touches another.
+            // Not leaves (no faces between see-through blocks of the same kind is what makes it glass).
+            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque && look.skipSame;
             boolean maybe;
             try {
-                maybe = look.complex || block.hasTileEntity(meta)
+                maybe = look.complex || glassLike
+                    || block.hasTileEntity(meta)
                     || (look.renderType == 0 && overridesWorldIcon(block.getClass()));
             } catch (RuntimeException e) {
                 maybe = false;
@@ -203,13 +222,16 @@ final class FaceRenderer {
                 tileEntity = null;
             }
             boolean needed = look.complex || ownRenderer
+                || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
                 || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
             if (!needed) {
                 continue;
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
-            long surroundings = surroundings(world, block, x, y, z, look.opaque);
+            // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
+            long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
+            pending.unsure = !aroundLoaded(around, lx, lz);
             found.add(pending);
             if (tileEntity != null) {
                 Cached cached = BY_PLACE.get(place(x, y, z));
@@ -235,6 +257,7 @@ final class FaceRenderer {
             toDraw.add(pending);
         }
         if (found.isEmpty()) {
+            blocks.setFaces(palette.generation, new int[0], new int[0]);
             return true;
         }
         boolean complete = true;
@@ -282,6 +305,7 @@ final class FaceRenderer {
             }
         }
         if (broken) {
+            blocks.picturesMissing = true;
             return true;
         }
         int[] faceCells = new int[found.size()];
@@ -292,7 +316,37 @@ final class FaceRenderer {
             System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
         }
         blocks.setFaces(palette.generation, faceCells, ids);
+        int unsure = 0;
+        for (Pending pending : found) {
+            if (pending.unsure) {
+                unsure++;
+            }
+        }
+        if (unsure > 0) {
+            int[] unsureCells = new int[unsure];
+            unsure = 0;
+            for (Pending pending : found) {
+                if (pending.unsure) {
+                    unsureCells[unsure++] = pending.cellIndex;
+                }
+            }
+            blocks.unsureCells = unsureCells;
+        }
         return complete;
+    }
+
+    /** Whether the chunks the block at (lx, lz) of the chunk touches (itself included) are all loaded. */
+    private static boolean aroundLoaded(boolean[] around, int lx, int lz) {
+        int fromX = lx == 0 ? 0 : 1, toX = lx == 15 ? 2 : 1;
+        int fromZ = lz == 0 ? 0 : 1, toZ = lz == 15 ? 2 : 1;
+        for (int z = fromZ; z <= toZ; z++) {
+            for (int x = fromX; x <= toX; x++) {
+                if (!around[z * 3 + x]) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static long place(int x, int y, int z) {
@@ -321,6 +375,27 @@ final class FaceRenderer {
             }
         }
         return exposed;
+    }
+
+    /** Whether one of the six blocks next to it is the same block (id and metadata). */
+    private static boolean touchesSame(World world, ChunkBlocks blocks, int cell, int lx, int y, int lz, int x, int z) {
+        int key = ChunkBlocks.lookKey(cell);
+        for (int side = 0; side < 6; side++) {
+            int nx = lx + OFFSETS[side][0], ny = y + OFFSETS[side][1], nz = lz + OFFSETS[side][2];
+            if (ny < 0 || ny > 255) {
+                continue;
+            }
+            int other;
+            if (nx < 0 || nx > 15 || nz < 0 || nz > 15 || ny < blocks.yMin || ny > blocks.yMax) {
+                other = blockAt(world, x + OFFSETS[side][0], ny, z + OFFSETS[side][2]);
+            } else {
+                other = ChunkBlocks.lookKey(blocks.cell(nx, ny, nz));
+            }
+            if (other == key) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Whether any open side of the block shows another icon in the world than its plain icon for the metadata. */
@@ -574,24 +649,53 @@ final class FaceRenderer {
         } catch (RuntimeException e) {
             return;
         }
-        // Whether this drawing is open is tracked here: the tessellator keeps it to itself.
-        boolean drawing = false;
+        // In each render pass the block is drawn in, telling its renderer which pass it is, as the game does: many
+        // renderers (connected glass, modded blocks, see-through parts) draw nothing when asked in another pass,
+        // which left their sprites empty and the blocks invisible on the map.
+        int worldPass = RenderPass.world(), entityPass = RenderPass.entity();
         try {
-            tessellator.startDrawingQuads();
-            drawing = true;
-            renderBlocks.renderBlockByRenderType(pending.block, pending.x, pending.y, pending.z);
-            drawing = false;
-            tessellator.draw();
-        } catch (RuntimeException e) {
-            if (drawing) {
+            for (int pass = 0; pass < 2; pass++) {
+                boolean inPass;
                 try {
+                    inPass = pending.block.canRenderInPass(pass);
+                } catch (RuntimeException e) {
+                    inPass = pass == 0;
+                }
+                if (!inPass) {
+                    continue;
+                }
+                RenderPass.setWorld(pass);
+                // Whether this drawing is open is tracked here: the tessellator keeps it to itself.
+                boolean drawing = false;
+                try {
+                    tessellator.startDrawingQuads();
+                    drawing = true;
+                    renderBlocks.renderBlockByRenderType(pending.block, pending.x, pending.y, pending.z);
+                    drawing = false;
                     tessellator.draw();
-                } catch (RuntimeException ignored) {}
+                } catch (RuntimeException e) {
+                    if (drawing) {
+                        try {
+                            tessellator.draw();
+                        } catch (RuntimeException ignored) {}
+                    }
+                }
             }
+            RenderPass.setWorld(worldPass);
+            if (pending.tileEntity != null) {
+                for (int pass = 0; pass < 2; pass++) {
+                    RenderPass.setEntity(pass);
+                    drawTileEntities(pending, pass);
+                }
+            }
+        } finally {
+            RenderPass.setWorld(worldPass);
+            RenderPass.setEntity(entityPass);
         }
-        if (pending.tileEntity == null) {
-            return;
-        }
+    }
+
+    /** The block's tile entity and those next to it (a double chest's other half) that draw in the render pass. */
+    private static void drawTileEntities(Pending pending, int pass) {
         World world = pending.tileEntity.getWorldObj();
         for (int n = -1; n < 4; n++) {
             TileEntity tileEntity = n < 0 ? pending.tileEntity
@@ -604,6 +708,9 @@ final class FaceRenderer {
                 continue;
             }
             try {
+                if (!tileEntity.shouldRenderInPass(pass)) {
+                    continue;
+                }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);
             } catch (RuntimeException e) {

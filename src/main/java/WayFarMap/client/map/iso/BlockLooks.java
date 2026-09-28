@@ -114,6 +114,8 @@ public final class BlockLooks {
         public int tintColor;
         /** A solid cube that hides everything behind it; the ground under a chunk is made of these. */
         public boolean opaque;
+        /** Fills its whole cell, opaque or not (glass, modded blocks with their own renderer). */
+        public boolean fullCube;
         /** See-through by the texture's alpha (water, ice, stained glass) instead of holes. */
         public boolean translucent;
         /** No faces between two of these next to each other (glass, water). */
@@ -129,6 +131,11 @@ public final class BlockLooks {
         public boolean complex;
         /** The game's render type, to tell plain cubes apart. */
         public int renderType;
+        /**
+         * Drawn from its icons even if pictures of it were stored (leaves, double plants): taken by an older version,
+         * those pictures were wrong.
+         */
+        public boolean noPictures;
     }
 
     private static final Map<Integer, Look> LOOKS = new ConcurrentHashMap<>();
@@ -137,6 +144,8 @@ public final class BlockLooks {
     private static final Texture UNREADABLE = new Texture();
     private static final Queue<Request> REQUESTS = new ConcurrentLinkedQueue<>();
     private static volatile Thread renderThread;
+    /** Per thread: whether a look was not had in time since last asked (a plain gray block was given instead). */
+    private static final ThreadLocal<boolean[]> MISSED = ThreadLocal.withInitial(() -> new boolean[1]);
 
     private static final class Request {
 
@@ -165,8 +174,17 @@ public final class BlockLooks {
             return request.result.get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             // The game is busy (or the map closed): a plain block this time, asked again next time.
+            MISSED.get()[0] = true;
             return fallback();
         }
+    }
+
+    /** Whether this thread was given a plain block for a look it waited for in vain since last asked; resets it. */
+    static boolean takeMissed() {
+        boolean[] missed = MISSED.get();
+        boolean was = missed[0];
+        missed[0] = false;
+        return was;
     }
 
     /** Works out the looks the renderers wait for, for up to the given time (render thread). */
@@ -234,10 +252,13 @@ public final class BlockLooks {
         // Sprites taken from the game for everything drawn in a way not imitated here (orientation, connections,
         // models); the shapes below are only used when sprites can't be taken.
         look.complex = !material.isLiquid() && !isImitated(renderType);
+        look.noPictures = material == Material.leaves || renderType == 40;
+        // Double plants: the plant is in the low bits of either half (the top half's are filled in when copied).
+        int iconMeta = renderType == 40 ? meta & 7 : meta;
         look.lightPasses = block.getLightOpacity() < 255;
         look.translucent = block.getRenderBlockPass() == 1;
         for (int side = 0; side < 6; side++) {
-            look.textures[side] = texture(block, side, meta);
+            look.textures[side] = texture(block, side, iconMeta);
             look.tintSide[side] = true;
         }
         if (block == Blocks.grass) {
@@ -250,6 +271,11 @@ public final class BlockLooks {
             }
         }
         tint(look, block, meta, material);
+        if (renderType == 40) {
+            // Double tall grass and large ferns take the biome's grass color in the world, the flowers none.
+            int plant = meta & 7;
+            look.tint = plant == 2 || plant == 3 ? TINT_GRASS : TINT_NONE;
+        }
 
         if (material.isLiquid()) {
             look.shape = SHAPE_LIQUID;
@@ -324,6 +350,7 @@ public final class BlockLooks {
         float[] box = renderType != 0 ? new float[] { 0, 0, 0, 1, 1, 1 } : bounds(block, meta);
         boxes(look, box[0], box[1], box[2], box[3], box[4], box[5]);
         boolean full = box[0] <= 0 && box[1] <= 0 && box[2] <= 0 && box[3] >= 1 && box[4] >= 1 && box[5] >= 1;
+        look.fullCube = full;
         look.opaque = full && block.isOpaqueCube() && !look.translucent;
         look.skipSame = !look.opaque && material != Material.leaves;
         return look;
@@ -331,7 +358,8 @@ public final class BlockLooks {
 
     /**
      * Render types drawn right by the shapes here: cubes, crossed plants, crops, stairs, cactus, vines, ladders, lily
-     * pads, logs and pillars (whose sides depend only on the metadata).
+     * pads, logs and pillars (whose sides depend only on the metadata), double plants (their top half gets the plant
+     * of the bottom half when copied, see {@link BlockCapture}).
      */
     private static boolean isImitated(int renderType) {
         switch (renderType) {

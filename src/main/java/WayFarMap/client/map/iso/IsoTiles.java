@@ -43,10 +43,13 @@ import WayFarMap.client.MapDrawer;
  */
 final class IsoTiles {
 
-    /** Tiles kept in video memory (two textures each: day and night). */
-    private static final int MAX_TILES = 500;
-    /** Levels from this one on are saved to disk (finer ones are quick to draw and would be too many files). */
-    private static final int DISK_LEVEL = 5;
+    /** Tiles kept in video memory (two textures each: day and night, 128 KB together). */
+    private static final int MAX_TILES = 800;
+    /**
+     * Levels from this one on (8 pixels per block and less) are saved to disk, so a part of the map seen before opens
+     * at once; finer ones are quick to draw and would be too many files.
+     */
+    private static final int DISK_LEVEL = 3;
     private static final int MAGIC = 0x57465432; // "WFT2"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
@@ -138,6 +141,11 @@ final class IsoTiles {
         final long renderedAt;
         /** Not drawn (no longer on screen): the tile is only free to be queued again. */
         final boolean skipped;
+        /**
+         * Drawn with some blocks not as they look (the game didn't give a block's look in time, a sprite couldn't be
+         * read): not saved, drawn again, and not shown over a good picture of the tile.
+         */
+        boolean retry;
 
         Result(Tile tile, int[] pixels, int[] nightPixels, short[] hits, long renderedAt) {
             this(tile, pixels, nightPixels, hits, renderedAt, false);
@@ -300,6 +308,13 @@ final class IsoTiles {
             tile.queued = false;
             if (result.skipped || tiles.get(tile.key) != tile) {
                 continue;
+            }
+            if (result.retry) {
+                // Drawn again soon; a good picture it had stays until then.
+                tile.dirtyAt = Math.max(tile.dirtyAt, result.renderedAt + 1);
+                if (tile.ready) {
+                    continue;
+                }
             }
             tile.renderedAt = result.renderedAt;
             tile.hits = result.hits;
@@ -506,6 +521,7 @@ final class IsoTiles {
         }
         long start = System.currentTimeMillis();
         IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, map.palette());
+        BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
         int blocks = IsoProjection.tileBlocks(key.level);
@@ -543,7 +559,8 @@ final class IsoTiles {
             }
         }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
-        if (file != null && running) {
+        result.retry = BlockLooks.takeMissed() | tracer.incomplete;
+        if (file != null && running && !result.retry) {
             writeCached(file, result, tracer.minToward);
         }
         return result;

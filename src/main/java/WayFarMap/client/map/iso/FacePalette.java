@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -29,7 +30,9 @@ import WayFarMap.WayFarMap;
  */
 final class FacePalette {
 
-    private static final int MAGIC = 0x57465034; // "WFP4"
+    private static final int MAGIC = 0x57465035; // "WFP5"
+    /** Bytes before the first sprite: magic, resource packs, generation. */
+    private static final int HEADER = 12;
     /** Pixels per side of a picture of a cube's side. */
     static final int FACE_SIZE = 32;
     /** Pixels per side of a sprite of a block that isn't a plain cube (two blocks wide). */
@@ -120,7 +123,14 @@ final class FacePalette {
         }
     }
 
+    /**
+     * Identifies this palette: chunks keep the generation their picture ids belong to, and ids of another one are not
+     * used. Picked at random when a palette is started (not worked out from the resource packs): two worlds, or a
+     * palette begun again, never share it, so ids can't be taken for pictures of another palette.
+     */
     final int generation;
+    /** The resource packs the pictures were taken with. */
+    final int packs;
     private final File file;
     private final List<Entry> entries = new ArrayList<>();
     private final Map<Long, Integer> byHash = new HashMap<>();
@@ -142,24 +152,41 @@ final class FacePalette {
     private long fileEnd;
     private RandomAccessFile reader;
 
-    private FacePalette(File file, int generation) {
+    private FacePalette(File file, int packs, int generation) {
         this.file = file;
+        this.packs = packs;
         this.generation = generation;
+    }
+
+    /** The resource packs a palette is for. */
+    static int packsOf(String cacheId) {
+        return cacheId.hashCode() & 0x7FFFFFFF;
+    }
+
+    /** A generation no palette had before (0 is "none"). */
+    private static int newGeneration() {
+        return 1 + new Random().nextInt(Integer.MAX_VALUE - 1);
     }
 
     /** Reads the palette of the world, or starts a new one if it was made with other resource packs. */
     static FacePalette load(File worldDirectory, String cacheId) {
-        int generation = cacheId.hashCode() & 0x7FFFFFFF;
-        FacePalette palette = new FacePalette(new File(worldDirectory, "iso-sprites.dat"), generation);
-        if (!palette.file.isFile()) {
-            return palette;
+        int packs = packsOf(cacheId);
+        File file = new File(worldDirectory, "iso-sprites.dat");
+        if (!file.isFile()) {
+            return new FacePalette(file, packs, newGeneration());
         }
-        try (RandomAccessFile in = new RandomAccessFile(palette.file, "r")) {
+        FacePalette palette;
+        try (RandomAccessFile in = new RandomAccessFile(file, "r")) {
             long end = in.length();
-            if (end < 8 || in.readInt() != MAGIC || in.readInt() != generation) {
+            if (end < HEADER || in.readInt() != MAGIC || in.readInt() != packs) {
                 // Other resource packs or an older kind of file: begin again.
-                return palette;
+                return new FacePalette(file, packs, newGeneration());
             }
+            int generation = in.readInt();
+            if (generation <= 0) {
+                return new FacePalette(file, packs, newGeneration());
+            }
+            palette = new FacePalette(file, packs, generation);
             // Only the headers: the pixels are read when a sprite is drawn.
             while (in.getFilePointer() + 16 <= end) {
                 long hash = in.readLong();
@@ -180,14 +207,12 @@ final class FacePalette {
                 in.seek(offset + length);
             }
             palette.saved = palette.entries.size();
-            palette.fileEnd = palette.saved == 0 ? 8
+            palette.fileEnd = palette.saved == 0 ? HEADER
                 : palette.entries.get(palette.saved - 1).offset + palette.entries.get(palette.saved - 1).length;
         } catch (IOException e) {
-            WayFarMap.LOG.warn("Could not read the 3D map's block sprites " + palette.file, e);
-            palette.entries.clear();
-            palette.byHash.clear();
-            palette.saved = 0;
-            palette.fileEnd = 0;
+            WayFarMap.LOG.warn("Could not read the 3D map's block sprites " + file, e);
+            // A new palette: ids chunks have of the one in the file are not used.
+            return new FacePalette(file, packs, newGeneration());
         }
         return palette;
     }
@@ -253,6 +278,11 @@ final class FacePalette {
     /** Memory taken by sprites not in the file yet, in bytes. */
     long unsavedBytes() {
         return unsavedBytes;
+    }
+
+    /** Whether the id is one of this palette's sprites. */
+    synchronized boolean has(int id) {
+        return id > 0 && id <= entries.size();
     }
 
     /** The sprite with its reduced copies, or null for an unknown id. Any thread. */
@@ -398,9 +428,10 @@ final class FacePalette {
             int[] lengths = new int[added.size()];
             synchronized (file) {
                 try (RandomAccessFile out = new RandomAccessFile(file, "rw")) {
-                    if (end < 8) {
+                    if (end < HEADER) {
                         out.setLength(0);
                         out.writeInt(MAGIC);
+                        out.writeInt(packs);
                         out.writeInt(generation);
                     } else {
                         // After the last whole sprite (anything after it was cut off while written).

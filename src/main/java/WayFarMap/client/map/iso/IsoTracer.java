@@ -79,6 +79,8 @@ final class IsoTracer {
     int nightColor;
     /** Lowest "toward the viewer" distance any ray got to, for knowing which chunks a tile depends on. */
     double minToward;
+    /** A sprite of the palette couldn't be read: the block was drawn from its icons, the tile should be again. */
+    boolean incomplete;
 
     // State of the current ray.
     private double rayU, rayV;
@@ -118,6 +120,7 @@ final class IsoTracer {
         Arrays.fill(cacheData, null);
         currentChunkX = Integer.MIN_VALUE;
         minToward = Double.MAX_VALUE;
+        incomplete = false;
     }
 
     /** The chunk data, from the tracer's cache. Sets {@link #currentData} and {@link #currentTop}. */
@@ -237,7 +240,7 @@ final class IsoTracer {
                     if (ChunkBlocks.blockId(cell) != 0) {
                         BlockLooks.Look look = BlockLooks.get(key);
                         // Solid cubes show the game's pictures of their sides (in face); other blocks its sprites.
-                        int spriteId = look.opaque ? 0 : pictureId(blocks, projection.rotation);
+                        int spriteId = look.opaque || look.noPictures ? 0 : pictureId(blocks, projection.rotation);
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
@@ -345,7 +348,11 @@ final class IsoTracer {
     private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
-            return id != FacePalette.EMPTY ? SPRITE_NONE : SPRITE_PASS;
+            if (id == FacePalette.EMPTY) {
+                return SPRITE_PASS;
+            }
+            incomplete |= palette.has(id);
+            return SPRITE_NONE;
         }
         double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
         double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
@@ -539,8 +546,8 @@ final class IsoTracer {
                 texV = 1 - py;
                 textureSide = 2;
             }
-            int texel = look.textures[textureSide].texel(texU, texV, mip);
-            if ((texel >>> 24) < 128) {
+            int texel = visible(look.textures[textureSide], texU, texV);
+            if (texel == 0) {
                 continue;
             }
             bestT = hitT;
@@ -600,6 +607,9 @@ final class IsoTracer {
         if (look.opaque) {
             int id = pictureId(blocks, side);
             FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
+            if (picture == null && id > 0) {
+                incomplete |= palette.has(id);
+            }
             if (picture != null) {
                 // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
                 int pixel = picture.texel(texU, texV, pictureMip);
@@ -612,13 +622,14 @@ final class IsoTracer {
             }
         }
         BlockLooks.Texture texture = look.textures[side];
-        int texel = texture.texel(texU, texV, mip);
-        int texelAlpha = texel >>> 24;
+        int texel;
         float alpha;
         if (look.translucent) {
-            alpha = look.alpha > 0 ? look.alpha : Math.max(0.3f, texelAlpha / 255f);
+            texel = texture.texel(texU, texV, mip);
+            alpha = look.alpha > 0 ? look.alpha : Math.max(0.3f, (texel >>> 24) / 255f);
         } else {
-            if (texelAlpha < 128) {
+            texel = visible(texture, texU, texV);
+            if (texel == 0) {
                 // A hole in the texture (leaves, glass frames): look further.
                 return false;
             }
@@ -628,6 +639,23 @@ final class IsoTracer {
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
         addLit(color, SIDE_SHADE[side], light, alpha);
         return transmit < 0.02;
+    }
+
+    /**
+     * The texel where a texture with holes is solid, 0 where it has a hole. Solid if it is in the full texture or in
+     * the reduced copy: reduced copies blur thin parts (glass frames, rails) into see-through pixels, which made
+     * such blocks vanish zoomed out, while leaves stay as full as the reduced copy has them.
+     */
+    private int visible(BlockLooks.Texture texture, double texU, double texV) {
+        int texel = texture.texel(texU, texV, mip);
+        if ((texel >>> 24) >= 128) {
+            return texel;
+        }
+        if (mip == 0) {
+            return 0;
+        }
+        int exact = texture.texel(texU, texV, 0);
+        return (exact >>> 24) >= 128 ? exact : 0;
     }
 
     /**

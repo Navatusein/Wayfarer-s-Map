@@ -1,6 +1,7 @@
 package WayFarMap.client.map.iso;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockDoublePlant;
 import net.minecraft.block.material.Material;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
@@ -154,6 +155,12 @@ final class BlockCapture {
                     int sky = noSky ? 15 : chunk.getSavedLightValue(EnumSkyBlock.Sky, x, y, z);
                     int light = chunk.getSavedLightValue(EnumSkyBlock.Block, x, y, z);
                     int meta = id == 0 ? 0 : chunk.getBlockMetadata(x, y, z);
+                    if ((meta & 8) != 0 && block instanceof BlockDoublePlant
+                        && y > 0
+                        && chunk.getBlock(x, y - 1, z) == block) {
+                        // The top half of a double plant: which plant it is, is kept by the bottom half.
+                        meta = 8 | chunk.getBlockMetadata(x, y - 1, z) & 7;
+                    }
                     cells[i] = (id & 0xFFFF) | (meta & 15) << 16 | (light & 15) << 20 | (sky & 15) << 24;
                 }
             }
