@@ -190,7 +190,8 @@ final class IsoTiles {
                 int index = i;
                 Thread thread = new Thread(() -> work(index), "WayFarMap 3D renderer " + (i + 1));
                 thread.setDaemon(true);
-                // Below the game's threads, but not at the bottom: busy, the system gave the lowest ones next to no time.
+                // Below the game's threads, but not at the bottom: busy, the system gave the lowest ones next to no
+                // time.
                 thread.setPriority(Thread.NORM_PRIORITY - 2);
                 thread.start();
                 workers[i] = thread;
