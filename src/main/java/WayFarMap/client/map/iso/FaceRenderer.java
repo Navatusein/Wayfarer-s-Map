@@ -64,6 +64,7 @@ final class FaceRenderer {
 
     private static Framebuffer framebuffer;
     private static IntBuffer readBuffer;
+    private static int[] readPixels;
     private static FloatBuffer matrixBuffer;
     private static DoubleBuffer planeBuffer;
     private static boolean broken;
@@ -153,7 +154,8 @@ final class FaceRenderer {
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
-        for (int i = 0; i < cells.length; i++) {
+        // The part of an edge chunk kept below its surface gets no pictures: it starts above it.
+        for (int i = Math.max(0, blocks.picturesFrom - blocks.yMin) << 8; i < cells.length; i++) {
             int cell = cells[i];
             if (ChunkBlocks.blockId(cell) == 0) {
                 continue;
@@ -177,9 +179,6 @@ final class FaceRenderer {
                 continue;
             }
             int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);
-            if (y < blocks.picturesFrom) {
-                continue;
-            }
             int x = baseX + lx, z = baseZ + lz;
             int exposed = exposedSides(world, blocks, lx, y, lz, x, z);
             if (exposed == 0) {
@@ -251,6 +250,10 @@ final class FaceRenderer {
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
                 } else {
+                    if (BY_SURROUNDINGS.size() > 200_000) {
+                        // A long game: start over rather than grow without end.
+                        BY_SURROUNDINGS.clear();
+                    }
                     BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
                     List<Pending> same = waiting.get(pending.surroundings);
                     if (same != null) {
@@ -448,7 +451,10 @@ final class FaceRenderer {
             }
             readBuffer.clear();
             GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
-            int[] all = new int[SIZE * SIZE];
+            if (readPixels == null) {
+                readPixels = new int[SIZE * SIZE];
+            }
+            int[] all = readPixels;
             readBuffer.get(all);
             slot = 0;
             int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];

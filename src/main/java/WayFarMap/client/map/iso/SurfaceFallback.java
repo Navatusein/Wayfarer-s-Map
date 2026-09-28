@@ -71,12 +71,12 @@ final class SurfaceFallback {
     private Entry entry(int rx, int rz) {
         long key = key(rx, rz);
         Entry entry = entries.get(key);
+        if (entry != null && System.currentTimeMillis() - entry.checkedAt < RECHECK_MS) {
+            return entry;
+        }
         File file = MapRegion.getFile(directory, rx, rz);
         if (entry != null) {
             long now = System.currentTimeMillis();
-            if (now - entry.checkedAt < RECHECK_MS) {
-                return entry;
-            }
             entry.checkedAt = now;
             if ((file.isFile() ? file.lastModified() : 0) == entry.fileTime) {
                 return entry;

@@ -75,7 +75,8 @@ public final class IsoProjection {
 
     /** Like {@link #levelFor(double)}, with no more than the given pixels per block (the chosen quality). */
     public static int levelFor(double screenPixelsPerBlock, int maxPixelsPerBlock) {
-        int finest = Integer.numberOfTrailingZeros(Math.max(1, FINEST_PIXELS_PER_BLOCK / Math.max(1, maxPixelsPerBlock)));
+        int ratio = Math.max(1, FINEST_PIXELS_PER_BLOCK / Math.max(1, maxPixelsPerBlock));
+        int finest = Integer.numberOfTrailingZeros(ratio);
         double wanted = FINEST_PIXELS_PER_BLOCK / Math.max(1e-6, screenPixelsPerBlock);
         int level = (int) Math.floor(Math.log(wanted) / Math.log(2));
         return Math.max(finest, Math.min(LEVELS - 1, level));

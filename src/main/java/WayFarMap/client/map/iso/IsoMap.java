@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
@@ -225,7 +226,7 @@ public final class IsoMap implements BlockStore.Listener {
             lastCapture.clear();
         }
         if (first) {
-            requeueEdgeNeighbours(dimension, chunk);
+            requeueEdgeNeighbours(world, dimension, chunk);
         }
         ChunkBlocks blocks;
         try {
@@ -254,7 +255,12 @@ public final class IsoMap implements BlockStore.Listener {
      * A chunk came into view: neighbours kept whole because they were at the edge (see {@link BlockCapture}) may not
      * be at the edge anymore; they are copied again (thin, if so) once they have all their neighbours.
      */
-    private void requeueEdgeNeighbours(Dimension dimension, Chunk chunk) {
+    private void requeueEdgeNeighbours(World world, Dimension dimension, Chunk chunk) {
+        // In a world without ground at the bottom (personal worlds, the End) every chunk is kept whole anyway.
+        if (world.getBlock(chunk.xPosition * 16, 0, chunk.zPosition * 16)
+            .getMaterial() == Material.air) {
+            return;
+        }
         int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
         for (int[] side : sides) {
             int cx = chunk.xPosition + side[0], cz = chunk.zPosition + side[1];

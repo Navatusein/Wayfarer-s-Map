@@ -516,6 +516,9 @@ final class IsoTiles {
         boolean any = false;
         // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
         boolean supersample = pixelsPerBlock < 1;
+        double q = 0.25 / pixelsPerBlock;
+        double[] offsetU = { -q, q, -q }, offsetV = { -q, -q, q };
+        int[] day = new int[4], night = new int[4];
         // Column by column: the rays of one column pass through nearly the same chunks, the rays of a row don't.
         for (int px = 0; px < PIXELS && running; px++) {
             for (int py = 0; py < PIXELS; py++) {
@@ -524,13 +527,10 @@ final class IsoTiles {
                 int nightColor = tracer.nightColor;
                 hits[py * PIXELS + px] = hitCode(tracer);
                 if (supersample) {
-                    double q = 0.25 / pixelsPerBlock;
-                    int[] day = new int[4], night = new int[4];
                     day[0] = color;
                     night[0] = nightColor;
-                    double[][] offsets = { { -q, -q }, { q, -q }, { -q, q } };
                     for (int i = 0; i < 3; i++) {
-                        day[i + 1] = tracer.trace(u + offsets[i][0], v + offsets[i][1]);
+                        day[i + 1] = tracer.trace(u + offsetU[i], v + offsetV[i]);
                         night[i + 1] = tracer.nightColor;
                     }
                     color = average(day);

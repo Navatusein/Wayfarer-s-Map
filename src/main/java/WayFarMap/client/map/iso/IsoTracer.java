@@ -107,7 +107,8 @@ final class IsoTracer {
     void reset(IsoProjection projection, int level) {
         this.projection = projection;
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
-        mip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
+        mip = pixelsPerBlock >= 16 ? 0
+            : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
         // No further than 8x8: smaller copies mix a block's top with its darker sides, darker than blocks drawn
         // from their icons (the tile's own four rays per pixel smooth the far levels instead).
         spriteMip = pixelsPerBlock >= 64 ? 0
@@ -412,7 +413,7 @@ final class IsoTracer {
                     z,
                     previousLight,
                     0,
-                    new float[] { 0, 0, 0, 1, height, 1 });
+                    liquidBox(height));
                 if (boxHit) {
                     insideLiquid = key;
                     // The whole body of water is lit by the light over its surface: the light kept in each block
@@ -429,6 +430,14 @@ final class IsoTracer {
             default:
                 return false;
         }
+    }
+
+    /** Box of a liquid block as high as its surface (reused: one per tracer, used right away). */
+    private final float[] liquidBox = { 0, 0, 0, 1, 1, 1 };
+
+    private float[] liquidBox(float height) {
+        liquidBox[4] = height;
+        return liquidBox;
     }
 
     /** The nearest box face of the block the ray passes through, if any. */
@@ -672,24 +681,27 @@ final class IsoTracer {
         }
     }
 
-    /** The column's lowest solid block, worked out once per chunk (with its height in {@code fillerY}). */
+    /**
+     * The column's lowest solid block and its height, {@code key | (y + 1) << 20}, worked out once per chunk. One int,
+     * so tile renderers working it out at the same time never see a block with another one's height.
+     */
     private static int filler(ChunkBlocks blocks, int lx, int lz) {
         int column = (lz << 4) | lx;
         int filler = blocks.filler[column];
         if (filler != 0) {
             return filler;
         }
-        filler = STONE;
+        int key = STONE;
         int fillerY = blocks.yMin;
         for (int y = blocks.yMin; y <= blocks.yMax; y++) {
             int cell = blocks.cell(lx, y, lz);
             if (ChunkBlocks.blockId(cell) != 0 && BlockLooks.get(ChunkBlocks.lookKey(cell)).opaque) {
-                filler = ChunkBlocks.lookKey(cell);
+                key = ChunkBlocks.lookKey(cell);
                 fillerY = y;
                 break;
             }
         }
-        blocks.fillerY[column] = fillerY;
+        filler = key | (fillerY + 1) << 20;
         blocks.filler[column] = filler;
         return filler;
     }
@@ -701,8 +713,9 @@ final class IsoTracer {
      * kept): under grass and dirt a few blocks of dirt, under sand some sandstone, then stone; rock stays itself.
      */
     private static int ground(ChunkBlocks blocks, int lx, int lz, int y) {
-        int top = filler(blocks, lx, lz);
-        int depth = blocks.fillerY[(lz << 4) | lx] - y;
+        int filler = filler(blocks, lx, lz);
+        int top = filler & 0xFFFFF;
+        int depth = (filler >>> 20) - 1 - y;
         switch (top & 0xFFFF) {
             case 2: // grass
             case 3: // dirt

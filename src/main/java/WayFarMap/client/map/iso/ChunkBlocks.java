@@ -7,6 +7,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
 /**
@@ -38,12 +39,10 @@ public final class ChunkBlocks {
     /** Biome colors of each column (index {@code z * 16 + x}), RGB. */
     public final int[] grass, foliage, water;
     /**
-     * Per column, the block (id | meta << 16) that fills everything below {@link #yMin}: the lowest solid block of
-     * the column; 0 until the tracer worked it out.
+     * Per column, the lowest solid block of the column (id | meta << 16) and its height ({@code (y + 1) << 20}):
+     * the ground below {@link #yMin} is drawn from it in layers; 0 until the tracer worked it out.
      */
     final int[] filler = new int[256];
-    /** Per column, the height of {@link #filler}'s block (the ground below it is layered like the world's). */
-    final int[] fillerY = new int[256];
     /**
      * Lowest height whose blocks get pictures taken by the game (only while copying): the part of an edge chunk kept
      * below its surface is drawn from icons.
@@ -171,7 +170,9 @@ public final class ChunkBlocks {
     }
 
     public static ChunkBlocks decode(byte[] data) throws IOException {
-        try (DataInputStream in = new DataInputStream(new InflaterInputStream(new ByteArrayInputStream(data)))) {
+        Inflater inflater = new Inflater();
+        try (DataInputStream in = new DataInputStream(
+            new InflaterInputStream(new ByteArrayInputStream(data), inflater, 8192))) {
             int format = in.readUnsignedByte();
             if (format < FORMAT_PLAIN || format > FORMAT) {
                 throw new IOException("Unknown chunk format " + format);
@@ -225,6 +226,8 @@ public final class ChunkBlocks {
                 // Older pictures (version 2: sides of every block, 3: sprites of every block) are taken again.
             }
             return blocks;
+        } finally {
+            inflater.end();
         }
     }
 

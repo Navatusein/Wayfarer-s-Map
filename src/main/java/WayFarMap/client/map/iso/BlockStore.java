@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -367,11 +369,15 @@ public final class BlockStore {
                 }
             }
         }
-        if (file.exists() && !file.delete()) {
-            throw new IOException("Could not replace " + file);
-        }
-        if (!tmp.renameTo(file)) {
-            throw new IOException("Could not rename " + tmp);
+        // In one step where the file system can: a crash never leaves the region without its file.
+        try {
+            Files.move(
+                tmp.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }
