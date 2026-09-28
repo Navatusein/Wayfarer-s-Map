@@ -42,6 +42,8 @@ final class FaceRenderer {
 
     /** Sprite size, and the buffer: 256 sprites per read back. */
     private static final int SLOT = FacePalette.SIZE, SIZE = 512, PER_ROW = SIZE / SLOT, SLOTS = PER_ROW * PER_ROW;
+    /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
+    private static final double CLIP_MARGIN = 1 / 32.0;
     private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
         { 1, 0, 0 } };
 
@@ -335,10 +337,11 @@ final class FaceRenderer {
                     loadView(IsoProjection.of(rotation));
                     GL11.glTranslated(-(pending.x + 0.5), -(pending.y + 0.5), -(pending.z + 0.5));
                     // Only what is inside the block's column: not the other half of a double chest, not neighbours.
-                    clip(0, 1, 0, -pending.x);
-                    clip(1, -1, 0, pending.x + 1);
-                    clip(2, 0, 1, -pending.z);
-                    clip(3, 0, -1, pending.z + 1);
+                    // A little outside the block, or its own sides, which lie on these planes, get cut off.
+                    clip(0, 1, 0, -(pending.x - CLIP_MARGIN));
+                    clip(1, -1, 0, pending.x + 1 + CLIP_MARGIN);
+                    clip(2, 0, 1, -(pending.z - CLIP_MARGIN));
+                    clip(3, 0, -1, pending.z + 1 + CLIP_MARGIN);
                     // Again for every sprite: a tile entity renderer may have changed any of it.
                     GL11.glDisable(GL11.GL_CULL_FACE);
                     GL11.glDisable(GL11.GL_LIGHTING);

@@ -37,6 +37,8 @@ final class IsoTracer {
     private static final double WATER_ABSORPTION = 0.42;
     /** Water seen in depth is darker than its surface. */
     private static final float WATER_DEPTH_SHADE = 0.62f;
+    /** Results of {@link #sprite}. */
+    private static final int SPRITE_NONE = 0, SPRITE_STOP = 1, SPRITE_PASS = 2;
     /** Light of open sky (sky 15, no block light), packed like {@link #light}. */
     private static final int OPEN = 15 << 4;
 
@@ -225,11 +227,11 @@ final class IsoTracer {
                         BlockLooks.Look look = BlockLooks.get(key);
                         int spriteId = spriteId(blocks);
                         int lightHere = look.lightPasses ? light(cell) : previousLight;
-                        if (spriteId != 0) {
-                            if (sprite(spriteId, look, x, y, z, t, lightHere)) {
-                                break;
-                            }
-                        } else if (sample(
+                        int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, t, lightHere);
+                        if (drawn == SPRITE_STOP) {
+                            break;
+                        }
+                        if (drawn == SPRITE_NONE && sample(
                             look,
                             key,
                             blocks,
@@ -311,30 +313,47 @@ final class IsoTracer {
 
     /**
      * The block as the game draws it, seen along this ray: its sprite's pixel at the ray's place relative to the
-     * block's center.
+     * block's center. Whether the ray meets the block is decided on the full sprite (the reduced copies blur its
+     * edges); a solid block always stops the ray, taking the nearest drawn pixel where the sprite's edge falls just
+     * beside the ray, or its icons when it has no sprite, so there are never holes in solid blocks.
      *
-     * @return true when the ray stops here
+     * @return {@link #SPRITE_STOP}, {@link #SPRITE_PASS} (the ray goes on), or {@link #SPRITE_NONE} (draw the block
+     *         from its icons instead)
      */
-    private boolean sprite(int id, BlockLooks.Look look, int x, int y, int z, double t, int lightHere) {
-        if (id == FacePalette.EMPTY) {
-            return false;
-        }
-        FacePalette.Sprite sprite = palette.sprite(id);
+    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, double t, int lightHere) {
+        FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
-            return false;
+            return look.opaque || id != FacePalette.EMPTY ? SPRITE_NONE : SPRITE_PASS;
         }
-        double du = rayU - projection.u(x + 0.5, z + 0.5);
-        double dv = rayV - projection.v(x + 0.5, y + 0.5, z + 0.5);
-        int pixel = sprite.texel((du + 1) / 2, (dv + 1) / 2, spriteMip);
-        int pixelAlpha = pixel >>> 24;
-        if (pixelAlpha < (look.translucent ? 8 : 128)) {
-            return false;
+        double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
+        double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
+        int exact = sprite.texel(su, sv, 0);
+        int exactAlpha = exact >>> 24;
+        if (exactAlpha < (look.translucent ? 8 : 128)) {
+            if (look.translucent) {
+                return SPRITE_PASS;
+            }
+            // The sprite's pixels are drawn by their centers, the ray meets the block exactly: right at an edge
+            // they can disagree by a pixel. Solid blocks never let the ray through; others close such cracks.
+            exact = sprite.nearestSolid(su, sv, look.opaque ? 2 : 1);
+            if (exact == 0) {
+                return look.opaque ? SPRITE_NONE : SPRITE_PASS;
+            }
+            exactAlpha = 255;
+        }
+        int pixel = exact;
+        if (spriteMip > 0) {
+            // The color of the area this pixel of the tile covers, where it has one.
+            int reduced = sprite.texel(su, sv, spriteMip);
+            if ((reduced >>> 24) >= 64) {
+                pixel = reduced;
+            }
         }
         hit(1, t);
-        float alpha = look.translucent ? Math.max(0.3f, pixelAlpha / 255f) : 1f;
+        float alpha = look.translucent ? Math.max(0.3f, exactAlpha / 255f) : 1f;
         // Sides are already shaded as the game shades them; only the light of the place is added.
         addLit(pixel & 0xFFFFFF, 1f, lightHere, alpha);
-        return transmit < 0.02;
+        return transmit < 0.02 ? SPRITE_STOP : SPRITE_PASS;
     }
 
     /**

@@ -46,6 +46,41 @@ final class FacePalette {
             return mips[mip][y * size + x];
         }
 
+        /**
+         * The nearest pixel of the full sprite drawn solid (alpha 128 or more) within {@code radius} pixels of
+         * (u, v), 0 if there is none: for a ray that meets a solid block just where the sprite's edge was drawn
+         * beside it.
+         */
+        int nearestSolid(double u, double v, int radius) {
+            int[] pixels = mips[0];
+            int cx = (int) Math.floor(u * SIZE), cy = (int) Math.floor(v * SIZE);
+            for (int r = 1; r <= radius; r++) {
+                int best = 0;
+                double bestDistance = Double.MAX_VALUE;
+                for (int y = cy - r; y <= cy + r; y++) {
+                    for (int x = cx - r; x <= cx + r; x++) {
+                        if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) {
+                            continue;
+                        }
+                        int pixel = pixels[y * SIZE + x];
+                        if ((pixel >>> 24) < 128) {
+                            continue;
+                        }
+                        double distance = (x + 0.5 - u * SIZE) * (x + 0.5 - u * SIZE)
+                            + (y + 0.5 - v * SIZE) * (y + 0.5 - v * SIZE);
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
+                            best = pixel;
+                        }
+                    }
+                }
+                if (best != 0) {
+                    return best;
+                }
+            }
+            return 0;
+        }
+
         static Sprite of(int[] pixels) {
             Sprite sprite = new Sprite();
             sprite.mips[0] = pixels;
