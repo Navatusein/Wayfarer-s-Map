@@ -104,8 +104,8 @@ public class GuiHelp extends ScaledScreen {
 
         buttonList.clear();
         // The close button stays at the bottom of the sidebar, under the list of sections, whatever their number.
-        buttonList.add(
-            new FlatButton(ID_CLOSE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("wayfarmap.help.close")));
+        String close = I18n.format("wayfarmap.help.close");
+        buttonList.add(new FlatButton(ID_CLOSE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, close));
         int half = (contentRight - contentLeft - 6) / 2;
         previousButton = new FlatButton(ID_PREVIOUS, contentLeft, bottom - 26, half, 18, "");
         nextButton = new FlatButton(ID_NEXT, contentRight - half, bottom - 26, half, 18, "");
