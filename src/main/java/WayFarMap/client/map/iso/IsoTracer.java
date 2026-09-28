@@ -32,11 +32,14 @@ final class IsoTracer {
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
     /** How much of what is below the water's surface veils: the rest is the water body (see absorb). */
-    private static final float WATER_SURFACE = 0.3f;
+    private static final float WATER_SURFACE = 0.4f;
     /** Per block of water the ray passes, the share of light that becomes water color. */
-    private static final double WATER_ABSORPTION = 0.42;
+    private static final double WATER_ABSORPTION = 0.65;
     /** Water seen in depth is darker than its surface. */
     private static final float WATER_DEPTH_SHADE = 0.62f;
+    /** The outward direction of each side: down, up, north, south, west, east. */
+    private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
+        { 1, 0, 0 } };
     /** Results of {@link #sprite}. */
     private static final int SPRITE_NONE = 0, SPRITE_STOP = 1, SPRITE_PASS = 2;
     /** Light of open sky (sky 15, no block light), packed like {@link #light}. */
@@ -82,8 +85,9 @@ final class IsoTracer {
     private int currentChunkX = Integer.MIN_VALUE, currentChunkZ;
     private Object currentData;
     private int currentTop;
-    /** Key of the liquid the ray is under the surface of, 0 if none. */
+    /** Key of the liquid the ray is under the surface of, 0 if none, and the light over its surface. */
     private int insideLiquid;
+    private int waterLight;
     /** Whether the last {@link #boxes} call met a box, and where. */
     private boolean boxHit;
     private double boxHitT;
@@ -102,7 +106,9 @@ final class IsoTracer {
         this.projection = projection;
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         mip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
-        spriteMip = Math.min(5, level);
+        // No further than 8x8: smaller copies mix a block's top with its darker sides, darker than blocks drawn
+        // from their icons (the tile's own four rays per pixel smooth the far levels instead).
+        spriteMip = Math.min(2, level);
         Arrays.fill(cacheKeys, Long.MIN_VALUE);
         Arrays.fill(cacheData, null);
         currentChunkX = Integer.MIN_VALUE;
@@ -225,9 +231,13 @@ final class IsoTracer {
                     }
                     if (ChunkBlocks.blockId(cell) != 0) {
                         BlockLooks.Look look = BlockLooks.get(key);
-                        int spriteId = spriteId(blocks);
-                        int lightHere = look.lightPasses ? light(cell) : previousLight;
-                        int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, t, lightHere);
+                        // Solid cubes show the game's pictures of their sides (in face); other blocks its sprites.
+                        int spriteId = look.opaque ? 0 : pictureId(blocks, projection.rotation);
+                        // Some blocks say light passes them while the world keeps none in their cell (GregTech
+                        // machines): the brighter of the cell and the light in front of it.
+                        int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
+                        int drawn = spriteId == 0 ? SPRITE_NONE
+                            : sprite(spriteId, look, x, y, z, side, t, lightHere);
                         if (drawn == SPRITE_STOP) {
                             break;
                         }
@@ -248,7 +258,10 @@ final class IsoTracer {
                             previousKey)) {
                                 break;
                             }
-                        if (look.lightPasses) {
+                        // Passing over a liquid's surface (in the gap above it) is still in the air: the light of the
+                        // water below would darken the next block's surface along every edge.
+                        boolean overLiquid = look.shape == BlockLooks.SHAPE_LIQUID && insideLiquid != key;
+                        if (look.lightPasses && !overLiquid) {
                             previousLight = light(cell);
                         }
                     } else {
@@ -303,43 +316,34 @@ final class IsoTracer {
         return a | clamp(accR / alpha) << 16 | clamp(accG / alpha) << 8 | clamp(accB / alpha);
     }
 
-    /** Sprite id of the current cell from the view side, 0 if it has none. */
-    private int spriteId(ChunkBlocks blocks) {
-        if (palette == null || blocks.faceGeneration != palette.generation) {
+    /** Picture id of the current cell (a side of a solid cube, else a view side), 0 if it has none. */
+    private int pictureId(ChunkBlocks blocks, int slot) {
+        if (palette == null || cellIndex < 0 || blocks.faceGeneration != palette.generation) {
             return 0;
         }
-        return blocks.spriteId(cellIndex, projection.rotation);
+        return blocks.pictureId(cellIndex, slot);
     }
 
     /**
-     * The block as the game draws it, seen along this ray: its sprite's pixel at the ray's place relative to the
-     * block's center. Whether the ray meets the block is decided on the full sprite (the reduced copies blur its
-     * edges); a solid block always stops the ray, taking the nearest drawn pixel where the sprite's edge falls just
-     * beside the ray, or its icons when it has no sprite, so there are never holes in solid blocks.
+     * A block that isn't a solid cube as the game draws it (pipes, crops, beds, fences...), seen along this ray: its
+     * sprite's pixel at the ray's place relative to the block's center. Whether the ray meets the block is decided
+     * on the full sprite (the reduced copies blur its edges).
      *
      * @return {@link #SPRITE_STOP}, {@link #SPRITE_PASS} (the ray goes on), or {@link #SPRITE_NONE} (draw the block
      *         from its icons instead)
      */
-    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, double t, int lightHere) {
+    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
-            return look.opaque || id != FacePalette.EMPTY ? SPRITE_NONE : SPRITE_PASS;
+            return id != FacePalette.EMPTY ? SPRITE_NONE : SPRITE_PASS;
         }
         double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
         double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
         int exact = sprite.texel(su, sv, 0);
+        int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
-        if (exactAlpha < (look.translucent ? 8 : 128)) {
-            if (look.translucent) {
-                return SPRITE_PASS;
-            }
-            // The sprite's pixels are drawn by their centers, the ray meets the block exactly: right at an edge
-            // they can disagree by a pixel. Solid blocks never let the ray through; others close such cracks.
-            exact = sprite.nearestSolid(su, sv, look.opaque ? 2 : 1);
-            if (exact == 0) {
-                return look.opaque ? SPRITE_NONE : SPRITE_PASS;
-            }
-            exactAlpha = 255;
+        if (exactAlpha < minAlpha) {
+            return SPRITE_PASS;
         }
         int pixel = exact;
         if (spriteMip > 0) {
@@ -375,7 +379,7 @@ final class IsoTracer {
                 if (insideLiquid == key) {
                     // Under the surface: the water dims what is behind the farther the ray goes through it, so
                     // it is one smooth body getting deeper blue, not a grid of blocks.
-                    return water && absorb(look, blocks, lx, lz, exit - t, light(cell));
+                    return water && absorb(look, blocks, lx, lz, exit - t, waterLight);
                 }
                 boolean full = y + 1 <= blocks.yMax && ChunkBlocks.lookKey(blocks.cell(lx, y + 1, lz)) == key;
                 // As high as the game draws it: sources 8/9 of a block, flowing water lower the farther it flows.
@@ -401,8 +405,11 @@ final class IsoTracer {
                     new float[] { 0, 0, 0, 1, height, 1 });
                 if (boxHit) {
                     insideLiquid = key;
+                    // The whole body of water is lit by the light over its surface: the light kept in each block
+                    // of water drops with depth and differs from block to block, which would draw them as a grid.
+                    waterLight = previousLight;
                     if (water && !stop) {
-                        stop = absorb(look, blocks, lx, lz, exit - boxHitT, light(cell));
+                        stop = absorb(look, blocks, lx, lz, exit - boxHitT, waterLight);
                     }
                 }
                 return stop;
@@ -572,6 +579,20 @@ final class IsoTracer {
             addLit(color, SIDE_SHADE[side], light, WATER_SURFACE);
             return transmit < 0.02;
         }
+        if (look.opaque) {
+            int id = pictureId(blocks, side);
+            FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
+            if (picture != null) {
+                // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
+                int pixel = picture.texel(texU, texV, Math.min(5, mip + 1));
+                if ((picture.texel(texU, texV, 0) >>> 24) >= 128 && (pixel >>> 24) > 0) {
+                    hit(side, hitT);
+                    addLit(pixel & 0xFFFFFF, SIDE_SHADE[side], light, 1f);
+                    return true;
+                }
+                // Not drawn there (the side was hidden in the world): its icon.
+            }
+        }
         BlockLooks.Texture texture = look.textures[side];
         int texel = texture.texel(texU, texV, mip);
         int texelAlpha = texel >>> 24;
@@ -693,6 +714,11 @@ final class IsoTracer {
         nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
         nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
         transmit *= 1 - alpha;
+    }
+
+    /** The brighter sky light and the brighter block light of two packed lights. */
+    private static int brighter(int a, int b) {
+        return Math.max(a & 0xF0, b & 0xF0) | Math.max(a & 15, b & 15);
     }
 
     /** Light of a cell: sky light << 4 | block light. */

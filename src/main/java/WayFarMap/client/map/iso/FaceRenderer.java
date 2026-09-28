@@ -44,6 +44,19 @@ final class FaceRenderer {
     private static final int SLOT = FacePalette.SIZE, SIZE = 512, PER_ROW = SIZE / SLOT, SLOTS = PER_ROW * PER_ROW;
     /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
     private static final double CLIP_MARGIN = 1 / 32.0;
+    /** Brightness the game gives each side; taken out of pictures of sides, the tracer shades sides itself. */
+    private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
+    /**
+     * Per side, the camera looking straight at it: from the block (relative to its center) to eye coordinates, the
+     * side being the near plane and its picture laid out like the tracer reads a side's texture (row-major 3x4: x,
+     * y, z rows with a translation).
+     */
+    private static final float[][] SIDE_VIEWS = { { 1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, -0.5f }, // down
+        { 1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, -0.5f }, // up
+        { -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, -0.5f }, // north
+        { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -0.5f }, // south
+        { 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -0.5f }, // west
+        { 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, -0.5f } }; // east
     private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
         { 1, 0, 0 } };
 
@@ -67,9 +80,13 @@ final class FaceRenderer {
         final Block block;
         final TileEntity tileEntity;
         final long surroundings;
-        final int[] ids = new int[ChunkBlocks.VIEWS];
+        /** A solid cube: pictures of its six sides; otherwise sprites from the four view sides. */
+        final boolean cube;
+        final boolean ownRenderer;
+        final int[] ids = new int[ChunkBlocks.PER_CELL];
 
-        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings) {
+        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings,
+            boolean cube, boolean ownRenderer) {
             this.cellIndex = cellIndex;
             this.x = x;
             this.y = y;
@@ -77,6 +94,12 @@ final class FaceRenderer {
             this.block = block;
             this.tileEntity = tileEntity;
             this.surroundings = surroundings;
+            this.cube = cube;
+            this.ownRenderer = ownRenderer;
+        }
+
+        int views() {
+            return cube ? 6 : ChunkBlocks.VIEWS;
         }
     }
 
@@ -151,7 +174,7 @@ final class FaceRenderer {
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
             long surroundings = tileEntity != null ? 0 : surroundings(world, block, x, y, z);
-            Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings);
+            Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
             found.add(pending);
             if (tileEntity == null) {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
@@ -172,9 +195,16 @@ final class FaceRenderer {
         if (found.isEmpty()) {
             return;
         }
-        int perBatch = SLOTS / ChunkBlocks.VIEWS;
-        for (int from = 0; from < toDraw.size() && !broken; from += perBatch) {
-            List<Pending> batch = toDraw.subList(from, Math.min(toDraw.size(), from + perBatch));
+        for (int from = 0; from < toDraw.size() && !broken;) {
+            // As many blocks as their pictures fit in the buffer.
+            int to = from, slots = 0;
+            while (to < toDraw.size() && slots + toDraw.get(to)
+                .views() <= SLOTS) {
+                slots += toDraw.get(to++)
+                    .views();
+            }
+            List<Pending> batch = toDraw.subList(from, to);
+            from = to;
             draw(world, batch, palette);
             for (Pending pending : batch) {
                 if (pending.tileEntity == null) {
@@ -192,11 +222,11 @@ final class FaceRenderer {
             return;
         }
         int[] faceCells = new int[found.size()];
-        int[] ids = new int[found.size() * ChunkBlocks.VIEWS];
+        int[] ids = new int[found.size() * ChunkBlocks.PER_CELL];
         for (int n = 0; n < found.size(); n++) {
             Pending pending = found.get(n);
             faceCells[n] = pending.cellIndex;
-            System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.VIEWS, ChunkBlocks.VIEWS);
+            System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
         }
         blocks.setFaces(palette.generation, faceCells, ids);
     }
@@ -327,14 +357,21 @@ final class FaceRenderer {
 
             int slot = 0;
             for (Pending pending : batch) {
-                for (int rotation = 0; rotation < ChunkBlocks.VIEWS; rotation++, slot++) {
+                for (int view = 0; view < pending.views(); view++, slot++) {
                     GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, SLOT, SLOT);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
                     GL11.glLoadIdentity();
-                    // Two blocks of the projection plane around the block's center, like the tracer reads it.
-                    GL11.glOrtho(-1, 1, -1, 1, -2, 2);
-                    GL11.glMatrixMode(GL11.GL_MODELVIEW);
-                    loadView(IsoProjection.of(rotation));
+                    if (pending.cube) {
+                        // Straight at one side: the picture covers exactly that side, like its texture.
+                        GL11.glOrtho(-0.5, 0.5, -0.5, 0.5, -0.01, 1.01);
+                        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                        loadSideView(view);
+                    } else {
+                        // Two blocks of the projection plane around the block's center, like the tracer reads it.
+                        GL11.glOrtho(-1, 1, -1, 1, -2, 2);
+                        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                        loadView(IsoProjection.of(view));
+                    }
                     GL11.glTranslated(-(pending.x + 0.5), -(pending.y + 0.5), -(pending.z + 0.5));
                     // Only what is inside the block's column: not the other half of a double chest, not neighbours.
                     // A little outside the block, or its own sides, which lie on these planes, get cut off.
@@ -367,13 +404,18 @@ final class FaceRenderer {
             slot = 0;
             int[] image = new int[FacePalette.PIXELS];
             for (Pending pending : batch) {
-                for (int rotation = 0; rotation < ChunkBlocks.VIEWS; rotation++, slot++) {
+                for (int view = 0; view < pending.views(); view++, slot++) {
                     int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
+                    // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
+                    float shade = pending.cube && !pending.ownRenderer ? SIDE_SHADE[view] : 1f;
                     for (int row = 0; row < SLOT; row++) {
-                        // Read back bottom-up; sprites are top-down.
-                        System.arraycopy(all, (sy + SLOT - 1 - row) * SIZE + sx, image, row * SLOT, SLOT);
+                        // Read back bottom-up; pictures are top-down.
+                        int from = (sy + SLOT - 1 - row) * SIZE + sx;
+                        for (int column = 0; column < SLOT; column++) {
+                            image[row * SLOT + column] = unshade(all[from + column], shade);
+                        }
                     }
-                    pending.ids[rotation] = palette.idOf(image);
+                    pending.ids[view] = palette.idOf(image);
                 }
             }
         } catch (Throwable t) {
@@ -451,6 +493,31 @@ final class FaceRenderer {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glDisable(GL11.GL_LIGHTING);
         }
+    }
+
+    private static void loadSideView(int side) {
+        float[] m = SIDE_VIEWS[side];
+        matrixBuffer.clear();
+        // Column-major.
+        for (int column = 0; column < 4; column++) {
+            matrixBuffer.put(m[column])
+                .put(m[4 + column])
+                .put(m[8 + column])
+                .put(column == 3 ? 1f : 0f);
+        }
+        matrixBuffer.flip();
+        GL11.glLoadMatrix(matrixBuffer);
+    }
+
+    /** Takes the game's side shading out of a pixel, so the tracer can shade it by the light of its place. */
+    private static int unshade(int argb, float shade) {
+        if (shade >= 1f || (argb >>> 24) == 0) {
+            return argb;
+        }
+        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) / shade + 0.5f));
+        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) / shade + 0.5f));
+        int b = Math.min(255, (int) ((argb & 0xFF) / shade + 0.5f));
+        return argb & 0xFF000000 | r << 16 | g << 8 | b;
     }
 
     /**

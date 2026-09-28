@@ -32,7 +32,9 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 4;
+    private static final int RENDER_VERSION = 5;
+    /** Changes when sprites would look different; the old ones are then taken again. */
+    private static final int SPRITE_VERSION = 5;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
     private static final long CAPTURE_BUDGET_NANOS = 4_000_000L;
     /** A chunk is copied again at most this often while the player stays near it. */
@@ -80,7 +82,7 @@ public final class IsoMap implements BlockStore.Listener {
     public void open(File worldDirectory) {
         close();
         this.worldDirectory = worldDirectory;
-        palette = FacePalette.load(worldDirectory, cacheId());
+        palette = FacePalette.load(worldDirectory, spriteCacheId());
         writer = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "WayFarMap 3D writer");
             thread.setDaemon(true);
@@ -261,20 +263,27 @@ public final class IsoMap implements BlockStore.Listener {
         cacheId = null;
         FacePalette old = palette;
         if (worldDirectory != null && writer != null
-            && (old == null || old.generation != (cacheId().hashCode() & 0x7FFFFFFF))) {
+            && (old == null || old.generation != (spriteCacheId().hashCode() & 0x7FFFFFFF))) {
             // Other resource packs: a new palette (it replaces the file when first saved).
             writer.submit(() -> {
                 if (old != null) {
                     old.save();
                 }
             });
-            palette = FacePalette.load(worldDirectory, cacheId());
+            palette = FacePalette.load(worldDirectory, spriteCacheId());
         }
         // Copied again as they come by, with pictures in the new textures.
         lastCapture.clear();
         if (tiles != null) {
             tiles.invalidateAll();
         }
+    }
+
+    /** Identifies the sprites: they depend on the textures, not on how tiles are drawn from them. */
+    private static String spriteCacheId() {
+        Minecraft mc = Minecraft.getMinecraft();
+        String packs = mc.gameSettings == null ? "" : String.valueOf(mc.gameSettings.resourcePacks);
+        return "v" + SPRITE_VERSION + "-" + Integer.toHexString((packs + "|" + SPRITE_VERSION).hashCode());
     }
 
     /** Folder name of the saved tiles: they depend on the textures. */

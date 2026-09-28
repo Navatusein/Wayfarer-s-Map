@@ -22,9 +22,14 @@ import java.util.zip.InflaterInputStream;
  */
 public final class ChunkBlocks {
 
-    private static final int FORMAT_PLAIN = 1, FORMAT_SIDES = 2, FORMAT = 3;
-    /** Sprites per cell: one for each side the 3D map looks from. */
+    private static final int FORMAT_PLAIN = 1, FORMAT_SIDES = 2, FORMAT_SPRITES = 3, FORMAT = 4;
+    /** Sprites of a block that isn't a solid cube: one for each side the 3D map looks from. */
     static final int VIEWS = 4;
+    /**
+     * Picture ids per cell: a solid cube has one picture for each of its six sides (they fit its sides exactly),
+     * other blocks a sprite for each of the {@link #VIEWS} view sides.
+     */
+    static final int PER_CELL = 6;
     /** Cell of air in full daylight. */
     public static final int OPEN_SKY = 15 << 24;
 
@@ -43,8 +48,8 @@ public final class ChunkBlocks {
     /** Cells (indices into {@link #cells}, ascending) that have sprites. */
     int[] faceCells = new int[0];
     /**
-     * Four sprite ids per cell of {@link #faceCells}, by the map's view side ({@link IsoProjection#rotation});
-     * {@link FacePalette#EMPTY} if nothing of it shows from there.
+     * {@link #PER_CELL} picture ids per cell of {@link #faceCells}: by side for solid cubes, by the map's view side
+     * ({@link IsoProjection#rotation}) for other blocks; {@link FacePalette#EMPTY} if nothing of it shows there.
      */
     int[] faceIds = new int[0];
 
@@ -86,26 +91,29 @@ public final class ChunkBlocks {
         return cell & 0xFFFFF;
     }
 
-    /** Sets the sprites (cells ascending, four ids each). */
+    /** Sets the pictures (cells ascending, {@link #PER_CELL} ids each). */
     void setFaces(int generation, int[] cells, int[] ids) {
         faceGeneration = generation;
         faceCells = cells;
         faceIds = ids;
     }
 
-    /** Sprite id of the cell (index into {@link #cells}) seen from the view side, 0 if it has none. */
-    int spriteId(int cellIndex, int rotation) {
+    /**
+     * Picture id of the cell (index into {@link #cells}): the side (solid cubes) or view side (other blocks), 0 if it
+     * has none.
+     */
+    int pictureId(int cellIndex, int slot) {
         if (faceCells.length == 0) {
             return 0;
         }
         int i = Arrays.binarySearch(faceCells, cellIndex);
-        return i < 0 ? 0 : faceIds[i * VIEWS + rotation];
+        return i < 0 ? 0 : faceIds[i * PER_CELL + slot];
     }
 
     public byte[] encode() {
         // Layer by layer and field by field: long runs of the same bytes compress far better.
         int faces = faceCells.length;
-        byte[] raw = new byte[5 + cells.length * 4 + 3 * 3 * 256 + 8 + faces * 4 + faces * VIEWS * 4];
+        byte[] raw = new byte[5 + cells.length * 4 + 3 * 3 * 256 + 8 + faces * 4 + faces * PER_CELL * 4];
         raw[0] = FORMAT;
         raw[1] = (byte) (yMin >> 8);
         raw[2] = (byte) yMin;
@@ -158,7 +166,7 @@ public final class ChunkBlocks {
     public static ChunkBlocks decode(byte[] data) throws IOException {
         try (DataInputStream in = new DataInputStream(new InflaterInputStream(new ByteArrayInputStream(data)))) {
             int format = in.readUnsignedByte();
-            if (format != FORMAT && format != FORMAT_SIDES && format != FORMAT_PLAIN) {
+            if (format < FORMAT_PLAIN || format > FORMAT) {
                 throw new IOException("Unknown chunk format " + format);
             }
             int yMin = in.readShort();
@@ -191,7 +199,7 @@ public final class ChunkBlocks {
                 if (faces < 0 || faces > cells.length) {
                     throw new IOException("Bad face count " + faces);
                 }
-                int perCell = format == FORMAT ? VIEWS : 6;
+                int perCell = format == FORMAT_SPRITES ? VIEWS : PER_CELL;
                 int[] faceCells = new int[faces];
                 int[] ids = new int[faces * perCell];
                 try {
@@ -207,7 +215,7 @@ public final class ChunkBlocks {
                 if (format == FORMAT) {
                     blocks.setFaces(generation, faceCells, ids);
                 }
-                // Pictures of the six sides (version 2) are not used any more: taken again as sprites.
+                // Older pictures (version 2: sides of every block, 3: sprites of every block) are taken again.
             }
             return blocks;
         }
@@ -215,6 +223,6 @@ public final class ChunkBlocks {
 
     /** Memory it takes, roughly, in ints. */
     int weight() {
-        return cells.length + 4 * 256 + faceCells.length * (VIEWS + 1);
+        return cells.length + 4 * 256 + faceCells.length * (PER_CELL + 1);
     }
 }
