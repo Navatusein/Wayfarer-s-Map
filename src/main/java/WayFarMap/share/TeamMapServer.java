@@ -290,19 +290,30 @@ public final class TeamMapServer {
         if (accepted.isEmpty()) {
             return;
         }
-        // Teammates get it right away, wherever they are: their client files it under its dimension.
+        // Teammates get it right away, wherever they are: their client files it under its dimension. The messages
+        // are made once for all of them (each is compressed only once).
+        List<ShareNetwork.Chunks> parts = null;
         for (EntityPlayerMP mate : SuTeams.onlineTeammates(player)) {
             if (mate != player && capable.contains(mate.getUniqueID())) {
-                sendInMessages(mate, message.dimension, accepted);
+                if (parts == null) {
+                    parts = messages(message.dimension, accepted);
+                }
+                for (ShareNetwork.Chunks part : parts) {
+                    ShareNetwork.sendTo(part, mate);
+                }
             }
         }
     }
 
-    private static void sendInMessages(EntityPlayerMP player, int dimension, List<ChunkRecord> records) {
+    private static List<ShareNetwork.Chunks> messages(int dimension, List<ChunkRecord> records) {
+        List<ShareNetwork.Chunks> parts = new ArrayList<>();
         for (int i = 0; i < records.size(); i += ShareNetwork.MAX_RECORDS) {
-            List<ChunkRecord> part = records.subList(i, Math.min(records.size(), i + ShareNetwork.MAX_RECORDS));
-            ShareNetwork.sendTo(new ShareNetwork.Chunks(dimension, part), player);
+            parts.add(
+                new ShareNetwork.Chunks(
+                    dimension,
+                    records.subList(i, Math.min(records.size(), i + ShareNetwork.MAX_RECORDS))));
         }
+        return parts;
     }
 
     // ---------------------------------------------------------------- catching up
