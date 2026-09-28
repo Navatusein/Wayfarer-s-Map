@@ -35,7 +35,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.MapDrawer;
 
 /**
- * The tiles of the 3D map: squares of the projection plane, 128x128 pixels, at eight levels of detail (16 pixels per
+ * The tiles of the 3D map: squares of the projection plane, 128x128 pixels, at ten levels of detail (64 pixels per
  * block down to 1 pixel per 8 blocks), like Dynmap's tiles. The ones on screen are drawn by background threads,
  * nearest to the middle first; the coarser levels are kept on disk ({@code dim<id>/iso/}) and drawn again only when a
  * chunk they show changed. Changes while the map is open redraw the tiles they touch.
@@ -45,7 +45,7 @@ final class IsoTiles {
     /** Tiles kept in video memory (two textures each: day and night). */
     private static final int MAX_TILES = 500;
     /** Levels from this one on are saved to disk (finer ones are quick to draw and would be too many files). */
-    private static final int DISK_LEVEL = 3;
+    private static final int DISK_LEVEL = 5;
     private static final int MAGIC = 0x57465432; // "WFT2"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;

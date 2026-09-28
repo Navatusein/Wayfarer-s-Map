@@ -32,6 +32,7 @@
   <span id="title"></span>
   <span id="where" class="grow muted"></span>
   <span id="scale" class="muted"></span>
+  <a id="preview" href="preview.png" target="_blank"></a>
   <a id="overview" href="overview.png" target="_blank"></a>
 </div>
 <script>
@@ -40,13 +41,15 @@
   var M = window.WFM;
   var ru = (navigator.language || "").toLowerCase().indexOf("ru") === 0;
   var T = {
-    overview: ru ? "Вся карта одной картинкой" : "Whole map as one picture",
+    preview: ru ? "Превью" : "Preview",
+    overview: ru ? "Вся карта в полном разрешении" : "Whole map at full detail",
     perBlock: ru ? " пикс. на блок" : " px per block",
     blocksPerPixel: ru ? " блоков на пикс." : " blocks per px",
     hint: ru ? "Колесо или щипок — масштаб, перетаскивание — сдвиг, 0 — вся карта"
       : "Wheel or pinch to zoom, drag to move, 0 for the whole map"
   };
-  document.getElementById("overview").textContent = T.overview;
+  document.getElementById("preview").textContent = T.preview;
+  document.getElementById("overview").textContent = T.overview + (M.overview ? " (" + M.overview[0] + "×" + M.overview[1] + ")" : "");
   document.getElementById("title").textContent = M.title;
   document.title = M.title + " — WayFarMap";
   document.body.style.background = M.background;

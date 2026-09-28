@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -26,13 +27,16 @@ import javax.imageio.ImageIO;
 /**
  * Writes a map as a pyramid of PNG tiles with a page that shows it in a browser, zooming from the whole map down to
  * single blocks (like Dynmap's web map, without a server): {@code tiles/<level>/<x>_<y>.png}, where level 0 is the
- * finest and every next level is half as detailed, {@code map.js} describing them, {@code index.html} and a picture
- * of the whole map, {@code overview.png}.
+ * finest and every next level is half as detailed, {@code map.js} describing them, {@code index.html}, and the whole
+ * map as one picture at full detail, {@code overview.png} (written row by row, so it can be far bigger than the
+ * memory), with a small copy, {@code preview.png}.
  */
 public final class TilePyramid {
 
-    /** The longest side of {@code overview.png}. */
-    private static final int OVERVIEW_MAX = 4096;
+    /** The longest side of {@code preview.png}. */
+    private static final int PREVIEW_MAX = 4096;
+    /** Memory for a band of rows of {@code overview.png}. */
+    private static final long BAND_BYTES = 64L << 20;
     private static final int MAX_LEVELS = 24;
 
     /** The finest tiles of a map. */
@@ -84,6 +88,15 @@ public final class TilePyramid {
         return (long) x << 32 | y & 0xFFFFFFFFL;
     }
 
+    /** Width and height in pixels of the whole map made of these tiles, {0, 0} if none. */
+    public static long[] pictureSize(Set<Long> tiles, int size) {
+        if (tiles.isEmpty()) {
+            return new long[] { 0, 0 };
+        }
+        int[] b = bounds(tiles);
+        return new long[] { (long) (b[2] - b[0] + 1) * size, (long) (b[3] - b[1] + 1) * size };
+    }
+
     private static int keyX(long key) {
         return (int) (key >> 32);
     }
@@ -124,7 +137,9 @@ public final class TilePyramid {
         if (finest.isEmpty()) {
             throw new IOException("Nothing to export");
         }
-        total[0] = done.get() + finest.size() / 3 + 1;
+        int[] finestBounds = bounds(finest);
+        int tileRows = finestBounds[3] - finestBounds[1] + 1;
+        total[0] = done.get() + finest.size() / 3 + tileRows + 1;
 
         // Coarser levels: each tile from the four below it, half the size, until the map fits in a couple of tiles.
         while (levels.size() < MAX_LEVELS && extent(levels.get(levels.size() - 1)) > 2) {
@@ -157,7 +172,10 @@ public final class TilePyramid {
             levels.add(parents);
         }
 
-        writeOverview(levels, tiles, size, new File(folder, "overview.png"));
+        writePreview(levels, tiles, size, new File(folder, "preview.png"));
+        writeOverview(finest, new File(tiles, "0"), size, new File(folder, "overview.png"), progress, () -> {
+            progress.progress(done.incrementAndGet(), Math.max(total[0], done.get() + 1));
+        });
         writeScript(levels, size, info, new File(folder, "map.js"));
         copyViewer(new File(folder, "index.html"));
         progress.progress(total[0], total[0]);
@@ -172,11 +190,12 @@ public final class TilePyramid {
     /** Runs the task for every key on a few threads; stops early when cancelled or on the first error. */
     private static void runAll(int threads, List<Long> keys, TileTask task, Progress progress)
         throws IOException, CancelledException {
-        // Nearby tiles one after the other: they need the same chunks.
-        Collections.sort(keys, (a, b) -> {
-            int c = Integer.compare(keyY(a), keyY(b));
-            return c != 0 ? c : Integer.compare(keyX(a), keyX(b));
-        });
+        // Nearby tiles one after the other (along a Z curve, square blocks at a time): they need the same chunks
+        // or regions.
+        if (!keys.isEmpty()) {
+            int[] b = bounds(new HashSet<>(keys));
+            Collections.sort(keys, (a, c) -> Long.compare(morton(a, b), morton(c, b)));
+        }
         ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads), r -> {
             Thread thread = new Thread(r, "WayFarMap export");
             thread.setDaemon(true);
@@ -211,6 +230,15 @@ public final class TilePyramid {
         if (progress.cancelled()) {
             throw new CancelledException();
         }
+    }
+
+    private static long morton(long key, int[] bounds) {
+        long x = keyX(key) - (long) bounds[0], y = keyY(key) - (long) bounds[1];
+        long code = 0;
+        for (int bit = 0; bit < 31; bit++) {
+            code |= (x >> bit & 1) << 2 * bit | (y >> bit & 1) << 2 * bit + 1;
+        }
+        return code;
     }
 
     /** Tiles across the longer side of the area the tiles cover. */
@@ -257,10 +285,10 @@ public final class TilePyramid {
         return (a + 2) / 4 << 24 | r / a << 16 | g / a << 8 | b / a;
     }
 
-    /** The whole map in one picture: the finest level that fits in {@link #OVERVIEW_MAX} pixels. */
-    private static void writeOverview(List<Set<Long>> levels, File tiles, int size, File file) throws IOException {
+    /** A small picture of the whole map: the finest level that fits in {@link #PREVIEW_MAX} pixels. */
+    private static void writePreview(List<Set<Long>> levels, File tiles, int size, File file) throws IOException {
         int level = 0;
-        while (level < levels.size() - 1 && extent(levels.get(level)) * size > OVERVIEW_MAX) {
+        while (level < levels.size() - 1 && extent(levels.get(level)) * size > PREVIEW_MAX) {
             level++;
         }
         Set<Long> keys = levels.get(level);
@@ -275,6 +303,56 @@ public final class TilePyramid {
             }
         }
         ImageIO.write(image, "png", file);
+    }
+
+    /**
+     * The whole map at full detail in one picture, from the finest tiles, a band of rows at a time: as many rows as
+     * fit in {@link #BAND_BYTES} (tiles are read again for every band of theirs when a row is very long).
+     */
+    private static void writeOverview(Set<Long> keys, File dir, int size, File file, Progress progress,
+        Runnable tileRowDone) throws IOException, CancelledException {
+        int[] b = bounds(keys);
+        long wide = (long) (b[2] - b[0] + 1) * size, high = (long) (b[3] - b[1] + 1) * size;
+        if (wide * 4 + 1 > Integer.MAX_VALUE || high > Integer.MAX_VALUE) {
+            throw new IOException("The map is too big for one picture: " + wide + "x" + high);
+        }
+        int width = (int) wide, height = (int) high;
+        int bandRows = (int) Math.max(1, Math.min(size, BAND_BYTES / (4L * width)));
+        int[] band = new int[bandRows * width];
+        File tmp = new File(file.getPath() + ".tmp");
+        try (PngStream png = new PngStream(Files.newOutputStream(tmp.toPath()), width, height)) {
+            for (int ty = b[1]; ty <= b[3]; ty++) {
+                for (int r0 = 0; r0 < size; r0 += bandRows) {
+                    if (progress.cancelled()) {
+                        throw new CancelledException();
+                    }
+                    int rows = Math.min(bandRows, size - r0);
+                    Arrays.fill(band, 0, rows * width, 0);
+                    for (int tx = b[0]; tx <= b[2]; tx++) {
+                        if (!keys.contains(key(tx, ty))) {
+                            continue;
+                        }
+                        int[] pixels = readPng(new File(dir, tx + "_" + ty + ".png"), size);
+                        if (pixels == null) {
+                            continue;
+                        }
+                        for (int r = 0; r < rows; r++) {
+                            System.arraycopy(pixels, (r0 + r) * size, band, r * width + (tx - b[0]) * size, size);
+                        }
+                    }
+                    for (int r = 0; r < rows; r++) {
+                        png.row(band, r * width);
+                    }
+                }
+                tileRowDone.run();
+            }
+        } catch (IOException | CancelledException | RuntimeException e) {
+            tmp.delete();
+            throw e;
+        }
+        if ((file.exists() && !file.delete()) || !tmp.renameTo(file)) {
+            throw new IOException("Could not write " + file);
+        }
     }
 
     /** {@code map.js}: the tiles of every level and how to show them (a script, so the page works from a file). */
@@ -301,6 +379,12 @@ public final class TilePyramid {
         s.append("  background: \"#")
             .append(String.format("%06X", info.background & 0xFFFFFF))
             .append("\",\n");
+        int[] b = bounds(levels.get(0));
+        s.append("  overview: [")
+            .append((long) (b[2] - b[0] + 1) * size)
+            .append(", ")
+            .append((long) (b[3] - b[1] + 1) * size)
+            .append("],\n");
         s.append("  levels: [\n");
         for (Set<Long> keys : levels) {
             s.append("    [");

@@ -10,12 +10,14 @@ import WayFarMap.client.map.export.TilePyramid;
 
 /**
  * The whole 3D map of a dimension as tiles for {@link TilePyramid}: everything the block files and the flat map know,
- * seen from one side, drawn at one level of detail (16 pixels per block at most, like the closest zoom in game).
+ * seen from one side, drawn at one level of detail (up to 64 pixels per block, like the closest zoom in game).
  */
 public final class IsoExport implements TilePyramid.Source {
 
     /** Pixels per side of an exported tile. */
     private static final int SIZE = 256;
+    /** The least detailed level offered: 2 pixels per block. */
+    public static final int MAX_LEVEL = 5;
     private static final Pattern REGION = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.(wfb|png)");
 
     private final IsoMap.Dimension dimension;
@@ -40,7 +42,7 @@ public final class IsoExport implements TilePyramid.Source {
     /**
      * The 3D map of the dimension, or null outside of a world (render thread).
      *
-     * @param level 0 (16 pixels per block) to 3 (2 pixels per block)
+     * @param level 0 (64 pixels per block) to {@link #MAX_LEVEL} (2 pixels per block)
      * @param night the map at night (moonlight and lit torches) instead of by day
      */
     public static IsoExport of(int dimensionId, int rotation, int level, boolean night) {
@@ -48,7 +50,7 @@ public final class IsoExport implements TilePyramid.Source {
         if (dimension == null) {
             return null;
         }
-        return new IsoExport(dimension, IsoMap.INSTANCE.palette(), rotation, Math.max(0, Math.min(3, level)), night);
+        return new IsoExport(dimension, IsoMap.INSTANCE.palette(), rotation, Math.max(0, Math.min(MAX_LEVEL, level)), night);
     }
 
     /** Pixels per block of the finest tiles. */
@@ -73,9 +75,9 @@ public final class IsoExport implements TilePyramid.Source {
         return tiles(true);
     }
 
-    /** Roughly how many tiles there are, quickly (render thread): doesn't read the flat map's pictures. */
-    public int estimateTiles() {
-        return tiles(false).size();
+    /** Roughly the tiles there are, quickly (render thread): doesn't read the flat map's pictures. */
+    public Set<Long> estimatedTiles() {
+        return tiles(false);
     }
 
     private Set<Long> tiles(boolean exact) {

@@ -71,7 +71,7 @@ public class GuiWorldMap extends ScaledScreen {
         ID_EXPORT = 17;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
-    private static final int EXPORT_MENU_WIDTH = 230;
+    private static final int EXPORT_MENU_WIDTH = 250;
     /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
     private static final double EXPORT_SECONDS_PER_TILE = 0.2;
     /** Export the 3D map as it looks at night. */
@@ -435,24 +435,41 @@ public class GuiWorldMap extends ScaledScreen {
             entries.add(new MenuEntry(I18n.format("wayfarmap.export.cancel"), true, MapExport::cancel));
         } else if (isoShown()) {
             int dimensionId = viewDimension();
-            for (int level = 0; level <= 3; level++) {
+            for (int level = 0; level <= IsoExport.MAX_LEVEL; level++) {
                 IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
                 if (export == null) {
                     continue;
                 }
-                int tiles = export.estimateTiles();
-                double minutes = tiles * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
+                Set<Long> tiles = export.estimatedTiles();
+                // Drawing time grows with the pixels: a tile of 256x256 takes about the same at any detail.
+                double minutes = tiles.size() * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
                 String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
                     : I18n.format("wayfarmap.export.minutes", (int) Math.ceil(minutes));
-                String label = I18n.format("wayfarmap.export.iso_level", (int) export.pixelsPerBlock(), time);
+                long[] picture = TilePyramid.pictureSize(tiles, export.tileSize());
+                String label = I18n.format(
+                    "wayfarmap.export.iso_level",
+                    (int) export.pixelsPerBlock(),
+                    picture[0] + "\u00D7" + picture[1],
+                    time);
                 final int chosen = level;
-                entries.add(new MenuEntry(label, tiles > 0, () -> startIsoExport(dimensionId, chosen)));
+                entries.add(new MenuEntry(label, !tiles.isEmpty(), () -> startIsoExport(dimensionId, chosen)));
             }
             entries.add(new MenuEntry(I18n.format("wayfarmap.export.night"), true, () -> {
                 exportNight = !exportNight;
             }, exportNight));
         } else {
-            entries.add(new MenuEntry(I18n.format("wayfarmap.export.flat"), true, this::startFlatExport));
+            MapDimension map = MapManager.INSTANCE.getViewMap();
+            Set<Long> regions = map == null ? Collections.<Long>emptySet()
+                : new FlatExport(map, 1).tiles();
+            long[] picture = TilePyramid.pictureSize(regions, MapRegion.SIZE);
+            for (int blockPixels = 1; blockPixels <= 16; blockPixels *= 2) {
+                final int chosen = blockPixels;
+                String label = I18n.format(
+                    "wayfarmap.export.flat_scale",
+                    blockPixels,
+                    picture[0] * blockPixels + "\u00D7" + picture[1] * blockPixels);
+                entries.add(new MenuEntry(label, !regions.isEmpty(), () -> startFlatExport(chosen)));
+            }
         }
         menu = entries;
         menuKind = MENU_EXPORT;
@@ -467,7 +484,8 @@ public class GuiWorldMap extends ScaledScreen {
         return (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
     }
 
-    private void startFlatExport() {
+    /** @param blockPixels pixels per block of the saved map */
+    private void startFlatExport(int blockPixels) {
         MapDimension map = MapManager.INSTANCE.getViewMap();
         if (map == null) {
             return;
@@ -481,12 +499,14 @@ public class GuiWorldMap extends ScaledScreen {
         } else {
             what = "2d";
         }
+        what += "_" + blockPixels + "px";
         TilePyramid.Info info = new TilePyramid.Info();
         info.title = MapManager.INSTANCE.getViewedDimensionName() + " (" + what + ")";
         info.mode = "2d";
-        info.pixelsPerBlock = 1;
-        info.maxZoom = 32;
-        MapExport.start(new FlatExport(map), info, exportName() + "_" + what);
+        info.pixelsPerBlock = blockPixels;
+        // Up to 64 screen pixels per block, like the closest zoom of the map.
+        info.maxZoom = Math.max(4, 64.0 / blockPixels);
+        MapExport.start(new FlatExport(map, blockPixels), info, exportName() + "_" + what);
         chatExportStarted();
     }
 
@@ -500,8 +520,8 @@ public class GuiWorldMap extends ScaledScreen {
         info.title = MapManager.INSTANCE.getViewedDimensionName() + " (3D)";
         info.mode = "3d";
         info.pixelsPerBlock = export.pixelsPerBlock();
-        // Up to 64 screen pixels per block, like the closest zoom of the map.
-        info.maxZoom = 64 / export.pixelsPerBlock();
+        // Up to 128 screen pixels per block, and always a few times closer than the picture itself.
+        info.maxZoom = Math.max(4, 128 / export.pixelsPerBlock());
         MapExport.start(export, info, exportName() + "_" + what);
         chatExportStarted();
     }

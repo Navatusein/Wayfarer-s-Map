@@ -24,8 +24,10 @@ public final class IsoProjection {
 
     /** Pixels of a tile side. */
     public static final int TILE_PIXELS = 128;
-    /** Detail levels: level k has {@code 16 / 2^k} pixels per block. */
-    public static final int LEVELS = 8;
+    /** Pixels per block of the most detailed level: the pictures of block sides the game draws are this sharp. */
+    public static final int FINEST_PIXELS_PER_BLOCK = 64;
+    /** Detail levels: level k has {@code 64 / 2^k} pixels per block, down to 1 pixel per 8 blocks. */
+    public static final int LEVELS = 10;
 
     private static final IsoProjection[] ROTATIONS = { new IsoProjection(0), new IsoProjection(1),
         new IsoProjection(2), new IsoProjection(3) };
@@ -55,12 +57,12 @@ public final class IsoProjection {
 
     /** Pixels per block of a detail level. */
     public static double pixelsPerBlock(int level) {
-        return 16.0 / (1 << level);
+        return (double) FINEST_PIXELS_PER_BLOCK / (1 << level);
     }
 
     /** Blocks of the projection plane covered by one tile side at the level. */
     public static int tileBlocks(int level) {
-        return 8 << level;
+        return TILE_PIXELS / FINEST_PIXELS_PER_BLOCK << level;
     }
 
     /**
@@ -68,7 +70,7 @@ public final class IsoProjection {
      * ever shrunk (at most by half), never blown up, except at the most detailed level.
      */
     public static int levelFor(double screenPixelsPerBlock) {
-        int level = (int) Math.floor(Math.log(16.0 / Math.max(1e-6, screenPixelsPerBlock)) / Math.log(2));
+        int level = (int) Math.floor(Math.log(FINEST_PIXELS_PER_BLOCK / Math.max(1e-6, screenPixelsPerBlock)) / Math.log(2));
         return Math.max(0, Math.min(LEVELS - 1, level));
     }
 

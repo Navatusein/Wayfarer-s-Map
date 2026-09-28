@@ -61,6 +61,8 @@ final class IsoTracer {
     private int mip;
     /** Sprite detail: 0 = 16 pixels per block ... 5 = one color. */
     private int spriteMip;
+    /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
+    private int pictureMip;
 
     /** Chunks looked at lately (direct mapped by position): blocks, flat map region, or nothing. */
     private static final int CACHE = 1 << 10;
@@ -108,7 +110,8 @@ final class IsoTracer {
         mip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
         // No further than 8x8: smaller copies mix a block's top with its darker sides, darker than blocks drawn
         // from their icons (the tile's own four rays per pixel smooth the far levels instead).
-        spriteMip = Math.min(2, level);
+        spriteMip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : 2;
+        pictureMip = pixelsPerBlock >= 32 ? 0 : Math.min(5, mip + 1);
         Arrays.fill(cacheKeys, Long.MIN_VALUE);
         Arrays.fill(cacheData, null);
         currentChunkX = Integer.MIN_VALUE;
@@ -587,7 +590,7 @@ final class IsoTracer {
             FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
             if (picture != null) {
                 // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
-                int pixel = picture.texel(texU, texV, Math.min(5, mip + 1));
+                int pixel = picture.texel(texU, texV, pictureMip);
                 if ((picture.texel(texU, texV, 0) >>> 24) >= 128 && (pixel >>> 24) > 0) {
                     hit(side, hitT);
                     addLit(pixel & 0xFFFFFF, SIDE_SHADE[side], light, 1f);
