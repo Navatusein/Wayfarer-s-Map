@@ -70,8 +70,15 @@ public final class IsoProjection {
      * ever shrunk (at most by half), never blown up, except at the most detailed level.
      */
     public static int levelFor(double screenPixelsPerBlock) {
-        int level = (int) Math.floor(Math.log(FINEST_PIXELS_PER_BLOCK / Math.max(1e-6, screenPixelsPerBlock)) / Math.log(2));
-        return Math.max(0, Math.min(LEVELS - 1, level));
+        return levelFor(screenPixelsPerBlock, FINEST_PIXELS_PER_BLOCK);
+    }
+
+    /** Like {@link #levelFor(double)}, with no more than the given pixels per block (the chosen quality). */
+    public static int levelFor(double screenPixelsPerBlock, int maxPixelsPerBlock) {
+        int finest = Integer.numberOfTrailingZeros(Math.max(1, FINEST_PIXELS_PER_BLOCK / Math.max(1, maxPixelsPerBlock)));
+        double wanted = FINEST_PIXELS_PER_BLOCK / Math.max(1e-6, screenPixelsPerBlock);
+        int level = (int) Math.floor(Math.log(wanted) / Math.log(2));
+        return Math.max(finest, Math.min(LEVELS - 1, level));
     }
 
     public double u(double x, double z) {

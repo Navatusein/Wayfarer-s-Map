@@ -60,7 +60,10 @@ public class Config {
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
     /** Side the 3D view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
+    public static final int ISO_QUALITY_MAX = 3;
     public static int isoRotation = 0;
+    /** Detail of the 3D world map: at most {@code 8 << isoQuality} pixels per block (8, 16, 32 or 64). */
+    public static int isoQuality = ISO_QUALITY_MAX;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
     public static boolean record3d = true;
     /** VisualProspecting layers (only used when it is installed). */
@@ -192,6 +195,17 @@ public class Config {
             new String[] { "se", "ne", "nw", "sw" },
             () -> isoRotation,
             v -> isoRotation = v);
+        integer(
+            c,
+            "isoQuality",
+            "Detail of the 3D world map when zoomed in: 0 = 8, 1 = 16, 2 = 32, 3 = 64 pixels per block at most. "
+                + "Less is quicker to draw.",
+            ISO_QUALITY_MAX,
+            0,
+            ISO_QUALITY_MAX,
+            1,
+            () -> isoQuality,
+            v -> isoQuality = v);
         bool(
             c,
             "record3d",
@@ -499,6 +513,16 @@ public class Config {
     }
 
     /** Turns the 3D view by a quarter: +1 or -1. */
+    public static void setIsoQuality(int quality) {
+        isoQuality = Math.max(0, Math.min(ISO_QUALITY_MAX, quality));
+        save();
+    }
+
+    /** Most pixels per block the 3D world map is drawn with. */
+    public static int isoPixelsPerBlock() {
+        return 8 << isoQuality;
+    }
+
     public static void rotateIso(int quarters) {
         isoRotation = Math.floorMod(isoRotation + quarters, 4);
         save();

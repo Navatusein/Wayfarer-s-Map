@@ -185,6 +185,8 @@ public class GuiWorldMap extends ScaledScreen {
         x = addIconButton(
             new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
             x);
+        exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
+        x = addIconButton(exportButton, x);
         addonsButton = null;
         if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
             || Mods.isPowerfailsAvailable()
@@ -201,7 +203,6 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         rotateButton = new IconButton(ID_ROTATE, 0, 4, Icons.ROTATE, I18n.format("wayfarmap.gui.iso_rotate"));
-        exportButton = new IconButton(ID_EXPORT, 0, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
         teamButton.visible = !TeamMates.INSTANCE.all()
             .isEmpty();
@@ -233,7 +234,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
         return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton,
-            rotateButton, exportButton, mobsButton, teamButton };
+            rotateButton, mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -877,6 +878,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (caveLayer >= 0) {
             drawCaveSlider(mouseX, mouseY);
         }
+        if (iso) {
+            drawQualitySlider(mouseX, mouseY);
+        }
         if (searchAvailable()) {
             searchField.drawTextBox();
         }
@@ -914,11 +918,70 @@ public class GuiWorldMap extends ScaledScreen {
         int end = 0;
         for (Object o : buttonList) {
             GuiButton button = (GuiButton) o;
-            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS || button.id == ID_ADDONS) {
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS
+                || button.id == ID_EXPORT
+                || button.id == ID_ADDONS) {
                 end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
             }
         }
         return end;
+    }
+
+    // ---------------------------------------------------------------- 3D quality slider
+
+    private static final int QUALITY_WIDTH = 20, QUALITY_ROW = 14;
+
+    private int qualityX() {
+        return width - QUALITY_WIDTH - 6;
+    }
+
+    private int qualityTop() {
+        return HEADER_HEIGHT + 6;
+    }
+
+    /** The quality (0-3) of the slider's cell under the mouse, -1 if not on it; the best is at the top. */
+    private int qualityAt(int mouseX, int mouseY) {
+        int x = qualityX(), top = qualityTop();
+        int rows = Config.ISO_QUALITY_MAX + 1;
+        if (!Theme.inside(mouseX, mouseY, x, top, x + QUALITY_WIDTH, top + rows * QUALITY_ROW)) {
+            return -1;
+        }
+        return Config.ISO_QUALITY_MAX - (mouseY - top) / QUALITY_ROW;
+    }
+
+    /** Pixels per block the 3D map is drawn with at most: 64 at the top down to 8. */
+    private void drawQualitySlider(int mouseX, int mouseY) {
+        int x = qualityX(), top = qualityTop();
+        int rows = Config.ISO_QUALITY_MAX + 1;
+        int hovered = qualityAt(mouseX, mouseY);
+        Theme.fill(x - 1, top - 1, x + QUALITY_WIDTH + 1, top + rows * QUALITY_ROW + 1, Theme.BORDER);
+        for (int quality = Config.ISO_QUALITY_MAX; quality >= 0; quality--) {
+            int y = top + (Config.ISO_QUALITY_MAX - quality) * QUALITY_ROW;
+            int color;
+            if (quality == Config.isoQuality) {
+                color = Theme.ACCENT;
+            } else if (quality < Config.isoQuality) {
+                color = Theme.ACCENT_DIM;
+            } else {
+                color = quality == hovered ? Theme.CONTROL_HOVER : Theme.PANEL;
+            }
+            Theme.fill(x, y, x + QUALITY_WIDTH, y + QUALITY_ROW - 1, color);
+            Theme.centered(
+                fontRendererObj,
+                String.valueOf(8 << quality),
+                x + QUALITY_WIDTH / 2,
+                y + 3,
+                quality <= Config.isoQuality ? Theme.TEXT : Theme.TEXT_MUTED);
+        }
+        if (hovered >= 0 && menu == null) {
+            String text = I18n.format("wayfarmap.iso.quality") + ": "
+                + I18n.format("wayfarmap.iso.quality_value", 8 << hovered);
+            drawHoveringText(
+                Collections.singletonList(text),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
     }
 
     // ---------------------------------------------------------------- cave layer slider
@@ -1443,6 +1506,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (!isoShown() && claimsShown()
             && (button == 0 || button == 1)
             && startClaimPaint(mouseX, mouseY, button)) {
+            return;
+        }
+        if (button == 0 && isoShown() && qualityAt(mouseX, mouseY) >= 0) {
+            Config.setIsoQuality(qualityAt(mouseX, mouseY));
             return;
         }
         if (button == 0 && onCaveSlider(mouseX, mouseY)) {

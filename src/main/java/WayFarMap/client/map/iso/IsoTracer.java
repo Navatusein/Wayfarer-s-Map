@@ -59,7 +59,7 @@ final class IsoTracer {
     private IsoProjection projection;
     /** Texture detail: 0 = 16x16 texels per block ... 4 = one average color. */
     private int mip;
-    /** Sprite detail: 0 = 16 pixels per block ... 5 = one color. */
+    /** Sprite detail: 0 = 32 pixels per block ... 6 = one color. */
     private int spriteMip;
     /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
     private int pictureMip;
@@ -110,7 +110,7 @@ final class IsoTracer {
         mip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
         // No further than 8x8: smaller copies mix a block's top with its darker sides, darker than blocks drawn
         // from their icons (the tile's own four rays per pixel smooth the far levels instead).
-        spriteMip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : 2;
+        spriteMip = pixelsPerBlock >= 32 ? 0 : pixelsPerBlock >= 16 ? 1 : pixelsPerBlock >= 8 ? 2 : 3;
         pictureMip = pixelsPerBlock >= 32 ? 0 : Math.min(5, mip + 1);
         Arrays.fill(cacheKeys, Long.MIN_VALUE);
         Arrays.fill(cacheData, null);

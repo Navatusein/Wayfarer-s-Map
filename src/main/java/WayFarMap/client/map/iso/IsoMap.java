@@ -32,9 +32,9 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 8;
+    private static final int RENDER_VERSION = 9;
     /** Changes when sprites would look different; the old ones are then taken again. */
-    private static final int SPRITE_VERSION = 5;
+    private static final int SPRITE_VERSION = 6;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
     private static final long CAPTURE_BUDGET_NANOS = 4_000_000L;
     /** A chunk is copied again at most this often while the player stays near it. */

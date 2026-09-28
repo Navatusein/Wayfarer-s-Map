@@ -31,6 +31,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
+import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.MapDrawer;
 
@@ -192,7 +193,7 @@ final class IsoTiles {
         int x, int y, int width, int height) {
         frame++;
         uploadResults();
-        int level = IsoProjection.levelFor(scale * factor);
+        int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int blocks = IsoProjection.tileBlocks(level);
         double left = centerU - width / 2.0 / scale, top = centerV - height / 2.0 / scale;
         int tu0 = (int) Math.floor(left / blocks), tv0 = (int) Math.floor(top / blocks);
@@ -383,7 +384,8 @@ final class IsoTiles {
      */
     int[] pick(int dimension, int rotation, double u, double v, double scale, int factor) {
         IsoProjection projection = IsoProjection.of(rotation);
-        for (int level = IsoProjection.levelFor(scale * factor); level < IsoProjection.LEVELS; level++) {
+        int finest = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
+        for (int level = finest; level < IsoProjection.LEVELS; level++) {
             int blocks = IsoProjection.tileBlocks(level);
             int tu = (int) Math.floor(u / blocks), tv = (int) Math.floor(v / blocks);
             Tile tile = tiles.get(new Key(dimension, rotation, level, tu, tv));

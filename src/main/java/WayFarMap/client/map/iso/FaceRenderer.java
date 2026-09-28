@@ -41,8 +41,9 @@ import WayFarMap.WayFarMap;
  */
 final class FaceRenderer {
 
-    /** Sprite size, and the buffer: 256 sprites per read back. */
-    private static final int SLOT = FacePalette.SIZE, SIZE = 512, PER_ROW = SIZE / SLOT, SLOTS = PER_ROW * PER_ROW;
+    /** Room for one picture (sprites fill it, pictures of sides a quarter), and the buffer: 256 per read back. */
+    private static final int SLOT = FacePalette.SPRITE_SIZE, SIZE = 1024, PER_ROW = SIZE / SLOT,
+        SLOTS = PER_ROW * PER_ROW;
     /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
     private static final double CLIP_MARGIN = 1 / 32.0;
     /** Brightness the game gives each side; taken out of pictures of sides, the tracer shades sides itself. */
@@ -402,7 +403,8 @@ final class FaceRenderer {
             int slot = 0;
             for (Pending pending : batch) {
                 for (int view = 0; view < pending.views(); view++, slot++) {
-                    GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, SLOT, SLOT);
+                    int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
+                    GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, pixels, pixels);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
                     GL11.glLoadIdentity();
                     if (pending.cube) {
@@ -446,17 +448,20 @@ final class FaceRenderer {
             int[] all = new int[SIZE * SIZE];
             readBuffer.get(all);
             slot = 0;
-            int[] image = new int[FacePalette.PIXELS];
+            int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
+            int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
             for (Pending pending : batch) {
+                int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
+                int[] image = pending.cube ? faceImage : spriteImage;
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                     float shade = pending.cube && !pending.ownRenderer ? SIDE_SHADE[view] : 1f;
-                    for (int row = 0; row < SLOT; row++) {
+                    for (int row = 0; row < pixels; row++) {
                         // Read back bottom-up; pictures are top-down.
-                        int from = (sy + SLOT - 1 - row) * SIZE + sx;
-                        for (int column = 0; column < SLOT; column++) {
-                            image[row * SLOT + column] = unshade(all[from + column], shade);
+                        int from = (sy + pixels - 1 - row) * SIZE + sx;
+                        for (int column = 0; column < pixels; column++) {
+                            image[row * pixels + column] = unshade(all[from + column], shade);
                         }
                     }
                     pending.ids[view] = palette.idOf(image);

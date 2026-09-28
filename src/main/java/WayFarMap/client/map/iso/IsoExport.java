@@ -50,7 +50,8 @@ public final class IsoExport implements TilePyramid.Source {
         if (dimension == null) {
             return null;
         }
-        return new IsoExport(dimension, IsoMap.INSTANCE.palette(), rotation, Math.max(0, Math.min(MAX_LEVEL, level)), night);
+        int clamped = Math.max(0, Math.min(MAX_LEVEL, level));
+        return new IsoExport(dimension, IsoMap.INSTANCE.palette(), rotation, clamped, night);
     }
 
     /** Pixels per block of the finest tiles. */

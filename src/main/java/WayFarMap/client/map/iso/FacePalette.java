@@ -19,38 +19,49 @@ import WayFarMap.WayFarMap;
 
 /**
  * Sprites of blocks as the game draws them in place, seen the way the 3D map looks at the world (see
- * {@link FaceRenderer}): connected textures, tile entities, pipes and cables, modded renderers. A sprite is 32x32
- * ARGB and covers two blocks of the projection plane around the block's center (16 pixels per block, the most
- * detailed level). The same sprite is kept once (a wall of Chisel blocks has only a few different ones), in
- * {@code <world>/iso-sprites.dat}. Ids start at 1. Sprites depend on the resource packs: another set of packs starts a
- * new palette ({@link #generation}), and chunks with ids of the old one are drawn from block icons until seen again.
+ * {@link FaceRenderer}): connected textures, tile entities, pipes and cables, modded renderers. A sprite is 64x64
+ * ARGB and covers two blocks of the projection plane around the block's center (32 pixels per block); a picture of
+ * a cube's side is 32x32, as sharp. The same sprite is kept once (a wall of Chisel blocks has only a few different
+ * ones), in {@code <world>/iso-sprites.dat}. Ids start at 1. Sprites depend on the resource packs: another set of
+ * packs starts a new palette ({@link #generation}), and chunks with ids of the old one are drawn from block icons
+ * until seen again.
  */
 final class FacePalette {
 
-    private static final int MAGIC = 0x57465032; // "WFP2"
-    static final int SIZE = 32;
-    static final int PIXELS = SIZE * SIZE;
+    private static final int MAGIC = 0x57465033; // "WFP3"
+    /** Pixels per side of a picture of a cube's side. */
+    static final int FACE_SIZE = 32;
+    /** Pixels per side of a sprite of a block that isn't a plain cube (two blocks wide). */
+    static final int SPRITE_SIZE = 64;
+    private static final int MAX_SIZE = 256;
 
-    /** A sprite with its reduced copies: 32x32, 16x16 ... 1x1. */
+    /** A sprite with its reduced copies: full size, half ... 1x1. */
     static final class Sprite {
 
-        final int[][] mips = new int[6][];
+        final int size;
+        final int[][] mips;
 
-        /** Pixel at (u, v) in 0..1 of the copy with {@code 32 >> mip} pixels per side. */
+        private Sprite(int size) {
+            this.size = size;
+            this.mips = new int[Integer.numberOfTrailingZeros(size) + 1][];
+        }
+
+        /** Pixel at (u, v) in 0..1 of the copy with {@code size >> mip} pixels per side (the smallest at most). */
         int texel(double u, double v, int mip) {
-            int size = SIZE >> mip;
-            int x = (int) (u * size), y = (int) (v * size);
-            if (x < 0 || y < 0 || x >= size || y >= size) {
+            mip = Math.min(mip, mips.length - 1);
+            int side = size >> mip;
+            int x = (int) (u * side), y = (int) (v * side);
+            if (x < 0 || y < 0 || x >= side || y >= side) {
                 return 0;
             }
-            return mips[mip][y * size + x];
+            return mips[mip][y * side + x];
         }
 
         static Sprite of(int[] pixels) {
-            Sprite sprite = new Sprite();
+            Sprite sprite = new Sprite(sideOf(pixels.length));
             sprite.mips[0] = pixels;
             for (int mip = 1; mip < sprite.mips.length; mip++) {
-                int size = SIZE >> mip;
+                int size = sprite.size >> mip;
                 int[] source = sprite.mips[mip - 1];
                 int[] target = new int[size * size];
                 for (int y = 0; y < size; y++) {
@@ -112,9 +123,14 @@ final class FacePalette {
                 return palette;
             }
             while (true) {
-                int[] image = new int[PIXELS];
+                int[] image;
                 try {
-                    for (int i = 0; i < PIXELS; i++) {
+                    int side = in.readInt();
+                    if (side <= 0 || side > MAX_SIZE || Integer.bitCount(side) != 1) {
+                        throw new IOException("Bad sprite size " + side);
+                    }
+                    image = new int[side * side];
+                    for (int i = 0; i < image.length; i++) {
                         image[i] = in.readInt();
                     }
                 } catch (EOFException e) {
@@ -129,8 +145,17 @@ final class FacePalette {
         return palette;
     }
 
+    /** Pixels per side of a square picture. */
+    static int sideOf(int pixels) {
+        int side = (int) Math.round(Math.sqrt(pixels));
+        if (side * side != pixels || Integer.bitCount(side) != 1) {
+            throw new IllegalArgumentException("Not a square picture: " + pixels);
+        }
+        return side;
+    }
+
     private static long hash(int[] image) {
-        long h = 0xCBF29CE484222325L;
+        long h = 0xCBF29CE484222325L ^ image.length;
         for (int pixel : image) {
             h = (h ^ pixel) * 0x100000001B3L;
         }
@@ -212,6 +237,7 @@ final class FacePalette {
                     out.writeInt(generation);
                 }
                 for (int[] image : added) {
+                    out.writeInt(sideOf(image.length));
                     for (int pixel : image) {
                         out.writeInt(pixel);
                     }
