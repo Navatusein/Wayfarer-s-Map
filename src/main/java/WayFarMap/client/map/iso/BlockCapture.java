@@ -109,6 +109,22 @@ final class BlockCapture {
         if (yMax < 0) {
             return null;
         }
+        // A void world (nothing at the bottom, like personal worlds or the End): there is no ground under the
+        // floors, platforms hang over empty space. The whole chunk down to the bottom of the world is kept, so what is
+        // under the platforms is seen as it is (empty) instead of the solid ground assumed below the stored blocks.
+        boolean openBelow = false;
+        for (int z = 0; z < 16 && !openBelow; z++) {
+            for (int x = 0; x < 16; x++) {
+                if (chunk.getBlock(x, 0, z)
+                    .getMaterial() == Material.air) {
+                    openBelow = true;
+                    break;
+                }
+            }
+        }
+        if (openBelow) {
+            yMin = 0;
+        }
         // Cliffs at the chunk's edge are seen from lower ground next door: keep the blocks down to that ground.
         int neighbourFloor = neighbourFloor(world, chunk, noSky);
         if (neighbourFloor < yMin) {
