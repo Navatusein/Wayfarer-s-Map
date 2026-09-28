@@ -72,8 +72,13 @@ public final class IsoMap implements BlockStore.Listener {
 
     private File worldDirectory;
     private final Map<Integer, Dimension> dimensions = new HashMap<>();
-    /** Copies chunks and saves the block files, one after the other. */
+    /** Stores the copied chunks, one after the other. */
     private ExecutorService writer;
+    /**
+     * Writes the block files and pictures to disk. Apart from the writer: saving whole regions takes seconds, and new
+     * chunks would wait for it before they show on the map.
+     */
+    private ExecutorService saver;
     private IsoTiles tiles;
     private String cacheId;
     /** Chunk changes from the writer, for the tiles on screen: {dimension, chunk x, chunk z, top, time}. */
@@ -123,12 +128,32 @@ public final class IsoMap implements BlockStore.Listener {
         FaceRenderer.clear();
         this.worldDirectory = worldDirectory;
         palette = FacePalette.load(worldDirectory, spriteCacheId());
-        writer = Executors.newSingleThreadExecutor(r -> {
-            Thread thread = new Thread(r, "WayFarMap 3D writer");
+        writer = backgroundThread("WayFarMap 3D writer");
+        saver = backgroundThread("WayFarMap 3D saver");
+    }
+
+    private static ExecutorService backgroundThread(String name) {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, name);
             thread.setDaemon(true);
-            thread.setPriority(Thread.MIN_PRIORITY + 1);
+            // Below the game's threads, but not the lowest: busy, the system gave those next to no time and new
+            // chunks waited seconds to be stored.
+            thread.setPriority(Thread.NORM_PRIORITY - 2);
             return thread;
         });
+    }
+
+    /** Lets the thread finish what it was given, for up to 30 seconds. */
+    private static void finish(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                WayFarMap.LOG.warn("Saving the 3D map took too long");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread()
+                .interrupt();
+        }
     }
 
     /** The world was left: saves the blocks, waits for it, and frees everything (render thread). */
@@ -138,17 +163,12 @@ public final class IsoMap implements BlockStore.Listener {
             tiles = null;
         }
         if (writer != null) {
-            writer.submit(saveTask());
-            writer.shutdown();
-            try {
-                if (!writer.awaitTermination(30, TimeUnit.SECONDS)) {
-                    WayFarMap.LOG.warn("Saving the 3D map took too long");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread()
-                    .interrupt();
-            }
+            // The chunks still to be stored first, then everything saved.
+            finish(writer);
+            saver.submit(saveTask());
+            finish(saver);
             writer = null;
+            saver = null;
         }
         dimensions.clear();
         changes.clear();
@@ -204,7 +224,7 @@ public final class IsoMap implements BlockStore.Listener {
             return;
         }
         savingPictures = true;
-        writer.submit(() -> {
+        saver.submit(() -> {
             try {
                 pictures.save();
             } finally {
@@ -475,7 +495,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer == null) {
             return null;
         }
-        return writer.submit(saveTask());
+        return saver.submit(saveTask());
     }
 
     /** Resource packs changed: blocks look different, pictures of them are taken again. */
@@ -487,7 +507,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (worldDirectory != null && writer != null
             && (old == null || old.packs != FacePalette.packsOf(spriteCacheId()))) {
             // Other resource packs: a new palette (it replaces the file when first saved).
-            writer.submit(() -> {
+            saver.submit(() -> {
                 if (old != null) {
                     old.save();
                 }

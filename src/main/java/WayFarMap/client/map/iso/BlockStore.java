@@ -23,14 +23,22 @@ import WayFarMap.WayFarMap;
 /**
  * The blocks of the explored chunks of one dimension, for the 3D map: {@code dim<id>/blocks/r.X.Z.wfb}, one file per
  * 32x32 chunks (the regions of the flat map). Chunks are kept compressed; the ones being drawn are unpacked into a
- * small cache. Written by the background thread of {@link IsoMap}, read by the tile renderers.
+ * small cache. Written by the writer and saver threads of {@link IsoMap}, read by the tile renderers.
  */
 public final class BlockStore {
 
     private static final int MAGIC = 0x57464231; // "WFB1"
     private static final int CHUNKS = 32;
-    /** Compressed chunks kept in memory before regions that weren't used lately are dropped. */
-    private static final long BLOB_BUDGET = 96L << 20;
+    /**
+     * Compressed chunks kept in memory before regions that weren't used lately are dropped: a 32nd of the game's
+     * memory, 96 to 384 MB. Too little and flying back and forth reads the same region files again and again.
+     */
+    private static final long BLOB_BUDGET = Math.max(
+        96L << 20,
+        Math.min(
+            384L << 20,
+            Runtime.getRuntime()
+                .maxMemory() / 32));
     /**
      * Unpacked chunks kept in memory, in ints: a 16th of the game's memory, 12M to 48M ints. Zoomed out, a tile passes
      * over thousands of chunks; too few kept and each tile unpacks them all again.
@@ -74,6 +82,11 @@ public final class BlockStore {
         byte[][] blobs;
         boolean fileExists;
         boolean dirty;
+        /**
+         * Being written to its file (by the saver, while the writer keeps storing chunks): its chunks stay in memory,
+         * the file may not have them yet.
+         */
+        boolean saving;
         long lastUsed;
 
         Region(int rx, int rz) {
@@ -182,7 +195,7 @@ public final class BlockStore {
             }
         }
         for (Region region : regions.values()) {
-            if (region != keep && region.blobs != null && !region.dirty) {
+            if (region != keep && region.blobs != null && !region.dirty && !region.saving) {
                 loaded.add(region);
             }
         }
@@ -194,7 +207,7 @@ public final class BlockStore {
                 }
             }
             synchronized (region) {
-                if (region.blobs != null && !region.dirty) {
+                if (region.blobs != null && !region.dirty && !region.saving) {
                     region.blobs = null;
                     synchronized (this) {
                         blobBytes -= region.bytes();
@@ -279,7 +292,7 @@ public final class BlockStore {
         }
     }
 
-    // ---------------------------------------------------------------- writing (background thread of IsoMap)
+    // ---------------------------------------------------------------- writing (writer and saver threads of IsoMap)
 
     /** Stores the chunk's blocks; nothing happens (not even the time changes) if they are the same as before. */
     void put(int chunkX, int chunkZ, ChunkBlocks blocks) {
@@ -321,7 +334,7 @@ public final class BlockStore {
         listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax));
     }
 
-    /** Writes every changed region (background thread of IsoMap). */
+    /** Writes every changed region (saver thread of IsoMap, while its writer keeps storing chunks). */
     void save() {
         for (Region region : regions.values()) {
             long[] times;
@@ -333,6 +346,7 @@ public final class BlockStore {
                     continue;
                 }
                 region.dirty = false;
+                region.saving = true;
                 times = region.times.clone();
                 yMin = region.yMin.clone();
                 yMax = region.yMax.clone();
@@ -344,11 +358,13 @@ public final class BlockStore {
                 write(file, times, yMin, yMax, lengths, blobs);
                 synchronized (region) {
                     region.fileExists = true;
+                    region.saving = false;
                 }
             } catch (IOException e) {
                 WayFarMap.LOG.warn("Could not save 3D map data " + file, e);
                 synchronized (region) {
                     region.dirty = true;
+                    region.saving = false;
                 }
             }
         }

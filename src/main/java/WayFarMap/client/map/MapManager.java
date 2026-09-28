@@ -904,6 +904,7 @@ public class MapManager implements IResourceManagerReloadListener {
             try {
                 // The game marks a chunk changed when its blocks or light change (the client never saves chunks,
                 // so the mark is free to use): changes from now on bring the chunk up again.
+                boolean modified = chunk.isModified;
                 if (caveLayer < 0) {
                     chunk.isModified = false;
                 }
@@ -912,7 +913,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
                 if (caveLayer < 0) {
                     // The 3D map keeps the surface's blocks.
-                    IsoMap.INSTANCE.onChunkScanned(world, chunk, changed);
+                    // Copied again soon only if its blocks really changed: a chunk scanned again on schedule is
+                    // copied again rarely, instead of taking the time of new chunks.
+                    IsoMap.INSTANCE.onChunkScanned(world, chunk, changed && modified);
                 }
                 MapRegion scanned = map.getLoadedRegion(rx, rz);
                 // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
