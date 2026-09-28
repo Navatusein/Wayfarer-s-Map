@@ -952,8 +952,7 @@ public class MapManager implements IResourceManagerReloadListener {
                         // fallback, now and then.
                         int interval = distance <= 1 ? 200 : distance <= 4 ? 600 : 1200;
                         int changedInterval = distance <= 1 ? NEAR_CHANGED_RESCAN_TICKS : CHANGED_RESCAN_TICKS;
-                        changed = tick - last >= changedInterval
-                            && world.getChunkFromChunkCoords(cx, cz).isModified;
+                        changed = tick - last >= changedInterval && world.getChunkFromChunkCoords(cx, cz).isModified;
                         if (tick - last < interval && !changed) {
                             continue;
                         }
