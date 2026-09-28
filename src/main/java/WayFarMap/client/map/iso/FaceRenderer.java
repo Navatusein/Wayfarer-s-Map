@@ -309,9 +309,6 @@ final class FaceRenderer {
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
-        if (tessellator.isDrawing) {
-            return;
-        }
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
@@ -391,11 +388,6 @@ final class FaceRenderer {
             WayFarMap.LOG.warn("The 3D map can't take pictures of blocks; it uses their icons instead", t);
         } finally {
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
-            if (tessellator.isDrawing) {
-                try {
-                    tessellator.draw();
-                } catch (RuntimeException ignored) {}
-            }
             if (bound) {
                 framebuffer.unbindFramebuffer();
             }
@@ -412,12 +404,22 @@ final class FaceRenderer {
         try {
             mc.getTextureManager()
                 .bindTexture(TextureMap.locationBlocksTexture);
+        } catch (RuntimeException e) {
+            return;
+        }
+        // Whether this drawing is open is tracked here: the tessellator keeps it to itself.
+        boolean drawing = false;
+        try {
             tessellator.startDrawingQuads();
+            drawing = true;
             renderBlocks.renderBlockByRenderType(pending.block, pending.x, pending.y, pending.z);
+            drawing = false;
             tessellator.draw();
         } catch (RuntimeException e) {
-            if (tessellator.isDrawing) {
-                tessellator.draw();
+            if (drawing) {
+                try {
+                    tessellator.draw();
+                } catch (RuntimeException ignored) {}
             }
         }
         if (pending.tileEntity == null) {
