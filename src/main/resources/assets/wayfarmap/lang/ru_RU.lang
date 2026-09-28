@@ -122,6 +122,7 @@ wayfarmap.option.map.chunkGrid.desc=Рисовать границы чанков
 wayfarmap.gui.iso=3D-карта (изометрия как в Dynmap)
 wayfarmap.gui.iso_rotate=Повернуть 3D-карту (Q / E)
 wayfarmap.gui.iso_hint=3D: Q / E поворачивают вид
+wayfarmap.gui.iso_drawing=3D: рисуется плиток: %s...
 wayfarmap.gui.export=Снимок всей карты (открывается в браузере с приближением до блока)
 wayfarmap.export.flat_scale=2D: %s пикс. на блок, картинка %s
 wayfarmap.export.iso_level=3D: %s пикс. на блок, картинка %s (≈ %s)

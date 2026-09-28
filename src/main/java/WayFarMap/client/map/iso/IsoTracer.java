@@ -142,6 +142,10 @@ final class IsoTracer {
             if (blocks != null) {
                 data = blocks;
                 top = blocks.yMax;
+                if (!blocks.looksReady) {
+                    // All the chunk's blocks at once: one wait for the render thread, not one per block.
+                    blocks.looksReady = BlockLooks.prepare(blocks.lookKeys());
+                }
             }
         }
         if (data == NOTHING) {

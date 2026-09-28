@@ -52,7 +52,9 @@ public final class IsoMap implements BlockStore.Listener {
     /** Time for pictures of a chunk copied as it is let go. */
     private static final long UNLOAD_PICTURES_NANOS = 1_000_000L;
     /** Time per frame the render thread spends working out block looks for the renderers. */
-    private static final long LOOK_BUDGET_NANOS = 6_000_000L;
+    private static final long LOOK_BUDGET_NANOS = 10_000_000L;
+    /** The same while playing: looks of the chunks copied are worked out ahead, a little each tick. */
+    private static final long TICK_LOOK_BUDGET_NANOS = 2_000_000L;
 
     /** The maps of one dimension. */
     static final class Dimension {
@@ -215,7 +217,7 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** Called once per client tick (render thread): copies the chunks that are due, for a few milliseconds. */
     public void tick(World world) {
-        BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
+        BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
         drainChanges();
         if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty()) {
             return;
@@ -386,6 +388,8 @@ public final class IsoMap implements BlockStore.Listener {
             unfinished.remove(key);
             return true;
         }
+        // Their looks are worked out in the next ticks, so the 3D map has them when it opens.
+        BlockLooks.warm(blocks.lookKeys());
         if (!complete && !unloading) {
             int copies = unfinished.merge(key, 1, Integer::sum);
             if (copies < MAX_UNFINISHED_COPIES) {
@@ -554,6 +558,11 @@ public final class IsoMap implements BlockStore.Listener {
             y,
             width,
             height);
+    }
+
+    /** Tiles of the 3D map waiting to be drawn, 0 if none. */
+    public int tilesQueued() {
+        return tiles == null ? 0 : tiles.queued();
     }
 
     /**

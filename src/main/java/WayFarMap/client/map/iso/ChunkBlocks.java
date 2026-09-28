@@ -383,6 +383,63 @@ public final class ChunkBlocks {
         return airFloors[layer << 4 | brick];
     }
 
+    /** See {@link #lookKeys}; null until worked out. */
+    private volatile int[] lookKeys;
+    /** The looks of all its blocks were worked out (the tracer asked for them at once). */
+    volatile boolean looksReady;
+
+    /** The different blocks in the chunk ({@link #lookKey}s, air left out). Worked out once. */
+    int[] lookKeys() {
+        int[] keys = lookKeys;
+        if (keys != null) {
+            return keys;
+        }
+        // Open addressing: the same few blocks fill most of the chunk.
+        int[] table = new int[256];
+        int count = 0;
+        int previous = -1;
+        for (int cell : cells) {
+            if (blockId(cell) == 0) {
+                continue;
+            }
+            int key = lookKey(cell);
+            if (key == previous) {
+                continue;
+            }
+            previous = key;
+            int slot = (key * 0x9E3779B1) >>> 16 & (table.length - 1);
+            while (table[slot] != 0 && table[slot] != key + 1) {
+                slot = (slot + 1) & (table.length - 1);
+            }
+            if (table[slot] != 0) {
+                continue;
+            }
+            table[slot] = key + 1;
+            if (++count * 2 > table.length) {
+                int[] bigger = new int[table.length * 2];
+                for (int entry : table) {
+                    if (entry != 0) {
+                        int s = ((entry - 1) * 0x9E3779B1) >>> 16 & (bigger.length - 1);
+                        while (bigger[s] != 0) {
+                            s = (s + 1) & (bigger.length - 1);
+                        }
+                        bigger[s] = entry;
+                    }
+                }
+                table = bigger;
+            }
+        }
+        keys = new int[count];
+        int n = 0;
+        for (int entry : table) {
+            if (entry != 0) {
+                keys[n++] = entry - 1;
+            }
+        }
+        lookKeys = keys;
+        return keys;
+    }
+
     /** Memory it takes, roughly, in ints. */
     int weight() {
         return cells.length + 4 * 256 + faceCells.length * (PER_CELL + 1);

@@ -122,6 +122,7 @@ wayfarmap.option.map.chunkGrid.desc=Draw chunk borders (every 16 blocks) and bri
 wayfarmap.gui.iso=3D map (isometric, like Dynmap)
 wayfarmap.gui.iso_rotate=Turn the 3D map (Q / E)
 wayfarmap.gui.iso_hint=3D: Q / E turn the view
+wayfarmap.gui.iso_drawing=3D: drawing %s tiles...
 wayfarmap.gui.export=Picture of the whole map (opens in a browser, zooms down to blocks)
 wayfarmap.export.flat_scale=2D: %s px per block, picture %s
 wayfarmap.export.iso_level=3D: %s px per block, picture %s (about %s)

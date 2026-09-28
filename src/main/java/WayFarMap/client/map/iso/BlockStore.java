@@ -31,8 +31,16 @@ public final class BlockStore {
     private static final int CHUNKS = 32;
     /** Compressed chunks kept in memory before regions that weren't used lately are dropped. */
     private static final long BLOB_BUDGET = 96L << 20;
-    /** Unpacked chunks kept in memory, in ints. */
-    private static final long DECODED_BUDGET = 12L << 20;
+    /**
+     * Unpacked chunks kept in memory, in ints: a 16th of the game's memory, 12M to 48M ints. Zoomed out, a tile passes
+     * over thousands of chunks; too few kept and each tile unpacks them all again.
+     */
+    private static final long DECODED_BUDGET = Math.max(
+        12L << 20,
+        Math.min(
+            48L << 20,
+            Runtime.getRuntime()
+                .maxMemory() / 64));
 
     public interface Listener {
 

@@ -2,9 +2,12 @@ package WayFarMap.client.map.iso;
 
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -179,6 +182,59 @@ public final class BlockLooks {
         }
     }
 
+    /**
+     * Makes sure the looks of these blocks are worked out, asking for all missing ones at once: a renderer waits for
+     * the render thread once per chunk instead of once per block (a frame each). Any thread.
+     *
+     * @return false if some weren't had in time
+     */
+    static boolean prepare(int[] keys) {
+        if (Thread.currentThread() == renderThread) {
+            for (int key : keys) {
+                resolve(key);
+            }
+            return true;
+        }
+        Request[] requests = null;
+        int n = 0;
+        for (int key : keys) {
+            if (LOOKS.containsKey(key)) {
+                continue;
+            }
+            if (requests == null) {
+                requests = new Request[keys.length];
+            }
+            Request request = new Request(key);
+            requests[n++] = request;
+            REQUESTS.add(request);
+        }
+        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        for (int i = 0; i < n; i++) {
+            try {
+                requests[i].result.get(Math.max(1, end - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Looks the map will want soon, worked out when no renderer waits (render thread only). */
+    private static final ArrayDeque<Integer> WARM = new ArrayDeque<>();
+    private static final Set<Integer> WARM_KEYS = new HashSet<>();
+
+    /**
+     * The blocks of a chunk just copied (render thread): their looks are worked out in the next ticks, so the 3D map
+     * doesn't wait for them when it opens.
+     */
+    static void warm(int[] keys) {
+        for (int key : keys) {
+            if (!LOOKS.containsKey(key) && WARM_KEYS.add(key)) {
+                WARM.add(key);
+            }
+        }
+    }
+
     /** Whether this thread was given a plain block for a look it waited for in vain since last asked; resets it. */
     static boolean takeMissed() {
         boolean[] missed = MISSED.get();
@@ -199,11 +255,23 @@ public final class BlockLooks {
                 request.result.complete(fallback());
             }
         }
+        // Then the ones asked for ahead, while there is time and no renderer waits.
+        while (System.nanoTime() < end && REQUESTS.isEmpty() && !WARM.isEmpty()) {
+            int key = WARM.poll();
+            WARM_KEYS.remove(key);
+            try {
+                resolve(key);
+            } catch (Throwable t) {
+                LOOKS.put(key, fallback());
+            }
+        }
     }
 
     /** Resource packs changed: textures are read again. */
     public static void clear() {
         LOOKS.clear();
+        WARM.clear();
+        WARM_KEYS.clear();
         TEXTURES.clear();
     }
 
