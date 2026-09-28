@@ -651,7 +651,7 @@ public class MapManager implements IResourceManagerReloadListener {
         if (world != null && world.isRemote && world == currentWorld && chunk != null && surface != null) {
             // Flying fast, chunks can come and go before their turn: one never mapped is mapped now, while its
             // blocks are still there.
-            surfaceTracker.scanIfNever(currentWorld, chunk, surface, biomes);
+            surfaceTracker.scanIfStale(currentWorld, chunk, surface, biomes);
             IsoMap.INSTANCE.onChunkUnload(world, chunk);
         }
     }
@@ -792,6 +792,9 @@ public class MapManager implements IResourceManagerReloadListener {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
+    /** A chunk whose blocks changed is scanned again at most this often (ticks). */
+    private static final int CHANGED_RESCAN_TICKS = 40;
+
     /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
     private final class ScanTracker {
 
@@ -808,10 +811,11 @@ public class MapManager implements IResourceManagerReloadListener {
             queuedAround = Long.MIN_VALUE;
         }
 
-        /** Maps a chunk now if it never was (it is about to be let go by the game). */
-        void scanIfNever(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap) {
+        /** Maps a chunk now if it never was, or changed since (it is about to be let go by the game). */
+        void scanIfStale(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap) {
             long key = chunkKey(chunk.xPosition, chunk.zPosition);
-            if (lastScanTick.containsKey(key) || chunk.isEmpty()) {
+            boolean scanned = lastScanTick.containsKey(key);
+            if (scanned && !chunk.isModified || chunk.isEmpty()) {
                 return;
             }
             int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
@@ -819,18 +823,24 @@ public class MapManager implements IResourceManagerReloadListener {
             if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
                 return;
             }
-            scanChunk(world, chunk, map, -1, biomeMap, rx, rz);
+            scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
             lastScanTick.put(key, tick);
         }
 
-        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer,
-            MapDimension biomeMap, int rx, int rz) {
+        /** @param changed scanned before, and its blocks changed since */
+        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
+            int rx, int rz, boolean changed) {
             int cx = chunk.xPosition, cz = chunk.zPosition;
             try {
+                // The game marks a chunk changed when its blocks or light change (the client never saves chunks,
+                // so the mark is free to use): changes from now on bring the chunk up again.
+                if (caveLayer < 0) {
+                    chunk.isModified = false;
+                }
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
                 if (caveLayer < 0) {
                     // The 3D map keeps the surface's blocks.
-                    IsoMap.INSTANCE.onChunkScanned(world, chunk);
+                    IsoMap.INSTANCE.onChunkScanned(world, chunk, changed);
                 }
                 MapRegion scanned = map.getLoadedRegion(rx, rz);
                 if (scanned != null) {
@@ -872,7 +882,8 @@ public class MapManager implements IResourceManagerReloadListener {
                 if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
                     continue;
                 }
-                scanChunk(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap, rx, rz);
+                Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+                scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, lastScanTick.containsKey(key));
                 lastScanTick.put(key, tick);
                 budget--;
             }
@@ -904,17 +915,22 @@ public class MapManager implements IResourceManagerReloadListener {
                     long key = chunkKey(cx, cz);
                     Integer last = lastScanTick.get(key);
                     int distance = Math.max(Math.abs(dx), Math.abs(dz));
-                    if (last != null) {
-                        // Keep the area around the player up to date; far chunks rarely change.
-                        int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
-                        if (tick - last < interval) {
-                            continue;
-                        }
-                    }
                     if (!ChunkScanner.isChunkReady(world, cx, cz)) {
                         continue;
                     }
-                    long priority = (last == null ? 0 : 1000) + distance;
+                    boolean changed = false;
+                    if (last != null) {
+                        // Keep the area around the player up to date; far chunks rarely change, except right after
+                        // they arrive: trees, snow and ores are added as the chunks around them are made, after the
+                        // chunk itself was sent (flying fast, the map would keep chunks without them).
+                        int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
+                        changed = tick - last >= CHANGED_RESCAN_TICKS
+                            && world.getChunkFromChunkCoords(cx, cz).isModified;
+                        if (tick - last < interval && !changed) {
+                            continue;
+                        }
+                    }
+                    long priority = (last == null ? 0 : changed ? 500 : 1000) + distance;
                     candidates.add(new long[] { priority, key });
                 }
             }
