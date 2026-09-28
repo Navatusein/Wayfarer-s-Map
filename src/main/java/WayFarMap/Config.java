@@ -64,9 +64,6 @@ public class Config {
     public static int isoRotation = 0;
     /** Detail of the 3D world map: at most {@code 8 << isoQuality} pixels per block (8, 16, 32 or 64). */
     public static int isoQuality = ISO_QUALITY_MAX;
-    /** Background threads drawing 3D map tiles; 0 = auto (half the processor cores, at most 3). */
-    public static int isoThreads = 0;
-    public static final int ISO_THREADS_MAX = 16;
     /** Zoomed far out, four rays per pixel instead of one: smoother, but up to four times slower to draw. */
     public static boolean isoSmooth = true;
     /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
@@ -213,17 +210,6 @@ public class Config {
             1,
             () -> isoQuality,
             v -> isoQuality = v);
-        integer(
-            c,
-            "isoThreads",
-            "Background threads drawing the 3D world map: 0 = auto (half the processor cores, at most 3). "
-                + "More draws faster but takes more of the processor.",
-            0,
-            0,
-            ISO_THREADS_MAX,
-            1,
-            () -> isoThreads,
-            v -> isoThreads = v);
         integer(
             c,
             "isoCaptureMs",
@@ -556,19 +542,6 @@ public class Config {
     }
 
     /** Most pixels per block the 3D world map is drawn with. */
-    /** Threads drawing 3D map tiles: the setting, or the automatic count. */
-    public static int isoThreadCount() {
-        if (isoThreads > 0) {
-            return isoThreads;
-        }
-        return Math.max(
-            1,
-            Math.min(
-                3,
-                Runtime.getRuntime()
-                    .availableProcessors() / 2));
-    }
-
     public static int isoPixelsPerBlock() {
         return 8 << isoQuality;
     }

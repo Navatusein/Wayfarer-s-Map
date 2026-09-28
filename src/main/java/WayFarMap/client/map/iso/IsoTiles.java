@@ -167,8 +167,6 @@ final class IsoTiles {
     private final Queue<Result> done = new ConcurrentLinkedQueue<>();
     private final AtomicLong order = new AtomicLong();
     private final Thread[] workers;
-    /** Renderers that should be working; the ones numbered from this on stop after their tile. */
-    private volatile int wantedWorkers;
     private volatile boolean running = true;
     private IntBuffer uploadBuffer;
     private long frame;
@@ -177,25 +175,21 @@ final class IsoTiles {
 
     IsoTiles(IsoMap map) {
         this.map = map;
-        workers = new Thread[Config.ISO_THREADS_MAX];
-        updateWorkers();
-    }
-
-    /** Starts or lets go of renderers to match the setting (render thread). */
-    private void updateWorkers() {
-        int threads = Math.min(workers.length, Config.isoThreadCount());
-        wantedWorkers = threads;
+        int threads = Math.max(
+            1,
+            Math.min(
+                3,
+                Runtime.getRuntime()
+                    .availableProcessors() / 2));
+        workers = new Thread[threads];
         for (int i = 0; i < threads; i++) {
-            if (workers[i] == null || !workers[i].isAlive()) {
-                int index = i;
-                Thread thread = new Thread(() -> work(index), "WayFarMap 3D renderer " + (i + 1));
-                thread.setDaemon(true);
-                // Below the game's threads, but not at the bottom: busy, the system gave the lowest ones next to no
-                // time.
-                thread.setPriority(Thread.NORM_PRIORITY - 2);
-                thread.start();
-                workers[i] = thread;
-            }
+            Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
+            thread.setDaemon(true);
+            // Below the game's threads, but not at the bottom: busy, the system gave the lowest ones next to no
+            // time.
+            thread.setPriority(Thread.NORM_PRIORITY - 2);
+            thread.start();
+            workers[i] = thread;
         }
     }
 
@@ -211,7 +205,6 @@ final class IsoTiles {
     void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor, int x,
         int y, int width, int height) {
         frame++;
-        updateWorkers();
         if (smooth != Config.isoSmooth) {
             // Tiles drawn with the other smoothing are drawn again.
             smooth = Config.isoSmooth;
@@ -488,9 +481,7 @@ final class IsoTiles {
         running = false;
         queue.clear();
         for (Thread worker : workers) {
-            if (worker != null) {
-                worker.interrupt();
-            }
+            worker.interrupt();
         }
         for (Tile tile : tiles.values()) {
             deleteTexture(tile);
@@ -501,8 +492,8 @@ final class IsoTiles {
 
     // ---------------------------------------------------------------- rendering (background threads)
 
-    private void work(int index) {
-        while (running && index < wantedWorkers) {
+    private void work() {
+        while (running) {
             Job job;
             try {
                 job = queue.poll(1, TimeUnit.SECONDS);
