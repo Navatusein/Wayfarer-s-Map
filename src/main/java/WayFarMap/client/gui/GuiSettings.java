@@ -1,5 +1,6 @@
 package WayFarMap.client.gui;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -21,6 +22,10 @@ public class GuiSettings extends ScaledScreen {
 
     private static final int SIDEBAR_WIDTH = 112;
     private static final int ROW_HEIGHT = 22;
+    /** Height of a section title between the options. */
+    private static final int HEADER_HEIGHT = 18;
+    /** How far options that depend on a switch are moved in under it. */
+    private static final int INDENT = 10;
     private static final int CONTROL_WIDTH = 104;
     private static final int ID_RESET = 100, ID_DONE = 101;
 
@@ -35,21 +40,39 @@ public class GuiSettings extends ScaledScreen {
     private int scroll;
     private Config.Option draggingSlider;
 
+    /** A line of the options list: a section title, or an option. */
+    private static final class Row {
+
+        /** The option, or null for a section title. */
+        final Config.Option option;
+        final String group;
+        /** Top, from the top of the list (not scrolled). */
+        final int y;
+        final int height;
+
+        Row(Config.Option option, String group, int y, int height) {
+            this.option = option;
+            this.group = group;
+            this.y = y;
+            this.height = height;
+        }
+    }
+
     public GuiSettings(GuiScreen parent) {
         this.parent = parent;
     }
 
     @Override
     public void initGui() {
-        int panelWidth = Math.min(width - 16, 460);
-        int panelHeight = Math.min(height - 16, 300);
+        int panelWidth = Math.min(width - 16, 500);
+        int panelHeight = Math.min(height - 16, 320);
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         right = left + panelWidth;
         bottom = top + panelHeight;
         contentLeft = left + SIDEBAR_WIDTH + 10;
         contentTop = top + 28;
-        contentBottom = bottom - 34;
+        contentBottom = bottom - 8;
 
         buttonList.clear();
         for (int i = 0; i < Config.CATEGORIES.size(); i++) {
@@ -79,16 +102,38 @@ public class GuiSettings extends ScaledScreen {
         return Config.getOptions(Config.CATEGORIES.get(selectedCategory));
     }
 
+    /** The options of the category with a title before each section. */
+    private List<Row> rows() {
+        List<Row> rows = new ArrayList<>();
+        String group = null;
+        int y = 0;
+        for (Config.Option option : options()) {
+            if (!option.group.isEmpty() && !option.group.equals(group)) {
+                // A little room above every title but the first.
+                y += rows.isEmpty() ? 0 : 4;
+                rows.add(new Row(null, option.group, y, HEADER_HEIGHT));
+                y += HEADER_HEIGHT;
+            }
+            group = option.group;
+            rows.add(new Row(option, group, y, ROW_HEIGHT));
+            y += ROW_HEIGHT;
+        }
+        return rows;
+    }
+
     private int maxScroll() {
-        return Math.max(0, options().size() * ROW_HEIGHT - (contentBottom - contentTop));
+        List<Row> rows = rows();
+        int height = rows.isEmpty() ? 0 : rows.get(rows.size() - 1).y + rows.get(rows.size() - 1).height;
+        return Math.max(0, height - (contentBottom - contentTop));
+    }
+
+    /** How far the option's name is moved in: under the switch it depends on, in the same section. */
+    private static int indent(Config.Option option) {
+        return option.parent != null && option.parent.group.equals(option.group) ? INDENT : 0;
     }
 
     private void clampScroll() {
         scroll = Math.max(0, Math.min(scroll, maxScroll()));
-    }
-
-    private int rowY(int index) {
-        return contentTop + index * ROW_HEIGHT - scroll;
     }
 
     private int controlX() {
@@ -147,13 +192,12 @@ public class GuiSettings extends ScaledScreen {
         if (mouseY < contentTop || mouseY >= contentBottom || mouseX < controlX() || mouseX >= right - 10) {
             return;
         }
-        List<Config.Option> options = options();
-        for (int i = 0; i < options.size(); i++) {
-            int y = rowY(i);
-            if (mouseY < y + 3 || mouseY >= y + ROW_HEIGHT - 3) {
+        for (Row row : rows()) {
+            int y = contentTop + row.y - scroll;
+            if (row.option == null || mouseY < y + 3 || mouseY >= y + ROW_HEIGHT - 3) {
                 continue;
             }
-            Config.Option option = options.get(i);
+            Config.Option option = row.option;
             if (option instanceof Config.BoolOption) {
                 Config.BoolOption bool = (Config.BoolOption) option;
                 bool.set(!bool.get());
@@ -204,24 +248,44 @@ public class GuiSettings extends ScaledScreen {
         Theme.text(fontRendererObj, I18n.format("wayfarmap.settings." + category), contentLeft, top + 9, Theme.TEXT);
         Theme.fill(contentLeft, top + 20, right - 10, top + 21, Theme.BORDER);
 
-        List<Config.Option> options = options();
         Config.Option hovered = null;
-        for (int i = 0; i < options.size(); i++) {
-            int y = rowY(i);
-            if (y + ROW_HEIGHT <= contentTop || y >= contentBottom) {
+        int hoveredY = 0;
+        for (Row row : rows()) {
+            int y = contentTop + row.y - scroll;
+            if (y + row.height <= contentTop || y >= contentBottom) {
                 continue;
             }
-            Config.Option option = options.get(i);
+            boolean whole = y >= contentTop && y + row.height <= contentBottom;
+            if (row.option == null) {
+                if (whole) {
+                    String title = I18n.format("wayfarmap.settings.group." + row.group);
+                    Theme.text(fontRendererObj, title, contentLeft, y + 6, Theme.ACCENT);
+                    int lineX = contentLeft + fontRendererObj.getStringWidth(title) + 6;
+                    Theme.fill(lineX, y + 10, right - 10, y + 11, Theme.BORDER);
+                }
+                continue;
+            }
+            Config.Option option = row.option;
             int visibleTop = Math.max(y, contentTop);
             int visibleBottom = Math.min(y + ROW_HEIGHT, contentBottom);
             if (Theme.inside(mouseX, mouseY, contentLeft - 4, visibleTop, right - 6, visibleBottom)) {
-                hovered = option;
                 Theme.fill(contentLeft - 4, visibleTop, right - 6, visibleBottom, Theme.ROW_HOVER);
+                // The description only over the name: over the control it would hide the rows being changed.
+                if (mouseX < controlX() - 4) {
+                    hovered = option;
+                    hoveredY = y;
+                }
             }
-            if (y >= contentTop && y + ROW_HEIGHT <= contentBottom) {
-                String name = Theme
-                    .ellipsize(fontRendererObj, I18n.format(option.langKey()), controlX() - contentLeft - 48);
-                Theme.text(fontRendererObj, name, contentLeft, y + 7, Theme.TEXT);
+            if (whole) {
+                int x = contentLeft + indent(option);
+                if (x > contentLeft) {
+                    // A short line from the switch this one depends on.
+                    Theme.fill(contentLeft + 2, y + 3, contentLeft + 3, y + 12, Theme.BORDER);
+                    Theme.fill(contentLeft + 2, y + 11, x - 2, y + 12, Theme.BORDER);
+                }
+                boolean off = option.parent != null && !option.parent.get();
+                String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), controlX() - x - 48);
+                Theme.text(fontRendererObj, name, x, y + 7, off ? Theme.TEXT_MUTED : Theme.TEXT);
                 drawControl(option, controlX(), y + 3, mouseX, mouseY);
             }
         }
@@ -231,23 +295,34 @@ public class GuiSettings extends ScaledScreen {
             int barY = contentTop + (track - bar) * scroll / maxScroll();
             Theme.fill(right - 5, barY, right - 3, barY + bar, Theme.BORDER);
         }
-
-        // Description of the option under the mouse, like a footer.
-        Theme.fill(contentLeft, contentBottom + 2, right - 10, contentBottom + 3, Theme.BORDER);
         if (hovered != null) {
-            List<?> lines = fontRendererObj
-                .listFormattedStringToWidth(I18n.format(hovered.langKey() + ".desc"), right - 10 - contentLeft);
-            for (int i = 0; i < lines.size() && i < 2; i++) {
-                Theme.text(
-                    fontRendererObj,
-                    String.valueOf(lines.get(i)),
-                    contentLeft,
-                    contentBottom + 8 + i * 10,
-                    Theme.TEXT_MUTED);
-            }
+            drawDescription(hovered, hoveredY);
         }
 
         super.drawScaled(mouseX, mouseY, partialTicks);
+    }
+
+    /**
+     * The option's description in full, in a box under its row (above it when there is no room below), so long
+     * descriptions are never cut off.
+     */
+    private void drawDescription(Config.Option option, int rowY) {
+        String text = I18n.format(option.langKey() + ".desc");
+        int boxLeft = contentLeft - 4, boxRight = right - 6;
+        List<?> lines = fontRendererObj.listFormattedStringToWidth(text, boxRight - boxLeft - 10);
+        if (lines.isEmpty()) {
+            return;
+        }
+        int boxHeight = lines.size() * 10 + 8;
+        int boxTop = rowY + ROW_HEIGHT;
+        if (boxTop + boxHeight > bottom - 4) {
+            boxTop = Math.max(top + 4, rowY - boxHeight);
+        }
+        Theme.fill(boxLeft, boxTop, boxRight, boxTop + boxHeight, 0xFF12161B);
+        Theme.outline(boxLeft, boxTop, boxRight, boxTop + boxHeight, Theme.ACCENT_DIM);
+        for (int i = 0; i < lines.size(); i++) {
+            Theme.text(fontRendererObj, String.valueOf(lines.get(i)), boxLeft + 5, boxTop + 5 + i * 10, Theme.TEXT);
+        }
     }
 
     private void drawControl(Config.Option option, int x, int y, int mouseX, int mouseY) {

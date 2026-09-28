@@ -142,6 +142,10 @@ final class IsoTracer {
             if (blocks != null) {
                 data = blocks;
                 top = blocks.yMax;
+                if (!blocks.looksReady) {
+                    // All the chunk's blocks at once: one wait for the render thread, not one per block.
+                    blocks.looksReady = BlockLooks.prepare(blocks.lookKeys());
+                }
             }
         }
         if (data == NOTHING) {
@@ -230,6 +234,49 @@ final class IsoTracer {
                         cellIndex = -1;
                         face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                         break;
+                    }
+                    int layer = (y - blocks.yMin) >> 2;
+                    int air = blocks.airBricks()[layer];
+                    int brick = (lz >> 2) << 2 | lx >> 2;
+                    if ((air & 1 << brick) != 0) {
+                        // Only air around here: jump to where the ray leaves the empty bricks under it, or the whole
+                        // empty part of the chunk (layers where it holds nothing), instead of going block by block.
+                        int x0, z0, size, bottom;
+                        if ((air & ChunkBlocks.ALL_AIR) == ChunkBlocks.ALL_AIR) {
+                            x0 = chunkX << 4;
+                            z0 = chunkZ << 4;
+                            size = 16;
+                            bottom = blocks.yMin + ((air >>> 16) << 2);
+                        } else {
+                            x0 = x & ~3;
+                            z0 = z & ~3;
+                            size = 4;
+                            bottom = blocks.yMin + (blocks.airFloor(layer, brick) << 2);
+                        }
+                        double exitX = ((stepX > 0 ? x0 + size : x0) - ox) / dx;
+                        double exitZ = ((stepZ > 0 ? z0 + size : z0) - oz) / dz;
+                        double down = (bottom - oy) / dy;
+                        double next = Math.min(Math.min(exitX, exitZ), down);
+                        if (next > t) {
+                            // The light of the last block of air passed, as if it had been gone through block by block.
+                            double before = Math.max(t, next - 1e-6);
+                            int lastX = clampInt(floor(ox + dx * before), x0, x0 + size - 1);
+                            int lastY = clampInt(floor(oy + dy * before), bottom, y);
+                            int lastZ = clampInt(floor(oz + dz * before), z0, z0 + size - 1);
+                            previousLight = light(blocks.cell(lastX & 15, lastY, lastZ & 15));
+                            previousKey = 0;
+                            insideLiquid = 0;
+                            t = next + 1e-7;
+                            side = next == down ? 1 : next == exitX ? (stepX > 0 ? 4 : 5) : (stepZ > 0 ? 2 : 3);
+                            double px = ox + dx * t, py = oy + dy * t, pz = oz + dz * t;
+                            x = floor(px);
+                            y = floor(py);
+                            z = floor(pz);
+                            maxX = t + (stepX > 0 ? x + 1 - px : px - x) * deltaX;
+                            maxY = t + (py - y) * deltaY;
+                            maxZ = t + (stepZ > 0 ? z + 1 - pz : pz - z) * deltaZ;
+                            continue;
+                        }
                     }
                     cellIndex = ((y - blocks.yMin) << 8) | (lz << 4) | lx;
                     int cell = blocks.cells[cellIndex];
@@ -852,6 +899,10 @@ final class IsoTracer {
 
     private static int clamp(double value) {
         return value <= 0 ? 0 : value >= 255 ? 255 : (int) value;
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return value < min ? min : value > max ? max : value;
     }
 
     private static int floor(double value) {

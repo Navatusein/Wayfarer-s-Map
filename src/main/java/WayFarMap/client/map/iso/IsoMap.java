@@ -40,8 +40,6 @@ public final class IsoMap implements BlockStore.Listener {
     private static final int RENDER_VERSION = 14;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
-    /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
-    private static final long CAPTURE_BUDGET_NANOS = 3_000_000L;
     /**
      * A chunk is copied again at most this often while the player is near it (building changes it), and farther
      * away only now and then: copying every loaded chunk again and again costs frames while flying around.
@@ -52,7 +50,9 @@ public final class IsoMap implements BlockStore.Listener {
     /** Time for pictures of a chunk copied as it is let go. */
     private static final long UNLOAD_PICTURES_NANOS = 1_000_000L;
     /** Time per frame the render thread spends working out block looks for the renderers. */
-    private static final long LOOK_BUDGET_NANOS = 6_000_000L;
+    private static final long LOOK_BUDGET_NANOS = 10_000_000L;
+    /** The same while playing: looks of the chunks copied are worked out ahead, a little each tick. */
+    private static final long TICK_LOOK_BUDGET_NANOS = 2_000_000L;
 
     /** The maps of one dimension. */
     static final class Dimension {
@@ -72,8 +72,13 @@ public final class IsoMap implements BlockStore.Listener {
 
     private File worldDirectory;
     private final Map<Integer, Dimension> dimensions = new HashMap<>();
-    /** Copies chunks and saves the block files, one after the other. */
+    /** Stores the copied chunks, one after the other. */
     private ExecutorService writer;
+    /**
+     * Writes the block files and pictures to disk. Apart from the writer: saving whole regions takes seconds, and new
+     * chunks would wait for it before they show on the map.
+     */
+    private ExecutorService saver;
     private IsoTiles tiles;
     private String cacheId;
     /** Chunk changes from the writer, for the tiles on screen: {dimension, chunk x, chunk z, top, time}. */
@@ -123,12 +128,32 @@ public final class IsoMap implements BlockStore.Listener {
         FaceRenderer.clear();
         this.worldDirectory = worldDirectory;
         palette = FacePalette.load(worldDirectory, spriteCacheId());
-        writer = Executors.newSingleThreadExecutor(r -> {
-            Thread thread = new Thread(r, "WayFarMap 3D writer");
+        writer = backgroundThread("WayFarMap 3D writer");
+        saver = backgroundThread("WayFarMap 3D saver");
+    }
+
+    private static ExecutorService backgroundThread(String name) {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, name);
             thread.setDaemon(true);
-            thread.setPriority(Thread.MIN_PRIORITY + 1);
+            // Below the game's threads, but not the lowest: busy, the system gave those next to no time and new
+            // chunks waited seconds to be stored.
+            thread.setPriority(Thread.NORM_PRIORITY - 2);
             return thread;
         });
+    }
+
+    /** Lets the thread finish what it was given, for up to 30 seconds. */
+    private static void finish(ExecutorService executor) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                WayFarMap.LOG.warn("Saving the 3D map took too long");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread()
+                .interrupt();
+        }
     }
 
     /** The world was left: saves the blocks, waits for it, and frees everything (render thread). */
@@ -138,17 +163,12 @@ public final class IsoMap implements BlockStore.Listener {
             tiles = null;
         }
         if (writer != null) {
-            writer.submit(saveTask());
-            writer.shutdown();
-            try {
-                if (!writer.awaitTermination(30, TimeUnit.SECONDS)) {
-                    WayFarMap.LOG.warn("Saving the 3D map took too long");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread()
-                    .interrupt();
-            }
+            // The chunks still to be stored first, then everything saved.
+            finish(writer);
+            saver.submit(saveTask());
+            finish(saver);
             writer = null;
+            saver = null;
         }
         dimensions.clear();
         changes.clear();
@@ -204,7 +224,7 @@ public final class IsoMap implements BlockStore.Listener {
             return;
         }
         savingPictures = true;
-        writer.submit(() -> {
+        saver.submit(() -> {
             try {
                 pictures.save();
             } finally {
@@ -215,7 +235,7 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** Called once per client tick (render thread): copies the chunks that are due, for a few milliseconds. */
     public void tick(World world) {
-        BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
+        BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
         drainChanges();
         if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty()) {
             return;
@@ -229,7 +249,8 @@ public final class IsoMap implements BlockStore.Listener {
             return;
         }
         savePicturesIfMany();
-        long end = System.nanoTime() + CAPTURE_BUDGET_NANOS;
+        // A chunk takes a fraction of a millisecond, more with pictures.
+        long end = System.nanoTime() + Config.isoCaptureMs * 1_000_000L;
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
     }
@@ -386,6 +407,8 @@ public final class IsoMap implements BlockStore.Listener {
             unfinished.remove(key);
             return true;
         }
+        // Their looks are worked out in the next ticks, so the 3D map has them when it opens.
+        BlockLooks.warm(blocks.lookKeys());
         if (!complete && !unloading) {
             int copies = unfinished.merge(key, 1, Integer::sum);
             if (copies < MAX_UNFINISHED_COPIES) {
@@ -472,7 +495,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer == null) {
             return null;
         }
-        return writer.submit(saveTask());
+        return saver.submit(saveTask());
     }
 
     /** Resource packs changed: blocks look different, pictures of them are taken again. */
@@ -484,7 +507,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (worldDirectory != null && writer != null
             && (old == null || old.packs != FacePalette.packsOf(spriteCacheId()))) {
             // Other resource packs: a new palette (it replaces the file when first saved).
-            writer.submit(() -> {
+            saver.submit(() -> {
                 if (old != null) {
                     old.save();
                 }
@@ -554,6 +577,16 @@ public final class IsoMap implements BlockStore.Listener {
             y,
             width,
             height);
+    }
+
+    /** Chunks waiting to be copied for the 3D map (render thread). */
+    public int chunksQueued() {
+        return freshQueue.size() + captureQueue.size();
+    }
+
+    /** Tiles of the 3D map waiting to be drawn, 0 if none. */
+    public int tilesQueued() {
+        return tiles == null ? 0 : tiles.queued();
     }
 
     /**

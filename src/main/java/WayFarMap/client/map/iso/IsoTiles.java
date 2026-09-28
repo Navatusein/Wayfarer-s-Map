@@ -170,6 +170,8 @@ final class IsoTiles {
     private volatile boolean running = true;
     private IntBuffer uploadBuffer;
     private long frame;
+    /** {@link Config#isoSmooth} the tiles in memory were drawn with. */
+    private boolean smooth = Config.isoSmooth;
 
     IsoTiles(IsoMap map) {
         this.map = map;
@@ -183,7 +185,9 @@ final class IsoTiles {
         for (int i = 0; i < threads; i++) {
             Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
             thread.setDaemon(true);
-            thread.setPriority(Thread.MIN_PRIORITY + 1);
+            // Below the game's threads, but not at the bottom: busy, the system gave the lowest ones next to no
+            // time.
+            thread.setPriority(Thread.NORM_PRIORITY - 2);
             thread.start();
             workers[i] = thread;
         }
@@ -201,6 +205,11 @@ final class IsoTiles {
     void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor, int x,
         int y, int width, int height) {
         frame++;
+        if (smooth != Config.isoSmooth) {
+            // Tiles drawn with the other smoothing are drawn again.
+            smooth = Config.isoSmooth;
+            invalidateAll();
+        }
         uploadResults();
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int blocks = IsoProjection.tileBlocks(level);
@@ -462,6 +471,11 @@ final class IsoTiles {
         }
     }
 
+    /** Tiles waiting to be drawn. */
+    int queued() {
+        return queue.size();
+    }
+
     /** Stops the renderers and frees the textures (render thread). */
     void shutdown() {
         running = false;
@@ -532,7 +546,7 @@ final class IsoTiles {
         short[] hits = new short[PIXELS * PIXELS];
         boolean any = false;
         // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
-        boolean supersample = pixelsPerBlock < 1;
+        boolean supersample = pixelsPerBlock < 1 && Config.isoSmooth;
         double q = 0.25 / pixelsPerBlock;
         double[] offsetU = { -q, q, -q }, offsetV = { -q, -q, q };
         int[] day = new int[4], night = new int[4];
@@ -592,7 +606,9 @@ final class IsoTiles {
 
     private File tileFile(IsoMap.Dimension dimension, Key key) {
         File directory = new File(
-            new File(new File(new File(dimension.directory, "iso"), map.cacheId()), String.valueOf(key.rotation)),
+            new File(
+                new File(new File(dimension.directory, "iso"), map.cacheId() + (Config.isoSmooth ? "" : "-fast")),
+                String.valueOf(key.rotation)),
             String.valueOf(key.level));
         return new File(directory, key.tu + "." + key.tv + ".wft");
     }

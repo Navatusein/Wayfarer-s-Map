@@ -3,10 +3,10 @@ package WayFarMap.client.map.iso;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockDoublePlant;
 import net.minecraft.block.material.Material;
-import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 
 /** Copies the blocks of a loaded chunk that the 3D map can see (render thread; the rest is done in the background). */
 final class BlockCapture {
@@ -141,8 +141,12 @@ final class BlockCapture {
             yMin = 0;
         }
         int[] cells = new int[(yMax - yMin + 1) << 8];
+        ExtendedBlockStorage[] storages = chunk.getBlockStorageArray();
         int i = 0;
         for (int y = yMin; y <= yMax; y++) {
+            // Read from the chunk's sections directly: a copy reads tens of thousands of blocks.
+            ExtendedBlockStorage storage = storages[y >> 4];
+            int ly = y & 15;
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++, i++) {
                     if (y > start[z * 16 + x]) {
@@ -150,11 +154,17 @@ final class BlockCapture {
                         cells[i] = ChunkBlocks.OPEN_SKY;
                         continue;
                     }
-                    Block block = chunk.getBlock(x, y, z);
+                    if (storage == null) {
+                        // An empty section, only air: lit by the sky above the height map, as the game has it.
+                        int sky = noSky || y >= chunk.getHeightValue(x, z) ? 15 : 0;
+                        cells[i] = sky << 24;
+                        continue;
+                    }
+                    Block block = storage.getBlockByExtId(x, ly, z);
                     int id = Block.getIdFromBlock(block);
-                    int sky = noSky ? 15 : chunk.getSavedLightValue(EnumSkyBlock.Sky, x, y, z);
-                    int light = chunk.getSavedLightValue(EnumSkyBlock.Block, x, y, z);
-                    int meta = id == 0 ? 0 : chunk.getBlockMetadata(x, y, z);
+                    int sky = noSky ? 15 : storage.getExtSkylightValue(x, ly, z);
+                    int light = storage.getExtBlocklightValue(x, ly, z);
+                    int meta = id == 0 ? 0 : storage.getExtBlockMetadata(x, ly, z);
                     if ((meta & 8) != 0 && block instanceof BlockDoublePlant
                         && y > 0
                         && chunk.getBlock(x, y - 1, z) == block) {
