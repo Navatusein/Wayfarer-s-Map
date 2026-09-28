@@ -81,8 +81,8 @@ public class MapManager implements IResourceManagerReloadListener {
     /** The one of {@link #others} shown on the world map, or null to show the player's dimension. */
     private OtherDimension viewed;
 
-    private final ScanTracker surfaceTracker = new ScanTracker();
-    private final ScanTracker caveTracker = new ScanTracker();
+    private final ScanTracker surfaceTracker = new ScanTracker(true);
+    private final ScanTracker caveTracker = new ScanTracker(false);
     private int tick;
     private long lastAutosave;
 
@@ -810,20 +810,74 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Time spent on chunks let go since the last tick. */
     private long unloadNanos;
 
+    /** Ticks a new chunk's blocks must stay unchanged before it is first mapped (its decoration has arrived). */
+    private static final int SETTLE_QUIET_TICKS = 10;
+    /** A new chunk is mapped after this long anyway (the edge of the view, flowing water that never settles). */
+    private static final int SETTLE_MAX_TICKS = 100;
+
     /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
     private final class ScanTracker {
 
         private final Map<Long, Integer> lastScanTick = new HashMap<>();
+        /**
+         * New chunks not mapped yet: {tick first seen, tick of the last change seen}. A chunk is sent before the
+         * server decorated it (trees, snow, ores come as the chunks around it are made): it is mapped only once it
+         * is whole, so the map shows it finished at once instead of bare first.
+         */
+        private final Map<Long, int[]> settling = new HashMap<>();
         private final ArrayDeque<Long> queue = new ArrayDeque<>();
         private int nextQueueBuild;
         /** Chunk the player was in when the queue was built. */
         private long queuedAround = Long.MIN_VALUE;
+        /** Whether this tracker maps the surface: it owns the chunks' changed marks (the cave one leaves them). */
+        private final boolean surface;
+
+        ScanTracker(boolean surface) {
+            this.surface = surface;
+        }
 
         void reset() {
             lastScanTick.clear();
+            settling.clear();
             queue.clear();
             nextQueueBuild = 0;
             queuedAround = Long.MIN_VALUE;
+        }
+
+        /**
+         * Whether a chunk never mapped is finished: all eight chunks around it are there (so the server decorated
+         * it) and its blocks stayed unchanged for a moment (the decoration arrived); or it waited long enough.
+         */
+        private boolean settled(WorldClient world, Chunk chunk, long key) {
+            int[] state = settling.get(key);
+            if (state == null) {
+                state = new int[] { tick, tick };
+                settling.put(key, state);
+                if (surface) {
+                    chunk.isModified = false;
+                }
+                return false;
+            }
+            if (tick - state[0] >= SETTLE_MAX_TICKS) {
+                return true;
+            }
+            if (surface && chunk.isModified) {
+                chunk.isModified = false;
+                state[1] = tick;
+                return false;
+            }
+            if (tick - state[1] < SETTLE_QUIET_TICKS) {
+                return false;
+            }
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((dx != 0 || dz != 0)
+                        && !ChunkScanner.isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         /** Maps a chunk now if it never was, or changed since (it is about to be let go by the game). */
@@ -840,6 +894,7 @@ public class MapManager implements IResourceManagerReloadListener {
             }
             scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
             lastScanTick.put(key, tick);
+            settling.remove(key);
         }
 
         /** @param changed scanned before, and its blocks changed since */
@@ -910,6 +965,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
                 scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, lastScanTick.containsKey(key));
                 lastScanTick.put(key, tick);
+                settling.remove(key);
                 budget--;
             }
         }
@@ -931,6 +987,14 @@ public class MapManager implements IResourceManagerReloadListener {
                     it.remove();
                 }
             }
+            Iterator<Long> waiting = settling.keySet()
+                .iterator();
+            while (waiting.hasNext()) {
+                long key = waiting.next();
+                if (Math.abs((int) (key >> 32) - pcx) > radius + 4 || Math.abs((int) key - pcz) > radius + 4) {
+                    waiting.remove();
+                }
+            }
 
             List<long[]> candidates = new ArrayList<>();
             for (int dx = -radius; dx <= radius; dx++) {
@@ -944,6 +1008,9 @@ public class MapManager implements IResourceManagerReloadListener {
                         continue;
                     }
                     boolean changed = false;
+                    if (last == null && !settled(world, world.getChunkFromChunkCoords(cx, cz), key)) {
+                        continue;
+                    }
                     if (last != null) {
                         // Keep the area around the player up to date; far chunks rarely change, except right after
                         // they arrive: trees, snow and ores are added as the chunks around them are made, after the
