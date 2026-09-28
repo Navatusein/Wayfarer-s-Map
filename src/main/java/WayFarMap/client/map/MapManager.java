@@ -823,8 +823,8 @@ public class MapManager implements IResourceManagerReloadListener {
             lastScanTick.put(key, tick);
         }
 
-        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
-            int rx, int rz) {
+        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer,
+            MapDimension biomeMap, int rx, int rz) {
             int cx = chunk.xPosition, cz = chunk.zPosition;
             try {
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
