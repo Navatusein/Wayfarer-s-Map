@@ -7,6 +7,7 @@ wayfarmap.gui.title=World Map
 key.wayfarmap.new_waypoint=New waypoint
 key.wayfarmap.waypoint_list=Waypoint list
 wayfarmap.gui.help_button=Help
+wayfarmap.help.close=Close
 wayfarmap.gui.dimension_here=you are here
 wayfarmap.gui.waypoints=Waypoints
 wayfarmap.gui.new_waypoint=New waypoint

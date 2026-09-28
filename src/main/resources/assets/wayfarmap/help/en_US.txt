@@ -170,4 +170,6 @@ The §bSettings§r button on the map opens all options by category:
 - §fEntities§r — players, hostile and passive mobs, icon limit, vertical range
 - §fWaypoints§r — size, label width, max distance, in-world and minimap visibility
 
-> Hover an option to see its description at the bottom.
+Within a category the options are grouped into sections. Options that depend on a switch sit indented under it and are dimmed while it is off.
+
+> Hover an option's name to see its full description.
