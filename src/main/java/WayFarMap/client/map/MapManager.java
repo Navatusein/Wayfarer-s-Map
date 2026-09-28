@@ -568,7 +568,7 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
-        IsoMap.INSTANCE.tick();
+        IsoMap.INSTANCE.tick(world);
         updateCaveMode(world, mc.thePlayer);
 
         int budget = Config.chunksScannedPerTick;

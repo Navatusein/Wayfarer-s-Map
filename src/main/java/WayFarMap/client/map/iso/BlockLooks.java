@@ -122,6 +122,13 @@ public final class BlockLooks {
         public boolean lightPasses;
         /** Fixed opacity for liquids, 0 to use the texture's. */
         public float alpha;
+        /**
+         * Drawn by a renderer this class doesn't imitate (modded block renderers, doors, pistons...): pictures of
+         * its sides are taken from the game ({@link FaceRenderer}), and it is a full block that can have holes.
+         */
+        public boolean complex;
+        /** The game's render type, to tell plain cubes apart. */
+        public int renderType;
     }
 
     private static final Map<Integer, Look> LOOKS = new ConcurrentHashMap<>();
@@ -223,6 +230,7 @@ public final class BlockLooks {
             return look;
         }
         int renderType = block.getRenderType();
+        look.renderType = renderType;
         look.lightPasses = block.getLightOpacity() < 255;
         look.translucent = block.getRenderBlockPass() == 1;
         for (int side = 0; side < 6; side++) {
@@ -309,8 +317,10 @@ public final class BlockLooks {
             default:
                 break;
         }
-        // Everything else: the block's box.
-        float[] box = bounds(block, meta);
+        // Everything else: the block's box. Blocks the game draws with a renderer not imitated here fill the block;
+        // the pictures of their sides taken from the game have holes where nothing is.
+        look.complex = renderType != 0;
+        float[] box = look.complex ? new float[] { 0, 0, 0, 1, 1, 1 } : bounds(block, meta);
         boxes(look, box[0], box[1], box[2], box[3], box[4], box[5]);
         boolean full = box[0] <= 0 && box[1] <= 0 && box[2] <= 0 && box[3] >= 1 && box[4] >= 1 && box[5] >= 1;
         look.opaque = full && block.isOpaqueCube() && !look.translucent;

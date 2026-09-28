@@ -20,6 +20,12 @@ final class IsoTracer {
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
+    /** How much of what is below the water's surface veils: the rest is the water body (see absorb). */
+    private static final float WATER_SURFACE = 0.3f;
+    /** Per block of water the ray passes, the share of light that becomes water color. */
+    private static final double WATER_ABSORPTION = 0.42;
+    /** Water seen in depth is darker than its surface. */
+    private static final float WATER_DEPTH_SHADE = 0.62f;
 
     static {
         for (int level = 0; level < 16; level++) {
@@ -57,12 +63,18 @@ final class IsoTracer {
     private int currentTop;
     /** Key of the liquid the ray is under the surface of, 0 if none. */
     private int insideLiquid;
-    /** Whether the last {@link #boxes} call met a box. */
+    /** Whether the last {@link #boxes} call met a box, and where. */
     private boolean boxHit;
+    private double boxHitT;
+    /** Index of the cell being looked at in its chunk's cells, -1 for the ground below them. */
+    private int cellIndex;
+    /** Pictures of block sides as the game draws them; null if there are none. */
+    private final FacePalette palette;
 
-    IsoTracer(BlockStore store, SurfaceFallback fallback) {
+    IsoTracer(BlockStore store, SurfaceFallback fallback, FacePalette palette) {
         this.store = store;
         this.fallback = fallback;
+        this.palette = palette;
     }
 
     void reset(IsoProjection projection, int level) {
@@ -175,10 +187,12 @@ final class IsoTracer {
                     if (y < blocks.yMin) {
                         // The ground below what was stored: the column's lowest solid block.
                         BlockLooks.Look look = BlockLooks.get(filler(blocks, lx, lz));
+                        cellIndex = -1;
                         face(look, blocks, lx, lz, side, t, x, y, z, previousLight, 1f);
                         break;
                     }
-                    int cell = blocks.cells[((y - blocks.yMin) << 8) | (lz << 4) | lx];
+                    cellIndex = ((y - blocks.yMin) << 8) | (lz << 4) | lx;
+                    int cell = blocks.cells[cellIndex];
                     int key = ChunkBlocks.lookKey(cell);
                     if (key != insideLiquid) {
                         insideLiquid = 0;
@@ -255,12 +269,16 @@ final class IsoTracer {
                 }
                 return boxes(look, key, blocks, lx, lz, side, t, exit, x, y, z, previousLight, previousKey, look.boxes);
             case BlockLooks.SHAPE_LIQUID: {
+                boolean water = look.translucent;
                 if (insideLiquid == key) {
-                    // Under the surface of the same liquid: nothing between.
-                    return false;
+                    // Under the surface: the water dims what is behind the farther the ray goes through it, so
+                    // it is one smooth body getting deeper blue, not a grid of blocks.
+                    return water && absorb(look, blocks, lx, lz, exit - t);
                 }
                 boolean full = y + 1 <= blocks.yMax && ChunkBlocks.lookKey(blocks.cell(lx, y + 1, lz)) == key;
-                float height = full ? 1f : 0.875f;
+                // As high as the game draws it: sources 8/9 of a block, flowing water lower the farther it flows.
+                int level = ChunkBlocks.meta(cell);
+                float height = full ? 1f : 1f - ((level >= 8 ? 0 : level) + 1) / 9f;
                 // A ray can pass over the surface of one block into the next: it is in the liquid only once it
                 // went through the surface (or a side under it).
                 boxHit = false;
@@ -281,6 +299,9 @@ final class IsoTracer {
                     new float[] { 0, 0, 0, 1, height, 1 });
                 if (boxHit) {
                     insideLiquid = key;
+                    if (water && !stop) {
+                        stop = absorb(look, blocks, lx, lz, exit - boxHitT);
+                    }
                 }
                 return stop;
             }
@@ -330,6 +351,7 @@ final class IsoTracer {
             return false;
         }
         boxHit = true;
+        boxHitT = bestT;
         if (look.skipSame && previousKey == key && bestT - t < 1e-6) {
             // Two of the same next to each other (glass, water): no face between them.
             return false;
@@ -441,6 +463,30 @@ final class IsoTracer {
                 texV = 1 - py;
                 break;
         }
+        float shade = SIDE_SHADE[side] * LIGHT[lightLevel] * extraShade;
+        if (look.shape == BlockLooks.SHAPE_LIQUID && look.translucent) {
+            // The water's surface: its average color, a thin veil over what is below (see absorb).
+            int color = tinted(look, blocks, lx, lz, side, look.textures[side].texel(0, 0, 4), texU, texV);
+            hit(side, hitT);
+            add(color, shade, WATER_SURFACE);
+            return transmit < 0.02;
+        }
+        BlockLooks.Texture picture = picture(blocks, side);
+        if (picture != null) {
+            // As the game draws this block here (connected textures, tile entities): colors and tint included.
+            int pixel = picture.texel(texU, texV, mip);
+            int pixelAlpha = pixel >>> 24;
+            if (pixelAlpha < (look.translucent ? 8 : 128) && !look.opaque) {
+                return false;
+            }
+            if (pixelAlpha > 0 || !look.opaque) {
+                float alpha = look.translucent ? Math.max(0.3f, pixelAlpha / 255f) : 1f;
+                hit(side, hitT);
+                add(pixel & 0xFFFFFF, shade, alpha);
+                return transmit < 0.02;
+            }
+            // An empty spot on a solid block: its icon instead.
+        }
         BlockLooks.Texture texture = look.textures[side];
         int texel = texture.texel(texU, texV, mip);
         int texelAlpha = texel >>> 24;
@@ -456,7 +502,30 @@ final class IsoTracer {
         }
         hit(side, hitT);
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
-        add(color, SIDE_SHADE[side] * LIGHT[lightLevel] * extraShade, alpha);
+        add(color, shade, alpha);
+        return transmit < 0.02;
+    }
+
+    /** The picture of this side of the current cell taken in the game, or null if it is drawn from its icon. */
+    private BlockLooks.Texture picture(ChunkBlocks blocks, int side) {
+        if (palette == null || cellIndex < 0 || blocks.faceGeneration != palette.generation) {
+            return null;
+        }
+        int id = blocks.faceId(cellIndex, side);
+        return id > 0 ? palette.texture(id) : null;
+    }
+
+    /**
+     * Light passing {@code length} blocks through water: part of it is replaced by the water's deep color.
+     *
+     * @return true when nothing behind can be seen any more
+     */
+    private boolean absorb(BlockLooks.Look look, ChunkBlocks blocks, int lx, int lz, double length) {
+        if (length <= 0) {
+            return false;
+        }
+        int color = tinted(look, blocks, lx, lz, 1, look.textures[1].texel(0, 0, 4), 0, 0);
+        add(color, WATER_DEPTH_SHADE, (float) (1 - Math.exp(-WATER_ABSORPTION * length)));
         return transmit < 0.02;
     }
 

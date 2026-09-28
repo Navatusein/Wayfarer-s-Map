@@ -474,7 +474,7 @@ final class IsoTiles {
             }
         }
         long start = System.currentTimeMillis();
-        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback);
+        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, map.palette());
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
         int blocks = IsoProjection.tileBlocks(key.level);

@@ -3,6 +3,8 @@ package WayFarMap.client.map.iso;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -30,9 +32,9 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 1;
-    /** Chunks copied per game tick at most (each takes a fraction of a millisecond). */
-    private static final int CAPTURES_PER_TICK = 4;
+    private static final int RENDER_VERSION = 2;
+    /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
+    private static final long CAPTURE_BUDGET_NANOS = 4_000_000L;
     /** A chunk is copied again at most this often while the player stays near it. */
     private static final long RECAPTURE_MS = 10_000;
     /** Time per frame the render thread spends working out block looks for the renderers. */
@@ -64,7 +66,13 @@ public final class IsoMap implements BlockStore.Listener {
     private final Queue<long[]> changes = new ConcurrentLinkedQueue<>();
     private final Map<Long, Long> lastCapture = new HashMap<>();
     private int lastCaptureDimension = Integer.MIN_VALUE;
-    private int capturesThisTick;
+    /**
+     * Chunks the surface map scanned that are due to be copied, oldest first. All of them get copied over the next
+     * ticks, so the whole loaded area gets its blocks, not just what is near the player.
+     */
+    private final LinkedHashSet<Long> captureQueue = new LinkedHashSet<>();
+    /** Pictures of block sides taken from the game (connected textures, tile entities). */
+    private FacePalette palette;
 
     private IsoMap() {}
 
@@ -72,6 +80,7 @@ public final class IsoMap implements BlockStore.Listener {
     public void open(File worldDirectory) {
         close();
         this.worldDirectory = worldDirectory;
+        palette = FacePalette.load(worldDirectory, cacheId());
         writer = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "WayFarMap 3D writer");
             thread.setDaemon(true);
@@ -87,8 +96,7 @@ public final class IsoMap implements BlockStore.Listener {
             tiles = null;
         }
         if (writer != null) {
-            List<Dimension> all = new ArrayList<>(dimensions.values());
-            writer.submit(() -> all.forEach(d -> d.store.save()));
+            writer.submit(saveTask());
             writer.shutdown();
             try {
                 if (!writer.awaitTermination(30, TimeUnit.SECONDS)) {
@@ -103,8 +111,26 @@ public final class IsoMap implements BlockStore.Listener {
         dimensions.clear();
         changes.clear();
         lastCapture.clear();
+        captureQueue.clear();
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
+        palette = null;
+    }
+
+    /** Saves the pictures, then the blocks that refer to them. */
+    private Runnable saveTask() {
+        List<Dimension> all = new ArrayList<>(dimensions.values());
+        FacePalette pictures = palette;
+        return () -> {
+            if (pictures != null) {
+                pictures.save();
+            }
+            all.forEach(d -> d.store.save());
+        };
+    }
+
+    FacePalette palette() {
+        return palette;
     }
 
     Dimension dimension(int id) {
@@ -121,44 +147,72 @@ public final class IsoMap implements BlockStore.Listener {
 
     // ---------------------------------------------------------------- recording blocks while playing
 
-    /** Called once per client tick (render thread). */
-    public void tick() {
-        capturesThisTick = 0;
+    /** Called once per client tick (render thread): copies the chunks that are due, for a few milliseconds. */
+    public void tick(World world) {
         BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
         drainChanges();
+        if (world == null || writer == null || captureQueue.isEmpty()) {
+            return;
+        }
+        if (world.provider.dimensionId != lastCaptureDimension) {
+            captureQueue.clear();
+            return;
+        }
+        long end = System.nanoTime() + CAPTURE_BUDGET_NANOS;
+        Iterator<Long> it = captureQueue.iterator();
+        while (it.hasNext() && System.nanoTime() < end) {
+            long key = it.next();
+            it.remove();
+            int cx = (int) (key >> 32), cz = (int) key;
+            if (!world.getChunkProvider()
+                .chunkExists(cx, cz)) {
+                continue;
+            }
+            Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+            if (chunk != null && !chunk.isEmpty()) {
+                capture(world, chunk);
+            }
+        }
     }
 
-    /** The surface map just scanned this chunk: its blocks are kept too, now and then (render thread). */
+    /** The surface map just scanned this chunk: its blocks are copied soon, unless they were lately (render thread). */
     public void onChunkScanned(World world, Chunk chunk) {
-        if (!Config.record3d || writer == null || capturesThisTick >= CAPTURES_PER_TICK) {
+        if (!Config.record3d || writer == null) {
             return;
         }
         int dimensionId = world.provider.dimensionId;
         if (dimensionId != lastCaptureDimension) {
             lastCapture.clear();
+            captureQueue.clear();
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        long now = System.currentTimeMillis();
         Long last = lastCapture.get(key);
-        if (last != null && now - last < RECAPTURE_MS) {
+        if (last != null && System.currentTimeMillis() - last < RECAPTURE_MS) {
             return;
         }
-        Dimension dimension = dimension(dimensionId);
+        captureQueue.add(key);
+    }
+
+    private void capture(World world, Chunk chunk) {
+        Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
             return;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        lastCapture.put(key, System.currentTimeMillis());
+        if (lastCapture.size() > 50_000) {
+            lastCapture.clear();
         }
         ChunkBlocks blocks;
         try {
             blocks = BlockCapture.capture(world, chunk);
+            if (blocks != null && palette != null) {
+                FaceRenderer.addFaces(world, chunk, blocks, palette);
+            }
         } catch (RuntimeException e) {
             WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);
             return;
-        }
-        capturesThisTick++;
-        lastCapture.put(key, now);
-        if (lastCapture.size() > 20_000) {
-            lastCapture.clear();
         }
         if (blocks == null) {
             return;
@@ -197,14 +251,27 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer == null) {
             return null;
         }
-        List<Dimension> all = new ArrayList<>(dimensions.values());
-        return writer.submit(() -> all.forEach(d -> d.store.save()));
+        return writer.submit(saveTask());
     }
 
-    /** Resource packs changed: blocks look different. */
+    /** Resource packs changed: blocks look different, pictures of them are taken again. */
     public void onResourcesReloaded() {
         BlockLooks.clear();
+        FaceRenderer.clear();
         cacheId = null;
+        FacePalette old = palette;
+        if (worldDirectory != null && writer != null
+            && (old == null || old.generation != (cacheId().hashCode() & 0x7FFFFFFF))) {
+            // Other resource packs: a new palette (it replaces the file when first saved).
+            writer.submit(() -> {
+                if (old != null) {
+                    old.save();
+                }
+            });
+            palette = FacePalette.load(worldDirectory, cacheId());
+        }
+        // Copied again as they come by, with pictures in the new textures.
+        lastCapture.clear();
         if (tiles != null) {
             tiles.invalidateAll();
         }

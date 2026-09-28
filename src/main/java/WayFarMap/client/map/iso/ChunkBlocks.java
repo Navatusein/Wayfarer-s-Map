@@ -3,7 +3,9 @@ package WayFarMap.client.map.iso;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.zip.Deflater;
 import java.util.zip.InflaterInputStream;
 
@@ -13,10 +15,14 @@ import java.util.zip.InflaterInputStream;
  * {@link #yMin} counts as solid ground ({@link #filler}); what is above {@link #yMax} is open sky.
  * <p>
  * A cell is an int: block id (bits 0-15), metadata (16-19), block light (20-23), sky light (24-27).
+ * <p>
+ * Blocks the game draws in a way that depends on where they are (connected textures of Chisel, tile entities like
+ * chests, modded block renderers, machine fronts) also have pictures of their sides as the game draws them there,
+ * kept in the {@link FacePalette} ({@link #faceIds}).
  */
 public final class ChunkBlocks {
 
-    private static final int FORMAT = 1;
+    private static final int FORMAT_PLAIN = 1, FORMAT = 2;
     /** Cell of air in full daylight. */
     public static final int OPEN_SKY = 15 << 24;
 
@@ -29,6 +35,13 @@ public final class ChunkBlocks {
      * the column; 0 until the tracer worked it out.
      */
     final int[] filler = new int[256];
+
+    /** {@link FacePalette#generation} the face ids belong to; ids of another one are not used. */
+    int faceGeneration;
+    /** Cells (indices into {@link #cells}, ascending) that have pictures of their sides. */
+    int[] faceCells = new int[0];
+    /** Six picture ids per cell of {@link #faceCells}, by side; 0 = drawn from the block's icon. */
+    int[] faceIds = new int[0];
 
     public ChunkBlocks(int yMin, int yMax, int[] cells, int[] grass, int[] foliage, int[] water) {
         this.yMin = yMin;
@@ -68,9 +81,26 @@ public final class ChunkBlocks {
         return cell & 0xFFFFF;
     }
 
+    /** Sets the pictures of the sides (cells ascending, six ids each). */
+    void setFaces(int generation, int[] cells, int[] ids) {
+        faceGeneration = generation;
+        faceCells = cells;
+        faceIds = ids;
+    }
+
+    /** Picture id of a side of the cell (index into {@link #cells}), 0 if it has none. */
+    int faceId(int cellIndex, int side) {
+        if (faceCells.length == 0) {
+            return 0;
+        }
+        int i = Arrays.binarySearch(faceCells, cellIndex);
+        return i < 0 ? 0 : faceIds[i * 6 + side];
+    }
+
     public byte[] encode() {
         // Layer by layer and field by field: long runs of the same bytes compress far better.
-        byte[] raw = new byte[5 + cells.length * 4 + 3 * 3 * 256];
+        int faces = faceCells.length;
+        byte[] raw = new byte[5 + cells.length * 4 + 3 * 3 * 256 + 8 + faces * 4 + faces * 6 * 4];
         raw[0] = FORMAT;
         raw[1] = (byte) (yMin >> 8);
         raw[2] = (byte) yMin;
@@ -89,6 +119,14 @@ public final class ChunkBlocks {
                 }
             }
         }
+        n = putInt(raw, n, faceGeneration);
+        n = putInt(raw, n, faces);
+        for (int cell : faceCells) {
+            n = putInt(raw, n, cell);
+        }
+        for (int id : faceIds) {
+            n = putInt(raw, n, id);
+        }
         Deflater deflater = new Deflater(6);
         try {
             deflater.setInput(raw);
@@ -104,10 +142,18 @@ public final class ChunkBlocks {
         }
     }
 
+    private static int putInt(byte[] raw, int n, int value) {
+        raw[n] = (byte) (value >>> 24);
+        raw[n + 1] = (byte) (value >>> 16);
+        raw[n + 2] = (byte) (value >>> 8);
+        raw[n + 3] = (byte) value;
+        return n + 4;
+    }
+
     public static ChunkBlocks decode(byte[] data) throws IOException {
         try (DataInputStream in = new DataInputStream(new InflaterInputStream(new ByteArrayInputStream(data)))) {
             int format = in.readUnsignedByte();
-            if (format != FORMAT) {
+            if (format != FORMAT && format != FORMAT_PLAIN) {
                 throw new IOException("Unknown chunk format " + format);
             }
             int yMin = in.readShort();
@@ -133,12 +179,33 @@ public final class ChunkBlocks {
                     }
                 }
             }
-            return new ChunkBlocks(yMin, yMax, cells, colors[0], colors[1], colors[2]);
+            ChunkBlocks blocks = new ChunkBlocks(yMin, yMax, cells, colors[0], colors[1], colors[2]);
+            if (format == FORMAT) {
+                int generation = in.readInt();
+                int faces = in.readInt();
+                if (faces < 0 || faces > cells.length) {
+                    throw new IOException("Bad face count " + faces);
+                }
+                int[] faceCells = new int[faces];
+                int[] ids = new int[faces * 6];
+                try {
+                    for (int i = 0; i < faces; i++) {
+                        faceCells[i] = in.readInt();
+                    }
+                    for (int i = 0; i < ids.length; i++) {
+                        ids[i] = in.readInt();
+                    }
+                } catch (EOFException e) {
+                    throw new IOException("Truncated faces", e);
+                }
+                blocks.setFaces(generation, faceCells, ids);
+            }
+            return blocks;
         }
     }
 
     /** Memory it takes, roughly, in ints. */
     int weight() {
-        return cells.length + 4 * 256;
+        return cells.length + 4 * 256 + faceCells.length * 7;
     }
 }
