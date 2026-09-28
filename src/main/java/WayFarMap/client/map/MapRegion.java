@@ -10,6 +10,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.IntBuffer;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -469,12 +471,13 @@ public class MapRegion implements PixelSource {
         replace(tmp, timesFile);
     }
 
+    /** Puts the new file in place in one step where the file system can: a crash never leaves no file at all. */
     private static void replace(File tmp, File file) throws IOException {
-        if (file.exists() && !file.delete()) {
-            throw new IOException("Could not replace " + file);
-        }
-        if (!tmp.renameTo(file)) {
-            throw new IOException("Could not rename " + tmp + " to " + file);
+        try {
+            Files
+                .move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

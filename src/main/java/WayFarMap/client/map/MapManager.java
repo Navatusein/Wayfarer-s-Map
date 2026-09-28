@@ -799,6 +799,10 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** A chunk whose blocks changed is scanned again at most this often (ticks). */
     private static final int CHANGED_RESCAN_TICKS = 40;
+    /** The same right around the player, where building shows at once. */
+    private static final int NEAR_CHANGED_RESCAN_TICKS = 10;
+    /** Ticks before the scan queue is built again once it ran empty. */
+    private static final int QUEUE_REBUILD_TICKS = 2;
     /** Time per tick for scanning chunks into one map (besides the number of chunks in the settings). */
     private static final long SCAN_BUDGET_NANOS = 3_000_000L;
     /** Time per tick for mapping chunks as the game lets them go. */
@@ -884,7 +888,7 @@ public class MapManager implements IResourceManagerReloadListener {
             if (queue.isEmpty() && tick >= nextQueueBuild || around != queuedAround) {
                 queue.clear();
                 buildQueue(mc, world, player);
-                nextQueueBuild = tick + 10;
+                nextQueueBuild = tick + QUEUE_REBUILD_TICKS;
                 queuedAround = around;
             }
             long end = System.nanoTime() + SCAN_BUDGET_NANOS;
@@ -944,8 +948,11 @@ public class MapManager implements IResourceManagerReloadListener {
                         // Keep the area around the player up to date; far chunks rarely change, except right after
                         // they arrive: trees, snow and ores are added as the chunks around them are made, after the
                         // chunk itself was sent (flying fast, the map would keep chunks without them).
-                        int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
-                        changed = tick - last >= CHANGED_RESCAN_TICKS
+                        // Changes are caught by the chunk's changed mark: scanning again without one is only a
+                        // fallback, now and then.
+                        int interval = distance <= 1 ? 200 : distance <= 4 ? 600 : 1200;
+                        int changedInterval = distance <= 1 ? NEAR_CHANGED_RESCAN_TICKS : CHANGED_RESCAN_TICKS;
+                        changed = tick - last >= changedInterval
                             && world.getChunkFromChunkCoords(cx, cz).isModified;
                         if (tick - last < interval && !changed) {
                             continue;
