@@ -43,7 +43,7 @@ public final class IsoMap implements BlockStore.Listener {
      * A chunk is copied again at most this often while the player is near it (building changes it), and farther
      * away only now and then: copying every loaded chunk again and again costs frames while flying around.
      */
-    private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000;
+    private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000, CHANGED_RECAPTURE_MS = 3_000;
     /** Chunks from the player that count as near. */
     private static final int NEAR_CHUNKS = 2;
     /** Time for pictures of a chunk copied as it is let go. */
@@ -252,8 +252,8 @@ public final class IsoMap implements BlockStore.Listener {
             }
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        boolean waiting = freshQueue.remove(key);
-        captureQueue.remove(key);
+        // Waiting to be copied (for the first time, or again since it changed).
+        boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
         boolean keptWhole = dimension.store.time(chunk.xPosition, chunk.zPosition) != 0
             && dimension.store.bottom(chunk.xPosition, chunk.zPosition) == 0;
         // Pictures only for a moment: the chunk goes away, the ones not taken are drawn from icons.
@@ -267,7 +267,7 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /** The surface map just scanned this chunk: its blocks are copied soon, unless they were lately (render thread). */
-    public void onChunkScanned(World world, Chunk chunk) {
+    public void onChunkScanned(World world, Chunk chunk, boolean changed) {
         if (!Config.record3d || writer == null) {
             return;
         }
@@ -288,7 +288,9 @@ public final class IsoMap implements BlockStore.Listener {
         boolean near = player != null
             && Math.abs(chunk.xPosition - MathHelper.floor_double(player.posX / 16)) <= NEAR_CHUNKS
             && Math.abs(chunk.zPosition - MathHelper.floor_double(player.posZ / 16)) <= NEAR_CHUNKS;
-        if (System.currentTimeMillis() - last < (near ? RECAPTURE_MS : FAR_RECAPTURE_MS) || freshQueue.contains(key)) {
+        // A chunk whose blocks changed (trees and snow added after it arrived, or built on) is copied again soon.
+        long interval = changed ? CHANGED_RECAPTURE_MS : near ? RECAPTURE_MS : FAR_RECAPTURE_MS;
+        if (System.currentTimeMillis() - last < interval || freshQueue.contains(key)) {
             return;
         }
         captureQueue.add(key);
