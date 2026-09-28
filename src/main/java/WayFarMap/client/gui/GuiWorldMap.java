@@ -848,8 +848,7 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (iso) {
             int chunks = IsoMap.INSTANCE.chunksQueued(), queued = IsoMap.INSTANCE.tilesQueued();
             String note = chunks > 0 ? I18n.format("wayfarmap.gui.iso_copying", chunks, queued)
-                : queued > 0 ? I18n.format("wayfarmap.gui.iso_drawing", queued)
-                    : I18n.format("wayfarmap.gui.iso_hint");
+                : queued > 0 ? I18n.format("wayfarmap.gui.iso_drawing", queued) : I18n.format("wayfarmap.gui.iso_hint");
             Theme.text(
                 fontRendererObj,
                 note,
