@@ -147,6 +147,11 @@ wayfarmap.option.map.isoQuality=3D map quality
 wayfarmap.option.map.isoQuality.desc=Pixels per block of the 3D map when zoomed in: 8, 16, 32 or 64. More is sharper, less is quicker to draw. The same slider is on the right of the 3D map itself.
 wayfarmap.iso.quality_value=%s px/block
 wayfarmap.iso.quality=3D map quality
+wayfarmap.option.map.isoThreads=3D map render threads
+wayfarmap.option.map.isoThreads.desc=How many background threads draw the 3D map. 0 = auto (half the processor cores, at most 3). More threads draw the map faster but take more of the processor while the map is open.
+wayfarmap.iso.threads_auto=Auto (%s)
+wayfarmap.option.map.isoSmooth=Smooth 3D map far out
+wayfarmap.option.map.isoSmooth.desc=Zoomed far out, four rays per pixel keep the 3D map from looking noisy. Off draws those tiles up to four times faster.
 wayfarmap.option.map.record3d=Record blocks for the 3D map
 wayfarmap.option.map.record3d.desc=Keep the blocks of explored chunks (dim<id>/blocks, a few MB per 512x512 region); the 3D map is drawn from them. Without them it is built from the flat map colors and heights.
 wayfarmap.gui.ores=Ores

@@ -167,25 +167,33 @@ final class IsoTiles {
     private final Queue<Result> done = new ConcurrentLinkedQueue<>();
     private final AtomicLong order = new AtomicLong();
     private final Thread[] workers;
+    /** Renderers that should be working; the ones numbered from this on stop after their tile. */
+    private volatile int wantedWorkers;
     private volatile boolean running = true;
     private IntBuffer uploadBuffer;
     private long frame;
+    /** {@link Config#isoSmooth} the tiles in memory were drawn with. */
+    private boolean smooth = Config.isoSmooth;
 
     IsoTiles(IsoMap map) {
         this.map = map;
-        int threads = Math.max(
-            1,
-            Math.min(
-                3,
-                Runtime.getRuntime()
-                    .availableProcessors() / 2));
-        workers = new Thread[threads];
+        workers = new Thread[Config.ISO_THREADS_MAX];
+        updateWorkers();
+    }
+
+    /** Starts or lets go of renderers to match the setting (render thread). */
+    private void updateWorkers() {
+        int threads = Math.min(workers.length, Config.isoThreadCount());
+        wantedWorkers = threads;
         for (int i = 0; i < threads; i++) {
-            Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
-            thread.setDaemon(true);
-            thread.setPriority(Thread.MIN_PRIORITY + 1);
-            thread.start();
-            workers[i] = thread;
+            if (workers[i] == null || !workers[i].isAlive()) {
+                int index = i;
+                Thread thread = new Thread(() -> work(index), "WayFarMap 3D renderer " + (i + 1));
+                thread.setDaemon(true);
+                thread.setPriority(Thread.MIN_PRIORITY + 1);
+                thread.start();
+                workers[i] = thread;
+            }
         }
     }
 
@@ -201,6 +209,12 @@ final class IsoTiles {
     void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor, int x,
         int y, int width, int height) {
         frame++;
+        updateWorkers();
+        if (smooth != Config.isoSmooth) {
+            // Tiles drawn with the other smoothing are drawn again.
+            smooth = Config.isoSmooth;
+            invalidateAll();
+        }
         uploadResults();
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int blocks = IsoProjection.tileBlocks(level);
@@ -467,7 +481,9 @@ final class IsoTiles {
         running = false;
         queue.clear();
         for (Thread worker : workers) {
-            worker.interrupt();
+            if (worker != null) {
+                worker.interrupt();
+            }
         }
         for (Tile tile : tiles.values()) {
             deleteTexture(tile);
@@ -478,8 +494,8 @@ final class IsoTiles {
 
     // ---------------------------------------------------------------- rendering (background threads)
 
-    private void work() {
-        while (running) {
+    private void work(int index) {
+        while (running && index < wantedWorkers) {
             Job job;
             try {
                 job = queue.poll(1, TimeUnit.SECONDS);
@@ -532,7 +548,7 @@ final class IsoTiles {
         short[] hits = new short[PIXELS * PIXELS];
         boolean any = false;
         // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
-        boolean supersample = pixelsPerBlock < 1;
+        boolean supersample = pixelsPerBlock < 1 && Config.isoSmooth;
         double q = 0.25 / pixelsPerBlock;
         double[] offsetU = { -q, q, -q }, offsetV = { -q, -q, q };
         int[] day = new int[4], night = new int[4];
@@ -592,7 +608,9 @@ final class IsoTiles {
 
     private File tileFile(IsoMap.Dimension dimension, Key key) {
         File directory = new File(
-            new File(new File(new File(dimension.directory, "iso"), map.cacheId()), String.valueOf(key.rotation)),
+            new File(
+                new File(new File(dimension.directory, "iso"), map.cacheId() + (Config.isoSmooth ? "" : "-fast")),
+                String.valueOf(key.rotation)),
             String.valueOf(key.level));
         return new File(directory, key.tu + "." + key.tv + ".wft");
     }

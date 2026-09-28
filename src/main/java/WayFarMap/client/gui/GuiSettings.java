@@ -290,7 +290,9 @@ public class GuiSettings extends ScaledScreen {
                 value = intOption.get() == 0 && "maxDistance".equals(option.key)
                     ? I18n.format("wayfarmap.settings.unlimited")
                     : "isoQuality".equals(option.key) ? I18n.format("wayfarmap.iso.quality_value", 8 << intOption.get())
-                        : String.valueOf(intOption.get());
+                        : intOption.get() == 0 && "isoThreads".equals(option.key)
+                            ? I18n.format("wayfarmap.iso.threads_auto", Config.isoThreadCount())
+                            : String.valueOf(intOption.get());
             } else {
                 Config.DoubleOption doubleOption = (Config.DoubleOption) option;
                 t = (doubleOption.get() - doubleOption.min) / (doubleOption.max - doubleOption.min);

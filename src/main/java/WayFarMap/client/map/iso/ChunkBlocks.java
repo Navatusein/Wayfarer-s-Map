@@ -330,6 +330,59 @@ public final class ChunkBlocks {
         }
     }
 
+    /** Bits 0-15 of a layer of {@link #airBricks}: every brick of the layer is air. */
+    static final int ALL_AIR = 0xFFFF;
+
+    /** See {@link #airBricks}; null until worked out. */
+    private volatile int[] airBricks;
+    /** See {@link #airFloor}; set before {@link #airBricks}. */
+    private byte[] airFloors;
+
+    /**
+     * Where the chunk holds only air, in bricks of 4x4x4 blocks, so rays can pass over empty space at once instead of
+     * block by block. One int per layer of bricks (4 blocks high, from {@link #yMin}): bits 0-15 the bricks of the
+     * layer that are only air (bit {@code (z >> 2) << 2 | x >> 2}); if the whole layer is, bits 16-23 the lowest layer
+     * from which up to this one all layers are only air. Worked out once per chunk.
+     */
+    int[] airBricks() {
+        int[] air = airBricks;
+        if (air != null) {
+            return air;
+        }
+        int height = yMax - yMin + 1;
+        air = new int[(height + 3) >> 2];
+        byte[] floors = new byte[air.length << 4];
+        for (int layer = 0; layer < air.length; layer++) {
+            int mask = ALL_AIR;
+            int end = Math.min(height, (layer + 1) << 2) << 8;
+            for (int i = layer << 10; i < end && mask != 0; i++) {
+                if (blockId(cells[i]) != 0) {
+                    mask &= ~(1 << ((i >> 6 & 3) << 2 | (i & 15) >> 2));
+                }
+            }
+            int floor = layer;
+            if (mask == ALL_AIR && layer > 0 && (air[layer - 1] & ALL_AIR) == ALL_AIR) {
+                floor = air[layer - 1] >>> 16;
+            }
+            air[layer] = mask | floor << 16;
+            for (int brick = 0; brick < 16; brick++) {
+                boolean below = layer > 0 && (air[layer - 1] & 1 << brick) != 0;
+                floors[layer << 4 | brick] = (byte) (below ? floors[(layer - 1) << 4 | brick] : layer);
+            }
+        }
+        airFloors = floors;
+        airBricks = air;
+        return air;
+    }
+
+    /**
+     * The lowest layer from which up to this one the brick and all under it are only air (the brick must be); call
+     * {@link #airBricks} first.
+     */
+    int airFloor(int layer, int brick) {
+        return airFloors[layer << 4 | brick];
+    }
+
     /** Memory it takes, roughly, in ints. */
     int weight() {
         return cells.length + 4 * 256 + faceCells.length * (PER_CELL + 1);
