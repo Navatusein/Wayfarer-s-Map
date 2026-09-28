@@ -280,6 +280,11 @@ final class FacePalette {
         return unsavedBytes;
     }
 
+    /** Whether the id is one of this palette's sprites. */
+    synchronized boolean has(int id) {
+        return id > 0 && id <= entries.size();
+    }
+
     /** The sprite with its reduced copies, or null for an unknown id. Any thread. */
     Sprite sprite(int id) {
         Sprite[] cache = sprites;

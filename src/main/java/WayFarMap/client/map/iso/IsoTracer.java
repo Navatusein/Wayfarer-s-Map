@@ -79,6 +79,8 @@ final class IsoTracer {
     int nightColor;
     /** Lowest "toward the viewer" distance any ray got to, for knowing which chunks a tile depends on. */
     double minToward;
+    /** A sprite of the palette couldn't be read: the block was drawn from its icons, the tile should be again. */
+    boolean incomplete;
 
     // State of the current ray.
     private double rayU, rayV;
@@ -118,6 +120,7 @@ final class IsoTracer {
         Arrays.fill(cacheData, null);
         currentChunkX = Integer.MIN_VALUE;
         minToward = Double.MAX_VALUE;
+        incomplete = false;
     }
 
     /** The chunk data, from the tracer's cache. Sets {@link #currentData} and {@link #currentTop}. */
@@ -345,7 +348,11 @@ final class IsoTracer {
     private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
-            return id != FacePalette.EMPTY ? SPRITE_NONE : SPRITE_PASS;
+            if (id == FacePalette.EMPTY) {
+                return SPRITE_PASS;
+            }
+            incomplete |= palette.has(id);
+            return SPRITE_NONE;
         }
         double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
         double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
@@ -600,6 +607,9 @@ final class IsoTracer {
         if (look.opaque) {
             int id = pictureId(blocks, side);
             FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
+            if (picture == null && id > 0) {
+                incomplete |= palette.has(id);
+            }
             if (picture != null) {
                 // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
                 int pixel = picture.texel(texU, texV, pictureMip);

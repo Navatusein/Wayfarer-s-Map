@@ -103,6 +103,14 @@ public final class IsoMap implements BlockStore.Listener {
     private final Map<Long, Integer> partial = new HashMap<>();
     /** Chunks copied since the game loaded them (last time); let go, they arrive anew when they come back. */
     private final Set<Long> copiedWhileLoaded = new HashSet<>();
+    /**
+     * Chunks whose pictures weren't all taken yet, and how often they were copied so far: a chunk is stored only
+     * once they all are (the ones taken are kept in the caches meanwhile), so the map never shows it half drawn,
+     * with icons where machines, glass and connected textures belong.
+     */
+    private final Map<Long, Integer> unfinished = new HashMap<>();
+    /** Copies after which a chunk is stored even with pictures missing (a chunk with thousands of machines). */
+    private static final int MAX_UNFINISHED_COPIES = 40;
 
     private IsoMap() {}
 
@@ -149,6 +157,7 @@ public final class IsoMap implements BlockStore.Listener {
         freshQueue.clear();
         partial.clear();
         copiedWhileLoaded.clear();
+        unfinished.clear();
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         palette = null;
@@ -216,6 +225,7 @@ public final class IsoMap implements BlockStore.Listener {
             freshQueue.clear();
             partial.clear();
             copiedWhileLoaded.clear();
+            unfinished.clear();
             return;
         }
         savePicturesIfMany();
@@ -241,8 +251,9 @@ public final class IsoMap implements BlockStore.Listener {
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk != null && !chunk.isEmpty()) {
                 if (!capture(world, chunk, false, false, end)) {
-                    // Its other pictures are taken in the next ticks (the ones taken are kept).
-                    captureQueue.add(key);
+                    // Its other pictures are taken in the next ticks (the ones taken are kept), before other chunks
+                    // of its queue get their turn again.
+                    queue.add(key);
                 }
             }
         }
@@ -309,6 +320,7 @@ public final class IsoMap implements BlockStore.Listener {
             freshQueue.clear();
             partial.clear();
             copiedWhileLoaded.clear();
+            unfinished.clear();
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
@@ -371,8 +383,22 @@ public final class IsoMap implements BlockStore.Listener {
             return true;
         }
         if (blocks == null) {
+            unfinished.remove(key);
             return true;
         }
+        if (!complete && !unloading) {
+            int copies = unfinished.merge(key, 1, Integer::sum);
+            if (copies < MAX_UNFINISHED_COPIES) {
+                // Stored once all its pictures are taken; until then the map shows the copy before (or the flat
+                // map for a new chunk), not one half drawn.
+                if (unfinished.size() > 10_000) {
+                    unfinished.clear();
+                }
+                return false;
+            }
+            complete = true;
+        }
+        unfinished.remove(key);
         int cx = chunk.xPosition, cz = chunk.zPosition;
         FacePalette pictures = palette;
         writer.submit(() -> {

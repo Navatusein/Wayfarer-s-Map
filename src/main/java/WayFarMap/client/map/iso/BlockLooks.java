@@ -144,6 +144,8 @@ public final class BlockLooks {
     private static final Texture UNREADABLE = new Texture();
     private static final Queue<Request> REQUESTS = new ConcurrentLinkedQueue<>();
     private static volatile Thread renderThread;
+    /** Per thread: whether a look was not had in time since last asked (a plain gray block was given instead). */
+    private static final ThreadLocal<boolean[]> MISSED = ThreadLocal.withInitial(() -> new boolean[1]);
 
     private static final class Request {
 
@@ -172,8 +174,17 @@ public final class BlockLooks {
             return request.result.get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             // The game is busy (or the map closed): a plain block this time, asked again next time.
+            MISSED.get()[0] = true;
             return fallback();
         }
+    }
+
+    /** Whether this thread was given a plain block for a look it waited for in vain since last asked; resets it. */
+    static boolean takeMissed() {
+        boolean[] missed = MISSED.get();
+        boolean was = missed[0];
+        missed[0] = false;
+        return was;
     }
 
     /** Works out the looks the renderers wait for, for up to the given time (render thread). */

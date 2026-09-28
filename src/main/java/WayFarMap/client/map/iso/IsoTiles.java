@@ -141,6 +141,11 @@ final class IsoTiles {
         final long renderedAt;
         /** Not drawn (no longer on screen): the tile is only free to be queued again. */
         final boolean skipped;
+        /**
+         * Drawn with some blocks not as they look (the game didn't give a block's look in time, a sprite couldn't be
+         * read): not saved, drawn again, and not shown over a good picture of the tile.
+         */
+        boolean retry;
 
         Result(Tile tile, int[] pixels, int[] nightPixels, short[] hits, long renderedAt) {
             this(tile, pixels, nightPixels, hits, renderedAt, false);
@@ -303,6 +308,13 @@ final class IsoTiles {
             tile.queued = false;
             if (result.skipped || tiles.get(tile.key) != tile) {
                 continue;
+            }
+            if (result.retry) {
+                // Drawn again soon; a good picture it had stays until then.
+                tile.dirtyAt = Math.max(tile.dirtyAt, result.renderedAt + 1);
+                if (tile.ready) {
+                    continue;
+                }
             }
             tile.renderedAt = result.renderedAt;
             tile.hits = result.hits;
@@ -509,6 +521,7 @@ final class IsoTiles {
         }
         long start = System.currentTimeMillis();
         IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, map.palette());
+        BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
         int blocks = IsoProjection.tileBlocks(key.level);
@@ -546,7 +559,8 @@ final class IsoTiles {
             }
         }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
-        if (file != null && running) {
+        result.retry = BlockLooks.takeMissed() | tracer.incomplete;
+        if (file != null && running && !result.retry) {
             writeCached(file, result, tracer.minToward);
         }
         return result;
