@@ -15,6 +15,7 @@ import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
 
@@ -40,9 +41,13 @@ import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
+import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
+import WayFarMap.client.map.export.MapExport;
+import WayFarMap.client.map.export.TilePyramid;
+import WayFarMap.client.map.iso.IsoExport;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.map.iso.IsoProjection;
 import WayFarMap.client.waypoint.Waypoint;
@@ -62,9 +67,15 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_ROTATE = 16;
-    /** What the open menu is: the right click map menu, the mob filter or the add-on layers. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3;
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_ROTATE = 16,
+        ID_EXPORT = 17;
+    /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
+    private static final int EXPORT_MENU_WIDTH = 230;
+    /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
+    private static final double EXPORT_SECONDS_PER_TILE = 0.2;
+    /** Export the 3D map as it looks at night. */
+    private static boolean exportNight;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -93,6 +104,8 @@ public class GuiWorldMap extends ScaledScreen {
     /** 3D (isometric) view on or off, and turning it by a quarter while on. */
     private IconButton isoButton;
     private IconButton rotateButton;
+    /** Saves the whole map (flat or 3D) as a zoomable picture. */
+    private IconButton exportButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
     private IconButton addonsButton;
     /** Online teammates, to jump to them; shown only while there are some. */
@@ -188,6 +201,7 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         rotateButton = new IconButton(ID_ROTATE, 0, 4, Icons.ROTATE, I18n.format("wayfarmap.gui.iso_rotate"));
+        exportButton = new IconButton(ID_EXPORT, 0, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
         teamButton.visible = !TeamMates.INSTANCE.all()
             .isEmpty();
@@ -219,7 +233,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
         return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton,
-            rotateButton, mobsButton, teamButton };
+            rotateButton, exportButton, mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -409,6 +423,95 @@ public class GuiWorldMap extends ScaledScreen {
         menuY = mobsButton.yPosition + 18;
     }
 
+    /**
+     * Menu under the export button: saves the whole map as it is shown (flat, or 3D at a chosen detail) into a folder
+     * a browser opens zoomable down to single blocks; while an export runs, stops it.
+     */
+    private void openExportMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        if (MapExport.running()) {
+            String status = MapExport.statusText();
+            entries.add(new MenuEntry(status == null ? "" : status, false, () -> {}));
+            entries.add(new MenuEntry(I18n.format("wayfarmap.export.cancel"), true, MapExport::cancel));
+        } else if (isoShown()) {
+            int dimensionId = viewDimension();
+            for (int level = 0; level <= 3; level++) {
+                IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
+                if (export == null) {
+                    continue;
+                }
+                int tiles = export.estimateTiles();
+                double minutes = tiles * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
+                String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
+                    : I18n.format("wayfarmap.export.minutes", (int) Math.ceil(minutes));
+                String label = I18n.format("wayfarmap.export.iso_level", (int) export.pixelsPerBlock(), time);
+                final int chosen = level;
+                entries.add(new MenuEntry(label, tiles > 0, () -> startIsoExport(dimensionId, chosen)));
+            }
+            entries.add(new MenuEntry(I18n.format("wayfarmap.export.night"), true, () -> {
+                exportNight = !exportNight;
+            }, exportNight));
+        } else {
+            entries.add(new MenuEntry(I18n.format("wayfarmap.export.flat"), true, this::startFlatExport));
+        }
+        menu = entries;
+        menuKind = MENU_EXPORT;
+        menuWidth = EXPORT_MENU_WIDTH;
+        menuX = Math.max(2, Math.min(exportButton.xPosition, width - EXPORT_MENU_WIDTH - 2));
+        menuY = exportButton.yPosition + 18;
+    }
+
+    /** Name of the export: world and dimension. */
+    private String exportName() {
+        File world = MapManager.INSTANCE.getWorldDirectory();
+        return (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
+    }
+
+    private void startFlatExport() {
+        MapDimension map = MapManager.INSTANCE.getViewMap();
+        if (map == null) {
+            return;
+        }
+        String what;
+        int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
+        if (biomeViewShown()) {
+            what = "biomes";
+        } else if (caveLayer >= 0) {
+            what = "caves_" + caveLayer * 16 + "-" + (caveLayer * 16 + 15);
+        } else {
+            what = "2d";
+        }
+        TilePyramid.Info info = new TilePyramid.Info();
+        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (" + what + ")";
+        info.mode = "2d";
+        info.pixelsPerBlock = 1;
+        info.maxZoom = 32;
+        MapExport.start(new FlatExport(map), info, exportName() + "_" + what);
+        chatExportStarted();
+    }
+
+    private void startIsoExport(int dimensionId, int level) {
+        IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
+        if (export == null) {
+            return;
+        }
+        String what = "3d_" + (int) export.pixelsPerBlock() + "px" + (exportNight ? "_night" : "");
+        TilePyramid.Info info = new TilePyramid.Info();
+        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (3D)";
+        info.mode = "3d";
+        info.pixelsPerBlock = export.pixelsPerBlock();
+        // Up to 64 screen pixels per block, like the closest zoom of the map.
+        info.maxZoom = 64 / export.pixelsPerBlock();
+        MapExport.start(export, info, exportName() + "_" + what);
+        chatExportStarted();
+    }
+
+    private void chatExportStarted() {
+        if (mc.thePlayer != null) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(I18n.format("wayfarmap.export.started")));
+        }
+    }
+
     private static String caveButtonText() {
         return I18n.format("wayfarmap.gui.caves") + ": "
             + I18n.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode]);
@@ -461,6 +564,8 @@ public class GuiWorldMap extends ScaledScreen {
             toggleIso();
         } else if (button.id == ID_ROTATE) {
             rotateIso(1);
+        } else if (button.id == ID_EXPORT) {
+            openExportMenu();
         } else if (button.id == ID_BIOMES) {
             Config.toggleBiomeView();
             updateLightButtons();
@@ -709,7 +814,16 @@ public class GuiWorldMap extends ScaledScreen {
                 + ")";
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
-        if (iso) {
+        String exportStatus = MapExport.statusText();
+        exportButton.active = exportStatus != null;
+        if (exportStatus != null) {
+            Theme.text(
+                fontRendererObj,
+                exportStatus,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(exportStatus),
+                height - 10,
+                Theme.ACCENT);
+        } else if (iso) {
             String note = I18n.format("wayfarmap.gui.iso_hint");
             Theme.text(
                 fontRendererObj,
@@ -1139,6 +1253,8 @@ public class GuiWorldMap extends ScaledScreen {
                 if (entry.checked != null && menuKind == MENU_ADDONS) {
                     // Toggles keep the menu open, showing the new state.
                     openAddonsMenu();
+                } else if (entry.checked != null && menuKind == MENU_EXPORT) {
+                    openExportMenu();
                 }
             }
         }

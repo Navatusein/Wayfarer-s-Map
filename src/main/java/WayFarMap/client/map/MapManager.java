@@ -33,6 +33,7 @@ import net.minecraftforge.event.world.WorldEvent;
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.map.export.MapExport;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.share.ChunkRecord;
@@ -558,6 +559,7 @@ public class MapManager implements IResourceManagerReloadListener {
         Minecraft mc = Minecraft.getMinecraft();
         WorldClient world = mc.theWorld;
         if (world != currentWorld) {
+            MapExport.cancel();
             close();
             if (world != null) {
                 open(mc, world);
@@ -569,6 +571,7 @@ public class MapManager implements IResourceManagerReloadListener {
 
         tick++;
         IsoMap.INSTANCE.tick(world);
+        MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
 
         int budget = Config.chunksScannedPerTick;

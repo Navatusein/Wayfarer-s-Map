@@ -22,6 +22,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
 - §bGrid§r — chunk grid
 - §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it
+- §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. For 3D pick the detail and day or night
 - §bTree§r — biomes
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — day / night

@@ -1,0 +1,280 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>WayFarMap</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0e11; color: #d8dce2;
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 16px; align-items: center;
+    padding: 5px 10px; background: rgba(20, 23, 28, 0.88); border-top: 1px solid #2a2f37; white-space: nowrap; }
+  #bar .muted { color: #8a919c; }
+  #bar .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  #bar a { color: #6cb6ff; text-decoration: none; }
+  #zoom { position: fixed; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  #zoom button { width: 32px; height: 32px; border: 1px solid #2a2f37; border-radius: 6px; background: rgba(20, 23, 28, 0.88);
+    color: #d8dce2; font-size: 18px; cursor: pointer; }
+  #zoom button:hover { background: #2a2f37; }
+</style>
+<script src="map.js"></script>
+</head>
+<body>
+<canvas id="map"></canvas>
+<div id="zoom">
+  <button id="in" title="+">+</button>
+  <button id="out" title="-">&minus;</button>
+  <button id="fit" title="0">&#9635;</button>
+</div>
+<div id="bar">
+  <span id="title"></span>
+  <span id="where" class="grow muted"></span>
+  <span id="scale" class="muted"></span>
+  <a id="overview" href="overview.png" target="_blank"></a>
+</div>
+<script>
+(function () {
+  "use strict";
+  var M = window.WFM;
+  var ru = (navigator.language || "").toLowerCase().indexOf("ru") === 0;
+  var T = {
+    overview: ru ? "Вся карта одной картинкой" : "Whole map as one picture",
+    perBlock: ru ? " пикс. на блок" : " px per block",
+    blocksPerPixel: ru ? " блоков на пикс." : " blocks per px",
+    hint: ru ? "Колесо или щипок — масштаб, перетаскивание — сдвиг, 0 — вся карта"
+      : "Wheel or pinch to zoom, drag to move, 0 for the whole map"
+  };
+  document.getElementById("overview").textContent = T.overview;
+  document.getElementById("title").textContent = M.title;
+  document.title = M.title + " — WayFarMap";
+  document.body.style.background = M.background;
+
+  var canvas = document.getElementById("map");
+  var ctx = canvas.getContext("2d");
+  var size = M.tile;
+  var levels = M.levels.length;
+  var present = [];
+  for (var l = 0; l < levels; l++) {
+    var set = {};
+    var list = M.levels[l];
+    for (var i = 0; i < list.length; i += 2) set[list[i] + "_" + list[i + 1]] = true;
+    present.push(set);
+  }
+  // Area of the finest tiles, in their pixels.
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  var finest = M.levels[0];
+  for (i = 0; i < finest.length; i += 2) {
+    minX = Math.min(minX, finest[i]); maxX = Math.max(maxX, finest[i]);
+    minY = Math.min(minY, finest[i + 1]); maxY = Math.max(maxY, finest[i + 1]);
+  }
+  var areaX0 = minX * size, areaY0 = minY * size, areaX1 = (maxX + 1) * size, areaY1 = (maxY + 1) * size;
+
+  var dpr = 1, W = 0, H = 0;
+  // View: the point in the middle (finest tile pixels) and screen pixels per finest pixel.
+  var cx = (areaX0 + areaX1) / 2, cy = (areaY0 + areaY1) / 2, s = 1;
+  var minScale = 0.01, maxScale = 32;
+
+  var cache = {}, cached = 0, frame = 0, pending = false;
+  var MAX_CACHED = 600;
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    H = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    canvas.width = W;
+    canvas.height = H;
+    maxScale = M.maxZoom * dpr;
+    minScale = Math.min(fitScale() / 2, 1);
+    redraw();
+  }
+
+  function fitScale() {
+    return Math.min(W / (areaX1 - areaX0), H / (areaY1 - areaY0)) * 0.95;
+  }
+
+  function fit() {
+    cx = (areaX0 + areaX1) / 2;
+    cy = (areaY0 + areaY1) / 2;
+    s = fitScale();
+    redraw();
+  }
+
+  function image(level, x, y) {
+    var key = level + "/" + x + "_" + y;
+    var entry = cache[key];
+    if (!entry) {
+      entry = { img: new Image(), ok: false, used: frame };
+      entry.img.onload = function () { entry.ok = true; redraw(); };
+      entry.img.src = "tiles/" + key + ".png";
+      cache[key] = entry;
+      cached++;
+    }
+    entry.used = frame;
+    return entry;
+  }
+
+  function evict() {
+    if (cached <= MAX_CACHED) return;
+    var keys = Object.keys(cache).sort(function (a, b) { return cache[a].used - cache[b].used; });
+    for (var i = 0; i < keys.length && cached > MAX_CACHED * 3 / 4; i++) {
+      if (cache[keys[i]].used >= frame) break;
+      cache[keys[i]].img.onload = null;
+      delete cache[keys[i]];
+      cached--;
+    }
+  }
+
+  function redraw() {
+    if (!pending) {
+      pending = true;
+      window.requestAnimationFrame(draw);
+    }
+  }
+
+  function toScreenX(px) { return Math.round((px - cx) * s + W / 2); }
+  function toScreenY(py) { return Math.round((py - cy) * s + H / 2); }
+
+  function draw() {
+    pending = false;
+    frame++;
+    ctx.fillStyle = M.background;
+    ctx.fillRect(0, 0, W, H);
+    // The level whose pixels are at least as fine as the screen's.
+    var level = s >= 1 ? 0 : Math.min(levels - 1, Math.floor(Math.log(1 / s) / Math.LN2 + 1e-9));
+    var span = size * Math.pow(2, level);
+    ctx.imageSmoothingEnabled = s * Math.pow(2, level) < 1;
+    var x0 = Math.floor((cx - W / 2 / s) / span), x1 = Math.floor((cx + W / 2 / s) / span);
+    var y0 = Math.floor((cy - H / 2 / s) / span), y1 = Math.floor((cy + H / 2 / s) / span);
+    for (var ty = y0; ty <= y1; ty++) {
+      for (var tx = x0; tx <= x1; tx++) {
+        if (!present[level][tx + "_" + ty]) continue;
+        var sx0 = toScreenX(tx * span), sx1 = toScreenX((tx + 1) * span);
+        var sy0 = toScreenY(ty * span), sy1 = toScreenY((ty + 1) * span);
+        var entry = image(level, tx, ty);
+        if (entry.ok) {
+          ctx.drawImage(entry.img, sx0, sy0, sx1 - sx0, sy1 - sy0);
+        } else {
+          fromCoarser(level, tx, ty, sx0, sy0, sx1 - sx0, sy1 - sy0);
+        }
+      }
+    }
+    evict();
+    status();
+  }
+
+  // Until a tile is loaded, the matching part of a coarser one that is.
+  function fromCoarser(level, tx, ty, sx, sy, w, h) {
+    for (var up = 1; level + up < levels; up++) {
+      var f = Math.pow(2, up);
+      var px = Math.floor(tx / f), py = Math.floor(ty / f);
+      var key = (level + up) + "/" + px + "_" + py;
+      var entry = cache[key];
+      if (!entry || !entry.ok) continue;
+      entry.used = frame;
+      var part = size / f;
+      var smooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(entry.img, (tx - px * f) * part, (ty - py * f) * part, part, part, sx, sy, w, h);
+      ctx.imageSmoothingEnabled = smooth;
+      return;
+    }
+  }
+
+  var mouseX = -1, mouseY = -1;
+
+  function status() {
+    var perBlock = s / dpr * M.pixelsPerBlock;
+    document.getElementById("scale").textContent = perBlock >= 1
+      ? (Math.round(perBlock * 10) / 10) + T.perBlock
+      : (Math.round(10 / perBlock) / 10) + T.blocksPerPixel;
+    var where = document.getElementById("where");
+    if (M.mode === "2d" && mouseX >= 0) {
+      var px = cx + (mouseX * dpr - W / 2) / s, py = cy + (mouseY * dpr - H / 2) / s;
+      where.textContent = "X: " + Math.floor(px / M.pixelsPerBlock) + "   Z: " + Math.floor(py / M.pixelsPerBlock);
+    } else {
+      where.textContent = T.hint;
+    }
+  }
+
+  function zoomAt(factor, screenX, screenY) {
+    var next = Math.max(minScale, Math.min(maxScale, s * factor));
+    var px = cx + (screenX - W / 2) / s, py = cy + (screenY - H / 2) / s;
+    s = next;
+    cx = px - (screenX - W / 2) / s;
+    cy = py - (screenY - H / 2) / s;
+    redraw();
+  }
+
+  canvas.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var delta = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1);
+    zoomAt(Math.exp(-delta * 0.0025), e.offsetX * dpr, e.offsetY * dpr);
+  }, { passive: false });
+
+  // Dragging with the mouse or one finger moves the map; two fingers pinch to zoom.
+  var pointers = {};
+  var pinch = null;
+
+  function pointerList() {
+    return Object.keys(pointers).map(function (k) { return pointers[k]; });
+  }
+
+  canvas.addEventListener("pointerdown", function (e) {
+    canvas.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = { x: e.offsetX * dpr, y: e.offsetY * dpr };
+    canvas.classList.add("dragging");
+    pinch = null;
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    mouseX = e.offsetX;
+    mouseY = e.offsetY;
+    var p = pointers[e.pointerId];
+    if (!p) { status(); return; }
+    var x = e.offsetX * dpr, y = e.offsetY * dpr;
+    var list = pointerList();
+    if (list.length === 1) {
+      cx -= (x - p.x) / s;
+      cy -= (y - p.y) / s;
+    } else if (list.length === 2) {
+      var other = list[0] === p ? list[1] : list[0];
+      var distance = Math.hypot(x - other.x, y - other.y);
+      if (pinch) zoomAt(distance / pinch, (x + other.x) / 2, (y + other.y) / 2);
+      pinch = distance;
+    }
+    p.x = x;
+    p.y = y;
+    redraw();
+  });
+  function release(e) {
+    delete pointers[e.pointerId];
+    pinch = null;
+    if (!pointerList().length) canvas.classList.remove("dragging");
+  }
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("pointerleave", function () { mouseX = -1; status(); });
+  canvas.addEventListener("dblclick", function (e) { zoomAt(2, e.offsetX * dpr, e.offsetY * dpr); });
+
+  document.getElementById("in").onclick = function () { zoomAt(2, W / 2, H / 2); };
+  document.getElementById("out").onclick = function () { zoomAt(0.5, W / 2, H / 2); };
+  document.getElementById("fit").onclick = fit;
+  window.addEventListener("keydown", function (e) {
+    var step = 100;
+    if (e.key === "+" || e.key === "=") zoomAt(2, W / 2, H / 2);
+    else if (e.key === "-" || e.key === "_") zoomAt(0.5, W / 2, H / 2);
+    else if (e.key === "0") fit();
+    else if (e.key === "ArrowLeft") { cx -= step / s; redraw(); }
+    else if (e.key === "ArrowRight") { cx += step / s; redraw(); }
+    else if (e.key === "ArrowUp") { cy -= step / s; redraw(); }
+    else if (e.key === "ArrowDown") { cy += step / s; redraw(); }
+  });
+  window.addEventListener("resize", resize);
+
+  resize();
+  fit();
+})();
+</script>
+</body>
+</html>
