@@ -473,6 +473,36 @@ public final class IsoLog {
                     + ms(FaceRenderer.readNanos)
                     + " storeSprites="
                     + ms(FaceRenderer.storeNanos)
+                    + "] find[blocks="
+                    + FaceRenderer.blocksLooked
+                    + " openSidesMs="
+                    + ms(FaceRenderer.exposedNanos)
+                    + " tileEntityMs="
+                    + ms(FaceRenderer.tileEntityNanos)
+                    + " surroundingsMs="
+                    + ms(FaceRenderer.surroundingsNanos)
+                    + "] store[unshadeMs="
+                    + ms(FaceRenderer.unshadeNanos)
+                    + " idMs="
+                    + ms(FaceRenderer.idNanos)
+                    + "] skippable[expiredSame="
+                    + FaceRenderer.expiredSame
+                    + " expiredDiffer="
+                    + FaceRenderer.expiredDiffer
+                    + " sameAsTwin="
+                    + FaceRenderer.sameAsTwin
+                    + " differFromTwin="
+                    + FaceRenderer.differFromTwin
+                    + " sameAsTwinWithData="
+                    + FaceRenderer.sameAsTwinWithData
+                    + " differFromTwinWithData="
+                    + FaceRenderer.differFromTwinWithData
+                    + " onlyBottomOpen="
+                    + FaceRenderer.onlyBottomOpen
+                    + " allEmpty="
+                    + FaceRenderer.allEmpty
+                    + " allEmptyOnlyBottom="
+                    + FaceRenderer.allEmptyOnlyBottom
                     + "]");
         }
     }

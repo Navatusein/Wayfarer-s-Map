@@ -113,6 +113,9 @@ final class FaceRenderer {
         final int[] ids = new int[ChunkBlocks.PER_CELL];
         /** A chunk it touches wasn't loaded: its pictures may be wrong at the chunk's edge. */
         boolean unsure;
+        /** For the log: its open sides, and its pictures kept before they were too old. */
+        int exposed;
+        int[] oldIds;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -152,18 +155,39 @@ final class FaceRenderer {
     static int whyComplex, whyOwnRenderer, whyGlass, whySides, placeHit, placeExpired, placeChanged, surroundingsHit,
         surroundingsShared, batches, slotsUsed, tileEntities;
     static long findNanos, drawNanos, readNanos, storeNanos, setupNanos;
+    /**
+     * Checks of what could be skipped, for {@link IsoLog}. Where the finding time goes: sides covered, tile entity
+     * lookups, surroundings; blocks looked at. Pictures taken again after {@link #PLACE_KEEP_MS} that came out the same
+     * as before (or not). Tile entities drawn whose pictures are the same as another's with the same block and
+     * surroundings (or not), and the same with its data too. Blocks only open at the bottom (never seen from the
+     * views) and blocks whose pictures all came out empty. Time turning pixels into sprites apart from looking them
+     * up.
+     */
+    static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
+        differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
+    static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
+    /**
+     * Pictures of tile entities by block and surroundings (and with their data), to tell whether pictures could be
+     * shared between places; for the log only.
+     */
+    private static final Map<Long, int[]> TWINS = new HashMap<>(), TWINS_WITH_DATA = new HashMap<>();
 
     private static void resetStats() {
         lastFound = lastToDraw = lastDrawn = lastMissing = 0;
         whyComplex = whyOwnRenderer = whyGlass = whySides = placeHit = placeExpired = placeChanged = 0;
         surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
         findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
+        blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
+        differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
+        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
     }
 
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
         BY_PLACE.clear();
+        TWINS.clear();
+        TWINS_WITH_DATA.clear();
     }
 
     /**
@@ -185,6 +209,8 @@ final class FaceRenderer {
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_PLACE.clear();
+            TWINS.clear();
+            TWINS_WITH_DATA.clear();
             cacheGeneration = palette.generation;
         }
         int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
@@ -239,7 +265,11 @@ final class FaceRenderer {
             }
             int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);
             int x = baseX + lx, z = baseZ + lz;
+            blocksLooked++;
+            long t0 = System.nanoTime();
             int exposed = exposedSides(world, blocks, lx, y, lz, x, z);
+            long t1 = System.nanoTime();
+            exposedNanos += t1 - t0;
             if (exposed == 0) {
                 continue;
             }
@@ -254,6 +284,7 @@ final class FaceRenderer {
             } catch (RuntimeException e) {
                 tileEntity = null;
             }
+            tileEntityNanos += System.nanoTime() - t1;
             boolean needed = look.complex || ownRenderer
                 || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
                 || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
@@ -271,8 +302,15 @@ final class FaceRenderer {
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
             // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
+            long t2 = System.nanoTime();
             long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
+            surroundingsNanos += System.nanoTime() - t2;
+            if (exposed == 1) {
+                // Only the bottom is open: none of the four views sees it.
+                onlyBottomOpen++;
+            }
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
+            pending.exposed = exposed;
             pending.unsure = !aroundLoaded(around, lx, lz);
             found.add(pending);
             if (tileEntity != null) {
@@ -289,6 +327,7 @@ final class FaceRenderer {
                         placeChanged++;
                     } else {
                         placeExpired++;
+                        pending.oldIds = cached.ids;
                     }
                 }
             } else {
@@ -336,6 +375,9 @@ final class FaceRenderer {
             lastDrawn += batch.size();
             batches++;
             slotsUsed += slots;
+            if (IsoLog.on()) {
+                checkSkippable(batch);
+            }
             for (Pending pending : batch) {
                 if (missing(pending)) {
                     lastMissing++;
@@ -615,7 +657,22 @@ final class FaceRenderer {
                     GL11.glColor4f(1f, 1f, 1f, 1f);
                     drawBlock(mc, renderBlocks, tessellator, pending);
                 }
-                IsoLog.blockDrawn(pending.block, pending.tileEntity, pending.views(), System.nanoTime() - blockStart);
+                long blockNanos = System.nanoTime() - blockStart;
+                IsoLog.blockDrawn(pending.block, pending.tileEntity, pending.views(), blockNanos);
+                if (blockNanos > 10_000_000L) {
+                    IsoLog.log(
+                        "SLOW_BLOCK " + pending.block.getUnlocalizedName()
+                            + (pending.tileEntity == null ? "" : " [" + pending.tileEntity.getClass()
+                                .getName() + "]")
+                            + " at "
+                            + pending.x
+                            + ","
+                            + pending.y
+                            + ","
+                            + pending.z
+                            + " ms="
+                            + blockNanos / 1_000_000);
+                }
             }
             long readStart = System.nanoTime();
             drawNanos += readStart - drawStart;
@@ -643,6 +700,7 @@ final class FaceRenderer {
                     int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                     float shade = pending.cube && !pending.ownRenderer ? SIDE_SHADE[view] : 1f;
+                    long u0 = System.nanoTime();
                     for (int row = 0; row < pixels; row++) {
                         // Read back bottom-up; pictures are top-down.
                         int from = (sy + pixels - 1 - row) * SIZE + sx;
@@ -650,7 +708,10 @@ final class FaceRenderer {
                             image[row * pixels + column] = unshade(all[from + column], shade);
                         }
                     }
+                    long u1 = System.nanoTime();
                     pending.ids[view] = palette.idOf(image);
+                    unshadeNanos += u1 - u0;
+                    idNanos += System.nanoTime() - u1;
                 }
             }
             storeNanos += System.nanoTime() - storeStart;
@@ -679,6 +740,76 @@ final class FaceRenderer {
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+    }
+
+    /**
+     * For the log: whether the pictures just taken could have been skipped. Taken again only because they were too
+     * old, yet the same? The same as another tile entity's with the same block and surroundings (with and without
+     * its data)? All empty (and the block only open at the bottom)?
+     */
+    private static void checkSkippable(List<Pending> batch) {
+        for (Pending pending : batch) {
+            if (missing(pending)) {
+                continue;
+            }
+            boolean empty = true;
+            for (int view = 0; view < pending.views(); view++) {
+                empty &= pending.ids[view] == FacePalette.EMPTY;
+            }
+            if (empty) {
+                allEmpty++;
+                if (pending.exposed == 1) {
+                    allEmptyOnlyBottom++;
+                }
+            }
+            if (pending.oldIds != null) {
+                if (Arrays.equals(pending.oldIds, pending.ids)) {
+                    expiredSame++;
+                } else {
+                    expiredDiffer++;
+                }
+            }
+            if (pending.tileEntity == null) {
+                continue;
+            }
+            if (TWINS.size() > 200_000) {
+                TWINS.clear();
+                TWINS_WITH_DATA.clear();
+            }
+            long twin = pending.surroundings * 31 + pending.tileEntity.getClass()
+                .hashCode();
+            int[] other = TWINS.putIfAbsent(twin, pending.ids.clone());
+            if (other != null) {
+                if (Arrays.equals(other, pending.ids)) {
+                    sameAsTwin++;
+                } else {
+                    differFromTwin++;
+                }
+            }
+            long withData = twin * 31 + dataHash(pending.tileEntity);
+            int[] otherWithData = TWINS_WITH_DATA.putIfAbsent(withData, pending.ids.clone());
+            if (otherWithData != null) {
+                if (Arrays.equals(otherWithData, pending.ids)) {
+                    sameAsTwinWithData++;
+                } else {
+                    differFromTwinWithData++;
+                }
+            }
+        }
+    }
+
+    /** Hash of what a tile entity keeps, without where it is. */
+    private static int dataHash(TileEntity tileEntity) {
+        try {
+            net.minecraft.nbt.NBTTagCompound tag = new net.minecraft.nbt.NBTTagCompound();
+            tileEntity.writeToNBT(tag);
+            tag.removeTag("x");
+            tag.removeTag("y");
+            tag.removeTag("z");
+            return tag.hashCode();
+        } catch (Throwable t) {
+            return 0;
         }
     }
 
