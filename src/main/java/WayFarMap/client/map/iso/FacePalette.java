@@ -1,39 +1,42 @@
 package WayFarMap.client.map.iso;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.EOFException;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.DataFormatException;
+import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 
 import WayFarMap.WayFarMap;
 
 /**
  * Sprites of blocks as the game draws them in place, seen the way the 3D map looks at the world (see
- * {@link FaceRenderer}): connected textures, tile entities, pipes and cables, modded renderers. A sprite is 64x64
- * ARGB and covers two blocks of the projection plane around the block's center (32 pixels per block); a picture of
- * a cube's side is 32x32, as sharp. The same sprite is kept once (a wall of Chisel blocks has only a few different
- * ones), in {@code <world>/iso-sprites.dat}. Ids start at 1. Sprites depend on the resource packs: another set of
- * packs starts a new palette ({@link #generation}), and chunks with ids of the old one are drawn from block icons
- * until seen again.
+ * {@link FaceRenderer}): connected textures, tile entities, pipes and cables, modded renderers. A sprite is 128x128
+ * ARGB and covers two blocks of the projection plane around the block's center (64 pixels per block, the most
+ * detailed level); a picture of a cube's side is 32x32 (its texture is 16x16). The same sprite is kept once (a wall
+ * of Chisel blocks has only a few different ones), compressed in {@code <world>/iso-sprites.dat}; in memory are only
+ * the ones drawn lately, up to {@link #MEMORY_BUDGET}, the others are read again when needed. Ids start at 1. Sprites
+ * depend on the resource packs: another set of packs starts a new palette ({@link #generation}), and chunks with ids
+ * of the old one are drawn from block icons until seen again.
  */
 final class FacePalette {
 
-    private static final int MAGIC = 0x57465033; // "WFP3"
+    private static final int MAGIC = 0x57465034; // "WFP4"
     /** Pixels per side of a picture of a cube's side. */
     static final int FACE_SIZE = 32;
     /** Pixels per side of a sprite of a block that isn't a plain cube (two blocks wide). */
-    static final int SPRITE_SIZE = 64;
+    static final int SPRITE_SIZE = 128;
     private static final int MAX_SIZE = 256;
+    /** Bytes of sprites (with their reduced copies) kept in memory. */
+    private static final long MEMORY_BUDGET = 96L << 20;
 
     /** A sprite with its reduced copies: full size, half ... 1x1. */
     static final class Sprite {
@@ -55,6 +58,11 @@ final class FacePalette {
                 return 0;
             }
             return mips[mip][y * side + x];
+        }
+
+        /** Memory it takes, in bytes (about 4/3 of the full size). */
+        long bytes() {
+            return (long) size * size * 16 / 3;
         }
 
         static Sprite of(int[] pixels) {
@@ -96,13 +104,35 @@ final class FacePalette {
         }
     }
 
+    /** Where a sprite is: in the file (offset of its compressed pixels), or only in memory until saved. */
+    private static final class Entry {
+
+        final long hash;
+        final int side;
+        long offset = -1;
+        int length;
+        /** The pixels until they are in the file. */
+        int[] pixels;
+
+        Entry(long hash, int side) {
+            this.hash = hash;
+            this.side = side;
+        }
+    }
+
     final int generation;
     private final File file;
-    private final List<int[]> images = new ArrayList<>();
+    private final List<Entry> entries = new ArrayList<>();
     private final Map<Long, Integer> byHash = new HashMap<>();
+    /** Sprites in memory by id; read without a lock (a missing one is just read again). */
     private volatile Sprite[] sprites = new Sprite[64];
-    /** Sprites already in the file. */
+    /** Ids in memory, oldest first, and the bytes they take. */
+    private final ArrayDeque<Integer> loaded = new ArrayDeque<>();
+    private long loadedBytes;
+    /** Sprites already in the file, and where the last of them ends. */
     private int saved;
+    private long fileEnd;
+    private RandomAccessFile reader;
 
     private FacePalette(File file, int generation) {
         this.file = file;
@@ -116,31 +146,38 @@ final class FacePalette {
         if (!palette.file.isFile()) {
             return palette;
         }
-        try (DataInputStream in = new DataInputStream(
-            new BufferedInputStream(new FileInputStream(palette.file), 1 << 16))) {
-            if (in.readInt() != MAGIC || in.readInt() != generation) {
-                // Other resource packs: begin again.
+        try (RandomAccessFile in = new RandomAccessFile(palette.file, "r")) {
+            long end = in.length();
+            if (end < 8 || in.readInt() != MAGIC || in.readInt() != generation) {
+                // Other resource packs or an older kind of file: begin again.
                 return palette;
             }
-            while (true) {
-                int[] image;
-                try {
-                    int side = in.readInt();
-                    if (side <= 0 || side > MAX_SIZE || Integer.bitCount(side) != 1) {
-                        throw new IOException("Bad sprite size " + side);
-                    }
-                    image = new int[side * side];
-                    for (int i = 0; i < image.length; i++) {
-                        image[i] = in.readInt();
-                    }
-                } catch (EOFException e) {
+            // Only the headers: the pixels are read when a sprite is drawn.
+            while (in.getFilePointer() + 16 <= end) {
+                long hash = in.readLong();
+                int side = in.readInt();
+                int length = in.readInt();
+                long offset = in.getFilePointer();
+                if (side <= 0 || side > MAX_SIZE || Integer.bitCount(side) != 1 || length < 0
+                    || offset + length > end) {
+                    // Cut off while it was written: the rest is taken again.
                     break;
                 }
-                palette.add(image);
+                Entry entry = new Entry(hash, side);
+                entry.offset = offset;
+                entry.length = length;
+                palette.add(entry);
+                in.seek(offset + length);
             }
-            palette.saved = palette.images.size();
+            palette.saved = palette.entries.size();
+            palette.fileEnd = palette.saved == 0 ? 8 : palette.entries.get(palette.saved - 1).offset
+                + palette.entries.get(palette.saved - 1).length;
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not read the 3D map's block sprites " + palette.file, e);
+            palette.entries.clear();
+            palette.byHash.clear();
+            palette.saved = 0;
+            palette.fileEnd = 0;
         }
         return palette;
     }
@@ -162,10 +199,10 @@ final class FacePalette {
         return h;
     }
 
-    private int add(int[] image) {
-        images.add(image);
-        int id = images.size();
-        byHash.put(hash(image), id);
+    private int add(Entry entry) {
+        entries.add(entry);
+        int id = entries.size();
+        byHash.put(entry.hash, id);
         return id;
     }
 
@@ -184,67 +221,200 @@ final class FacePalette {
         if (empty) {
             return EMPTY;
         }
-        Integer id = byHash.get(hash(image));
-        if (id != null && Arrays.equals(images.get(id - 1), image)) {
-            return id;
+        long hash = hash(image);
+        Integer id = byHash.get(hash);
+        if (id != null) {
+            Entry known = entries.get(id - 1);
+            // In the file only its 64-bit hash is known, which is as good as the pixels.
+            if (known.pixels == null ? known.side * known.side == image.length : Arrays.equals(known.pixels, image)) {
+                return id;
+            }
         }
-        return add(image.clone());
+        Entry entry = new Entry(hash, sideOf(image.length));
+        entry.pixels = image.clone();
+        return add(entry);
     }
 
     /** The sprite with its reduced copies, or null for an unknown id. Any thread. */
     Sprite sprite(int id) {
         Sprite[] cache = sprites;
-        if (id > 0 && id < cache.length && cache[id] != null) {
-            return cache[id];
+        if (id > 0 && id < cache.length) {
+            Sprite sprite = cache[id];
+            if (sprite != null) {
+                return sprite;
+            }
         }
+        Entry entry;
+        int[] pixels;
         synchronized (this) {
-            if (id <= 0 || id > images.size()) {
+            if (id <= 0 || id > entries.size()) {
                 return null;
             }
+            cache = sprites;
+            if (id < cache.length && cache[id] != null) {
+                return cache[id];
+            }
+            entry = entries.get(id - 1);
+            pixels = entry.pixels;
+        }
+        if (pixels == null) {
+            pixels = read(entry);
+            if (pixels == null) {
+                return null;
+            }
+        }
+        Sprite sprite = Sprite.of(pixels);
+        synchronized (this) {
             cache = sprites;
             if (id >= cache.length) {
                 cache = Arrays.copyOf(cache, Math.max(id + 1, cache.length * 2));
             }
-            if (cache[id] == null) {
-                cache[id] = Sprite.of(images.get(id - 1));
+            if (cache[id] != null) {
+                return cache[id];
+            }
+            cache[id] = sprite;
+            loaded.add(id);
+            loadedBytes += sprite.bytes();
+            // The ones loaded longest ago are let go (read again from the file if needed); those not in the file
+            // yet, and this one, stay.
+            for (int checks = loaded.size(); loadedBytes > MEMORY_BUDGET && checks > 0; checks--) {
+                int old = loaded.poll();
+                Sprite dropped = cache[old];
+                if (dropped == null) {
+                    continue;
+                }
+                if (old != id && entries.get(old - 1).pixels == null) {
+                    cache[old] = null;
+                    loadedBytes -= dropped.bytes();
+                } else {
+                    loaded.add(old);
+                }
             }
             sprites = cache;
-            return cache[id];
+        }
+        return sprite;
+    }
+
+    /** The sprite's pixels from the file, or null if they can't be read. */
+    private int[] read(Entry entry) {
+        byte[] compressed = new byte[entry.length];
+        synchronized (file) {
+            try {
+                if (reader == null) {
+                    reader = new RandomAccessFile(file, "r");
+                }
+                reader.seek(entry.offset);
+                reader.readFully(compressed);
+            } catch (IOException e) {
+                WayFarMap.LOG.debug("Could not read a 3D map sprite", e);
+                return null;
+            }
+        }
+        byte[] raw = new byte[entry.side * entry.side * 4];
+        Inflater inflater = new Inflater();
+        try {
+            inflater.setInput(compressed);
+            int n = 0;
+            while (n < raw.length && !inflater.finished()) {
+                int got = inflater.inflate(raw, n, raw.length - n);
+                if (got == 0 && (inflater.needsInput() || inflater.needsDictionary())) {
+                    return null;
+                }
+                n += got;
+            }
+            if (n != raw.length) {
+                return null;
+            }
+        } catch (DataFormatException e) {
+            return null;
+        } finally {
+            inflater.end();
+        }
+        int[] pixels = new int[entry.side * entry.side];
+        ByteBuffer.wrap(raw)
+            .asIntBuffer()
+            .get(pixels);
+        return pixels;
+    }
+
+    private static byte[] compress(int[] pixels) {
+        ByteBuffer raw = ByteBuffer.allocate(pixels.length * 4);
+        raw.asIntBuffer()
+            .put(pixels);
+        Deflater deflater = new Deflater(6);
+        try {
+            deflater.setInput(raw.array());
+            deflater.finish();
+            ByteArrayOutputStream out = new ByteArrayOutputStream(pixels.length);
+            byte[] buffer = new byte[1 << 14];
+            while (!deflater.finished()) {
+                out.write(buffer, 0, deflater.deflate(buffer));
+            }
+            return out.toByteArray();
+        } finally {
+            deflater.end();
         }
     }
 
     /** Appends the new sprites to the file (background thread). */
     void save() {
-        List<int[]> added;
+        List<Entry> added;
         int from;
+        long end;
         synchronized (this) {
             from = saved;
-            if (from == images.size()) {
+            end = fileEnd;
+            if (from == entries.size()) {
                 return;
             }
-            added = new ArrayList<>(images.subList(from, images.size()));
+            added = new ArrayList<>(entries.subList(from, entries.size()));
         }
-        boolean fresh = from == 0;
         try {
             File parent = file.getParentFile();
             if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
                 throw new IOException("Could not create " + parent);
             }
-            try (DataOutputStream out = new DataOutputStream(
-                new BufferedOutputStream(new FileOutputStream(file, !fresh), 1 << 16))) {
-                if (fresh) {
-                    out.writeInt(MAGIC);
-                    out.writeInt(generation);
-                }
-                for (int[] image : added) {
-                    out.writeInt(sideOf(image.length));
-                    for (int pixel : image) {
-                        out.writeInt(pixel);
+            long[] offsets = new long[added.size()];
+            int[] lengths = new int[added.size()];
+            synchronized (file) {
+                try (RandomAccessFile out = new RandomAccessFile(file, "rw")) {
+                    if (end < 8) {
+                        out.setLength(0);
+                        out.writeInt(MAGIC);
+                        out.writeInt(generation);
+                    } else {
+                        // After the last whole sprite (anything after it was cut off while written).
+                        out.seek(end);
                     }
+                    for (int i = 0; i < added.size(); i++) {
+                        Entry entry = added.get(i);
+                        byte[] compressed = compress(entry.pixels);
+                        out.writeLong(entry.hash);
+                        out.writeInt(entry.side);
+                        out.writeInt(compressed.length);
+                        offsets[i] = out.getFilePointer();
+                        lengths[i] = compressed.length;
+                        out.write(compressed);
+                    }
+                    end = out.getFilePointer();
+                    out.setLength(end);
+                }
+                if (reader != null) {
+                    // It sees the file as it was opened; opened again when next needed.
+                    reader.close();
+                    reader = null;
                 }
             }
             synchronized (this) {
+                for (int i = 0; i < added.size(); i++) {
+                    Entry entry = added.get(i);
+                    entry.offset = offsets[i];
+                    entry.length = lengths[i];
+                    // In the file now: memory can let it go.
+                    entry.pixels = null;
+                }
                 saved = from + added.size();
+                fileEnd = end;
             }
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not save the 3D map's block sprites " + file, e);

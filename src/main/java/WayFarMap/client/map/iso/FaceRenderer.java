@@ -41,7 +41,7 @@ import WayFarMap.WayFarMap;
  */
 final class FaceRenderer {
 
-    /** Room for one picture (sprites fill it, pictures of sides a quarter), and the buffer: 256 per read back. */
+    /** Room for one picture (sprites fill it, pictures of sides a corner), and the buffer: 64 per read back. */
     private static final int SLOT = FacePalette.SPRITE_SIZE, SIZE = 1024, PER_ROW = SIZE / SLOT,
         SLOTS = PER_ROW * PER_ROW;
     /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
