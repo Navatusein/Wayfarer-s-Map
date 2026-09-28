@@ -57,6 +57,26 @@ public class MapRegion implements PixelSource {
      */
     private final long[] fromTeam = new long[CHUNKS * CHUNKS / 64];
 
+    /**
+     * Block light (torches, lamps, lava) just above the surface of each pixel, 0-15; null while there is none. At
+     * night the map glows there ({@link #bindGlowTexture}).
+     */
+    private byte[] light;
+    private int glowTextureId = -1;
+    private boolean glowDirty;
+    private long lastGlowUpload;
+    /** Light levels of the glow: how much of the lit color shows over the dark map. */
+    private static final int[] GLOW_ALPHA = new int[16];
+    /** Warm light of torches over the map colors. */
+    private static final float GLOW_R = 1.0f, GLOW_G = 0.86f, GLOW_B = 0.62f;
+    private static final long GLOW_UPLOAD_INTERVAL_MS = 1000;
+
+    static {
+        for (int level = 1; level < 16; level++) {
+            GLOW_ALPHA[level] = Math.min(255, (int) (255 * Math.pow(level / 14.0, 1.4)));
+        }
+    }
+
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
@@ -77,6 +97,9 @@ public class MapRegion implements PixelSource {
             pixels[index] = argb;
             saveDirty = true;
             changes++;
+            if (light != null) {
+                glowDirty = true;
+            }
             if (textureId != -1) {
                 markTextureDirty(localX, localZ);
             }
@@ -97,6 +120,83 @@ public class MapRegion implements PixelSource {
             extra[index] = (byte) extraValue;
             saveDirty = true;
             changes++;
+        }
+    }
+
+    /** Sets the block light (0-15) above the pixel's surface. */
+    public void setLight(int localX, int localZ, int level) {
+        int index = localZ * SIZE + localX;
+        if (light == null) {
+            if (level == 0) {
+                return;
+            }
+            light = new byte[SIZE * SIZE];
+        }
+        if (light[index] != (byte) level) {
+            light[index] = (byte) level;
+            saveDirty = true;
+            glowDirty = true;
+        }
+    }
+
+    /** Whether any pixel is lit by a block (the map glows there at night). */
+    public boolean hasLight() {
+        return light != null;
+    }
+
+    /**
+     * Binds the glow texture: the map's colors in warm light where blocks light the surface, transparent elsewhere,
+     * drawn over the night-darkened map. Rebuilt at most once a second while it changes. Render thread.
+     */
+    public void bindGlowTexture() {
+        boolean create = glowTextureId == -1;
+        if (create) {
+            glowTextureId = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, glowTextureId);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_GENERATE_MIPMAP, GL11.GL_TRUE);
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, glowTextureId);
+        }
+        long now = System.currentTimeMillis();
+        if (create || glowDirty && now - lastGlowUpload >= GLOW_UPLOAD_INTERVAL_MS) {
+            glowDirty = false;
+            lastGlowUpload = now;
+            if (uploadBuffer == null) {
+                uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
+            }
+            uploadBuffer.clear();
+            byte[] levels = light;
+            for (int i = 0; i < SIZE * SIZE; i++) {
+                int level = levels == null ? 0 : levels[i] & 15;
+                int argb = pixels[i];
+                if (level == 0 || (argb >>> 24) == 0) {
+                    uploadBuffer.put(0);
+                    continue;
+                }
+                int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
+                int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
+                int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
+                uploadBuffer.put(GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b);
+            }
+            uploadBuffer.flip();
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+            GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+            GL11.glTexImage2D(
+                GL11.GL_TEXTURE_2D,
+                0,
+                GL11.GL_RGBA,
+                SIZE,
+                SIZE,
+                0,
+                GL12.GL_BGRA,
+                GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+                uploadBuffer);
         }
     }
 
@@ -237,6 +337,10 @@ public class MapRegion implements PixelSource {
             dirtyMaxX = -1;
             dirtyMinX = 0;
         }
+        if (glowTextureId != -1) {
+            GL11.glDeleteTextures(glowTextureId);
+            glowTextureId = -1;
+        }
         BiomeHighlight.forget(this);
     }
 
@@ -280,7 +384,12 @@ public class MapRegion implements PixelSource {
     public Snapshot snapshotForSave() {
         saveDirty = false;
         saving = true;
-        return new Snapshot(pixels.clone(), extra != null ? extra.clone() : null, chunkTimes.clone(), fromTeam.clone());
+        return new Snapshot(
+            pixels.clone(),
+            extra != null ? extra.clone() : null,
+            chunkTimes.clone(),
+            fromTeam.clone(),
+            light != null ? light.clone() : null);
     }
 
     public static final class Snapshot {
@@ -289,12 +398,14 @@ public class MapRegion implements PixelSource {
         final byte[] extra;
         final long[] chunkTimes;
         final long[] fromTeam;
+        final byte[] light;
 
-        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam) {
+        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam, byte[] light) {
             this.pixels = pixels;
             this.extra = extra;
             this.chunkTimes = chunkTimes;
             this.fromTeam = fromTeam;
+            this.light = light;
         }
     }
 
@@ -316,6 +427,11 @@ public class MapRegion implements PixelSource {
         return new File(path.substring(0, path.length() - 4) + ".dat");
     }
 
+    private static File getLightFile(File imageFile) {
+        String path = imageFile.getPath();
+        return new File(path.substring(0, path.length() - 4) + ".light");
+    }
+
     private static File getTimesFile(File imageFile) {
         String path = imageFile.getPath();
         return new File(path.substring(0, path.length() - 4) + ".time");
@@ -330,6 +446,14 @@ public class MapRegion implements PixelSource {
                 out.write(snapshot.extra);
             }
             replace(tmp, extraFile);
+        }
+        if (snapshot.light != null) {
+            File lightFile = getLightFile(file);
+            File lightTmp = new File(lightFile.getPath() + ".tmp");
+            try (OutputStream out = new GZIPOutputStream(new FileOutputStream(lightTmp))) {
+                out.write(snapshot.light);
+            }
+            replace(lightTmp, lightFile);
         }
         File timesFile = getTimesFile(file);
         File tmp = new File(timesFile.getPath() + ".tmp");
@@ -383,6 +507,16 @@ public class MapRegion implements PixelSource {
                 region.extra = extra;
             } catch (IOException e) {
                 // Only the extra data is lost; the map image is still fine.
+            }
+        }
+        File lightFile = getLightFile(file);
+        if (lightFile.isFile()) {
+            byte[] levels = new byte[SIZE * SIZE];
+            try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(lightFile)))) {
+                in.readFully(levels);
+                region.light = levels;
+            } catch (IOException e) {
+                // Only the night glow is lost.
             }
         }
         File timesFile = getTimesFile(file);

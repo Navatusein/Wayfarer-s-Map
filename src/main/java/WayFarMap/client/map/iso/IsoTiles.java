@@ -42,11 +42,11 @@ import WayFarMap.client.MapDrawer;
  */
 final class IsoTiles {
 
-    /** Tiles kept in video memory. */
-    private static final int MAX_TILES = 700;
+    /** Tiles kept in video memory (two textures each: day and night). */
+    private static final int MAX_TILES = 500;
     /** Levels from this one on are saved to disk (finer ones are quick to draw and would be too many files). */
     private static final int DISK_LEVEL = 3;
-    private static final int MAGIC = 0x57465431; // "WFT1"
+    private static final int MAGIC = 0x57465432; // "WFT2"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
     /** A queued tile that has been off screen this long is not drawn. */
@@ -88,6 +88,8 @@ final class IsoTiles {
 
         final Key key;
         int texture = -1;
+        /** The tile at night: moonlight, and warm light around torches and lamps. */
+        int nightTexture = -1;
         boolean empty;
         boolean ready;
         /** Height and side of what each pixel shows, for finding the block under the mouse. */
@@ -133,18 +135,20 @@ final class IsoTiles {
 
         final Tile tile;
         final int[] pixels;
+        final int[] nightPixels;
         final short[] hits;
         final long renderedAt;
         /** Not drawn (no longer on screen): the tile is only free to be queued again. */
         final boolean skipped;
 
-        Result(Tile tile, int[] pixels, short[] hits, long renderedAt) {
-            this(tile, pixels, hits, renderedAt, false);
+        Result(Tile tile, int[] pixels, int[] nightPixels, short[] hits, long renderedAt) {
+            this(tile, pixels, nightPixels, hits, renderedAt, false);
         }
 
-        Result(Tile tile, int[] pixels, short[] hits, long renderedAt, boolean skipped) {
+        Result(Tile tile, int[] pixels, int[] nightPixels, short[] hits, long renderedAt, boolean skipped) {
             this.tile = tile;
             this.pixels = pixels;
+            this.nightPixels = nightPixels;
             this.hits = hits;
             this.renderedAt = renderedAt;
             this.skipped = skipped;
@@ -200,8 +204,8 @@ final class IsoTiles {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        float[] tint = MapDrawer.lightTint(Minecraft.getMinecraft());
-        GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+        // By night the night tiles are laid over the day ones, fading in and out with the time of day.
+        float night = MapDrawer.nightAmount(Minecraft.getMinecraft());
         for (int tv = tv0; tv <= tv1; tv++) {
             for (int tu = tu0; tu <= tu1; tu++) {
                 Key key = new Key(dimension.id, rotation, level, tu, tv);
@@ -222,11 +226,10 @@ final class IsoTiles {
                 double size = blocks * scale;
                 if (tile.ready) {
                     if (!tile.empty) {
-                        GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
-                        quad(sx, sy, sx + size, sy + size, 0, 0, 1, 1);
+                        drawTile(tile, sx, sy, size, 0, 0, 1, night);
                     }
                 } else {
-                    drawFromCoarser(key, sx, sy, size);
+                    drawFromCoarser(key, sx, sy, size, night);
                 }
             }
         }
@@ -235,7 +238,7 @@ final class IsoTiles {
     }
 
     /** Until a tile is ready, the matching part of a coarser one that is. */
-    private void drawFromCoarser(Key key, double sx, double sy, double size) {
+    private void drawFromCoarser(Key key, double sx, double sy, double size, float night) {
         for (int up = 1; up <= 4 && key.level + up < IsoProjection.LEVELS; up++) {
             int shift = up;
             Key parent = new Key(
@@ -254,9 +257,23 @@ final class IsoTiles {
             }
             double part = 1.0 / (1 << shift);
             double u0 = Math.floorMod(key.tu, 1 << shift) * part, v0 = Math.floorMod(key.tv, 1 << shift) * part;
+            drawTile(tile, sx, sy, size, u0, v0, part, night);
+            return;
+        }
+    }
+
+    /** Draws (part of) a tile by day, and its night look over it as much as it is night. */
+    private static void drawTile(Tile tile, double sx, double sy, double size, double u0, double v0, double part,
+        float night) {
+        if (night < 1f || tile.nightTexture == -1) {
+            GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
             quad(sx, sy, sx + size, sy + size, u0, v0, u0 + part, v0 + part);
-            return;
+        }
+        if (night > 0.01f && tile.nightTexture != -1) {
+            GL11.glColor4f(1f, 1f, 1f, night);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.nightTexture);
+            quad(sx, sy, sx + size, sy + size, u0, v0, u0 + part, v0 + part);
         }
     }
 
@@ -290,37 +307,44 @@ final class IsoTiles {
                 deleteTexture(tile);
                 continue;
             }
-            if (tile.texture == -1) {
-                tile.texture = GL11.glGenTextures();
-                GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
-                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
-                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
-            } else {
-                GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
-            }
-            if (uploadBuffer == null) {
-                uploadBuffer = BufferUtils.createIntBuffer(PIXELS * PIXELS);
-            }
-            uploadBuffer.clear();
-            uploadBuffer.put(result.pixels);
-            uploadBuffer.flip();
-            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
-            GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
-            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
-            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
-            GL11.glTexImage2D(
-                GL11.GL_TEXTURE_2D,
-                0,
-                GL11.GL_RGBA,
-                PIXELS,
-                PIXELS,
-                0,
-                GL12.GL_BGRA,
-                GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
-                uploadBuffer);
+            tile.texture = upload(tile.texture, result.pixels);
+            tile.nightTexture = upload(tile.nightTexture, result.nightPixels);
         }
+    }
+
+    /** Puts the pixels into the texture (made if -1); returns the texture. */
+    private int upload(int texture, int[] pixels) {
+        if (texture == -1) {
+            texture = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+        }
+        if (uploadBuffer == null) {
+            uploadBuffer = BufferUtils.createIntBuffer(PIXELS * PIXELS);
+        }
+        uploadBuffer.clear();
+        uploadBuffer.put(pixels);
+        uploadBuffer.flip();
+        GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+        GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GL11.glTexImage2D(
+            GL11.GL_TEXTURE_2D,
+            0,
+            GL11.GL_RGBA,
+            PIXELS,
+            PIXELS,
+            0,
+            GL12.GL_BGRA,
+            GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+            uploadBuffer);
+        return texture;
     }
 
     /** Frees the tiles not drawn lately while there are too many. */
@@ -343,6 +367,10 @@ final class IsoTiles {
     }
 
     private static void deleteTexture(Tile tile) {
+        if (tile.nightTexture != -1) {
+            GL11.glDeleteTextures(tile.nightTexture);
+            tile.nightTexture = -1;
+        }
         if (tile.texture != -1) {
             GL11.glDeleteTextures(tile.texture);
             tile.texture = -1;
@@ -446,7 +474,7 @@ final class IsoTiles {
             Tile tile = job.tile;
             if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS) {
                 // Scrolled or zoomed away before its turn.
-                done.add(new Result(tile, null, null, 0, true));
+                done.add(new Result(tile, null, null, null, 0, true));
                 continue;
             }
             try {
@@ -456,7 +484,7 @@ final class IsoTiles {
                 }
             } catch (Throwable t) {
                 WayFarMap.LOG.warn("Could not draw a 3D map tile", t);
-                done.add(new Result(tile, null, null, System.currentTimeMillis()));
+                done.add(new Result(tile, null, null, null, System.currentTimeMillis()));
             }
         }
     }
@@ -481,6 +509,7 @@ final class IsoTiles {
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(key.level);
         double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
         int[] pixels = new int[PIXELS * PIXELS];
+        int[] nightPixels = new int[PIXELS * PIXELS];
         short[] hits = new short[PIXELS * PIXELS];
         boolean any = false;
         // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
@@ -490,20 +519,27 @@ final class IsoTiles {
             for (int py = 0; py < PIXELS; py++) {
                 double u = u0 + (px + 0.5) / pixelsPerBlock, v = v0 + (py + 0.5) / pixelsPerBlock;
                 int color = tracer.trace(u, v);
+                int nightColor = tracer.nightColor;
                 hits[py * PIXELS + px] = hitCode(tracer);
                 if (supersample) {
                     double q = 0.25 / pixelsPerBlock;
-                    color = average(
-                        color,
-                        tracer.trace(u - q, v - q),
-                        tracer.trace(u + q, v - q),
-                        tracer.trace(u - q, v + q));
+                    int[] day = new int[4], night = new int[4];
+                    day[0] = color;
+                    night[0] = nightColor;
+                    double[][] offsets = { { -q, -q }, { q, -q }, { -q, q } };
+                    for (int i = 0; i < 3; i++) {
+                        day[i + 1] = tracer.trace(u + offsets[i][0], v + offsets[i][1]);
+                        night[i + 1] = tracer.nightColor;
+                    }
+                    color = average(day);
+                    nightColor = average(night);
                 }
                 pixels[py * PIXELS + px] = color;
+                nightPixels[py * PIXELS + px] = nightColor;
                 any |= color != 0;
             }
         }
-        Result result = new Result(tile, any ? pixels : null, any ? hits : null, start);
+        Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
         if (file != null && running) {
             writeCached(file, result, tracer.minToward);
         }
@@ -554,20 +590,24 @@ final class IsoTiles {
                 return null;
             }
             if (empty) {
-                return new Result(tile, null, null, renderedAt);
+                return new Result(tile, null, null, null, renderedAt);
             }
-            byte[] raw = new byte[PIXELS * PIXELS * 6];
+            byte[] raw = new byte[PIXELS * PIXELS * 10];
             DataInputStream data = new DataInputStream(new InflaterInputStream(in, new Inflater(), 1 << 15));
             data.readFully(raw);
             ByteBuffer buffer = ByteBuffer.wrap(raw);
             int[] pixels = new int[PIXELS * PIXELS];
+            int[] nightPixels = new int[PIXELS * PIXELS];
             short[] hits = new short[PIXELS * PIXELS];
             buffer.asIntBuffer()
                 .get(pixels);
             buffer.position(pixels.length * 4);
+            buffer.asIntBuffer()
+                .get(nightPixels);
+            buffer.position(pixels.length * 8);
             buffer.asShortBuffer()
                 .get(hits);
-            return new Result(tile, pixels, hits, renderedAt);
+            return new Result(tile, pixels, nightPixels, hits, renderedAt);
         } catch (IOException e) {
             return null;
         }
@@ -587,10 +627,13 @@ final class IsoTiles {
             out.writeDouble(minToward);
             out.writeBoolean(result.pixels == null);
             if (result.pixels != null) {
-                ByteBuffer buffer = ByteBuffer.allocate(PIXELS * PIXELS * 6);
+                ByteBuffer buffer = ByteBuffer.allocate(PIXELS * PIXELS * 10);
                 buffer.asIntBuffer()
                     .put(result.pixels);
                 buffer.position(result.pixels.length * 4);
+                buffer.asIntBuffer()
+                    .put(result.nightPixels);
+                buffer.position(result.pixels.length * 8);
                 buffer.asShortBuffer()
                     .put(result.hits);
                 DeflaterOutputStream compressed = new DeflaterOutputStream(out, deflater, 1 << 15);

@@ -79,6 +79,7 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         float[] tint = lightTint(Minecraft.getMinecraft());
+        float night = nightAmount(Minecraft.getMinecraft());
         GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
 
         Tessellator tessellator = Tessellator.instance;
@@ -132,6 +133,18 @@ public final class MapDrawer {
                 tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                 tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                 tessellator.draw();
+                if (!lod && night > 0.01f && region.hasLight()) {
+                    // At night, torches and lamps light up the map around them.
+                    region.bindGlowTexture();
+                    GL11.glColor4f(1f, 1f, 1f, night);
+                    tessellator.startDrawingQuads();
+                    tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
+                    tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
+                    tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
+                    tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
+                    tessellator.draw();
+                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                }
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -192,6 +205,13 @@ public final class MapDrawer {
 
     /** RGB multiplier for the map according to {@link Config#mapLightMode} and the time of day. */
     public static float[] lightTint(Minecraft mc) {
+        float day = 1f - nightAmount(mc);
+        return new float[] { NIGHT_TINT[0] + (1f - NIGHT_TINT[0]) * day, NIGHT_TINT[1] + (1f - NIGHT_TINT[1]) * day,
+            NIGHT_TINT[2] + (1f - NIGHT_TINT[2]) * day };
+    }
+
+    /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */
+    public static float nightAmount(Minecraft mc) {
         float day;
         if (Config.mapLightMode == Config.LIGHT_DAY) {
             day = 1f;
@@ -206,8 +226,7 @@ public final class MapDrawer {
                 float sun = mc.theWorld.getSunBrightness(1f);
                 day = Math.max(0f, Math.min(1f, (sun - 0.2f) / 0.8f));
             }
-        return new float[] { NIGHT_TINT[0] + (1f - NIGHT_TINT[0]) * day, NIGHT_TINT[1] + (1f - NIGHT_TINT[1]) * day,
-            NIGHT_TINT[2] + (1f - NIGHT_TINT[2]) * day };
+        return 1f - day;
     }
 
     /** Draws an arrow at the given screen position pointing where the player looks. */

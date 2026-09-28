@@ -31,7 +31,7 @@ public class Config {
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
     /** Fullscreen map zoom levels, in GUI pixels per block. */
-    public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
+    public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0 };
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;

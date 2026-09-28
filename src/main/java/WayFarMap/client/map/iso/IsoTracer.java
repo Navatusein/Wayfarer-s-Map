@@ -9,14 +9,25 @@ import WayFarMap.client.map.MapRegion;
  * Dynmap's HD renderer) until it meets something solid. Faces show the pixel of the block's texture where they are
  * hit, tinted by the biome, shaded by the side they face (like the game) and by the sky and block light in front of
  * them, so overhangs, forests and deep water get darker. Water and stained glass let what is behind shine through.
- * One tracer per thread.
+ * Blocks the game draws in its own way show their sprite taken from the game ({@link FaceRenderer}).
+ * <p>
+ * Every pixel is worked out twice at once: by day, and by night, when the sky gives little light and torches, lamps
+ * and lava light up their surroundings in warm light. One tracer per thread.
  */
 final class IsoTracer {
 
     /** Brightness of the six sides, as the game shades them: down, up, north, south, west, east. */
     private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
-    /** Brightness of each light level (the game's curve, with a floor so caves aren't pitch black). */
+    /** Brightness of each light level by day (the game's curve, with a floor so caves aren't pitch black). */
     private static final float[] LIGHT = new float[16];
+    /** Brightness of each light level at night: darker, so lit places stand out. */
+    private static final float[] NIGHT_LIGHT = new float[16];
+    /** At night the sky gives this much less light, as in the game. */
+    private static final int NIGHT_SKY_DROP = 11;
+    /**
+     * Color of moonlight (open sky at night comes out like the flat map's night tint), and of torch light.
+     */
+    private static final float[] MOON = { 0.82f, 0.94f, 1.47f }, WARM = { 1.05f, 0.88f, 0.62f };
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
@@ -26,12 +37,15 @@ final class IsoTracer {
     private static final double WATER_ABSORPTION = 0.42;
     /** Water seen in depth is darker than its surface. */
     private static final float WATER_DEPTH_SHADE = 0.62f;
+    /** Light of open sky (sky 15, no block light), packed like {@link #light}. */
+    private static final int OPEN = 15 << 4;
 
     static {
         for (int level = 0; level < 16; level++) {
             float f = 1f - level / 15f;
             float game = (1f - f) / (f * 3f + 1f);
             LIGHT[level] = 0.28f + 0.72f * game;
+            NIGHT_LIGHT[level] = 0.28f + 0.72f * game;
         }
     }
 
@@ -40,6 +54,8 @@ final class IsoTracer {
     private IsoProjection projection;
     /** Texture detail: 0 = 16x16 texels per block ... 4 = one average color. */
     private int mip;
+    /** Sprite detail: 0 = 16 pixels per block ... 5 = one color. */
+    private int spriteMip;
 
     /** Chunks looked at lately (direct mapped by position): blocks, flat map region, or nothing. */
     private static final int CACHE = 1 << 10;
@@ -52,12 +68,15 @@ final class IsoTracer {
     /** Height of the first surface hit and its side (-1 if none). */
     double hitY;
     int hitSide;
+    /** The color seen at night (the day color is returned by trace), ARGB. */
+    int nightColor;
     /** Lowest "toward the viewer" distance any ray got to, for knowing which chunks a tile depends on. */
     double minToward;
 
     // State of the current ray.
+    private double rayU, rayV;
     private double ox, oy, oz;
-    private double accR, accG, accB, transmit;
+    private double accR, accG, accB, nightR, nightG, nightB, transmit;
     private int currentChunkX = Integer.MIN_VALUE, currentChunkZ;
     private Object currentData;
     private int currentTop;
@@ -68,7 +87,7 @@ final class IsoTracer {
     private double boxHitT;
     /** Index of the cell being looked at in its chunk's cells, -1 for the ground below them. */
     private int cellIndex;
-    /** Pictures of block sides as the game draws them; null if there are none. */
+    /** Sprites of blocks as the game draws them; null if there are none. */
     private final FacePalette palette;
 
     IsoTracer(BlockStore store, SurfaceFallback fallback, FacePalette palette) {
@@ -81,6 +100,7 @@ final class IsoTracer {
         this.projection = projection;
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         mip = pixelsPerBlock >= 16 ? 0 : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
+        spriteMip = Math.min(5, level);
         Arrays.fill(cacheKeys, Long.MIN_VALUE);
         Arrays.fill(cacheData, null);
         currentChunkX = Integer.MIN_VALUE;
@@ -125,10 +145,13 @@ final class IsoTracer {
     /**
      * Follows the line of sight through the point (u, v) of the projection plane.
      *
-     * @return the color seen, ARGB with straight alpha (0 where nothing was hit)
+     * @return the color seen by day, ARGB with straight alpha (0 where nothing was hit); the night color is in
+     *         {@link #nightColor}
      */
     int trace(double u, double v) {
         IsoProjection p = projection;
+        rayU = u;
+        rayV = v;
         double y0 = IsoProjection.TOP - 1e-3;
         double toward = (v + y0 * IsoProjection.COS) / IsoProjection.SIN;
         ox = u * p.rightX + toward * p.towardX;
@@ -136,6 +159,7 @@ final class IsoTracer {
         oy = y0;
         double dx = p.rayX, dy = p.rayY, dz = p.rayZ;
         accR = accG = accB = 0;
+        nightR = nightG = nightB = 0;
         transmit = 1;
         hitSide = -1;
 
@@ -147,7 +171,7 @@ final class IsoTracer {
         double maxY = (oy - y) * deltaY;
         double maxZ = (stepZ > 0 ? z + 1 - oz : oz - z) * deltaZ;
         int side = 1;
-        int previousLight = 15;
+        int previousLight = OPEN;
         int previousKey = 0;
         insideLiquid = 0;
 
@@ -172,7 +196,7 @@ final class IsoTracer {
                     maxX = t + (stepX > 0 ? x + 1 - px : px - x) * deltaX;
                     maxY = t + (py - y) * deltaY;
                     maxZ = t + (stepZ > 0 ? z + 1 - pz : pz - z) * deltaZ;
-                    previousLight = 15;
+                    previousLight = OPEN;
                     previousKey = 0;
                     insideLiquid = 0;
                     continue;
@@ -188,7 +212,7 @@ final class IsoTracer {
                         // The ground below what was stored: the column's lowest solid block.
                         BlockLooks.Look look = BlockLooks.get(filler(blocks, lx, lz));
                         cellIndex = -1;
-                        face(look, blocks, lx, lz, side, t, x, y, z, previousLight, 1f);
+                        face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                         break;
                     }
                     cellIndex = ((y - blocks.yMin) << 8) | (lz << 4) | lx;
@@ -199,9 +223,29 @@ final class IsoTracer {
                     }
                     if (ChunkBlocks.blockId(cell) != 0) {
                         BlockLooks.Look look = BlockLooks.get(key);
-                        if (sample(look, key, blocks, cell, lx, lz, side, t, exit, x, y, z, previousLight, previousKey)) {
-                            break;
-                        }
+                        int spriteId = spriteId(blocks);
+                        int lightHere = look.lightPasses ? light(cell) : previousLight;
+                        if (spriteId != 0) {
+                            if (sprite(spriteId, look, x, y, z, t, lightHere)) {
+                                break;
+                            }
+                        } else if (sample(
+                            look,
+                            key,
+                            blocks,
+                            cell,
+                            lx,
+                            lz,
+                            side,
+                            t,
+                            exit,
+                            x,
+                            y,
+                            z,
+                            previousLight,
+                            previousKey)) {
+                                break;
+                            }
                         if (look.lightPasses) {
                             previousLight = light(cell);
                         }
@@ -216,10 +260,11 @@ final class IsoTracer {
                     if ((pixel >>> 24) != 0 && y < region.getExtra(lx, lz)) {
                         // A pillar of the flat map's color; its top already has the map's relief shading.
                         hit(side, t);
-                        add(pixel & 0xFFFFFF, side == 1 ? 1f : SIDE_SHADE[side], 1f);
+                        float shade = side == 1 ? 1f : SIDE_SHADE[side];
+                        add(pixel & 0xFFFFFF, shade, shade * NIGHT_LIGHT[15 - NIGHT_SKY_DROP], 0f, 1f);
                         break;
                     }
-                    previousLight = 15;
+                    previousLight = OPEN;
                     previousKey = 0;
                     insideLiquid = 0;
                 }
@@ -248,10 +293,48 @@ final class IsoTracer {
         }
         double alpha = 1 - transmit;
         if (alpha <= 0.004) {
+            nightColor = 0;
             return 0;
         }
-        int r = clamp(accR / alpha), g = clamp(accG / alpha), b = clamp(accB / alpha);
-        return clamp(alpha * 255) << 24 | r << 16 | g << 8 | b;
+        int a = clamp(alpha * 255) << 24;
+        nightColor = a | clamp(nightR / alpha) << 16 | clamp(nightG / alpha) << 8 | clamp(nightB / alpha);
+        return a | clamp(accR / alpha) << 16 | clamp(accG / alpha) << 8 | clamp(accB / alpha);
+    }
+
+    /** Sprite id of the current cell from the view side, 0 if it has none. */
+    private int spriteId(ChunkBlocks blocks) {
+        if (palette == null || blocks.faceGeneration != palette.generation) {
+            return 0;
+        }
+        return blocks.spriteId(cellIndex, projection.rotation);
+    }
+
+    /**
+     * The block as the game draws it, seen along this ray: its sprite's pixel at the ray's place relative to the
+     * block's center.
+     *
+     * @return true when the ray stops here
+     */
+    private boolean sprite(int id, BlockLooks.Look look, int x, int y, int z, double t, int lightHere) {
+        if (id == FacePalette.EMPTY) {
+            return false;
+        }
+        FacePalette.Sprite sprite = palette.sprite(id);
+        if (sprite == null) {
+            return false;
+        }
+        double du = rayU - projection.u(x + 0.5, z + 0.5);
+        double dv = rayV - projection.v(x + 0.5, y + 0.5, z + 0.5);
+        int pixel = sprite.texel((du + 1) / 2, (dv + 1) / 2, spriteMip);
+        int pixelAlpha = pixel >>> 24;
+        if (pixelAlpha < (look.translucent ? 8 : 128)) {
+            return false;
+        }
+        hit(1, t);
+        float alpha = look.translucent ? Math.max(0.3f, pixelAlpha / 255f) : 1f;
+        // Sides are already shaded as the game shades them; only the light of the place is added.
+        addLit(pixel & 0xFFFFFF, 1f, lightHere, alpha);
+        return transmit < 0.02;
     }
 
     /**
@@ -264,7 +347,7 @@ final class IsoTracer {
         switch (look.shape) {
             case BlockLooks.SHAPE_BOXES:
                 if (look.opaque) {
-                    face(look, blocks, lx, lz, side, t, x, y, z, previousLight, 1f);
+                    face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                     return true;
                 }
                 return boxes(look, key, blocks, lx, lz, side, t, exit, x, y, z, previousLight, previousKey, look.boxes);
@@ -273,7 +356,7 @@ final class IsoTracer {
                 if (insideLiquid == key) {
                     // Under the surface: the water dims what is behind the farther the ray goes through it, so
                     // it is one smooth body getting deeper blue, not a grid of blocks.
-                    return water && absorb(look, blocks, lx, lz, exit - t);
+                    return water && absorb(look, blocks, lx, lz, exit - t, light(cell));
                 }
                 boolean full = y + 1 <= blocks.yMax && ChunkBlocks.lookKey(blocks.cell(lx, y + 1, lz)) == key;
                 // As high as the game draws it: sources 8/9 of a block, flowing water lower the farther it flows.
@@ -300,7 +383,7 @@ final class IsoTracer {
                 if (boxHit) {
                     insideLiquid = key;
                     if (water && !stop) {
-                        stop = absorb(look, blocks, lx, lz, exit - boxHitT);
+                        stop = absorb(look, blocks, lx, lz, exit - boxHitT, light(cell));
                     }
                 }
                 return stop;
@@ -356,10 +439,10 @@ final class IsoTracer {
             // Two of the same next to each other (glass, water): no face between them.
             return false;
         }
-        return face(look, blocks, lx, lz, bestSide, bestT, x, y, z, previousLight, 1f);
+        return face(look, blocks, lx, lz, bestSide, bestT, x, y, z, previousLight);
     }
 
-    /** Planes of plants, rails, panes, vines: the nearest one whose texture isn't see-through there. */
+    /** Planes of plants, crops, vines, ladders: the nearest one whose texture isn't see-through there. */
     private boolean planes(BlockLooks.Look look, ChunkBlocks blocks, int cell, int lx, int lz, double t, double exit,
         int x, int y, int z) {
         double dx = projection.rayX, dy = projection.rayY, dz = projection.rayZ;
@@ -424,18 +507,18 @@ final class IsoTracer {
             return false;
         }
         hit(bestSide, bestT);
-        float shade = bestSide == 1 ? 1f : 0.9f;
-        add(bestColor, shade * LIGHT[light(cell)], 1f);
+        addLit(bestColor, bestSide == 1 ? 1f : 0.9f, light(cell), 1f);
         return transmit < 0.02;
     }
 
     /**
      * Shows the side of the block where the ray hits it at {@code hitT}.
      *
+     * @param light light in front of the side, packed like {@link #light}
      * @return true when the ray stops here
      */
     private boolean face(BlockLooks.Look look, ChunkBlocks blocks, int lx, int lz, int side, double hitT, int x, int y,
-        int z, int lightLevel, float extraShade) {
+        int z, int light) {
         double px = ox + projection.rayX * hitT - x;
         double py = oy + projection.rayY * hitT - y;
         double pz = oz + projection.rayZ * hitT - z;
@@ -463,29 +546,12 @@ final class IsoTracer {
                 texV = 1 - py;
                 break;
         }
-        float shade = SIDE_SHADE[side] * LIGHT[lightLevel] * extraShade;
         if (look.shape == BlockLooks.SHAPE_LIQUID && look.translucent) {
             // The water's surface: its average color, a thin veil over what is below (see absorb).
             int color = tinted(look, blocks, lx, lz, side, look.textures[side].texel(0, 0, 4), texU, texV);
             hit(side, hitT);
-            add(color, shade, WATER_SURFACE);
+            addLit(color, SIDE_SHADE[side], light, WATER_SURFACE);
             return transmit < 0.02;
-        }
-        BlockLooks.Texture picture = picture(blocks, side);
-        if (picture != null) {
-            // As the game draws this block here (connected textures, tile entities): colors and tint included.
-            int pixel = picture.texel(texU, texV, mip);
-            int pixelAlpha = pixel >>> 24;
-            if (pixelAlpha < (look.translucent ? 8 : 128) && !look.opaque) {
-                return false;
-            }
-            if (pixelAlpha > 0 || !look.opaque) {
-                float alpha = look.translucent ? Math.max(0.3f, pixelAlpha / 255f) : 1f;
-                hit(side, hitT);
-                add(pixel & 0xFFFFFF, shade, alpha);
-                return transmit < 0.02;
-            }
-            // An empty spot on a solid block: its icon instead.
         }
         BlockLooks.Texture texture = look.textures[side];
         int texel = texture.texel(texU, texV, mip);
@@ -502,17 +568,8 @@ final class IsoTracer {
         }
         hit(side, hitT);
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
-        add(color, shade, alpha);
+        addLit(color, SIDE_SHADE[side], light, alpha);
         return transmit < 0.02;
-    }
-
-    /** The picture of this side of the current cell taken in the game, or null if it is drawn from its icon. */
-    private BlockLooks.Texture picture(ChunkBlocks blocks, int side) {
-        if (palette == null || cellIndex < 0 || blocks.faceGeneration != palette.generation) {
-            return null;
-        }
-        int id = blocks.faceId(cellIndex, side);
-        return id > 0 ? palette.texture(id) : null;
     }
 
     /**
@@ -520,12 +577,12 @@ final class IsoTracer {
      *
      * @return true when nothing behind can be seen any more
      */
-    private boolean absorb(BlockLooks.Look look, ChunkBlocks blocks, int lx, int lz, double length) {
+    private boolean absorb(BlockLooks.Look look, ChunkBlocks blocks, int lx, int lz, double length, int light) {
         if (length <= 0) {
             return false;
         }
         int color = tinted(look, blocks, lx, lz, 1, look.textures[1].texel(0, 0, 4), 0, 0);
-        add(color, WATER_DEPTH_SHADE, (float) (1 - Math.exp(-WATER_ABSORPTION * length)));
+        addLit(color, WATER_DEPTH_SHADE, light, (float) (1 - Math.exp(-WATER_ABSORPTION * length)));
         return transmit < 0.02;
     }
 
@@ -591,18 +648,37 @@ final class IsoTracer {
         }
     }
 
-    /** Adds a surface seen through what is in front of it. */
-    private void add(int rgb, float shade, float alpha) {
-        double weight = transmit * alpha * shade;
-        accR += ((rgb >> 16) & 0xFF) * weight;
-        accG += ((rgb >> 8) & 0xFF) * weight;
-        accB += (rgb & 0xFF) * weight;
+    /**
+     * Adds a surface lit by the light of its place: by day the brighter of sky and block light; at night the sky
+     * gives little (moonlight) and block light shows warm.
+     *
+     * @param light sky light << 4 | block light
+     */
+    private void addLit(int rgb, float shade, int light, float alpha) {
+        int sky = light >> 4, block = light & 15;
+        int nightSky = Math.max(0, sky - NIGHT_SKY_DROP);
+        int night = Math.max(nightSky, block);
+        float warmth = block > nightSky ? Math.min(1f, (block - nightSky) / 6f) : 0f;
+        add(rgb, shade * LIGHT[Math.max(sky, block)], shade * NIGHT_LIGHT[night], warmth, alpha);
+    }
+
+    /** Adds a surface seen through what is in front of it, by day and by night. */
+    private void add(int rgb, float dayShade, float nightShade, float warmth, float alpha) {
+        int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        double weight = transmit * alpha;
+        accR += r * weight * dayShade;
+        accG += g * weight * dayShade;
+        accB += b * weight * dayShade;
+        double night = weight * nightShade;
+        nightR += r * night * (MOON[0] + (WARM[0] - MOON[0]) * warmth);
+        nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
+        nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
         transmit *= 1 - alpha;
     }
 
-    /** Day light of a cell: the brighter of sky and block light. */
+    /** Light of a cell: sky light << 4 | block light. */
     private static int light(int cell) {
-        return Math.max(ChunkBlocks.skyLight(cell), ChunkBlocks.blockLight(cell));
+        return ChunkBlocks.skyLight(cell) << 4 | ChunkBlocks.blockLight(cell);
     }
 
     private static int multiply(int color, int tint) {

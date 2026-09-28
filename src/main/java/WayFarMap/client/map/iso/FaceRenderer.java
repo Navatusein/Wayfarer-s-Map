@@ -1,6 +1,7 @@
 package WayFarMap.client.map.iso;
 
 import java.lang.reflect.Method;
+import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -29,37 +30,27 @@ import org.lwjgl.opengl.GL12;
 import WayFarMap.WayFarMap;
 
 /**
- * Takes pictures of block sides as the game draws them in place, for blocks the 3D map can't draw from their icon:
- * connected textures (Chisel), tile entities with their own renderer (chests, signs, heads, modded machines), modded
- * block renderers, machine fronts and other sides that depend on the world. Each block is drawn by the game's own
- * renderer into an off-screen buffer, looking straight at each of its six sides, with the world around it (so
- * connected textures connect) and without lighting; the tracer then shows these pictures on the block's sides.
+ * Takes sprites of blocks as the game draws them in place, for blocks the 3D map can't draw by itself: connected
+ * textures (Chisel), tile entities with their own renderer (chests, signs, heads, modded machines), GregTech pipes and
+ * cables, crops on sticks, beds, rails, redstone, fences, modded block renderers, machine fronts and other sides that
+ * depend on the world. Each block is drawn by the game's own renderers into an off-screen buffer, from exactly the
+ * direction the 3D map looks from (one sprite per view side), with the world around it (so connected textures
+ * connect and pipes join) and without lighting; the tracer shows the sprite's pixel where its ray meets the block.
  * Render thread only.
  */
 final class FaceRenderer {
 
-    /** Picture size, and the buffer: 16x16 pictures, 256 of them per read back. */
-    private static final int SLOT = 16, SIZE = 256, SLOTS = (SIZE / SLOT) * (SIZE / SLOT);
-    /** Brightness the game gives each side; taken out again, the tracer shades sides itself. */
-    private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
+    /** Sprite size, and the buffer: 256 sprites per read back. */
+    private static final int SLOT = FacePalette.SIZE, SIZE = 512, PER_ROW = SIZE / SLOT, SLOTS = PER_ROW * PER_ROW;
     private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
         { 1, 0, 0 } };
-    /**
-     * Per side, the camera: from the block (relative to its center) to eye coordinates, the side being the near
-     * plane and its picture laid out like the tracer reads it (row-major 3x4: x, y, z rows with a translation).
-     */
-    private static final float[][] VIEWS = { { 1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, -0.5f }, // down
-        { 1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, -0.5f }, // up
-        { -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, -0.5f }, // north
-        { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -0.5f }, // south
-        { 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -0.5f }, // west
-        { 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, -0.5f } }; // east
 
     private static Framebuffer framebuffer;
     private static IntBuffer readBuffer;
     private static FloatBuffer matrixBuffer;
+    private static DoubleBuffer planeBuffer;
     private static boolean broken;
-    /** Pictures of blocks without a tile entity, by block and everything around it. */
+    /** Sprites of blocks without a tile entity, by block and everything around it. */
     private static final Map<Long, int[]> BY_SURROUNDINGS = new HashMap<>();
     private static int cacheGeneration;
     /** Whether a block class draws sides depending on the world (overrides the world-aware getIcon). */
@@ -67,40 +58,37 @@ final class FaceRenderer {
 
     private FaceRenderer() {}
 
-    /** A block to take pictures of. */
+    /** A block to take sprites of. */
     private static final class Pending {
 
         final int cellIndex, x, y, z;
         final Block block;
         final TileEntity tileEntity;
-        final boolean ownRenderer;
         final long surroundings;
-        final int[] ids = new int[6];
+        final int[] ids = new int[ChunkBlocks.VIEWS];
 
-        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, boolean ownRenderer,
-            long surroundings) {
+        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings) {
             this.cellIndex = cellIndex;
             this.x = x;
             this.y = y;
             this.z = z;
             this.block = block;
             this.tileEntity = tileEntity;
-            this.ownRenderer = ownRenderer;
             this.surroundings = surroundings;
         }
     }
 
-    /** Whether pictures can be taken (off-screen buffers are available and nothing went wrong). */
+    /** Whether sprites can be taken (off-screen buffers are available and nothing went wrong). */
     static boolean available() {
         return !broken && OpenGlHelper.isFramebufferEnabled();
     }
 
-    /** Resource packs changed: pictures are taken again. */
+    /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
     }
 
-    /** Finds the chunk's blocks that need pictures, takes them and stores their ids in {@code blocks}. */
+    /** Finds the chunk's blocks that need sprites, takes them and stores their ids in {@code blocks}. */
     static void addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette) {
         if (!available()) {
             return;
@@ -121,7 +109,7 @@ final class FaceRenderer {
             }
             int key = ChunkBlocks.lookKey(cell);
             BlockLooks.Look look = BlockLooks.get(key);
-            if (look.shape != BlockLooks.SHAPE_BOXES) {
+            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID) {
                 continue;
             }
             Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
@@ -159,13 +147,14 @@ final class FaceRenderer {
             if (!needed) {
                 continue;
             }
+            // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
             long surroundings = tileEntity != null ? 0 : surroundings(world, block, x, y, z);
-            Pending pending = new Pending(i, x, y, z, block, tileEntity, ownRenderer, surroundings);
+            Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings);
             found.add(pending);
             if (tileEntity == null) {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
                 if (known != null) {
-                    System.arraycopy(known, 0, pending.ids, 0, 6);
+                    System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
                     continue;
                 }
                 List<Pending> same = waiting.get(surroundings);
@@ -174,15 +163,14 @@ final class FaceRenderer {
                     same.add(pending);
                     continue;
                 }
-                same = new ArrayList<>();
-                waiting.put(surroundings, same);
+                waiting.put(surroundings, new ArrayList<>());
             }
             toDraw.add(pending);
         }
         if (found.isEmpty()) {
             return;
         }
-        int perBatch = SLOTS / 6;
+        int perBatch = SLOTS / ChunkBlocks.VIEWS;
         for (int from = 0; from < toDraw.size() && !broken; from += perBatch) {
             List<Pending> batch = toDraw.subList(from, Math.min(toDraw.size(), from + perBatch));
             draw(world, batch, palette);
@@ -192,7 +180,7 @@ final class FaceRenderer {
                     List<Pending> same = waiting.get(pending.surroundings);
                     if (same != null) {
                         for (Pending other : same) {
-                            System.arraycopy(pending.ids, 0, other.ids, 0, 6);
+                            System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
                         }
                     }
                 }
@@ -202,11 +190,11 @@ final class FaceRenderer {
             return;
         }
         int[] faceCells = new int[found.size()];
-        int[] ids = new int[found.size() * 6];
+        int[] ids = new int[found.size() * ChunkBlocks.VIEWS];
         for (int n = 0; n < found.size(); n++) {
             Pending pending = found.get(n);
             faceCells[n] = pending.cellIndex;
-            System.arraycopy(pending.ids, 0, ids, n * 6, 6);
+            System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.VIEWS, ChunkBlocks.VIEWS);
         }
         blocks.setFaces(palette.generation, faceCells, ids);
     }
@@ -238,9 +226,6 @@ final class FaceRenderer {
     /** Whether any open side of the block shows another icon in the world than its plain icon for the metadata. */
     private static boolean sidesDependOnWorld(IBlockAccess world, Block block, int meta, int x, int y, int z,
         int exposed) {
-        if (!overridesWorldIcon(block.getClass())) {
-            return false;
-        }
         try {
             for (int side = 0; side < 6; side++) {
                 if ((exposed & 1 << side) != 0 && block.getIcon(world, x, y, z, side) != block.getIcon(side, meta)) {
@@ -278,7 +263,7 @@ final class FaceRenderer {
         return overrides;
     }
 
-    /** Hash of the block and the 26 around it (connected textures depend on them), with its icons in place. */
+    /** Hash of the block and the 26 around it (connections depend on them), with its icons in place. */
     private static long surroundings(World world, Block block, int x, int y, int z) {
         long h = 0xCBF29CE484222325L;
         for (int dy = -1; dy <= 1; dy++) {
@@ -305,7 +290,7 @@ final class FaceRenderer {
         return h;
     }
 
-    /** Draws the blocks' six sides into the buffer, reads it back and stores the pictures in the palette. */
+    /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
@@ -321,6 +306,7 @@ final class FaceRenderer {
                 framebuffer = new Framebuffer(SIZE, SIZE, true);
                 readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
                 matrixBuffer = BufferUtils.createFloatBuffer(16);
+                planeBuffer = BufferUtils.createDoubleBuffer(4);
             }
             framebuffer.bindFramebuffer(true);
             bound = true;
@@ -333,21 +319,27 @@ final class FaceRenderer {
             GL11.glDisable(GL11.GL_TEXTURE_2D);
             OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
             GL11.glEnable(GL11.GL_TEXTURE_2D);
-            // Smooth lighting would darken corners by the light around; the pictures are taken unlit.
+            // Smooth lighting would darken corners by the light around; the sprites are taken unlit.
             mc.gameSettings.ambientOcclusion = 0;
             RenderBlocks renderBlocks = new RenderBlocks(world);
 
             int slot = 0;
             for (Pending pending : batch) {
-                for (int side = 0; side < 6; side++, slot++) {
-                    GL11.glViewport((slot % (SIZE / SLOT)) * SLOT, (slot / (SIZE / SLOT)) * SLOT, SLOT, SLOT);
+                for (int rotation = 0; rotation < ChunkBlocks.VIEWS; rotation++, slot++) {
+                    GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, SLOT, SLOT);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
                     GL11.glLoadIdentity();
-                    GL11.glOrtho(-0.5, 0.5, -0.5, 0.5, -0.01, 1.01);
+                    // Two blocks of the projection plane around the block's center, like the tracer reads it.
+                    GL11.glOrtho(-1, 1, -1, 1, -2, 2);
                     GL11.glMatrixMode(GL11.GL_MODELVIEW);
-                    loadView(side);
+                    loadView(IsoProjection.of(rotation));
                     GL11.glTranslated(-(pending.x + 0.5), -(pending.y + 0.5), -(pending.z + 0.5));
-                    // Again for every picture: a tile entity renderer may have changed any of it.
+                    // Only what is inside the block's column: not the other half of a double chest, not neighbours.
+                    clip(0, 1, 0, -pending.x);
+                    clip(1, -1, 0, pending.x + 1);
+                    clip(2, 0, 1, -pending.z);
+                    clip(3, 0, -1, pending.z + 1);
+                    // Again for every sprite: a tile entity renderer may have changed any of it.
                     GL11.glDisable(GL11.GL_CULL_FACE);
                     GL11.glDisable(GL11.GL_LIGHTING);
                     GL11.glDisable(GL11.GL_FOG);
@@ -362,6 +354,9 @@ final class FaceRenderer {
                     drawBlock(mc, renderBlocks, tessellator, pending);
                 }
             }
+            for (int plane = 0; plane < 4; plane++) {
+                GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
+            }
             readBuffer.clear();
             GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
             int[] all = new int[SIZE * SIZE];
@@ -369,23 +364,19 @@ final class FaceRenderer {
             slot = 0;
             int[] image = new int[FacePalette.PIXELS];
             for (Pending pending : batch) {
-                for (int side = 0; side < 6; side++, slot++) {
-                    int sx = (slot % (SIZE / SLOT)) * SLOT, sy = (slot / (SIZE / SLOT)) * SLOT;
-                    float shade = pending.ownRenderer ? 1f : SIDE_SHADE[side];
+                for (int rotation = 0; rotation < ChunkBlocks.VIEWS; rotation++, slot++) {
+                    int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
                     for (int row = 0; row < SLOT; row++) {
-                        // Read back bottom-up; pictures are top-down.
-                        int from = (sy + SLOT - 1 - row) * SIZE + sx;
-                        for (int column = 0; column < SLOT; column++) {
-                            image[row * SLOT + column] = unshade(all[from + column], shade);
-                        }
+                        // Read back bottom-up; sprites are top-down.
+                        System.arraycopy(all, (sy + SLOT - 1 - row) * SIZE + sx, image, row * SLOT, SLOT);
                     }
-                    pending.ids[side] = palette.idOf(image);
+                    pending.ids[rotation] = palette.idOf(image);
                 }
             }
         } catch (Throwable t) {
-            // Something in this driver or a mod's renderer does not like this: pictures are not taken any more.
+            // Something in this driver or a mod's renderer does not like this: sprites are not taken any more.
             broken = true;
-            WayFarMap.LOG.warn("The 3D map can't take pictures of blocks; it uses their icons instead", t);
+            WayFarMap.LOG.warn("The 3D map can't take sprites of blocks; it uses their icons instead", t);
         } finally {
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
             if (bound) {
@@ -397,6 +388,18 @@ final class FaceRenderer {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
         }
+    }
+
+    /** Keeps what is on the positive side of a vertical plane: a * x + b * z + d >= 0 (world coordinates). */
+    private static void clip(int plane, double a, double b, double d) {
+        planeBuffer.clear();
+        planeBuffer.put(a)
+            .put(0)
+            .put(b)
+            .put(d);
+        planeBuffer.flip();
+        GL11.glClipPlane(GL11.GL_CLIP_PLANE0 + plane, planeBuffer);
+        GL11.glEnable(GL11.GL_CLIP_PLANE0 + plane);
     }
 
     /** The block as the world draws it, then its tile entity and those next to it (a double chest's other half). */
@@ -447,38 +450,28 @@ final class FaceRenderer {
         }
     }
 
-    private static void loadView(int side) {
-        float[] m = VIEWS[side];
+    /**
+     * The 3D map's camera for a view side: eye x is the projection plane's u (right), eye y is -v (up on screen),
+     * eye z points back toward the viewer (along the rays, reversed).
+     */
+    private static void loadView(IsoProjection p) {
+        double sin = IsoProjection.SIN, cos = IsoProjection.COS;
+        // Rows of the rotation: right, up, back.
+        double[][] rows = { { p.rightX, 0, p.rightZ }, { -sin * p.towardX, cos, -sin * p.towardZ },
+            { cos * p.towardX, sin, cos * p.towardZ } };
         matrixBuffer.clear();
         // Column-major.
-        matrixBuffer.put(m[0])
-            .put(m[4])
-            .put(m[8])
-            .put(0f);
-        matrixBuffer.put(m[1])
-            .put(m[5])
-            .put(m[9])
-            .put(0f);
-        matrixBuffer.put(m[2])
-            .put(m[6])
-            .put(m[10])
-            .put(0f);
-        matrixBuffer.put(m[3])
-            .put(m[7])
-            .put(m[11])
+        for (int column = 0; column < 3; column++) {
+            matrixBuffer.put((float) rows[0][column])
+                .put((float) rows[1][column])
+                .put((float) rows[2][column])
+                .put(0f);
+        }
+        matrixBuffer.put(0f)
+            .put(0f)
+            .put(0f)
             .put(1f);
         matrixBuffer.flip();
         GL11.glLoadMatrix(matrixBuffer);
-    }
-
-    /** Takes the game's side shading out of a pixel, so the tracer can shade it by its own light. */
-    private static int unshade(int argb, float shade) {
-        if (shade >= 1f || (argb >>> 24) == 0) {
-            return argb;
-        }
-        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) / shade + 0.5f));
-        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) / shade + 0.5f));
-        int b = Math.min(255, (int) ((argb & 0xFF) / shade + 0.5f));
-        return argb & 0xFF000000 | r << 16 | g << 8 | b;
     }
 }

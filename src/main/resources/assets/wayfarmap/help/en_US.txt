@@ -89,10 +89,10 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
 
 # Map view
-- §bDay§r / §bNight§r — force a bright or dark map
+- §bDay§r / §bNight§r — force a bright or dark map; at night places lit by torches, lamps and lava glow
 - Both off — the map §ffollows the time of day§r
 - §bGrid§r — the 16×16 chunk grid
-- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures and tile entities (chests, signs, machines) as the game draws them, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
+- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
 - §bMobs§r — a menu: §fshow all§r, §fshow friendly only§r, §fshow hostile only§r or §fhide all§r. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
