@@ -129,6 +129,14 @@ final class FacePalette {
     /** Ids in memory, oldest first, and the bytes they take. */
     private final ArrayDeque<Integer> loaded = new ArrayDeque<>();
     private long loadedBytes;
+    /**
+     * New sprites not in the file yet may take at most this much memory; beyond it none are added (those blocks are
+     * drawn from their icons) until the file caught up.
+     */
+    private static final long UNSAVED_LIMIT = 256L << 20;
+    /** Bytes of the pixels of sprites not in the file yet. */
+    private volatile long unsavedBytes;
+
     /** Sprites already in the file, and where the last of them ends. */
     private int saved;
     private long fileEnd;
@@ -230,9 +238,19 @@ final class FacePalette {
                 return id;
             }
         }
+        if (unsavedBytes > UNSAVED_LIMIT) {
+            // The file hasn't caught up: no new sprites until it has, rather than run out of memory.
+            return 0;
+        }
         Entry entry = new Entry(hash, sideOf(image.length));
         entry.pixels = image.clone();
+        unsavedBytes += image.length * 4L;
         return add(entry);
+    }
+
+    /** Memory taken by sprites not in the file yet, in bytes. */
+    long unsavedBytes() {
+        return unsavedBytes;
     }
 
     /** The sprite with its reduced copies, or null for an unknown id. Any thread. */
@@ -411,6 +429,7 @@ final class FacePalette {
                     entry.offset = offsets[i];
                     entry.length = lengths[i];
                     // In the file now: memory can let it go.
+                    unsavedBytes -= entry.pixels.length * 4L;
                     entry.pixels = null;
                 }
                 saved = from + added.size();

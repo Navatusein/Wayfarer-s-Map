@@ -14,8 +14,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 
@@ -37,9 +38,14 @@ public final class IsoMap implements BlockStore.Listener {
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
-    private static final long CAPTURE_BUDGET_NANOS = 4_000_000L;
-    /** A chunk is copied again at most this often while the player stays near it. */
-    private static final long RECAPTURE_MS = 10_000;
+    private static final long CAPTURE_BUDGET_NANOS = 3_000_000L;
+    /**
+     * A chunk is copied again at most this often while the player is near it (building changes it), and farther
+     * away only now and then: copying every loaded chunk again and again costs frames while flying around.
+     */
+    private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000;
+    /** Chunks from the player that count as near. */
+    private static final int NEAR_CHUNKS = 2;
     /** Time per frame the render thread spends working out block looks for the renderers. */
     private static final long LOOK_BUDGET_NANOS = 6_000_000L;
 
@@ -156,6 +162,26 @@ public final class IsoMap implements BlockStore.Listener {
 
     // ---------------------------------------------------------------- recording blocks while playing
 
+    /** Pictures not in the file yet, in bytes, that start saving them. */
+    private static final long PICTURES_TO_SAVE = 48L << 20;
+    private volatile boolean savingPictures;
+
+    /** Many new pictures (flying over new land): written now, so they don't pile up in memory. */
+    private void savePicturesIfMany() {
+        FacePalette pictures = palette;
+        if (pictures == null || savingPictures || pictures.unsavedBytes() < PICTURES_TO_SAVE) {
+            return;
+        }
+        savingPictures = true;
+        writer.submit(() -> {
+            try {
+                pictures.save();
+            } finally {
+                savingPictures = false;
+            }
+        });
+    }
+
     /** Called once per client tick (render thread): copies the chunks that are due, for a few milliseconds. */
     public void tick(World world) {
         BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
@@ -168,15 +194,19 @@ public final class IsoMap implements BlockStore.Listener {
             freshQueue.clear();
             return;
         }
+        savePicturesIfMany();
         long end = System.nanoTime() + CAPTURE_BUDGET_NANOS;
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
     }
 
-    /** Copies chunks from the queue until the time is up. */
+    /**
+     * Copies chunks from the queue until the time is up. The first one is taken anew each time: copying a chunk may
+     * put chunks in the queues (one whose pictures weren't all taken in time goes back).
+     */
     private void captureFrom(World world, LinkedHashSet<Long> queue, long end) {
-        Iterator<Long> it = queue.iterator();
-        while (it.hasNext() && System.nanoTime() < end) {
+        while (!queue.isEmpty() && System.nanoTime() < end) {
+            Iterator<Long> it = queue.iterator();
             long key = it.next();
             it.remove();
             int cx = (int) (key >> 32), cz = (int) key;
@@ -186,8 +216,45 @@ public final class IsoMap implements BlockStore.Listener {
             }
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk != null && !chunk.isEmpty()) {
-                capture(world, chunk);
+                if (!capture(world, chunk, false, end)) {
+                    // Its other pictures are taken in the next ticks (the ones taken are kept).
+                    captureQueue.add(key);
+                }
             }
+        }
+    }
+
+    /**
+     * A chunk is let go by the game (render thread). If it stays at the edge of the explored map (a chunk next to it
+     * has no blocks), it is copied whole, down to the bottom of the world: the edge of the 3D map then shows the real
+     * ground. Only the chunks left at the edge are kept this way.
+     */
+    public void onChunkUnload(World world, Chunk chunk) {
+        if (!Config.record3d || writer == null || chunk.isEmpty()
+            || world.provider.dimensionId != lastCaptureDimension) {
+            return;
+        }
+        Dimension dimension = dimension(world.provider.dimensionId);
+        if (dimension == null) {
+            return;
+        }
+        int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+        boolean edge = false;
+        for (int[] side : sides) {
+            int cx = chunk.xPosition + side[0], cz = chunk.zPosition + side[1];
+            if (dimension.store.time(cx, cz) == 0 && !world.getChunkProvider()
+                .chunkExists(cx, cz)) {
+                edge = true;
+                break;
+            }
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        freshQueue.remove(key);
+        captureQueue.remove(key);
+        boolean keptWhole = dimension.store.time(chunk.xPosition, chunk.zPosition) != 0
+            && dimension.store.bottom(chunk.xPosition, chunk.zPosition) == 0;
+        if (edge && !keptWhole) {
+            capture(world, chunk, true, Long.MAX_VALUE);
         }
     }
 
@@ -209,37 +276,47 @@ public final class IsoMap implements BlockStore.Listener {
             freshQueue.add(key);
             return;
         }
-        if (System.currentTimeMillis() - last < RECAPTURE_MS || freshQueue.contains(key)) {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        boolean near = player != null
+            && Math.abs(chunk.xPosition - MathHelper.floor_double(player.posX / 16)) <= NEAR_CHUNKS
+            && Math.abs(chunk.zPosition - MathHelper.floor_double(player.posZ / 16)) <= NEAR_CHUNKS;
+        if (System.currentTimeMillis() - last < (near ? RECAPTURE_MS : FAR_RECAPTURE_MS)
+            || freshQueue.contains(key)) {
             return;
         }
         captureQueue.add(key);
     }
 
-    private void capture(World world, Chunk chunk) {
+    /**
+     * Copies the chunk's blocks and stores them in the background.
+     *
+     * @param whole    down to the bottom of the world (see {@link #onChunkUnload})
+     * @param deadline {@link System#nanoTime()} after which no more pictures are taken
+     * @return false if some pictures are still to be taken (the chunk should be copied again soon)
+     */
+    private boolean capture(World world, Chunk chunk, boolean whole, long deadline) {
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
-            return;
+            return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        boolean first = lastCapture.put(key, System.currentTimeMillis()) == null;
+        lastCapture.put(key, System.currentTimeMillis());
         if (lastCapture.size() > 50_000) {
             lastCapture.clear();
         }
-        if (first) {
-            requeueEdgeNeighbours(world, dimension, chunk);
-        }
         ChunkBlocks blocks;
+        boolean complete = true;
         try {
-            blocks = BlockCapture.capture(world, chunk);
+            blocks = BlockCapture.capture(world, chunk, whole);
             if (blocks != null && palette != null) {
-                FaceRenderer.addFaces(world, chunk, blocks, palette);
+                complete = FaceRenderer.addFaces(world, chunk, blocks, palette, deadline);
             }
         } catch (RuntimeException e) {
             WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);
-            return;
+            return true;
         }
         if (blocks == null) {
-            return;
+            return true;
         }
         int cx = chunk.xPosition, cz = chunk.zPosition;
         writer.submit(() -> {
@@ -249,28 +326,7 @@ public final class IsoMap implements BlockStore.Listener {
                 WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
             }
         });
-    }
-
-    /**
-     * A chunk came into view: neighbours kept whole because they were at the edge (see {@link BlockCapture}) may not
-     * be at the edge anymore; they are copied again (thin, if so) once they have all their neighbours.
-     */
-    private void requeueEdgeNeighbours(World world, Dimension dimension, Chunk chunk) {
-        // In a world without ground at the bottom (personal worlds, the End) every chunk is kept whole anyway.
-        if (world.getBlock(chunk.xPosition * 16, 0, chunk.zPosition * 16)
-            .getMaterial() == Material.air) {
-            return;
-        }
-        int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
-        for (int[] side : sides) {
-            int cx = chunk.xPosition + side[0], cz = chunk.zPosition + side[1];
-            if (dimension.store.time(cx, cz) != 0 && dimension.store.bottom(cx, cz) == 0) {
-                long neighbour = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
-                if (!freshQueue.contains(neighbour)) {
-                    captureQueue.add(neighbour);
-                }
-            }
-        }
+        return complete;
     }
 
     /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */

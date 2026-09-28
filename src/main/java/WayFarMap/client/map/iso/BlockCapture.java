@@ -63,8 +63,11 @@ final class BlockCapture {
         return 256;
     }
 
-    /** @return the chunk's blocks, or null if it has nothing to show */
-    static ChunkBlocks capture(World world, Chunk chunk) {
+    /**
+     * @param whole down to the bottom of the world (a chunk left at the edge of the map, whose side shows)
+     * @return the chunk's blocks, or null if it has nothing to show
+     */
+    static ChunkBlocks capture(World world, Chunk chunk, boolean whole) {
         boolean noSky = world.provider.hasNoSky;
         int top = chunk.getTopFilledSegment() + 15;
         if (top < 0) {
@@ -131,9 +134,9 @@ final class BlockCapture {
             yMin = Math.max(neighbourFloor, yMin - MAX_EXTRA_DEPTH);
         }
         int picturesFrom = yMin;
-        // At the edge of what is loaded the 3D map shows the chunk's side, all the way down: the whole chunk is
-        // kept, so the edge shows the real ground (layers, ores, caves). Copied again once the neighbour is there.
-        if (atEdge(world, chunk)) {
+        // At the edge of the explored map the 3D map shows the chunk's side, all the way down: the whole chunk is
+        // kept, so the edge shows the real ground (layers, ores, caves).
+        if (whole) {
             yMin = 0;
         }
         int[] cells = new int[(yMax - yMin + 1) << 8];
@@ -172,22 +175,6 @@ final class BlockCapture {
         return blocks;
     }
 
-    /** Whether a chunk next to it isn't loaded: the chunk is at the edge of the map. */
-    static boolean atEdge(World world, Chunk chunk) {
-        int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
-        for (int[] side : sides) {
-            int cx = chunk.xPosition + side[0], cz = chunk.zPosition + side[1];
-            if (!world.getChunkProvider()
-                .chunkExists(cx, cz)) {
-                return true;
-            }
-            Chunk other = world.getChunkFromChunkCoords(cx, cz);
-            if (other == null || other.isEmpty()) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private interface ColorSource {
 

@@ -139,10 +139,16 @@ final class FaceRenderer {
         BY_PLACE.clear();
     }
 
-    /** Finds the chunk's blocks that need sprites, takes them and stores their ids in {@code blocks}. */
-    static void addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette) {
+    /**
+     * Finds the chunk's blocks that need sprites, takes them and stores their ids in {@code blocks}. Taking pictures
+     * stops once the deadline is past (after at least one batch): the blocks left have none this time.
+     *
+     * @param deadline {@link System#nanoTime()} to stop at
+     * @return false if some pictures weren't taken in time
+     */
+    static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
         if (!available()) {
-            return;
+            return true;
         }
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
@@ -201,7 +207,7 @@ final class FaceRenderer {
                 continue;
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
-            long surroundings = surroundings(world, block, x, y, z);
+            long surroundings = surroundings(world, block, x, y, z, look.opaque);
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
             found.add(pending);
             if (tileEntity != null) {
@@ -228,9 +234,15 @@ final class FaceRenderer {
             toDraw.add(pending);
         }
         if (found.isEmpty()) {
-            return;
+            return true;
         }
+        boolean complete = true;
         for (int from = 0; from < toDraw.size() && !broken;) {
+            if (from > 0 && System.nanoTime() > deadline) {
+                // The rest another time; the pictures taken so far are kept in the caches.
+                complete = false;
+                break;
+            }
             // As many blocks as their pictures fit in the buffer.
             int to = from, slots = 0;
             while (to < toDraw.size() && slots + toDraw.get(to)
@@ -242,6 +254,10 @@ final class FaceRenderer {
             from = to;
             draw(world, batch, palette);
             for (Pending pending : batch) {
+                if (missing(pending)) {
+                    // Not taken (no room for new pictures now): taken again next time, not remembered as none.
+                    continue;
+                }
                 if (pending.tileEntity != null) {
                     if (BY_PLACE.size() > 100_000) {
                         BY_PLACE.clear();
@@ -265,7 +281,7 @@ final class FaceRenderer {
             }
         }
         if (broken) {
-            return;
+            return true;
         }
         int[] faceCells = new int[found.size()];
         int[] ids = new int[found.size() * ChunkBlocks.PER_CELL];
@@ -275,6 +291,7 @@ final class FaceRenderer {
             System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
         }
         blocks.setFaces(palette.generation, faceCells, ids);
+        return complete;
     }
 
     private static long place(int x, int y, int z) {
@@ -345,22 +362,26 @@ final class FaceRenderer {
         return overrides;
     }
 
-    /** Hash of the block and the 26 around it (connections depend on them), with its icons in place. */
-    private static long surroundings(World world, Block block, int x, int y, int z) {
+    /**
+     * Hash of what the block's pictures depend on: the block and the blocks around it, its icons in place and its
+     * color there (grass and leaves take the biome's). A cube's sides connect (connected textures) with all 26
+     * blocks around it; other blocks (fences, panes, plants, pipes) with the 6 next to them. Blocks with the same
+     * hash share their pictures, so a meadow of the same flowers is drawn a few times, not once per flower.
+     */
+    private static long surroundings(World world, Block block, int x, int y, int z, boolean cube) {
         long h = 0xCBF29CE484222325L;
-        for (int dy = -1; dy <= 1; dy++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    int ny = y + dy;
-                    int value = 0;
-                    if (ny >= 0 && ny <= 255) {
-                        value = Block.getIdFromBlock(world.getBlock(x + dx, ny, z + dz)) | world.getBlockMetadata(
-                            x + dx,
-                            ny,
-                            z + dz) << 16;
+        if (cube) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        h = (h ^ blockAt(world, x + dx, y + dy, z + dz)) * 0x100000001B3L;
                     }
-                    h = (h ^ value) * 0x100000001B3L;
                 }
+            }
+        } else {
+            h = (h ^ blockAt(world, x, y, z)) * 0x100000001B3L;
+            for (int[] offset : OFFSETS) {
+                h = (h ^ blockAt(world, x + offset[0], y + offset[1], z + offset[2])) * 0x100000001B3L;
             }
         }
         try {
@@ -368,8 +389,17 @@ final class FaceRenderer {
                 IIcon icon = block.getIcon(world, x, y, z, side);
                 h = (h ^ System.identityHashCode(icon)) * 0x100000001B3L;
             }
+            h = (h ^ block.colorMultiplier(world, x, y, z)) * 0x100000001B3L;
         } catch (RuntimeException ignored) {}
         return h;
+    }
+
+    /** Id and metadata of the block at a place, 0 outside the world. */
+    private static int blockAt(World world, int x, int y, int z) {
+        if (y < 0 || y > 255) {
+            return 0;
+        }
+        return Block.getIdFromBlock(world.getBlock(x, y, z)) | world.getBlockMetadata(x, y, z) << 16;
     }
 
     /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
@@ -449,13 +479,15 @@ final class FaceRenderer {
             for (int plane = 0; plane < 4; plane++) {
                 GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
             }
+            // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
+            int usedRows = Math.min(SIZE, (slotsUsed(batch) + PER_ROW - 1) / PER_ROW * SLOT);
             readBuffer.clear();
-            GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
+            GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
             if (readPixels == null) {
                 readPixels = new int[SIZE * SIZE];
             }
             int[] all = readPixels;
-            readBuffer.get(all);
+            readBuffer.get(all, 0, usedRows * SIZE);
             slot = 0;
             int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
             int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
@@ -501,6 +533,24 @@ final class FaceRenderer {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
         }
+    }
+
+    /** Whether a picture of the block wasn't taken (0: the palette had no room, or drawing failed). */
+    private static boolean missing(Pending pending) {
+        for (int view = 0; view < pending.views(); view++) {
+            if (pending.ids[view] == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int slotsUsed(List<Pending> batch) {
+        int slots = 0;
+        for (Pending pending : batch) {
+            slots += pending.views();
+        }
+        return slots;
     }
 
     /** Keeps what is on the positive side of a vertical plane: a * x + b * z + d >= 0 (world coordinates). */

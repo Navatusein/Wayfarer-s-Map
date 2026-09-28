@@ -23,11 +23,13 @@ import net.minecraft.client.resources.IResourceManagerReloadListener;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
+import net.minecraft.world.World;
 import net.minecraft.world.WorldProvider;
 import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
@@ -639,6 +641,15 @@ public class MapManager implements IResourceManagerReloadListener {
             }
         }
         return solid >= UNDERGROUND_ROOF;
+    }
+
+    /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
+    @SubscribeEvent
+    public void onChunkUnload(ChunkEvent.Unload event) {
+        World world = event.world;
+        if (world != null && world.isRemote && world == currentWorld && event.getChunk() != null) {
+            IsoMap.INSTANCE.onChunkUnload(world, event.getChunk());
+        }
     }
 
     @SubscribeEvent
