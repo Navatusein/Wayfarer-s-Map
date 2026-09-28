@@ -3,11 +3,13 @@ package WayFarMap.client.map.iso;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,6 +24,7 @@ import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.map.ChunkScanner;
 
 /**
  * The 3D (isometric) world map, drawn like Dynmap's HD maps from the blocks themselves: while playing, the blocks
@@ -89,6 +92,17 @@ public final class IsoMap implements BlockStore.Listener {
     private final LinkedHashSet<Long> freshQueue = new LinkedHashSet<>();
     /** Pictures of block sides taken from the game (connected textures, tile entities). */
     private FacePalette palette;
+    /** The eight chunks around one, in an order where {@code AROUND[7 - i]} is the opposite of {@code AROUND[i]}. */
+    private static final int[][] AROUND = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 },
+        { 0, 1 }, { 1, 1 } };
+    /**
+     * Chunks copied while some of the chunks around them weren't loaded (bits by {@link #AROUND}): their edge toward
+     * those was drawn as if the world ended there (connected textures, pipes, glass). When one of those arrives, the
+     * chunk is copied again.
+     */
+    private final Map<Long, Integer> partial = new HashMap<>();
+    /** Chunks copied since the game loaded them (last time); let go, they arrive anew when they come back. */
+    private final Set<Long> copiedWhileLoaded = new HashSet<>();
 
     private IsoMap() {}
 
@@ -129,6 +143,8 @@ public final class IsoMap implements BlockStore.Listener {
         lastCapture.clear();
         captureQueue.clear();
         freshQueue.clear();
+        partial.clear();
+        copiedWhileLoaded.clear();
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         palette = null;
@@ -194,6 +210,8 @@ public final class IsoMap implements BlockStore.Listener {
         if (world.provider.dimensionId != lastCaptureDimension) {
             captureQueue.clear();
             freshQueue.clear();
+            partial.clear();
+            copiedWhileLoaded.clear();
             return;
         }
         savePicturesIfMany();
@@ -218,7 +236,7 @@ public final class IsoMap implements BlockStore.Listener {
             }
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk != null && !chunk.isEmpty()) {
-                if (!capture(world, chunk, false, end)) {
+                if (!capture(world, chunk, false, false, end)) {
                     // Its other pictures are taken in the next ticks (the ones taken are kept).
                     captureQueue.add(key);
                 }
@@ -244,6 +262,9 @@ public final class IsoMap implements BlockStore.Listener {
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         // Waiting to be copied (for the first time, or again since it changed).
         boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
+        // Copied again as a new chunk when it comes back.
+        partial.remove(key);
+        copiedWhileLoaded.remove(key);
         if (!mayCopy) {
             // No time left this tick: the 3D map draws this chunk from the flat map.
             return;
@@ -260,13 +281,15 @@ public final class IsoMap implements BlockStore.Listener {
         }
         boolean keptWhole = dimension.store.time(chunk.xPosition, chunk.zPosition) != 0
             && dimension.store.bottom(chunk.xPosition, chunk.zPosition) == 0;
-        // Pictures only for a moment: the chunk goes away, the ones not taken are drawn from icons.
+        // Pictures only for a moment: the chunk goes away.
         long deadline = System.nanoTime() + UNLOAD_PICTURES_NANOS;
+        // The pictures not taken in that moment, and those of its edges toward chunks already let go, are kept from
+        // its copy before (see ChunkBlocks.keepPicturesFrom).
         if (edge && !keptWhole) {
-            capture(world, chunk, true, deadline);
+            capture(world, chunk, true, true, deadline);
         } else if (waiting || !lastCapture.containsKey(key)) {
             // Flying fast, it came and goes before its turn: copied now, while its blocks are still there.
-            capture(world, chunk, false, deadline);
+            capture(world, chunk, false, true, deadline);
         }
     }
 
@@ -280,12 +303,19 @@ public final class IsoMap implements BlockStore.Listener {
             lastCapture.clear();
             captureQueue.clear();
             freshQueue.clear();
+            partial.clear();
+            copiedWhileLoaded.clear();
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         Long last = lastCapture.get(key);
         if (last == null) {
             freshQueue.add(key);
+            return;
+        }
+        if (!copiedWhileLoaded.contains(key)) {
+            // Back after it was let go: copied again soon, so the chunks around it copied without it are too.
+            captureQueue.add(key);
             return;
         }
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
@@ -303,17 +333,25 @@ public final class IsoMap implements BlockStore.Listener {
     /**
      * Copies the chunk's blocks and stores them in the background.
      *
-     * @param whole    down to the bottom of the world (see {@link #onChunkUnload})
-     * @param deadline {@link System#nanoTime()} after which no more pictures are taken
+     * @param whole     down to the bottom of the world (see {@link #onChunkUnload})
+     * @param unloading the chunk is being let go by the game
+     * @param deadline  {@link System#nanoTime()} after which no more pictures are taken
      * @return false if some pictures are still to be taken (the chunk should be copied again soon)
      */
-    private boolean capture(World world, Chunk chunk, boolean whole, long deadline) {
+    private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline) {
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         lastCapture.put(key, System.currentTimeMillis());
+        if (!unloading) {
+            boolean first = copiedWhileLoaded.add(key);
+            if (copiedWhileLoaded.size() > 50_000) {
+                copiedWhileLoaded.clear();
+            }
+            updateNeighbours(world, chunk, key, first);
+        }
         if (lastCapture.size() > 50_000) {
             lastCapture.clear();
         }
@@ -332,14 +370,52 @@ public final class IsoMap implements BlockStore.Listener {
             return true;
         }
         int cx = chunk.xPosition, cz = chunk.zPosition;
+        FacePalette pictures = palette;
         writer.submit(() -> {
             try {
+                if (pictures != null) {
+                    // Pictures this copy lacks, or took without the chunk next door, are kept from the one before.
+                    blocks.keepPicturesFrom(dimension.store.chunk(cx, cz), pictures.generation);
+                }
                 dimension.store.put(cx, cz, blocks);
             } catch (RuntimeException e) {
                 WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
             }
         });
         return complete;
+    }
+
+    /**
+     * Remembers which chunks around this one are missing, and, the first time it is copied (it just arrived), copies
+     * again the chunks around it that were copied without it.
+     */
+    private void updateNeighbours(World world, Chunk chunk, long key, boolean first) {
+        int missing = 0;
+        for (int i = 0; i < AROUND.length; i++) {
+            int cx = chunk.xPosition + AROUND[i][0], cz = chunk.zPosition + AROUND[i][1];
+            boolean ready = ChunkScanner.isChunkReady(world, cx, cz);
+            if (!ready) {
+                missing |= 1 << i;
+                continue;
+            }
+            if (!first) {
+                continue;
+            }
+            long other = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
+            Integer otherMissing = partial.get(other);
+            // This chunk lies at AROUND[7 - i] from the other one.
+            if (otherMissing != null && (otherMissing & 1 << (7 - i)) != 0 && !freshQueue.contains(other)) {
+                captureQueue.add(other);
+            }
+        }
+        if (missing != 0) {
+            if (partial.size() > 50_000) {
+                partial.clear();
+            }
+            partial.put(key, missing);
+        } else {
+            partial.remove(key);
+        }
     }
 
     /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */

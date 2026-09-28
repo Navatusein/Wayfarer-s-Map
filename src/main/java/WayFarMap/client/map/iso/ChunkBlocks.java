@@ -58,6 +58,17 @@ public final class ChunkBlocks {
      * ({@link IsoProjection#rotation}) for other blocks; {@link FacePalette#EMPTY} if nothing of it shows there.
      */
     int[] faceIds = new int[0];
+    /**
+     * Only while copying: no pictures could be taken this time at all (the game can't take them now); the ones of
+     * the copy before are kept.
+     */
+    boolean picturesMissing;
+    /**
+     * Only while copying: cells of {@link #faceCells} (ascending) whose pictures were taken while a chunk next to
+     * them wasn't loaded (connected textures and pipes drawn as if the world ended there); the ones of the copy
+     * before are kept for them.
+     */
+    int[] unsureCells = new int[0];
 
     public ChunkBlocks(int yMin, int yMax, int[] cells, int[] grass, int[] foliage, int[] water) {
         this.yMin = yMin;
@@ -102,6 +113,94 @@ public final class ChunkBlocks {
         faceGeneration = generation;
         faceCells = cells;
         faceIds = ids;
+    }
+
+    /**
+     * Keeps the pictures of the copy before where this copy has none or worse ones: pictures not taken in time (a
+     * chunk copied as it is let go gets only a moment for them), none at all, or taken without the chunk next door.
+     * Without this, a new copy would lose the tile entities and connected textures the one before showed right.
+     * Only for the same block (id and metadata) at the same place, and pictures of the same palette.
+     *
+     * @param old        the chunk's copy stored before, or null
+     * @param generation {@link FacePalette#generation} of the palette in use
+     */
+    void keepPicturesFrom(ChunkBlocks old, int generation) {
+        if (old == null || old.faceGeneration != generation || old.faceCells.length == 0) {
+            return;
+        }
+        if (picturesMissing) {
+            // None were taken: all of the old ones that still fit.
+            int[] cellsKept = new int[old.faceCells.length];
+            int[] idsKept = new int[old.faceIds.length];
+            int n = 0;
+            for (int i = 0; i < old.faceCells.length; i++) {
+                int index = moved(old, old.faceCells[i]);
+                if (index < 0) {
+                    continue;
+                }
+                cellsKept[n] = index;
+                System.arraycopy(old.faceIds, i * PER_CELL, idsKept, n * PER_CELL, PER_CELL);
+                n++;
+            }
+            if (n > 0) {
+                setFaces(generation, Arrays.copyOf(cellsKept, n), Arrays.copyOf(idsKept, n * PER_CELL));
+            }
+            return;
+        }
+        int unsure = 0;
+        for (int n = 0; n < faceCells.length; n++) {
+            int oldIndex = movedBack(old, faceCells[n]);
+            if (oldIndex < 0) {
+                continue;
+            }
+            int j = Arrays.binarySearch(old.faceCells, oldIndex);
+            if (j < 0) {
+                continue;
+            }
+            int at = n * PER_CELL, oldAt = j * PER_CELL;
+            while (unsure < unsureCells.length && unsureCells[unsure] < faceCells[n]) {
+                unsure++;
+            }
+            if (unsure < unsureCells.length && unsureCells[unsure] == faceCells[n] && complete(old.faceIds, oldAt)) {
+                System.arraycopy(old.faceIds, oldAt, faceIds, at, PER_CELL);
+                continue;
+            }
+            for (int slot = 0; slot < PER_CELL; slot++) {
+                if (faceIds[at + slot] == 0) {
+                    faceIds[at + slot] = old.faceIds[oldAt + slot];
+                }
+            }
+        }
+    }
+
+    /** Whether all the pictures of a cell were taken: its four view sides, and a cube's other two sides too. */
+    private static boolean complete(int[] ids, int at) {
+        for (int slot = 0; slot < VIEWS; slot++) {
+            if (ids[at + slot] == 0) {
+                return false;
+            }
+        }
+        return (ids[at + 4] == 0) == (ids[at + 5] == 0);
+    }
+
+    /** Index in this copy of a cell of the old one if it holds the same block, else -1. */
+    private int moved(ChunkBlocks old, int oldIndex) {
+        int y = old.yMin + (oldIndex >> 8);
+        if (y < yMin || y > yMax) {
+            return -1;
+        }
+        int index = ((y - yMin) << 8) | (oldIndex & 255);
+        return lookKey(cells[index]) == lookKey(old.cells[oldIndex]) ? index : -1;
+    }
+
+    /** Index in the old copy of a cell of this one if it holds the same block, else -1. */
+    private int movedBack(ChunkBlocks old, int index) {
+        int y = yMin + (index >> 8);
+        if (y < old.yMin || y > old.yMax) {
+            return -1;
+        }
+        int oldIndex = ((y - old.yMin) << 8) | (index & 255);
+        return lookKey(old.cells[oldIndex]) == lookKey(cells[index]) ? oldIndex : -1;
     }
 
     /**

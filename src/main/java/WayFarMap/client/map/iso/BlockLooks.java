@@ -114,6 +114,8 @@ public final class BlockLooks {
         public int tintColor;
         /** A solid cube that hides everything behind it; the ground under a chunk is made of these. */
         public boolean opaque;
+        /** Fills its whole cell, opaque or not (glass, modded blocks with their own renderer). */
+        public boolean fullCube;
         /** See-through by the texture's alpha (water, ice, stained glass) instead of holes. */
         public boolean translucent;
         /** No faces between two of these next to each other (glass, water). */
@@ -324,6 +326,7 @@ public final class BlockLooks {
         float[] box = renderType != 0 ? new float[] { 0, 0, 0, 1, 1, 1 } : bounds(block, meta);
         boxes(look, box[0], box[1], box[2], box[3], box[4], box[5]);
         boolean full = box[0] <= 0 && box[1] <= 0 && box[2] <= 0 && box[3] >= 1 && box[4] >= 1 && box[5] >= 1;
+        look.fullCube = full;
         look.opaque = full && block.isOpaqueCube() && !look.translucent;
         look.skipSame = !look.opaque && material != Material.leaves;
         return look;
