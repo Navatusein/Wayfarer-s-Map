@@ -40,6 +40,11 @@ public class MapDimension {
         this.loadExecutor = loadExecutor;
     }
 
+    /** Folder of the region files. */
+    public File getDirectory() {
+        return directory;
+    }
+
     private static long key(int rx, int rz) {
         return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
     }

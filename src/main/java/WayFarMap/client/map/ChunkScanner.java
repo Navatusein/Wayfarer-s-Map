@@ -2,6 +2,7 @@ package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
+import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
@@ -87,6 +88,8 @@ public final class ChunkScanner {
                 } else {
                     region.setPixel(baseX + lx, baseZ + lz, argb);
                 }
+                // Torches and other lights: the map glows there at night.
+                region.setLight(baseX + lx, baseZ + lz, y == NO_BLOCK ? 0 : blockLight(chunk, lx, y, lz));
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
                     int biomeArgb = biome == null ? 0 : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
@@ -95,6 +98,14 @@ public final class ChunkScanner {
                 }
             }
         }
+    }
+
+    /** Light from blocks at the surface: in the space above it, or given off by the block itself (lava, glowstone). */
+    private static int blockLight(Chunk chunk, int lx, int y, int lz) {
+        int above = y < 255 ? chunk.getSavedLightValue(EnumSkyBlock.Block, lx, y + 1, lz) : 0;
+        int own = chunk.getBlock(lx, y, lz)
+            .getLightValue();
+        return Math.max(0, Math.min(15, Math.max(above, own)));
     }
 
     private static Chunk neighbour(World world, int cx, int cz) {

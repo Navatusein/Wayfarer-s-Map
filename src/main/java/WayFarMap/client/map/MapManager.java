@@ -23,15 +23,20 @@ import net.minecraft.client.resources.IResourceManagerReloadListener;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
+import net.minecraft.world.World;
 import net.minecraft.world.WorldProvider;
 import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
+import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.map.export.MapExport;
+import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.share.ChunkRecord;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -76,8 +81,8 @@ public class MapManager implements IResourceManagerReloadListener {
     /** The one of {@link #others} shown on the world map, or null to show the player's dimension. */
     private OtherDimension viewed;
 
-    private final ScanTracker surfaceTracker = new ScanTracker();
-    private final ScanTracker caveTracker = new ScanTracker();
+    private final ScanTracker surfaceTracker = new ScanTracker(true);
+    private final ScanTracker caveTracker = new ScanTracker(false);
     private int tick;
     private long lastAutosave;
 
@@ -358,6 +363,10 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             pending.addAll(map.save(saveExecutor));
         }
+        Future<?> blocks = IsoMap.INSTANCE.save();
+        if (blocks != null) {
+            pending.add(blocks);
+        }
         return pending;
     }
 
@@ -507,6 +516,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             }
         }
+        if (record.layer < 0) {
+            IsoMap.INSTANCE.onFlatChunkChanged(dimension, record.chunkX, record.chunkZ);
+        }
         return true;
     }
 
@@ -538,6 +550,7 @@ public class MapManager implements IResourceManagerReloadListener {
     @Override
     public void onResourceManagerReload(IResourceManager resourceManager) {
         BlockColors.clearCache();
+        IsoMap.INSTANCE.onResourcesReloaded();
     }
 
     @SubscribeEvent
@@ -548,6 +561,7 @@ public class MapManager implements IResourceManagerReloadListener {
         Minecraft mc = Minecraft.getMinecraft();
         WorldClient world = mc.theWorld;
         if (world != currentWorld) {
+            MapExport.cancel();
             close();
             if (world != null) {
                 open(mc, world);
@@ -558,6 +572,9 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
+        unloadNanos = 0;
+        IsoMap.INSTANCE.tick(world);
+        MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
 
         int budget = Config.chunksScannedPerTick;
@@ -588,6 +605,7 @@ public class MapManager implements IResourceManagerReloadListener {
             for (MapDimension map : allMaps()) {
                 map.save(saveExecutor);
             }
+            IsoMap.INSTANCE.save();
             if (!(mc.currentScreen instanceof GuiWorldMap)) {
                 trimAroundPlayer(mc.thePlayer);
             }
@@ -624,6 +642,23 @@ public class MapManager implements IResourceManagerReloadListener {
             }
         }
         return solid >= UNDERGROUND_ROOF;
+    }
+
+    /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
+    @SubscribeEvent
+    public void onChunkUnload(ChunkEvent.Unload event) {
+        World world = event.world;
+        Chunk chunk = event.getChunk();
+        if (world != null && world.isRemote && world == currentWorld && chunk != null && surface != null) {
+            // Flying fast, chunks can come and go before their turn: one never mapped is mapped now, while its
+            // blocks are still there.
+            long start = System.nanoTime();
+            surfaceTracker.scanIfStale(currentWorld, chunk, surface, biomes);
+            // Copying blocks for the 3D map costs more: only for a few milliseconds per tick (flying fast, dozens of
+            // chunks go at once); the others are drawn in 3D from the flat map.
+            IsoMap.INSTANCE.onChunkUnload(world, chunk, unloadNanos < UNLOAD_BUDGET_NANOS);
+            unloadNanos += System.nanoTime() - start;
+        }
     }
 
     @SubscribeEvent
@@ -674,6 +709,7 @@ public class MapManager implements IResourceManagerReloadListener {
         surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
         biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
         lastAutosave = System.currentTimeMillis();
+        IsoMap.INSTANCE.open(worldDirectory);
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, dimensionDirectory);
     }
 
@@ -693,6 +729,8 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension map : allMaps()) {
             map.deleteTextures();
         }
+        // Saves the blocks of the 3D map and waits for it too.
+        IsoMap.INSTANCE.close();
         BiomeHighlight.clear();
         viewed = null;
         others.clear();
@@ -759,27 +797,159 @@ public class MapManager implements IResourceManagerReloadListener {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
+    /** A chunk whose blocks changed is scanned again at most this often (ticks). */
+    private static final int CHANGED_RESCAN_TICKS = 40;
+    /** The same right around the player, where building shows at once. */
+    private static final int NEAR_CHANGED_RESCAN_TICKS = 10;
+    /** Ticks before the scan queue is built again once it ran empty. */
+    private static final int QUEUE_REBUILD_TICKS = 2;
+    /** Time per tick for scanning chunks into one map (besides the number of chunks in the settings). */
+    private static final long SCAN_BUDGET_NANOS = 3_000_000L;
+    /** Time per tick for mapping chunks as the game lets them go. */
+    private static final long UNLOAD_BUDGET_NANOS = 4_000_000L;
+    /** Time spent on chunks let go since the last tick. */
+    private long unloadNanos;
+
+    /** Ticks a new chunk's blocks must stay unchanged before it is first mapped (its decoration has arrived). */
+    private static final int SETTLE_QUIET_TICKS = 10;
+    /** A new chunk is mapped after this long anyway (the edge of the view, flowing water that never settles). */
+    private static final int SETTLE_MAX_TICKS = 100;
+
     /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
     private final class ScanTracker {
 
         private final Map<Long, Integer> lastScanTick = new HashMap<>();
+        /**
+         * New chunks not mapped yet: {tick first seen, tick of the last change seen}. A chunk is sent before the
+         * server decorated it (trees, snow, ores come as the chunks around it are made): it is mapped only once it
+         * is whole, so the map shows it finished at once instead of bare first.
+         */
+        private final Map<Long, int[]> settling = new HashMap<>();
         private final ArrayDeque<Long> queue = new ArrayDeque<>();
         private int nextQueueBuild;
+        /** Chunk the player was in when the queue was built. */
+        private long queuedAround = Long.MIN_VALUE;
+        /** Whether this tracker maps the surface: it owns the chunks' changed marks (the cave one leaves them). */
+        private final boolean surface;
+
+        ScanTracker(boolean surface) {
+            this.surface = surface;
+        }
 
         void reset() {
             lastScanTick.clear();
+            settling.clear();
             queue.clear();
             nextQueueBuild = 0;
+            queuedAround = Long.MIN_VALUE;
+        }
+
+        /**
+         * Whether a chunk never mapped is finished: all eight chunks around it are there (so the server decorated
+         * it) and its blocks stayed unchanged for a moment (the decoration arrived); or it waited long enough.
+         */
+        private boolean settled(WorldClient world, Chunk chunk, long key) {
+            int[] state = settling.get(key);
+            if (state == null) {
+                state = new int[] { tick, tick };
+                settling.put(key, state);
+                if (surface) {
+                    chunk.isModified = false;
+                }
+                return false;
+            }
+            if (tick - state[0] >= SETTLE_MAX_TICKS) {
+                return true;
+            }
+            if (surface && chunk.isModified) {
+                chunk.isModified = false;
+                state[1] = tick;
+                return false;
+            }
+            if (tick - state[1] < SETTLE_QUIET_TICKS) {
+                return false;
+            }
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((dx != 0 || dz != 0)
+                        && !ChunkScanner.isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /** Maps a chunk now if it never was, or changed since (it is about to be let go by the game). */
+        void scanIfStale(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap) {
+            long key = chunkKey(chunk.xPosition, chunk.zPosition);
+            boolean scanned = lastScanTick.containsKey(key);
+            if (scanned && !chunk.isModified || chunk.isEmpty()) {
+                return;
+            }
+            int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
+            // Only if its regions are in memory: waiting for the disk here would freeze the game.
+            if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                return;
+            }
+            scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
+            lastScanTick.put(key, tick);
+            settling.remove(key);
+        }
+
+        /** @param changed scanned before, and its blocks changed since */
+        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
+            int rx, int rz, boolean changed) {
+            int cx = chunk.xPosition, cz = chunk.zPosition;
+            try {
+                // The game marks a chunk changed when its blocks or light change (the client never saves chunks,
+                // so the mark is free to use): changes from now on bring the chunk up again.
+                if (caveLayer < 0) {
+                    chunk.isModified = false;
+                }
+                MapRegion before = map.getLoadedRegion(rx, rz);
+                int changesBefore = before == null ? -1 : before.getChanges();
+                ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
+                if (caveLayer < 0) {
+                    // The 3D map keeps the surface's blocks.
+                    IsoMap.INSTANCE.onChunkScanned(world, chunk, changed);
+                }
+                MapRegion scanned = map.getLoadedRegion(rx, rz);
+                // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
+                // again and again isn't saved again each time (and teammates' newer versions still win).
+                boolean same = scanned != null && scanned == before
+                    && scanned.getChanges() == changesBefore
+                    && scanned.getChunkTime(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1)) != 0;
+                if (scanned != null && !same) {
+                    scanned.setChunkTime(
+                        cx & (MapRegion.CHUNKS - 1),
+                        cz & (MapRegion.CHUNKS - 1),
+                        System.currentTimeMillis());
+                }
+                TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
+            } catch (Exception e) {
+                WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
+            }
         }
 
         /** @param caveLayer layer to scan, or -1 for the surface */
         void scan(Minecraft mc, WorldClient world, EntityPlayer player, MapDimension map, int caveLayer,
             MapDimension biomeMap, int budget) {
-            if (queue.isEmpty() && tick >= nextQueueBuild) {
+            long around = chunkKey(
+                MathHelper.floor_double(player.posX) >> 4,
+                MathHelper.floor_double(player.posZ) >> 4);
+            // Built again when the player moved to another chunk too: flying fast, the new chunks ahead come first
+            // instead of waiting for the old queue to be worked through.
+            if (queue.isEmpty() && tick >= nextQueueBuild || around != queuedAround) {
+                queue.clear();
                 buildQueue(mc, world, player);
-                nextQueueBuild = tick + 10;
+                nextQueueBuild = tick + QUEUE_REBUILD_TICKS;
+                queuedAround = around;
             }
-            while (budget > 0 && !queue.isEmpty()) {
+            long end = System.nanoTime() + SCAN_BUDGET_NANOS;
+            boolean first = true;
+            while (budget > 0 && !queue.isEmpty() && (first || System.nanoTime() < end)) {
+                first = false;
                 long key = queue.poll();
                 int cx = (int) (key >> 32);
                 int cz = (int) key;
@@ -792,20 +962,10 @@ public class MapManager implements IResourceManagerReloadListener {
                 if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
                     continue;
                 }
-                try {
-                    ChunkScanner.scan(world, world.getChunkFromChunkCoords(cx, cz), map, caveLayer, biomeMap);
-                    MapRegion scanned = map.getLoadedRegion(rx, rz);
-                    if (scanned != null) {
-                        scanned.setChunkTime(
-                            cx & (MapRegion.CHUNKS - 1),
-                            cz & (MapRegion.CHUNKS - 1),
-                            System.currentTimeMillis());
-                    }
-                    TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
-                } catch (Exception e) {
-                    WayFarMap.LOG.warn("Failed to map chunk " + cx + ", " + cz, e);
-                }
+                Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+                scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, lastScanTick.containsKey(key));
                 lastScanTick.put(key, tick);
+                settling.remove(key);
                 budget--;
             }
         }
@@ -815,15 +975,24 @@ public class MapManager implements IResourceManagerReloadListener {
             int pcz = MathHelper.floor_double(player.posZ) >> 4;
             int radius = mc.gameSettings.renderDistanceChunks + 1;
 
-            // Forget chunks that are out of range; they get rescanned when the player comes back.
+            // Forget chunks well out of range (past where the game lets them go); they get rescanned when the
+            // player comes back.
             Iterator<Long> it = lastScanTick.keySet()
                 .iterator();
             while (it.hasNext()) {
                 long key = it.next();
                 int cx = (int) (key >> 32);
                 int cz = (int) key;
-                if (Math.abs(cx - pcx) > radius + 1 || Math.abs(cz - pcz) > radius + 1) {
+                if (Math.abs(cx - pcx) > radius + 4 || Math.abs(cz - pcz) > radius + 4) {
                     it.remove();
+                }
+            }
+            Iterator<Long> waiting = settling.keySet()
+                .iterator();
+            while (waiting.hasNext()) {
+                long key = waiting.next();
+                if (Math.abs((int) (key >> 32) - pcx) > radius + 4 || Math.abs((int) key - pcz) > radius + 4) {
+                    waiting.remove();
                 }
             }
 
@@ -835,17 +1004,27 @@ public class MapManager implements IResourceManagerReloadListener {
                     long key = chunkKey(cx, cz);
                     Integer last = lastScanTick.get(key);
                     int distance = Math.max(Math.abs(dx), Math.abs(dz));
-                    if (last != null) {
-                        // Keep the area around the player up to date; far chunks rarely change.
-                        int interval = distance <= 1 ? 20 : distance <= 4 ? 100 : 600;
-                        if (tick - last < interval) {
-                            continue;
-                        }
-                    }
                     if (!ChunkScanner.isChunkReady(world, cx, cz)) {
                         continue;
                     }
-                    long priority = (last == null ? 0 : 1000) + distance;
+                    boolean changed = false;
+                    if (last == null && !settled(world, world.getChunkFromChunkCoords(cx, cz), key)) {
+                        continue;
+                    }
+                    if (last != null) {
+                        // Keep the area around the player up to date; far chunks rarely change, except right after
+                        // they arrive: trees, snow and ores are added as the chunks around them are made, after the
+                        // chunk itself was sent (flying fast, the map would keep chunks without them).
+                        // Changes are caught by the chunk's changed mark: scanning again without one is only a
+                        // fallback, now and then.
+                        int interval = distance <= 1 ? 200 : distance <= 4 ? 600 : 1200;
+                        int changedInterval = distance <= 1 ? NEAR_CHANGED_RESCAN_TICKS : CHANGED_RESCAN_TICKS;
+                        changed = tick - last >= changedInterval && world.getChunkFromChunkCoords(cx, cz).isModified;
+                        if (tick - last < interval && !changed) {
+                            continue;
+                        }
+                    }
+                    long priority = (last == null ? 0 : changed ? 500 : 1000) + distance;
                     candidates.add(new long[] { priority, key });
                 }
             }

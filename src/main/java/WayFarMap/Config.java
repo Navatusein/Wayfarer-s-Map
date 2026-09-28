@@ -31,7 +31,7 @@ public class Config {
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
     /** Fullscreen map zoom levels, in GUI pixels per block. */
-    public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
+    public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0 };
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -57,6 +57,15 @@ public class Config {
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean chunkGrid = false;
+    /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
+    public static boolean isometric = false;
+    /** Side the 3D view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
+    public static final int ISO_QUALITY_MAX = 3;
+    public static int isoRotation = 0;
+    /** Detail of the 3D world map: at most {@code 8 << isoQuality} pixels per block (8, 16, 32 or 64). */
+    public static int isoQuality = ISO_QUALITY_MAX;
+    /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
+    public static boolean record3d = true;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -170,6 +179,40 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
+        bool(
+            c,
+            "isometric",
+            "Show the world map in 3D (isometric, like Dynmap) instead of from above.",
+            false,
+            () -> isometric,
+            v -> isometric = v);
+        choice(
+            c,
+            "isoRotation",
+            "Side the 3D world map is looked at from: 0 = south-east, 1 = north-east, 2 = north-west, "
+                + "3 = south-west.",
+            0,
+            new String[] { "se", "ne", "nw", "sw" },
+            () -> isoRotation,
+            v -> isoRotation = v);
+        integer(
+            c,
+            "isoQuality",
+            "Detail of the 3D world map when zoomed in: 0 = 8, 1 = 16, 2 = 32, 3 = 64 pixels per block at most. "
+                + "Less is quicker to draw.",
+            ISO_QUALITY_MAX,
+            0,
+            ISO_QUALITY_MAX,
+            1,
+            () -> isoQuality,
+            v -> isoQuality = v);
+        bool(
+            c,
+            "record3d",
+            "Keep the blocks of explored chunks for the 3D world map (dim<id>/blocks, a few MB per region).",
+            true,
+            () -> record3d,
+            v -> record3d = v);
         bool(
             c,
             "oreVeins",
@@ -461,6 +504,27 @@ public class Config {
         boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
         showPassiveMobs = friendly;
         showOtherEntities = friendly;
+        save();
+    }
+
+    public static void toggleIsometric() {
+        isometric = !isometric;
+        save();
+    }
+
+    /** Turns the 3D view by a quarter: +1 or -1. */
+    public static void setIsoQuality(int quality) {
+        isoQuality = Math.max(0, Math.min(ISO_QUALITY_MAX, quality));
+        save();
+    }
+
+    /** Most pixels per block the 3D world map is drawn with. */
+    public static int isoPixelsPerBlock() {
+        return 8 << isoQuality;
+    }
+
+    public static void rotateIso(int quarters) {
+        isoRotation = Math.floorMod(isoRotation + quarters, 4);
         save();
     }
 

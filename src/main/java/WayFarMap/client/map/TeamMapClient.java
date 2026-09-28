@@ -49,6 +49,8 @@ public final class TeamMapClient {
 
     /** Received chunks written into the map per tick (each is 256 pixels). */
     private static final int APPLY_PER_TICK = 48;
+    /** More than that per tick while there is time left. */
+    private static final long APPLY_NANOS = 2_000_000L;
     /** Chunks waiting to be uploaded at most; the oldest are dropped (they get rescanned anyway). */
     private static final int MAX_OUTGOING = 2048;
     private static final int SENT_MEMORY = 8192;
@@ -142,8 +144,11 @@ public final class TeamMapClient {
             stopBackfill();
         }
 
-        // Teammates' chunks: written as their regions are ready, without waiting for disk reads.
-        for (int i = 0; i < APPLY_PER_TICK && !incoming.isEmpty(); i++) {
+        // Teammates' chunks: written as their regions are ready, without waiting for disk reads. By time: a burst
+        // (many teammates exploring at once) is worked through quickly without costing frames.
+        long applyEnd = System.nanoTime() + APPLY_NANOS;
+        int size = incoming.size();
+        for (int i = 0; i < size && !incoming.isEmpty() && (i < APPLY_PER_TICK || System.nanoTime() < applyEnd); i++) {
             Object[] next = incoming.peek();
             if (!MapManager.INSTANCE.applySharedChunk((Integer) next[0], (ChunkRecord) next[1])) {
                 // Its region is still loading; move it to the back and go on with the others.

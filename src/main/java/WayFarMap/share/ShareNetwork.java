@@ -99,6 +99,11 @@ public final class ShareNetwork {
         /** An upload of the map the player already had (any dimension, anywhere), not of chunks just mapped. */
         public boolean backfill;
         public final List<ChunkRecord> records = new ArrayList<>();
+        /**
+         * The records compressed, made on the first send: the server sends the same message to every teammate,
+         * and compressing it once instead of once per teammate spares the server's tick.
+         */
+        private byte[] encoded;
 
         public Chunks() {}
 
@@ -131,19 +136,24 @@ public final class ShareNetwork {
 
         @Override
         public void toBytes(ByteBuf buf) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            try (DataOutputStream out = new DataOutputStream(new DeflaterOutputStream(bytes))) {
-                out.writeShort(records.size());
-                for (ChunkRecord record : records) {
-                    record.write(out);
+            byte[] data = encoded;
+            if (data == null) {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (DataOutputStream out = new DataOutputStream(new DeflaterOutputStream(bytes))) {
+                    out.writeShort(records.size());
+                    for (ChunkRecord record : records) {
+                        record.write(out);
+                    }
+                } catch (IOException e) {
+                    throw new IllegalStateException(e);
                 }
-            } catch (IOException e) {
-                throw new IllegalStateException(e);
+                data = bytes.toByteArray();
+                encoded = data;
             }
             buf.writeInt(dimension);
             buf.writeBoolean(backfill);
-            buf.writeInt(bytes.size());
-            buf.writeBytes(bytes.toByteArray());
+            buf.writeInt(data.length);
+            buf.writeBytes(data);
         }
     }
 
