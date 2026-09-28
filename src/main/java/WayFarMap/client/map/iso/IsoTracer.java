@@ -262,7 +262,10 @@ final class IsoTracer {
                         // water below would darken the next block's surface along every edge.
                         boolean overLiquid = look.shape == BlockLooks.SHAPE_LIQUID && insideLiquid != key;
                         if (look.lightPasses && !overLiquid) {
-                            previousLight = light(cell);
+                            // Through the empty parts of a modded block (a plate, a pipe, a machine's frame): many
+                            // keep no light in their cell, which would draw a dark rim on the floor around them.
+                            previousLight = look.complex || spriteId != 0 ? brighter(previousLight, light(cell))
+                                : light(cell);
                         }
                     } else {
                         previousLight = light(cell);

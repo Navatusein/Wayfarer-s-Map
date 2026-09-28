@@ -32,7 +32,7 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 5;
+    private static final int RENDER_VERSION = 6;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 5;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
@@ -73,6 +73,11 @@ public final class IsoMap implements BlockStore.Listener {
      * ticks, so the whole loaded area gets its blocks, not just what is near the player.
      */
     private final LinkedHashSet<Long> captureQueue = new LinkedHashSet<>();
+    /**
+     * Chunks not copied yet this session, copied before the others: flying over new land, its chunks come first,
+     * not after the chunks near the player that are copied again every few seconds.
+     */
+    private final LinkedHashSet<Long> freshQueue = new LinkedHashSet<>();
     /** Pictures of block sides taken from the game (connected textures, tile entities). */
     private FacePalette palette;
 
@@ -114,6 +119,7 @@ public final class IsoMap implements BlockStore.Listener {
         changes.clear();
         lastCapture.clear();
         captureQueue.clear();
+        freshQueue.clear();
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         palette = null;
@@ -153,15 +159,22 @@ public final class IsoMap implements BlockStore.Listener {
     public void tick(World world) {
         BlockLooks.pump(LOOK_BUDGET_NANOS / 3);
         drainChanges();
-        if (world == null || writer == null || captureQueue.isEmpty()) {
+        if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty()) {
             return;
         }
         if (world.provider.dimensionId != lastCaptureDimension) {
             captureQueue.clear();
+            freshQueue.clear();
             return;
         }
         long end = System.nanoTime() + CAPTURE_BUDGET_NANOS;
-        Iterator<Long> it = captureQueue.iterator();
+        captureFrom(world, freshQueue, end);
+        captureFrom(world, captureQueue, end);
+    }
+
+    /** Copies chunks from the queue until the time is up. */
+    private void captureFrom(World world, LinkedHashSet<Long> queue, long end) {
+        Iterator<Long> it = queue.iterator();
         while (it.hasNext() && System.nanoTime() < end) {
             long key = it.next();
             it.remove();
@@ -186,11 +199,16 @@ public final class IsoMap implements BlockStore.Listener {
         if (dimensionId != lastCaptureDimension) {
             lastCapture.clear();
             captureQueue.clear();
+            freshQueue.clear();
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         Long last = lastCapture.get(key);
-        if (last != null && System.currentTimeMillis() - last < RECAPTURE_MS) {
+        if (last == null) {
+            freshQueue.add(key);
+            return;
+        }
+        if (System.currentTimeMillis() - last < RECAPTURE_MS || freshQueue.contains(key)) {
             return;
         }
         captureQueue.add(key);

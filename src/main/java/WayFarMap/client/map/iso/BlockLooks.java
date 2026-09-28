@@ -491,15 +491,20 @@ public final class BlockLooks {
     }
 
     private static Texture iconTexture(IIcon icon) {
-        if (icon == null || icon.getIconName() == null) {
+        if (icon == null) {
             return null;
         }
         String name = icon.getIconName();
-        Texture texture = TEXTURES.get(name);
+        String key = name != null ? name : "@" + System.identityHashCode(icon);
+        Texture texture = TEXTURES.get(key);
         if (texture == null) {
-            int[] pixels = readTexture(name);
+            // As the game has it loaded (modded icons often have no file of their own), else from its file.
+            int[] pixels = IconReader.read(icon);
+            if (pixels == null && name != null) {
+                pixels = readTexture(name);
+            }
             texture = pixels == null ? UNREADABLE : Texture.of(pixels);
-            TEXTURES.put(name, texture);
+            TEXTURES.put(key, texture);
         }
         // Unreadable: the caller falls back to the map color, which beats plain gray.
         return texture == UNREADABLE ? null : texture;

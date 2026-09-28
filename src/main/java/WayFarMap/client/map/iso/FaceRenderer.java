@@ -5,6 +5,7 @@ import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,28 @@ final class FaceRenderer {
     private static FloatBuffer matrixBuffer;
     private static DoubleBuffer planeBuffer;
     private static boolean broken;
+    /** Failures in a row; pictures are given up only after several (one mod's renderer failing once is enough). */
+    private static int failures;
+    /**
+     * Pictures of blocks with a tile entity, by place: they depend on what is in it, so they aren't shared between
+     * places, but the chunks near the player are copied every few seconds and are not taken again each time.
+     */
+    private static final Map<Long, Cached> BY_PLACE = new HashMap<>();
+    /** How long pictures of a block with a tile entity are kept before they are taken again. */
+    private static final long PLACE_KEEP_MS = 60_000;
+
+    private static final class Cached {
+
+        final long surroundings;
+        final int[] ids;
+        final long time;
+
+        Cached(long surroundings, int[] ids, long time) {
+            this.surroundings = surroundings;
+            this.ids = ids;
+            this.time = time;
+        }
+    }
     /** Sprites of blocks without a tile entity, by block and everything around it. */
     private static final Map<Long, int[]> BY_SURROUNDINGS = new HashMap<>();
     private static int cacheGeneration;
@@ -111,6 +134,7 @@ final class FaceRenderer {
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
+        BY_PLACE.clear();
     }
 
     /** Finds the chunk's blocks that need sprites, takes them and stores their ids in {@code blocks}. */
@@ -120,6 +144,7 @@ final class FaceRenderer {
         }
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
+            BY_PLACE.clear();
             cacheGeneration = palette.generation;
         }
         int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
@@ -173,10 +198,17 @@ final class FaceRenderer {
                 continue;
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
-            long surroundings = tileEntity != null ? 0 : surroundings(world, block, x, y, z);
+            long surroundings = surroundings(world, block, x, y, z);
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
             found.add(pending);
-            if (tileEntity == null) {
+            if (tileEntity != null) {
+                Cached cached = BY_PLACE.get(place(x, y, z));
+                if (cached != null && cached.surroundings == surroundings
+                    && System.currentTimeMillis() - cached.time < PLACE_KEEP_MS) {
+                    System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
+                    continue;
+                }
+            } else {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
                 if (known != null) {
                     System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
@@ -207,7 +239,14 @@ final class FaceRenderer {
             from = to;
             draw(world, batch, palette);
             for (Pending pending : batch) {
-                if (pending.tileEntity == null) {
+                if (pending.tileEntity != null) {
+                    if (BY_PLACE.size() > 100_000) {
+                        BY_PLACE.clear();
+                    }
+                    BY_PLACE.put(
+                        place(pending.x, pending.y, pending.z),
+                        new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
+                } else {
                     BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
                     List<Pending> same = waiting.get(pending.surroundings);
                     if (same != null) {
@@ -229,6 +268,10 @@ final class FaceRenderer {
             System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
         }
         blocks.setFaces(palette.generation, faceCells, ids);
+    }
+
+    private static long place(int x, int y, int z) {
+        return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
 
     /** Bits of the sides (1 << side) that are not covered by a solid block next to them. */
@@ -327,6 +370,7 @@ final class FaceRenderer {
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
+        int previousFramebuffer = GL11.glGetInteger(0x8CA6); // GL_FRAMEBUFFER_BINDING
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -418,14 +462,24 @@ final class FaceRenderer {
                     pending.ids[view] = palette.idOf(image);
                 }
             }
+            failures = 0;
         } catch (Throwable t) {
-            // Something in this driver or a mod's renderer does not like this: sprites are not taken any more.
-            broken = true;
-            WayFarMap.LOG.warn("The 3D map can't take sprites of blocks; it uses their icons instead", t);
+            // These blocks are drawn from their icons this time.
+            for (Pending pending : batch) {
+                Arrays.fill(pending.ids, 0);
+            }
+            if (++failures >= 5) {
+                // Something in this driver or the mods' renderers does not like this: no more pictures.
+                broken = true;
+                WayFarMap.LOG.warn("The 3D map can't take pictures of blocks; it uses their icons instead", t);
+            } else {
+                WayFarMap.LOG.debug("Could not take pictures of blocks for the 3D map", t);
+            }
         } finally {
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
             if (bound) {
-                framebuffer.unbindFramebuffer();
+                // Back to the buffer bound before (the game's own while a frame is drawn).
+                IconReader.rebind(mc, previousFramebuffer, framebuffer);
             }
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPopMatrix();
