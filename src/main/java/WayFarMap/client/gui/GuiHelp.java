@@ -21,7 +21,7 @@ import WayFarMap.client.gui.ui.Theme;
 
 /**
  * In-game help: sections in a sidebar (scrolled when they don't all fit), the text of the selected one on the right,
- * like the settings screen; buttons under the text go to the section before and after it, and so do the arrow keys.
+ * like the settings screen; the arrow keys go to the section before and after it.
  * <p>
  * The text comes from {@code assets/wayfarmap/help/<language>.txt} (falling back to en_US): "# Title" starts a
  * section, "! " marks an important note, "> " a tip, "- " a list item, an empty line a gap. Minecraft color codes
@@ -33,7 +33,7 @@ public class GuiHelp extends ScaledScreen {
     private static final int LINE_HEIGHT = 11;
     /** Height of a section's entry in the sidebar. */
     private static final int ITEM_HEIGHT = 17;
-    private static final int ID_CLOSE = 1000, ID_PREVIOUS = 1001, ID_NEXT = 1002;
+    private static final int ID_CLOSE = 1000;
 
     /** A section of the help file: its title and raw lines. */
     private static final class Section {
@@ -77,7 +77,6 @@ public class GuiHelp extends ScaledScreen {
     /** The sidebar's list of sections: where it is and how far it is scrolled. */
     private int listTop, listBottom, listScroll;
     private int scroll;
-    private FlatButton previousButton, nextButton;
 
     public GuiHelp(GuiScreen parent) {
         this.parent = parent;
@@ -98,7 +97,7 @@ public class GuiHelp extends ScaledScreen {
         contentLeft = left + SIDEBAR_WIDTH + 14;
         contentRight = right - 14;
         contentTop = top + 32;
-        contentBottom = bottom - 34;
+        contentBottom = bottom - 10;
         listTop = top + 26;
         listBottom = bottom - 34;
 
@@ -106,18 +105,12 @@ public class GuiHelp extends ScaledScreen {
         // The close button stays at the bottom of the sidebar, under the list of sections, whatever their number.
         String close = I18n.format("wayfarmap.help.close");
         buttonList.add(new FlatButton(ID_CLOSE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, close));
-        int half = (contentRight - contentLeft - 6) / 2;
-        previousButton = new FlatButton(ID_PREVIOUS, contentLeft, bottom - 26, half, 18, "");
-        nextButton = new FlatButton(ID_NEXT, contentRight - half, bottom - 26, half, 18, "");
-        buttonList.add(previousButton);
-        buttonList.add(nextButton);
         select(selected);
     }
 
-    /** Shows a section: its text from the top, its entry in the sidebar in view, the buttons to its neighbours. */
+    /** Shows a section: its text from the top, its entry in the sidebar in view. */
     private void select(int index) {
         if (sections.isEmpty()) {
-            previousButton.visible = nextButton.visible = false;
             return;
         }
         selected = Math.max(0, Math.min(index, sections.size() - 1));
@@ -129,14 +122,6 @@ public class GuiHelp extends ScaledScreen {
             listScroll = itemTop + ITEM_HEIGHT - visible;
         }
         clampListScroll();
-        previousButton.visible = selected > 0;
-        nextButton.visible = selected < sections.size() - 1;
-        if (previousButton.visible) {
-            previousButton.displayString = "\u00AB " + sections.get(selected - 1).title;
-        }
-        if (nextButton.visible) {
-            nextButton.displayString = sections.get(selected + 1).title + " \u00BB";
-        }
         layout();
     }
 
@@ -268,10 +253,6 @@ public class GuiHelp extends ScaledScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_CLOSE) {
             mc.displayGuiScreen(parent);
-        } else if (button.id == ID_PREVIOUS) {
-            select(selected - 1);
-        } else if (button.id == ID_NEXT) {
-            select(selected + 1);
         }
     }
 
@@ -347,7 +328,6 @@ public class GuiHelp extends ScaledScreen {
         }
         Theme.fill(contentLeft, top + 22, contentRight, top + 23, Theme.ACCENT_DIM);
         drawText();
-        Theme.fill(contentLeft, bottom - 32, contentRight, bottom - 31, Theme.BORDER);
         super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
