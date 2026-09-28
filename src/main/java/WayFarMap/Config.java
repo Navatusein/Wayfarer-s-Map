@@ -100,9 +100,17 @@ public class Config {
 
     public static final List<Option> OPTIONS = new ArrayList<>();
 
+    /** Section of the settings screen the options declared next are shown under. */
+    private static String currentGroup = "";
+    /** Switch the options declared next depend on (shown under it), or null. */
+    private static BoolOption currentParent;
+
     static {
         String c = CATEGORY_MINIMAP;
+        group("general");
+        parent(null);
         bool(c, "enabled", "Show the minimap on the HUD.", true, () -> minimapEnabled, v -> minimapEnabled = v);
+        parent("enabled");
         integer(c, "size", "Minimap size in GUI pixels.", 100, 48, 256, 4, () -> minimapSize, v -> minimapSize = v);
         choice(
             c,
@@ -114,20 +122,20 @@ public class Config {
             v -> minimapCorner = v);
         choice(
             c,
-            "zoom",
-            "Minimap zoom level index (0 = farthest).",
-            1,
-            new String[] { "z0", "z1", "z2", "z3" },
-            () -> minimapZoom,
-            v -> minimapZoom = v);
-        choice(
-            c,
             "shape",
             "Minimap shape: 0 = square, 1 = round.",
             SHAPE_SQUARE,
             new String[] { "square", "round" },
             () -> minimapShape,
             v -> minimapShape = v);
+        choice(
+            c,
+            "zoom",
+            "Minimap zoom level index (0 = farthest).",
+            1,
+            new String[] { "z0", "z1", "z2", "z3" },
+            () -> minimapZoom,
+            v -> minimapZoom = v);
         bool(
             c,
             "rotate",
@@ -135,6 +143,8 @@ public class Config {
             false,
             () -> minimapRotate,
             v -> minimapRotate = v);
+        group("info");
+        parent("enabled");
         bool(
             c,
             "showCoordinates",
@@ -151,6 +161,8 @@ public class Config {
             v -> minimapShowBiome = v);
 
         c = CATEGORY_MAP;
+        group("view");
+        parent(null);
         choice(
             c,
             "uiScale",
@@ -176,6 +188,14 @@ public class Config {
             new String[] { "blocks", "biomes" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
+        choice(
+            c,
+            "caveMode",
+            "Cave view: 0 = automatic while underground, 1 = off, 2 = always.",
+            CAVES_AUTO,
+            new String[] { "auto", "off", "on" },
+            () -> caveMode,
+            v -> caveMode = v);
         bool(
             c,
             "chunkGrid",
@@ -185,11 +205,21 @@ public class Config {
             v -> chunkGrid = v);
         bool(
             c,
+            "useTextureColors",
+            "Color the map with the average color of block textures. If false, vanilla map colors are used.",
+            true,
+            () -> useTextureColors,
+            v -> useTextureColors = v);
+        group("iso");
+        parent(null);
+        bool(
+            c,
             "isometric",
             "Show the world map in 3D (isometric, like Dynmap) instead of from above.",
             false,
             () -> isometric,
             v -> isometric = v);
+        parent("isometric");
         choice(
             c,
             "isoRotation",
@@ -210,6 +240,23 @@ public class Config {
             1,
             () -> isoQuality,
             v -> isoQuality = v);
+        bool(
+            c,
+            "isoSmooth",
+            "Smooth the 3D world map zoomed far out (four rays per pixel). Off draws those tiles up to four times "
+                + "faster.",
+            true,
+            () -> isoSmooth,
+            v -> isoSmooth = v);
+        parent(null);
+        bool(
+            c,
+            "record3d",
+            "Keep the blocks of explored chunks for the 3D world map (dim<id>/blocks, a few MB per region).",
+            true,
+            () -> record3d,
+            v -> record3d = v);
+        parent("record3d");
         integer(
             c,
             "isoCaptureMs",
@@ -221,21 +268,8 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
-        bool(
-            c,
-            "isoSmooth",
-            "Smooth the 3D world map zoomed far out (four rays per pixel). Off draws those tiles up to four times "
-                + "faster.",
-            true,
-            () -> isoSmooth,
-            v -> isoSmooth = v);
-        bool(
-            c,
-            "record3d",
-            "Keep the blocks of explored chunks for the 3D world map (dim<id>/blocks, a few MB per region).",
-            true,
-            () -> record3d,
-            v -> record3d = v);
+        group("layers");
+        parent(null);
         bool(
             c,
             "oreVeins",
@@ -278,28 +312,8 @@ public class Config {
             true,
             () -> showThaumcraftNodes,
             v -> showThaumcraftNodes = v);
-        bool(
-            c,
-            "shareWithTeam",
-            "Share the explored map with your ServerUtilities team, on servers that have this mod too.",
-            true,
-            () -> shareMapWithTeam,
-            v -> shareMapWithTeam = v);
-        choice(
-            c,
-            "caveMode",
-            "Cave view: 0 = automatic while underground, 1 = off, 2 = always.",
-            CAVES_AUTO,
-            new String[] { "auto", "off", "on" },
-            () -> caveMode,
-            v -> caveMode = v);
-        bool(
-            c,
-            "useTextureColors",
-            "Color the map with the average color of block textures. If false, vanilla map colors are used.",
-            true,
-            () -> useTextureColors,
-            v -> useTextureColors = v);
+        group("data");
+        parent(null);
         integer(
             c,
             "chunksScannedPerTick",
@@ -320,8 +334,17 @@ public class Config {
             10,
             () -> autosaveIntervalSeconds,
             v -> autosaveIntervalSeconds = v);
+        bool(
+            c,
+            "shareWithTeam",
+            "Share the explored map with your ServerUtilities team, on servers that have this mod too.",
+            true,
+            () -> shareMapWithTeam,
+            v -> shareMapWithTeam = v);
 
         c = CATEGORY_ENTITIES;
+        group("shown");
+        parent(null);
         bool(
             c,
             "showOtherPlayers",
@@ -344,23 +367,6 @@ public class Config {
             true,
             () -> showOtherEntities,
             v -> showOtherEntities = v);
-        bool(
-            c,
-            "icons",
-            "Draw mobs as a small icon of their face instead of dots.",
-            true,
-            () -> entityIcons,
-            v -> entityIcons = v);
-        integer(
-            c,
-            "iconLimit",
-            "Only the nearest this many mobs get an icon, the rest are dots.",
-            128,
-            4,
-            256,
-            4,
-            () -> entityIconLimit,
-            v -> entityIconLimit = v);
         integer(
             c,
             "verticalRange",
@@ -371,8 +377,30 @@ public class Config {
             4,
             () -> entityVerticalRange,
             v -> entityVerticalRange = v);
+        group("icons");
+        parent(null);
+        bool(
+            c,
+            "icons",
+            "Draw mobs as a small icon of their face instead of dots.",
+            true,
+            () -> entityIcons,
+            v -> entityIcons = v);
+        parent("icons");
+        integer(
+            c,
+            "iconLimit",
+            "Only the nearest this many mobs get an icon, the rest are dots.",
+            128,
+            4,
+            256,
+            4,
+            () -> entityIconLimit,
+            v -> entityIconLimit = v);
 
         c = CATEGORY_WAYPOINTS;
+        group("where");
+        parent(null);
         bool(
             c,
             "showInWorld",
@@ -387,6 +415,18 @@ public class Config {
             true,
             () -> waypointsOnMinimap,
             v -> waypointsOnMinimap = v);
+        integer(
+            c,
+            "maxDistance",
+            "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.",
+            0,
+            0,
+            10000,
+            100,
+            () -> waypointMaxDistance,
+            v -> waypointMaxDistance = v);
+        group("look");
+        parent(null);
         decimal(
             c,
             "scale",
@@ -407,16 +447,6 @@ public class Config {
             0.05,
             () -> waypointMinScale,
             v -> waypointMinScale = v);
-        integer(
-            c,
-            "maxDistance",
-            "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.",
-            0,
-            0,
-            10000,
-            100,
-            () -> waypointMaxDistance,
-            v -> waypointMaxDistance = v);
         integer(
             c,
             "labelMaxWidth",
@@ -574,6 +604,10 @@ public class Config {
         public final String category;
         public final String key;
         public final String comment;
+        /** Section of the settings screen it is shown under ({@code wayfarmap.settings.group.<group>}). */
+        public String group = "";
+        /** The switch it depends on: shown under it, dimmed while it is off; null if none. */
+        public BoolOption parent;
 
         Option(String category, String key, String comment) {
             this.category = category;
@@ -732,23 +766,46 @@ public class Config {
         }
     }
 
+    private static void group(String group) {
+        currentGroup = group;
+        currentParent = null;
+    }
+
+    private static void parent(String key) {
+        currentParent = null;
+        if (key == null) {
+            return;
+        }
+        for (Option option : OPTIONS) {
+            if (option.key.equals(key) && option instanceof BoolOption) {
+                currentParent = (BoolOption) option;
+            }
+        }
+    }
+
+    private static void add(Option option) {
+        option.group = currentGroup;
+        option.parent = currentParent;
+        OPTIONS.add(option);
+    }
+
     private static void bool(String category, String key, String comment, boolean def, Supplier<Boolean> getter,
         Consumer<Boolean> setter) {
-        OPTIONS.add(new BoolOption(category, key, comment, def, getter, setter));
+        add(new BoolOption(category, key, comment, def, getter, setter));
     }
 
     private static void integer(String category, String key, String comment, int def, int min, int max, int step,
         IntSupplier getter, IntConsumer setter) {
-        OPTIONS.add(new IntOption(category, key, comment, def, min, max, step, getter, setter));
+        add(new IntOption(category, key, comment, def, min, max, step, getter, setter));
     }
 
     private static void choice(String category, String key, String comment, int def, String[] values,
         IntSupplier getter, IntConsumer setter) {
-        OPTIONS.add(new ChoiceOption(category, key, comment, def, values, getter, setter));
+        add(new ChoiceOption(category, key, comment, def, values, getter, setter));
     }
 
     private static void decimal(String category, String key, String comment, double def, double min, double max,
         double step, DoubleSupplier getter, DoubleConsumer setter) {
-        OPTIONS.add(new DoubleOption(category, key, comment, def, min, max, step, getter, setter));
+        add(new DoubleOption(category, key, comment, def, min, max, step, getter, setter));
     }
 }
