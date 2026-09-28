@@ -32,7 +32,7 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 10;
+    private static final int RENDER_VERSION = 11;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
@@ -220,9 +220,12 @@ public final class IsoMap implements BlockStore.Listener {
             return;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        lastCapture.put(key, System.currentTimeMillis());
+        boolean first = lastCapture.put(key, System.currentTimeMillis()) == null;
         if (lastCapture.size() > 50_000) {
             lastCapture.clear();
+        }
+        if (first) {
+            requeueEdgeNeighbours(dimension, chunk);
         }
         ChunkBlocks blocks;
         try {
@@ -245,6 +248,23 @@ public final class IsoMap implements BlockStore.Listener {
                 WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
             }
         });
+    }
+
+    /**
+     * A chunk came into view: neighbours kept whole because they were at the edge (see {@link BlockCapture}) may not
+     * be at the edge anymore; they are copied again (thin, if so) once they have all their neighbours.
+     */
+    private void requeueEdgeNeighbours(Dimension dimension, Chunk chunk) {
+        int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+        for (int[] side : sides) {
+            int cx = chunk.xPosition + side[0], cz = chunk.zPosition + side[1];
+            if (dimension.store.time(cx, cz) != 0 && dimension.store.bottom(cx, cz) == 0) {
+                long neighbour = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
+                if (!freshQueue.contains(neighbour)) {
+                    captureQueue.add(neighbour);
+                }
+            }
+        }
     }
 
     /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */

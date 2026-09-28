@@ -177,6 +177,9 @@ final class FaceRenderer {
                 continue;
             }
             int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);
+            if (y < blocks.picturesFrom) {
+                continue;
+            }
             int x = baseX + lx, z = baseZ + lz;
             int exposed = exposedSides(world, blocks, lx, y, lz, x, z);
             if (exposed == 0) {

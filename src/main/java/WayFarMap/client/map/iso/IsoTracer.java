@@ -221,8 +221,8 @@ final class IsoTracer {
                     ChunkBlocks blocks = (ChunkBlocks) data;
                     int lx = x & 15, lz = z & 15;
                     if (y < blocks.yMin) {
-                        // The ground below what was stored: the column's lowest solid block.
-                        BlockLooks.Look look = BlockLooks.get(filler(blocks, lx, lz));
+                        // The ground below what was stored, in the world's usual layers.
+                        BlockLooks.Look look = BlockLooks.get(ground(blocks, lx, lz, y));
                         cellIndex = -1;
                         face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                         break;
@@ -280,10 +280,13 @@ final class IsoTracer {
                     int lx = x & (MapRegion.SIZE - 1), lz = z & (MapRegion.SIZE - 1);
                     int pixel = region.getPixel(lx, lz);
                     if ((pixel >>> 24) != 0 && y < region.getExtra(lx, lz)) {
-                        // A pillar of the flat map's color; its top already has the map's relief shading.
+                        // A pillar of the flat map's color; its top already has the map's relief shading. Below the
+                        // top block its sides show ground in layers: a few blocks like soil, then stone.
                         hit(side, t);
                         float shade = side == 1 ? 1f : SIDE_SHADE[side];
-                        add(pixel & 0xFFFFFF, shade, shade * NIGHT_LIGHT[15 - NIGHT_SKY_DROP], 0f, 1f);
+                        int depth = region.getExtra(lx, lz) - 1 - y;
+                        int color = depth < 1 ? pixel & 0xFFFFFF : pillarGround(pixel, depth, x, y, z);
+                        add(color, shade, shade * NIGHT_LIGHT[15 - NIGHT_SKY_DROP], 0f, 1f);
                         break;
                     }
                     previousLight = OPEN;
@@ -669,7 +672,7 @@ final class IsoTracer {
         }
     }
 
-    /** The column's lowest solid block, worked out once per chunk. */
+    /** The column's lowest solid block, worked out once per chunk (with its height in {@code fillerY}). */
     private static int filler(ChunkBlocks blocks, int lx, int lz) {
         int column = (lz << 4) | lx;
         int filler = blocks.filler[column];
@@ -677,15 +680,75 @@ final class IsoTracer {
             return filler;
         }
         filler = STONE;
+        int fillerY = blocks.yMin;
         for (int y = blocks.yMin; y <= blocks.yMax; y++) {
             int cell = blocks.cell(lx, y, lz);
             if (ChunkBlocks.blockId(cell) != 0 && BlockLooks.get(ChunkBlocks.lookKey(cell)).opaque) {
                 filler = ChunkBlocks.lookKey(cell);
+                fillerY = y;
                 break;
             }
         }
+        blocks.fillerY[column] = fillerY;
         blocks.filler[column] = filler;
         return filler;
+    }
+
+    private static final int DIRT = 3, SANDSTONE = 24, NETHERRACK = 87;
+
+    /**
+     * The ground at height y below what was kept of a column (seen at the edge of the map when only the surface was
+     * kept): under grass and dirt a few blocks of dirt, under sand some sandstone, then stone; rock stays itself.
+     */
+    private static int ground(ChunkBlocks blocks, int lx, int lz, int y) {
+        int top = filler(blocks, lx, lz);
+        int depth = blocks.fillerY[(lz << 4) | lx] - y;
+        switch (top & 0xFFFF) {
+            case 2: // grass
+            case 3: // dirt
+            case 110: // mycelium
+                return depth <= 3 ? DIRT : STONE;
+            case 12: // sand
+                return depth <= 3 ? top : depth <= 7 && (top >>> 16) == 0 ? SANDSTONE : STONE;
+            case 13: // gravel
+            case 82: // clay
+                return depth <= 3 ? top : STONE;
+            case 87: // netherrack
+            case 88: // soul sand
+            case 153: // nether quartz ore
+                return depth <= 3 ? top : NETHERRACK;
+            case 1: // stone
+            case 4: // cobblestone
+            case 7: // bedrock
+            case 24: // sandstone
+            case 49: // obsidian
+            case 121: // end stone
+            case 159: // stained clay
+            case 172: // hardened clay
+                return top;
+            default:
+                // Something built, or a modded block: natural ground below it.
+                return STONE;
+        }
+    }
+
+    /** Color of a flat map pillar's side below its top block: soil under the surface, then stone. */
+    private static int pillarGround(int surface, int depth, int x, int y, int z) {
+        // A little variation from block to block, like a texture seen from afar.
+        int noise = ((x * 73856093 ^ y * 19349663 ^ z * 83492791) >>> 13 & 15) - 8;
+        int r, g, b;
+        if (depth <= 3) {
+            // Soil: the surface color turned toward brown earth.
+            r = (((surface >> 16) & 0xFF) * 3 + 0x86 * 7) / 10;
+            g = (((surface >> 8) & 0xFF) * 3 + 0x60 * 7) / 10;
+            b = ((surface & 0xFF) * 3 + 0x43 * 7) / 10;
+        } else {
+            r = g = b = 0x7A;
+        }
+        r = Math.max(0, Math.min(255, r + noise));
+        g = Math.max(0, Math.min(255, g + noise));
+        b = Math.max(0, Math.min(255, b + noise));
+        return r << 16 | g << 8 | b;
     }
 
     private void hit(int side, double hitT) {

@@ -202,6 +202,12 @@ public final class BlockStore {
         return region.yMax[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
+    /** Lowest height kept of the chunk (0 for a chunk kept whole), meaningless if there are no blocks for it. */
+    public int bottom(int chunkX, int chunkZ) {
+        Region region = region(chunkX >> 5, chunkZ >> 5);
+        return region.yMin[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
+    }
+
     /** When the chunk's blocks last changed, 0 if there are none. */
     public long time(int chunkX, int chunkZ) {
         Region region = region(chunkX >> 5, chunkZ >> 5);

@@ -42,6 +42,13 @@ public final class ChunkBlocks {
      * the column; 0 until the tracer worked it out.
      */
     final int[] filler = new int[256];
+    /** Per column, the height of {@link #filler}'s block (the ground below it is layered like the world's). */
+    final int[] fillerY = new int[256];
+    /**
+     * Lowest height whose blocks get pictures taken by the game (only while copying): the part of an edge chunk kept
+     * below its surface is drawn from icons.
+     */
+    int picturesFrom;
 
     /** {@link FacePalette#generation} the face ids belong to; ids of another one are not used. */
     int faceGeneration;
