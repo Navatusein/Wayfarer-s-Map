@@ -46,6 +46,8 @@ public final class IsoMap implements BlockStore.Listener {
     private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000;
     /** Chunks from the player that count as near. */
     private static final int NEAR_CHUNKS = 2;
+    /** Time for pictures of a chunk copied as it is let go. */
+    private static final long UNLOAD_PICTURES_NANOS = 1_000_000L;
     /** Time per frame the render thread spends working out block looks for the renderers. */
     private static final long LOOK_BUDGET_NANOS = 6_000_000L;
 
@@ -250,12 +252,17 @@ public final class IsoMap implements BlockStore.Listener {
             }
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        freshQueue.remove(key);
+        boolean waiting = freshQueue.remove(key);
         captureQueue.remove(key);
         boolean keptWhole = dimension.store.time(chunk.xPosition, chunk.zPosition) != 0
             && dimension.store.bottom(chunk.xPosition, chunk.zPosition) == 0;
+        // Pictures only for a moment: the chunk goes away, the ones not taken are drawn from icons.
+        long deadline = System.nanoTime() + UNLOAD_PICTURES_NANOS;
         if (edge && !keptWhole) {
-            capture(world, chunk, true, Long.MAX_VALUE);
+            capture(world, chunk, true, deadline);
+        } else if (waiting || !lastCapture.containsKey(key)) {
+            // Flying fast, it came and goes before its turn: copied now, while its blocks are still there.
+            capture(world, chunk, false, deadline);
         }
     }
 
