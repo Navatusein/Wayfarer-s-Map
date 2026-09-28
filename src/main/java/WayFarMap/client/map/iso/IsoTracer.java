@@ -539,8 +539,8 @@ final class IsoTracer {
                 texV = 1 - py;
                 textureSide = 2;
             }
-            int texel = look.textures[textureSide].texel(texU, texV, mip);
-            if ((texel >>> 24) < 128) {
+            int texel = visible(look.textures[textureSide], texU, texV);
+            if (texel == 0) {
                 continue;
             }
             bestT = hitT;
@@ -612,13 +612,14 @@ final class IsoTracer {
             }
         }
         BlockLooks.Texture texture = look.textures[side];
-        int texel = texture.texel(texU, texV, mip);
-        int texelAlpha = texel >>> 24;
+        int texel;
         float alpha;
         if (look.translucent) {
-            alpha = look.alpha > 0 ? look.alpha : Math.max(0.3f, texelAlpha / 255f);
+            texel = texture.texel(texU, texV, mip);
+            alpha = look.alpha > 0 ? look.alpha : Math.max(0.3f, (texel >>> 24) / 255f);
         } else {
-            if (texelAlpha < 128) {
+            texel = visible(texture, texU, texV);
+            if (texel == 0) {
                 // A hole in the texture (leaves, glass frames): look further.
                 return false;
             }
@@ -628,6 +629,23 @@ final class IsoTracer {
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
         addLit(color, SIDE_SHADE[side], light, alpha);
         return transmit < 0.02;
+    }
+
+    /**
+     * The texel where a texture with holes is solid, 0 where it has a hole. Solid if it is in the full texture or in
+     * the reduced copy: reduced copies blur thin parts (glass frames, rails) into see-through pixels, which made
+     * such blocks vanish zoomed out, while leaves stay as full as the reduced copy has them.
+     */
+    private int visible(BlockLooks.Texture texture, double texU, double texV) {
+        int texel = texture.texel(texU, texV, mip);
+        if ((texel >>> 24) >= 128) {
+            return texel;
+        }
+        if (mip == 0) {
+            return 0;
+        }
+        int exact = texture.texel(texU, texV, 0);
+        return (exact >>> 24) >= 128 ? exact : 0;
     }
 
     /**

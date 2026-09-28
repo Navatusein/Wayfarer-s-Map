@@ -26,6 +26,10 @@ final class RenderPass {
             Class<?> hooks = Class.forName("net.minecraftforge.client.ForgeHooksClient");
             worldPass = field(hooks, "worldRenderPass");
             entityPass = field(hooks, "renderPass");
+            WayFarMap.LOG.info(
+                "3D map pictures: Forge block render pass {}, tile entity render pass {}",
+                worldPass != null ? "found" : "not found",
+                entityPass != null ? "found" : "not found");
         } catch (Throwable t) {
             WayFarMap.LOG.debug("No Forge render pass for the 3D map's pictures", t);
         }

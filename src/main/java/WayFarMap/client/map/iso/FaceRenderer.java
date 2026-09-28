@@ -187,9 +187,13 @@ final class FaceRenderer {
             }
             Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
             int meta = ChunkBlocks.meta(cell);
+            // Glass and other see-through cubes: connected textures may come from outside the block (a mod hooking
+            // the game's block renderer, resource packs), so they are drawn by the game wherever one touches another.
+            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque;
             boolean maybe;
             try {
-                maybe = look.complex || block.hasTileEntity(meta)
+                maybe = look.complex || glassLike
+                    || block.hasTileEntity(meta)
                     || (look.renderType == 0 && overridesWorldIcon(block.getClass()));
             } catch (RuntimeException e) {
                 maybe = false;
@@ -216,6 +220,7 @@ final class FaceRenderer {
                 tileEntity = null;
             }
             boolean needed = look.complex || ownRenderer
+                || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
                 || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
             if (!needed) {
                 continue;
@@ -368,6 +373,27 @@ final class FaceRenderer {
             }
         }
         return exposed;
+    }
+
+    /** Whether one of the six blocks next to it is the same block (id and metadata). */
+    private static boolean touchesSame(World world, ChunkBlocks blocks, int cell, int lx, int y, int lz, int x, int z) {
+        int key = ChunkBlocks.lookKey(cell);
+        for (int side = 0; side < 6; side++) {
+            int nx = lx + OFFSETS[side][0], ny = y + OFFSETS[side][1], nz = lz + OFFSETS[side][2];
+            if (ny < 0 || ny > 255) {
+                continue;
+            }
+            int other;
+            if (nx < 0 || nx > 15 || nz < 0 || nz > 15 || ny < blocks.yMin || ny > blocks.yMax) {
+                other = blockAt(world, x + OFFSETS[side][0], ny, z + OFFSETS[side][2]);
+            } else {
+                other = ChunkBlocks.lookKey(blocks.cell(nx, ny, nz));
+            }
+            if (other == key) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Whether any open side of the block shows another icon in the world than its plain icon for the metadata. */

@@ -334,7 +334,9 @@ public final class BlockLooks {
 
     /**
      * Render types drawn right by the shapes here: cubes, crossed plants, crops, stairs, cactus, vines, ladders, lily
-     * pads, logs and pillars (whose sides depend only on the metadata).
+     * pads, logs and pillars (whose sides depend only on the metadata). Not double plants (tall grass, large ferns,
+     * sunflowers): the top half's metadata doesn't say which plant it is (the bottom half does) and their color comes
+     * from the world, so the plain icons show the wrong top and gray grass.
      */
     private static boolean isImitated(int renderType) {
         switch (renderType) {
@@ -348,7 +350,6 @@ public final class BlockLooks {
             case 23:
             case 31:
             case 39:
-            case 40:
                 return true;
             default:
                 return false;
