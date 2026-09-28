@@ -237,7 +237,7 @@ final class IsoTracer {
                     if (ChunkBlocks.blockId(cell) != 0) {
                         BlockLooks.Look look = BlockLooks.get(key);
                         // Solid cubes show the game's pictures of their sides (in face); other blocks its sprites.
-                        int spriteId = look.opaque ? 0 : pictureId(blocks, projection.rotation);
+                        int spriteId = look.opaque || look.noPictures ? 0 : pictureId(blocks, projection.rotation);
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;

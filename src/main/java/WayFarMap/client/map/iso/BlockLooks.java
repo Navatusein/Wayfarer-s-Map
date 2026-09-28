@@ -131,6 +131,11 @@ public final class BlockLooks {
         public boolean complex;
         /** The game's render type, to tell plain cubes apart. */
         public int renderType;
+        /**
+         * Drawn from its icons even if pictures of it were stored (leaves, double plants): taken by an older version,
+         * those pictures were wrong.
+         */
+        public boolean noPictures;
     }
 
     private static final Map<Integer, Look> LOOKS = new ConcurrentHashMap<>();
@@ -236,10 +241,13 @@ public final class BlockLooks {
         // Sprites taken from the game for everything drawn in a way not imitated here (orientation, connections,
         // models); the shapes below are only used when sprites can't be taken.
         look.complex = !material.isLiquid() && !isImitated(renderType);
+        look.noPictures = material == Material.leaves || renderType == 40;
+        // Double plants: the plant is in the low bits of either half (the top half's are filled in when copied).
+        int iconMeta = renderType == 40 ? meta & 7 : meta;
         look.lightPasses = block.getLightOpacity() < 255;
         look.translucent = block.getRenderBlockPass() == 1;
         for (int side = 0; side < 6; side++) {
-            look.textures[side] = texture(block, side, meta);
+            look.textures[side] = texture(block, side, iconMeta);
             look.tintSide[side] = true;
         }
         if (block == Blocks.grass) {
@@ -252,6 +260,11 @@ public final class BlockLooks {
             }
         }
         tint(look, block, meta, material);
+        if (renderType == 40) {
+            // Double tall grass and large ferns take the biome's grass color in the world, the flowers none.
+            int plant = meta & 7;
+            look.tint = plant == 2 || plant == 3 ? TINT_GRASS : TINT_NONE;
+        }
 
         if (material.isLiquid()) {
             look.shape = SHAPE_LIQUID;
@@ -334,9 +347,8 @@ public final class BlockLooks {
 
     /**
      * Render types drawn right by the shapes here: cubes, crossed plants, crops, stairs, cactus, vines, ladders, lily
-     * pads, logs and pillars (whose sides depend only on the metadata). Not double plants (tall grass, large ferns,
-     * sunflowers): the top half's metadata doesn't say which plant it is (the bottom half does) and their color comes
-     * from the world, so the plain icons show the wrong top and gray grass.
+     * pads, logs and pillars (whose sides depend only on the metadata), double plants (their top half gets the plant
+     * of the bottom half when copied, see {@link BlockCapture}).
      */
     private static boolean isImitated(int renderType) {
         switch (renderType) {
@@ -350,6 +362,7 @@ public final class BlockLooks {
             case 23:
             case 31:
             case 39:
+            case 40:
                 return true;
             default:
                 return false;

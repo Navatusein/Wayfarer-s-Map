@@ -182,14 +182,16 @@ final class FaceRenderer {
             }
             int key = ChunkBlocks.lookKey(cell);
             BlockLooks.Look look = BlockLooks.get(key);
-            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID) {
+            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
+                || look.noPictures) {
                 continue;
             }
             Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
             int meta = ChunkBlocks.meta(cell);
             // Glass and other see-through cubes: connected textures may come from outside the block (a mod hooking
             // the game's block renderer, resource packs), so they are drawn by the game wherever one touches another.
-            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque;
+            // Not leaves (no faces between see-through blocks of the same kind is what makes it glass).
+            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque && look.skipSame;
             boolean maybe;
             try {
                 maybe = look.complex || glassLike

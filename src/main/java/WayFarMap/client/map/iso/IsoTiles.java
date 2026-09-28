@@ -43,10 +43,13 @@ import WayFarMap.client.MapDrawer;
  */
 final class IsoTiles {
 
-    /** Tiles kept in video memory (two textures each: day and night). */
-    private static final int MAX_TILES = 500;
-    /** Levels from this one on are saved to disk (finer ones are quick to draw and would be too many files). */
-    private static final int DISK_LEVEL = 5;
+    /** Tiles kept in video memory (two textures each: day and night, 128 KB together). */
+    private static final int MAX_TILES = 800;
+    /**
+     * Levels from this one on (8 pixels per block and less) are saved to disk, so a part of the map seen before opens
+     * at once; finer ones are quick to draw and would be too many files.
+     */
+    private static final int DISK_LEVEL = 3;
     private static final int MAGIC = 0x57465432; // "WFT2"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
