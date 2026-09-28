@@ -70,6 +70,11 @@ public class Config {
     public static int isoCaptureMs = 5;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
     public static boolean record3d = true;
+    /**
+     * Write a detailed log of how chunks get onto the 3D map ({@code .minecraft/wayfarmap/logs/3d-*.log}), for finding
+     * why some take long.
+     */
+    public static boolean log3d = true;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -268,6 +273,14 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
+        bool(
+            c,
+            "log3d",
+            "Write a detailed log of how chunks get onto the 3D map (.minecraft/wayfarmap/logs/3d-*.log), to find out "
+                + "why some take long. Takes effect when a world is joined.",
+            true,
+            () -> log3d,
+            v -> log3d = v);
         group("layers");
         parent(null);
         bool(

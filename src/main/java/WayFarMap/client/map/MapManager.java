@@ -36,6 +36,7 @@ import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.map.export.MapExport;
+import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.share.ChunkRecord;
@@ -855,10 +856,21 @@ public class MapManager implements IResourceManagerReloadListener {
                 settling.put(key, state);
                 if (surface) {
                     chunk.isModified = false;
+                    IsoLog.seen(chunk.xPosition, chunk.zPosition, allAroundReady(world, chunk));
                 }
                 return false;
             }
             if (tick - state[0] >= SETTLE_MAX_TICKS) {
+                if (surface && IsoLog.enabled()) {
+                    IsoLog.settled(
+                        chunk.xPosition,
+                        chunk.zPosition,
+                        "timeout(neighboursReady=" + allAroundReady(world, chunk)
+                            + ", quietTicks="
+                            + (tick - state[1])
+                            + ")",
+                        tick - state[0]);
+                }
                 return true;
             }
             if (surface && chunk.isModified) {
@@ -869,6 +881,16 @@ public class MapManager implements IResourceManagerReloadListener {
             if (tick - state[1] < SETTLE_QUIET_TICKS) {
                 return false;
             }
+            if (!allAroundReady(world, chunk)) {
+                return false;
+            }
+            if (surface) {
+                IsoLog.settled(chunk.xPosition, chunk.zPosition, "quiet+neighbours", tick - state[0]);
+            }
+            return true;
+        }
+
+        private boolean allAroundReady(WorldClient world, Chunk chunk) {
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     if ((dx != 0 || dz != 0)
@@ -890,6 +912,12 @@ public class MapManager implements IResourceManagerReloadListener {
             int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
             // Only if its regions are in memory: waiting for the disk here would freeze the game.
             if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                IsoLog.log(
+                    "UNLOAD_SCAN_SKIPPED " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " flat region not in memory, never scanned="
+                        + !scanned);
                 return;
             }
             scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
@@ -910,8 +938,10 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 MapRegion before = map.getLoadedRegion(rx, rz);
                 int changesBefore = before == null ? -1 : before.getChanges();
+                long scanStart = System.nanoTime();
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
                 if (caveLayer < 0) {
+                    IsoLog.scanned(cx, cz, changed, changed && modified, modified, System.nanoTime() - scanStart);
                     // The 3D map keeps the surface's blocks.
                     // Copied again soon only if its blocks really changed: a chunk scanned again on schedule is
                     // copied again rarely, instead of taking the time of new chunks.
@@ -963,6 +993,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 // chunk is scanned on a later tick instead of freezing the game (both reads start right away).
                 int rx = cx >> (MapRegion.SHIFT - 4), rz = cz >> (MapRegion.SHIFT - 4);
                 if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                    if (surface) {
+                        IsoLog.scanDeferred(cx, cz);
+                    }
                     continue;
                 }
                 Chunk chunk = world.getChunkFromChunkCoords(cx, cz);

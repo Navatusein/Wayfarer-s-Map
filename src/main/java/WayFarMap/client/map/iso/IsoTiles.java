@@ -117,6 +117,7 @@ final class IsoTiles {
         final IsoMap.Dimension dimension;
         final double priority;
         final long order;
+        final long created = System.nanoTime();
 
         Job(Tile tile, IsoMap.Dimension dimension, double priority, long order) {
             this.tile = tile;
@@ -141,6 +142,8 @@ final class IsoTiles {
         final long renderedAt;
         /** Not drawn (no longer on screen): the tile is only free to be queued again. */
         final boolean skipped;
+        /** Read from the tile's file, not traced (for the log). */
+        boolean fromDisk;
         /**
          * Drawn with some blocks not as they look (the game didn't give a block's look in time, a sprite couldn't be
          * read): not saved, drawn again, and not shown over a good picture of the tile.
@@ -239,6 +242,7 @@ final class IsoTiles {
                     double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
                     tile.queued = true;
                     queue.add(new Job(tile, dimension, du * du + dv * dv, order.incrementAndGet()));
+                    IsoLog.tileQueued(key, tile.ready, queue.size());
                 }
                 double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
                 double sy = y + height / 2.0 + ((double) tv * blocks - centerV) * scale;
@@ -441,7 +445,8 @@ final class IsoTiles {
     }
 
     /** A chunk changed: the tiles in memory that show it are drawn again (render thread). */
-    void chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time) {
+    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time) {
+        int marked = 0;
         double x0 = chunkX * 16.0, z0 = chunkZ * 16.0;
         double[][] boxes = new double[4][];
         for (Tile tile : tiles.values()) {
@@ -459,8 +464,15 @@ final class IsoTiles {
             double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
             if (box[0] < u0 + blocks && box[2] > u0 && box[1] < v0 + blocks && box[3] > v0) {
                 tile.dirtyAt = Math.max(tile.dirtyAt, time);
+                marked++;
             }
         }
+        return marked;
+    }
+
+    /** Tiles in memory (for the log). */
+    int size() {
+        return tiles.size();
     }
 
     /** Everything must be drawn again (resource packs changed). */
@@ -507,10 +519,19 @@ final class IsoTiles {
             if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS) {
                 // Scrolled or zoomed away before its turn.
                 done.add(new Result(tile, null, null, null, 0, true));
+                IsoLog.tileSkipped(tile.key);
                 continue;
             }
             try {
+                long start = System.nanoTime();
                 Result result = produce(job);
+                IsoLog.tileDone(
+                    tile.key,
+                    start - job.created,
+                    System.nanoTime() - start,
+                    result.fromDisk ? "disk" : "trace",
+                    result.retry,
+                    result.pixels == null);
                 if (running) {
                     done.add(result);
                 }
@@ -530,6 +551,7 @@ final class IsoTiles {
         if (file != null && file.isFile()) {
             Result cached = readCached(tile, file, dimension, dirtyAt);
             if (cached != null) {
+                cached.fromDisk = true;
                 return cached;
             }
         }

@@ -127,12 +127,15 @@ public final class BlockStore {
     private Region readHeader(int rx, int rz) {
         Region region = new Region(rx, rz);
         File file = file(rx, rz);
+        long start = System.nanoTime();
         if (!file.isFile()) {
+            IsoLog.regionRead(dimension, rx, rz, "header (no file)", System.nanoTime() - start, 0);
             return region;
         }
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file), 1 << 16))) {
             readHeader(in, region);
             region.fileExists = true;
+            IsoLog.regionRead(dimension, rx, rz, "header", System.nanoTime() - start, file.length());
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not read 3D map data " + file, e);
             Arrays.fill(region.yMax, (short) -1);
@@ -163,6 +166,7 @@ public final class BlockStore {
             return false;
         }
         byte[][] blobs = new byte[CHUNKS * CHUNKS][];
+        long start = System.nanoTime();
         if (region.fileExists) {
             File file = file(region.rx, region.rz);
             try (
@@ -183,17 +187,37 @@ public final class BlockStore {
         synchronized (this) {
             blobBytes += region.bytes();
         }
+        if (region.fileExists) {
+            IsoLog.regionRead(dimension, region.rx, region.rz, "blobs", System.nanoTime() - start, region.bytes());
+        }
         return true;
     }
 
     /** Drops the compressed chunks of regions not used lately (and saved) while over the memory budget. */
     private void trimBlobs(Region keep) {
         List<Region> loaded = new ArrayList<>();
+        long before;
         synchronized (this) {
             if (blobBytes <= BLOB_BUDGET) {
                 return;
             }
+            before = blobBytes;
         }
+        long start = System.nanoTime();
+        int dropped = 0;
+        try {
+            dropped = trimBlobs(keep, loaded);
+        } finally {
+            long after;
+            synchronized (this) {
+                after = blobBytes;
+            }
+            IsoLog.regionTrimmed(dimension, dropped, before, after, System.nanoTime() - start);
+        }
+    }
+
+    private int trimBlobs(Region keep, List<Region> loaded) {
+        int dropped = 0;
         for (Region region : regions.values()) {
             if (region != keep && region.blobs != null && !region.dirty && !region.saving) {
                 loaded.add(region);
@@ -203,18 +227,20 @@ public final class BlockStore {
         for (Region region : loaded) {
             synchronized (this) {
                 if (blobBytes <= BLOB_BUDGET * 3 / 4) {
-                    return;
+                    return dropped;
                 }
             }
             synchronized (region) {
                 if (region.blobs != null && !region.dirty && !region.saving) {
                     region.blobs = null;
+                    dropped++;
                     synchronized (this) {
                         blobBytes -= region.bytes();
                     }
                 }
             }
         }
+        return dropped;
     }
 
     // ---------------------------------------------------------------- reading (tile renderers)
@@ -294,15 +320,29 @@ public final class BlockStore {
 
     // ---------------------------------------------------------------- writing (writer and saver threads of IsoMap)
 
-    /** Stores the chunk's blocks; nothing happens (not even the time changes) if they are the same as before. */
-    void put(int chunkX, int chunkZ, ChunkBlocks blocks) {
+    /**
+     * Stores the chunk's blocks; nothing happens (not even the time changes) if they are the same as before.
+     *
+     * @param timing for the log, filled in: nanos reading the region header, reading its chunks, encoding, trimming;
+     *               bytes; 1 if changed; nanos waiting for the region's lock
+     */
+    void put(int chunkX, int chunkZ, ChunkBlocks blocks, long[] timing) {
+        long t0 = System.nanoTime();
         byte[] blob = blocks.encode();
+        long t1 = System.nanoTime();
         Region region = region(chunkX >> 5, chunkZ >> 5);
+        long t2 = System.nanoTime();
+        timing[2] = t1 - t0;
+        timing[0] = t2 - t1;
+        timing[4] = blob.length;
         int index = (chunkZ & 31) * CHUNKS + (chunkX & 31);
         int oldTop = -1;
         boolean loaded, changed = false;
         synchronized (region) {
+            long t3 = System.nanoTime();
+            timing[6] = t3 - t2;
             loaded = loadBlobs(region);
+            timing[1] = System.nanoTime() - t3;
             byte[] old = region.blobs[index];
             if (old == null || !Arrays.equals(old, blob)) {
                 changed = true;
@@ -320,8 +360,11 @@ public final class BlockStore {
             }
         }
         if (loaded) {
+            long t4 = System.nanoTime();
             trimBlobs(region);
+            timing[3] = System.nanoTime() - t4;
         }
+        timing[5] = changed ? 1 : 0;
         if (!changed) {
             return;
         }
@@ -341,6 +384,7 @@ public final class BlockStore {
             short[] yMin, yMax;
             int[] lengths;
             byte[][] blobs;
+            long copyStart = System.nanoTime();
             synchronized (region) {
                 if (!region.dirty) {
                     continue;
@@ -354,13 +398,34 @@ public final class BlockStore {
                 blobs = region.blobs.clone();
             }
             File file = file(region.rx, region.rz);
+            long writeStart = System.nanoTime();
+            long bytes = 0;
+            for (byte[] blob : blobs) {
+                bytes += blob == null ? 0 : blob.length;
+            }
             try {
                 write(file, times, yMin, yMax, lengths, blobs);
                 synchronized (region) {
                     region.fileExists = true;
                     region.saving = false;
                 }
+                IsoLog.regionSaved(
+                    dimension,
+                    region.rx,
+                    region.rz,
+                    bytes,
+                    writeStart - copyStart,
+                    System.nanoTime() - writeStart,
+                    true);
             } catch (IOException e) {
+                IsoLog.regionSaved(
+                    dimension,
+                    region.rx,
+                    region.rz,
+                    bytes,
+                    writeStart - copyStart,
+                    System.nanoTime() - writeStart,
+                    false);
                 WayFarMap.LOG.warn("Could not save 3D map data " + file, e);
                 synchronized (region) {
                     region.dirty = true;

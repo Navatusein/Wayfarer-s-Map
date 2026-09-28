@@ -137,6 +137,13 @@ final class FaceRenderer {
         return !broken && OpenGlHelper.isFramebufferEnabled();
     }
 
+    /**
+     * For {@link IsoLog}, about the last {@link #addFaces} (render thread): blocks needing pictures, blocks whose
+     * pictures had to be taken, taken this time, not taken (no room), and whether the palette was full.
+     */
+    static int lastFound, lastToDraw, lastDrawn, lastMissing;
+    static boolean lastPaletteFull;
+
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
@@ -151,6 +158,8 @@ final class FaceRenderer {
      * @return false if some pictures weren't taken in time
      */
     static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
+        lastFound = lastToDraw = lastDrawn = lastMissing = 0;
+        lastPaletteFull = palette.full();
         if (!available()) {
             // The ones of the copy before are kept.
             blocks.picturesMissing = true;
@@ -263,6 +272,8 @@ final class FaceRenderer {
             }
             toDraw.add(pending);
         }
+        lastFound = found.size();
+        lastToDraw = toDraw.size();
         if (found.isEmpty()) {
             blocks.setFaces(palette.generation, new int[0], new int[0]);
             return true;
@@ -284,8 +295,10 @@ final class FaceRenderer {
             List<Pending> batch = toDraw.subList(from, to);
             from = to;
             draw(world, batch, palette);
+            lastDrawn += batch.size();
             for (Pending pending : batch) {
                 if (missing(pending)) {
+                    lastMissing++;
                     // Not taken (no room for new pictures now): taken again next time, not remembered as none.
                     continue;
                 }

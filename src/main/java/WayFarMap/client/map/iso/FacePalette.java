@@ -275,6 +275,11 @@ final class FacePalette {
         return add(entry);
     }
 
+    /** Whether no new sprites are taken until the file caught up (for the log). */
+    boolean full() {
+        return unsavedBytes > UNSAVED_LIMIT;
+    }
+
     /** Memory taken by sprites not in the file yet, in bytes. */
     long unsavedBytes() {
         return unsavedBytes;
