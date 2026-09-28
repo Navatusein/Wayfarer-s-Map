@@ -66,8 +66,12 @@ public final class IsoExport implements TilePyramid.Source {
 
     @Override
     public int threads() {
-        return Math.max(1, Math.min(6, Runtime.getRuntime()
-            .availableProcessors() - 2));
+        return Math.max(
+            1,
+            Math.min(
+                6,
+                Runtime.getRuntime()
+                    .availableProcessors() - 2));
     }
 
     /** Tiles over every chunk with blocks or on the flat map, from the bottom of the world to its highest block. */

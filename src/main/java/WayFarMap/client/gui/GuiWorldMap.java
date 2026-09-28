@@ -233,8 +233,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton,
-            rotateButton, mobsButton, teamButton };
+        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, rotateButton,
+            mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -455,13 +455,15 @@ public class GuiWorldMap extends ScaledScreen {
                 final int chosen = level;
                 entries.add(new MenuEntry(label, !tiles.isEmpty(), () -> startIsoExport(dimensionId, chosen)));
             }
-            entries.add(new MenuEntry(I18n.format("wayfarmap.export.night"), true, () -> {
-                exportNight = !exportNight;
-            }, exportNight));
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.export.night"),
+                    true,
+                    () -> { exportNight = !exportNight; },
+                    exportNight));
         } else {
             MapDimension map = MapManager.INSTANCE.getViewMap();
-            Set<Long> regions = map == null ? Collections.<Long>emptySet()
-                : new FlatExport(map, 1).tiles();
+            Set<Long> regions = map == null ? Collections.<Long>emptySet() : new FlatExport(map, 1).tiles();
             long[] picture = TilePyramid.pictureSize(regions, MapRegion.SIZE);
             for (int blockPixels = 1; blockPixels <= 16; blockPixels *= 2) {
                 final int chosen = blockPixels;
@@ -680,9 +682,8 @@ public class GuiWorldMap extends ScaledScreen {
             }
             return new double[] { centerX, IsoProjection.REFERENCE_Y, centerZ };
         }
-        int ground = MapManager.INSTANCE.getViewSurfaceHeight(
-            MathHelper.floor_double(centerX),
-            MathHelper.floor_double(centerZ));
+        int ground = MapManager.INSTANCE
+            .getViewSurfaceHeight(MathHelper.floor_double(centerX), MathHelper.floor_double(centerZ));
         return new double[] { centerX, ground > 0 ? ground : IsoProjection.REFERENCE_Y, centerZ };
     }
 
@@ -976,11 +977,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (hovered >= 0 && menu == null) {
             String text = I18n.format("wayfarmap.iso.quality") + ": "
                 + I18n.format("wayfarmap.iso.quality_value", 8 << hovered);
-            drawHoveringText(
-                Collections.singletonList(text),
-                mouseX,
-                mouseY,
-                fontRendererObj);
+            drawHoveringText(Collections.singletonList(text), mouseX, mouseY, fontRendererObj);
         }
     }
 
@@ -1282,12 +1279,8 @@ public class GuiWorldMap extends ScaledScreen {
                 I18n.format("wayfarmap.gui.new_waypoint"),
                 true,
                 () -> mc.displayGuiScreen(
-                    GuiEditWaypoint.create(
-                        this,
-                        bx,
-                        safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz),
-                        bz,
-                        dimension))));
+                    GuiEditWaypoint
+                        .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension))));
         menu = entries;
         menuKind = MENU_MAP;
         menuWidth = MENU_WIDTH;
@@ -1503,9 +1496,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
-        if (!isoShown() && claimsShown()
-            && (button == 0 || button == 1)
-            && startClaimPaint(mouseX, mouseY, button)) {
+        if (!isoShown() && claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
             return;
         }
         if (button == 0 && isoShown() && qualityAt(mouseX, mouseY) >= 0) {

@@ -140,9 +140,7 @@ public final class MapExport {
             style.setUnderlined(true);
             style.setColor(EnumChatFormatting.AQUA);
             style.setChatClickEvent(
-                new ClickEvent(
-                    ClickEvent.Action.OPEN_FILE,
-                    new File(current.folder, "index.html").getAbsolutePath()));
+                new ClickEvent(ClickEvent.Action.OPEN_FILE, new File(current.folder, "index.html").getAbsolutePath()));
             link.setChatStyle(style);
             message.appendSibling(link);
         } else if ("cancelled".equals(current.result)) {

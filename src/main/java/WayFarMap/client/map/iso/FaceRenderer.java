@@ -90,6 +90,7 @@ final class FaceRenderer {
             this.time = time;
         }
     }
+
     /** Sprites of blocks without a tile entity, by block and everything around it. */
     private static final Map<Long, int[]> BY_SURROUNDINGS = new HashMap<>();
     private static int cacheGeneration;
@@ -110,8 +111,8 @@ final class FaceRenderer {
         final boolean ownRenderer;
         final int[] ids = new int[ChunkBlocks.PER_CELL];
 
-        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings,
-            boolean cube, boolean ownRenderer) {
+        Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
+            boolean ownRenderer) {
             this.cellIndex = cellIndex;
             this.x = x;
             this.y = y;

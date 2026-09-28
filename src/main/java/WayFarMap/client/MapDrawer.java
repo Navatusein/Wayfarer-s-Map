@@ -436,8 +436,9 @@ public final class MapDrawer {
         drawTeammates(
             mc,
             dimension,
-            (px, py, pz) -> new double[] { x + width / 2.0 + (px - centerX) * scale,
-                y + height / 2.0 + (pz - centerZ) * scale },
+            (px, py,
+                pz) -> new double[] { x + width / 2.0 + (px - centerX) * scale,
+                    y + height / 2.0 + (pz - centerZ) * scale },
             scale,
             x,
             y,

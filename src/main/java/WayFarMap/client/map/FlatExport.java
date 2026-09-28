@@ -55,8 +55,13 @@ public final class FlatExport implements TilePyramid.Source {
 
     @Override
     public int threads() {
-        return scale == 1 ? 2 : Math.max(1, Math.min(4, Runtime.getRuntime()
-            .availableProcessors() - 1));
+        return scale == 1 ? 2
+            : Math.max(
+                1,
+                Math.min(
+                    4,
+                    Runtime.getRuntime()
+                        .availableProcessors() - 1));
     }
 
     @Override

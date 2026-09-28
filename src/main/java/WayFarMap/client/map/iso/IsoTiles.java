@@ -73,10 +73,7 @@ final class IsoTiles {
                 return false;
             }
             Key k = (Key) o;
-            return k.dimension == dimension && k.rotation == rotation
-                && k.level == level
-                && k.tu == tu
-                && k.tv == tv;
+            return k.dimension == dimension && k.rotation == rotation && k.level == level && k.tu == tu && k.tv == tv;
         }
 
         @Override
@@ -168,8 +165,12 @@ final class IsoTiles {
 
     IsoTiles(IsoMap map) {
         this.map = map;
-        int threads = Math.max(1, Math.min(3, Runtime.getRuntime()
-            .availableProcessors() / 2));
+        int threads = Math.max(
+            1,
+            Math.min(
+                3,
+                Runtime.getRuntime()
+                    .availableProcessors() / 2));
         workers = new Thread[threads];
         for (int i = 0; i < threads; i++) {
             Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
@@ -189,8 +190,8 @@ final class IsoTiles {
      * @param scale           screen (GUI) pixels per block
      * @param factor          real pixels per GUI pixel
      */
-    void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor,
-        int x, int y, int width, int height) {
+    void draw(IsoMap.Dimension dimension, int rotation, double centerU, double centerV, double scale, int factor, int x,
+        int y, int width, int height) {
         frame++;
         uploadResults();
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
@@ -622,8 +623,8 @@ final class IsoTiles {
         }
         File tmp = new File(file.getPath() + ".tmp");
         Deflater deflater = new Deflater(4);
-        try (DataOutputStream out = new DataOutputStream(
-            new BufferedOutputStream(new FileOutputStream(tmp), 1 << 15))) {
+        try (
+            DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmp), 1 << 15))) {
             out.writeInt(MAGIC);
             out.writeLong(result.renderedAt);
             out.writeDouble(minToward);

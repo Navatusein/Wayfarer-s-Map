@@ -241,8 +241,7 @@ final class IsoTracer {
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
-                        int drawn = spriteId == 0 ? SPRITE_NONE
-                            : sprite(spriteId, look, x, y, z, side, t, lightHere);
+                        int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, side, t, lightHere);
                         if (drawn == SPRITE_STOP) {
                             break;
                         }
@@ -261,8 +260,8 @@ final class IsoTracer {
                             z,
                             previousLight,
                             previousKey)) {
-                                break;
-                            }
+                            break;
+                        }
                         // Passing over a liquid's surface (in the gap above it) is still in the air: the light of the
                         // water below would darken the next block's surface along every edge.
                         boolean overLiquid = look.shape == BlockLooks.SHAPE_LIQUID && insideLiquid != key;

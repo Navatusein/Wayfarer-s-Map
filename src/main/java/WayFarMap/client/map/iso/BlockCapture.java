@@ -175,7 +175,6 @@ final class BlockCapture {
         return blocks;
     }
 
-
     private interface ColorSource {
 
         int get();

@@ -144,8 +144,8 @@ public final class BlockStore {
         byte[][] blobs = new byte[CHUNKS * CHUNKS][];
         if (region.fileExists) {
             File file = file(region.rx, region.rz);
-            try (DataInputStream in = new DataInputStream(
-                new BufferedInputStream(new FileInputStream(file), 1 << 16))) {
+            try (
+                DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file), 1 << 16))) {
                 Region check = new Region(region.rx, region.rz);
                 readHeader(in, check);
                 for (int i = 0; i < blobs.length; i++) {
@@ -354,8 +354,8 @@ public final class BlockStore {
             throw new IOException("Could not create " + parent);
         }
         File tmp = new File(file.getPath() + ".tmp");
-        try (DataOutputStream out = new DataOutputStream(
-            new BufferedOutputStream(new FileOutputStream(tmp), 1 << 16))) {
+        try (
+            DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmp), 1 << 16))) {
             out.writeInt(MAGIC);
             for (int i = 0; i < times.length; i++) {
                 out.writeLong(times[i]);
@@ -371,11 +371,8 @@ public final class BlockStore {
         }
         // In one step where the file system can: a crash never leaves the region without its file.
         try {
-            Files.move(
-                tmp.toPath(),
-                file.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE);
+            Files
+                .move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }

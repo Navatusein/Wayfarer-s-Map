@@ -173,9 +173,13 @@ public final class TilePyramid {
         }
 
         writePreview(levels, tiles, size, new File(folder, "preview.png"));
-        writeOverview(finest, new File(tiles, "0"), size, new File(folder, "overview.png"), progress, () -> {
-            progress.progress(done.incrementAndGet(), Math.max(total[0], done.get() + 1));
-        });
+        writeOverview(
+            finest,
+            new File(tiles, "0"),
+            size,
+            new File(folder, "overview.png"),
+            progress,
+            () -> { progress.progress(done.incrementAndGet(), Math.max(total[0], done.get() + 1)); });
         writeScript(levels, size, info, new File(folder, "map.js"));
         copyViewer(new File(folder, "index.html"));
         progress.progress(total[0], total[0]);

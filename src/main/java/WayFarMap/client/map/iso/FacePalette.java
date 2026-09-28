@@ -166,7 +166,9 @@ final class FacePalette {
                 int side = in.readInt();
                 int length = in.readInt();
                 long offset = in.getFilePointer();
-                if (side <= 0 || side > MAX_SIZE || Integer.bitCount(side) != 1 || length < 0
+                if (side <= 0 || side > MAX_SIZE
+                    || Integer.bitCount(side) != 1
+                    || length < 0
                     || offset + length > end) {
                     // Cut off while it was written: the rest is taken again.
                     break;
@@ -178,8 +180,8 @@ final class FacePalette {
                 in.seek(offset + length);
             }
             palette.saved = palette.entries.size();
-            palette.fileEnd = palette.saved == 0 ? 8 : palette.entries.get(palette.saved - 1).offset
-                + palette.entries.get(palette.saved - 1).length;
+            palette.fileEnd = palette.saved == 0 ? 8
+                : palette.entries.get(palette.saved - 1).offset + palette.entries.get(palette.saved - 1).length;
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not read the 3D map's block sprites " + palette.file, e);
             palette.entries.clear();

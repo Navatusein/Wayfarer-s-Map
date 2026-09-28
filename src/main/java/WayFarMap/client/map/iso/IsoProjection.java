@@ -29,8 +29,8 @@ public final class IsoProjection {
     /** Detail levels: level k has {@code 64 / 2^k} pixels per block, down to 1 pixel per 8 blocks. */
     public static final int LEVELS = 10;
 
-    private static final IsoProjection[] ROTATIONS = { new IsoProjection(0), new IsoProjection(1),
-        new IsoProjection(2), new IsoProjection(3) };
+    private static final IsoProjection[] ROTATIONS = { new IsoProjection(0), new IsoProjection(1), new IsoProjection(2),
+        new IsoProjection(3) };
 
     /** 0 = from the south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
     public final int rotation;

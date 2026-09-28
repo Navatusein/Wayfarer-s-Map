@@ -230,7 +230,8 @@ public final class IsoMap implements BlockStore.Listener {
      * ground. Only the chunks left at the edge are kept this way.
      */
     public void onChunkUnload(World world, Chunk chunk) {
-        if (!Config.record3d || writer == null || chunk.isEmpty()
+        if (!Config.record3d || writer == null
+            || chunk.isEmpty()
             || world.provider.dimensionId != lastCaptureDimension) {
             return;
         }
@@ -280,8 +281,7 @@ public final class IsoMap implements BlockStore.Listener {
         boolean near = player != null
             && Math.abs(chunk.xPosition - MathHelper.floor_double(player.posX / 16)) <= NEAR_CHUNKS
             && Math.abs(chunk.zPosition - MathHelper.floor_double(player.posZ / 16)) <= NEAR_CHUNKS;
-        if (System.currentTimeMillis() - last < (near ? RECAPTURE_MS : FAR_RECAPTURE_MS)
-            || freshQueue.contains(key)) {
+        if (System.currentTimeMillis() - last < (near ? RECAPTURE_MS : FAR_RECAPTURE_MS) || freshQueue.contains(key)) {
             return;
         }
         captureQueue.add(key);
