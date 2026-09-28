@@ -174,6 +174,8 @@ final class FaceRenderer {
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
+        // The last block found to need no pictures anywhere: most of a chunk is runs of the same few blocks.
+        int plainKey = -1;
         // The part of an edge chunk kept below its surface gets no pictures: it starts above it.
         for (int i = Math.max(0, blocks.picturesFrom - blocks.yMin) << 8; i < cells.length; i++) {
             int cell = cells[i];
@@ -181,9 +183,13 @@ final class FaceRenderer {
                 continue;
             }
             int key = ChunkBlocks.lookKey(cell);
+            if (key == plainKey) {
+                continue;
+            }
             BlockLooks.Look look = BlockLooks.get(key);
             if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
                 || look.noPictures) {
+                plainKey = key;
                 continue;
             }
             Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
@@ -202,6 +208,7 @@ final class FaceRenderer {
             }
             if (!maybe) {
                 // Most blocks: drawn from their icons.
+                plainKey = key;
                 continue;
             }
             int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);

@@ -69,6 +69,8 @@ public class Config {
     public static final int ISO_THREADS_MAX = 16;
     /** Zoomed far out, four rays per pixel instead of one: smoother, but up to four times slower to draw. */
     public static boolean isoSmooth = true;
+    /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
+    public static int isoCaptureMs = 5;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
     public static boolean record3d = true;
     /** VisualProspecting layers (only used when it is installed). */
@@ -222,6 +224,17 @@ public class Config {
             1,
             () -> isoThreads,
             v -> isoThreads = v);
+        integer(
+            c,
+            "isoCaptureMs",
+            "Milliseconds per game tick spent copying the blocks of chunks for the 3D map. More puts new chunks on "
+                + "the 3D map sooner but may cost frames while flying over new land.",
+            5,
+            1,
+            20,
+            1,
+            () -> isoCaptureMs,
+            v -> isoCaptureMs = v);
         bool(
             c,
             "isoSmooth",

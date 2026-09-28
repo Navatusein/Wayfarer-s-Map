@@ -40,8 +40,6 @@ public final class IsoMap implements BlockStore.Listener {
     private static final int RENDER_VERSION = 14;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
-    /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
-    private static final long CAPTURE_BUDGET_NANOS = 3_000_000L;
     /**
      * A chunk is copied again at most this often while the player is near it (building changes it), and farther
      * away only now and then: copying every loaded chunk again and again costs frames while flying around.
@@ -231,7 +229,8 @@ public final class IsoMap implements BlockStore.Listener {
             return;
         }
         savePicturesIfMany();
-        long end = System.nanoTime() + CAPTURE_BUDGET_NANOS;
+        // A chunk takes a fraction of a millisecond, more with pictures.
+        long end = System.nanoTime() + Config.isoCaptureMs * 1_000_000L;
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
     }
@@ -558,6 +557,11 @@ public final class IsoMap implements BlockStore.Listener {
             y,
             width,
             height);
+    }
+
+    /** Chunks waiting to be copied for the 3D map (render thread). */
+    public int chunksQueued() {
+        return freshQueue.size() + captureQueue.size();
     }
 
     /** Tiles of the 3D map waiting to be drawn, 0 if none. */
