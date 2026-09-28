@@ -231,7 +231,7 @@ public final class IsoMap implements BlockStore.Listener {
      * has no blocks), it is copied whole, down to the bottom of the world: the edge of the 3D map then shows the real
      * ground. Only the chunks left at the edge are kept this way.
      */
-    public void onChunkUnload(World world, Chunk chunk) {
+    public void onChunkUnload(World world, Chunk chunk, boolean mayCopy) {
         if (!Config.record3d || writer == null
             || chunk.isEmpty()
             || world.provider.dimensionId != lastCaptureDimension) {
@@ -239,6 +239,13 @@ public final class IsoMap implements BlockStore.Listener {
         }
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
+            return;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        // Waiting to be copied (for the first time, or again since it changed).
+        boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
+        if (!mayCopy) {
+            // No time left this tick: the 3D map draws this chunk from the flat map.
             return;
         }
         int[][] sides = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
@@ -251,9 +258,6 @@ public final class IsoMap implements BlockStore.Listener {
                 break;
             }
         }
-        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        // Waiting to be copied (for the first time, or again since it changed).
-        boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
         boolean keptWhole = dimension.store.time(chunk.xPosition, chunk.zPosition) != 0
             && dimension.store.bottom(chunk.xPosition, chunk.zPosition) == 0;
         // Pictures only for a moment: the chunk goes away, the ones not taken are drawn from icons.

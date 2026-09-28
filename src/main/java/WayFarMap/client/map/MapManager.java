@@ -572,6 +572,7 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
+        unloadNanos = 0;
         IsoMap.INSTANCE.tick(world);
         MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
@@ -651,8 +652,12 @@ public class MapManager implements IResourceManagerReloadListener {
         if (world != null && world.isRemote && world == currentWorld && chunk != null && surface != null) {
             // Flying fast, chunks can come and go before their turn: one never mapped is mapped now, while its
             // blocks are still there.
+            long start = System.nanoTime();
             surfaceTracker.scanIfStale(currentWorld, chunk, surface, biomes);
-            IsoMap.INSTANCE.onChunkUnload(world, chunk);
+            // Copying blocks for the 3D map costs more: only for a few milliseconds per tick (flying fast, dozens of
+            // chunks go at once); the others are drawn in 3D from the flat map.
+            IsoMap.INSTANCE.onChunkUnload(world, chunk, unloadNanos < UNLOAD_BUDGET_NANOS);
+            unloadNanos += System.nanoTime() - start;
         }
     }
 
@@ -794,6 +799,12 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** A chunk whose blocks changed is scanned again at most this often (ticks). */
     private static final int CHANGED_RESCAN_TICKS = 40;
+    /** Time per tick for scanning chunks into one map (besides the number of chunks in the settings). */
+    private static final long SCAN_BUDGET_NANOS = 3_000_000L;
+    /** Time per tick for mapping chunks as the game lets them go. */
+    private static final long UNLOAD_BUDGET_NANOS = 4_000_000L;
+    /** Time spent on chunks let go since the last tick. */
+    private long unloadNanos;
 
     /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
     private final class ScanTracker {
@@ -837,13 +848,20 @@ public class MapManager implements IResourceManagerReloadListener {
                 if (caveLayer < 0) {
                     chunk.isModified = false;
                 }
+                MapRegion before = map.getLoadedRegion(rx, rz);
+                int changesBefore = before == null ? -1 : before.getChanges();
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
                 if (caveLayer < 0) {
                     // The 3D map keeps the surface's blocks.
                     IsoMap.INSTANCE.onChunkScanned(world, chunk, changed);
                 }
                 MapRegion scanned = map.getLoadedRegion(rx, rz);
-                if (scanned != null) {
+                // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
+                // again and again isn't saved again each time (and teammates' newer versions still win).
+                boolean same = scanned != null && scanned == before
+                    && scanned.getChanges() == changesBefore
+                    && scanned.getChunkTime(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1)) != 0;
+                if (scanned != null && !same) {
                     scanned.setChunkTime(
                         cx & (MapRegion.CHUNKS - 1),
                         cz & (MapRegion.CHUNKS - 1),
@@ -869,7 +887,10 @@ public class MapManager implements IResourceManagerReloadListener {
                 nextQueueBuild = tick + 10;
                 queuedAround = around;
             }
-            while (budget > 0 && !queue.isEmpty()) {
+            long end = System.nanoTime() + SCAN_BUDGET_NANOS;
+            boolean first = true;
+            while (budget > 0 && !queue.isEmpty() && (first || System.nanoTime() < end)) {
+                first = false;
                 long key = queue.poll();
                 int cx = (int) (key >> 32);
                 int cz = (int) key;
