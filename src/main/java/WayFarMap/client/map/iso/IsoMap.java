@@ -93,8 +93,8 @@ public final class IsoMap implements BlockStore.Listener {
     /** Pictures of block sides taken from the game (connected textures, tile entities). */
     private FacePalette palette;
     /** The eight chunks around one, in an order where {@code AROUND[7 - i]} is the opposite of {@code AROUND[i]}. */
-    private static final int[][] AROUND = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 },
-        { 0, 1 }, { 1, 1 } };
+    private static final int[][] AROUND = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { 1, 0 }, { -1, 1 }, { 0, 1 },
+        { 1, 1 } };
     /**
      * Chunks copied while some of the chunks around them weren't loaded (bits by {@link #AROUND}): their edge toward
      * those was drawn as if the world ended there (connected textures, pipes, glass). When one of those arrives, the
