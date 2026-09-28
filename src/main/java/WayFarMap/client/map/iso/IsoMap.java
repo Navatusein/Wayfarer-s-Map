@@ -37,7 +37,7 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 13;
+    private static final int RENDER_VERSION = 14;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /** Time per game tick spent copying chunks (a chunk takes a fraction of a millisecond, more with pictures). */
@@ -109,6 +109,10 @@ public final class IsoMap implements BlockStore.Listener {
     /** A world was joined: its maps live in {@code worldDirectory/dim<id>/}. */
     public void open(File worldDirectory) {
         close();
+        // Block ids belong to the world (Forge numbers blocks per world and server), and pictures to its palette:
+        // nothing worked out for another world is used here.
+        BlockLooks.clear();
+        FaceRenderer.clear();
         this.worldDirectory = worldDirectory;
         palette = FacePalette.load(worldDirectory, spriteCacheId());
         writer = Executors.newSingleThreadExecutor(r -> {
@@ -452,7 +456,7 @@ public final class IsoMap implements BlockStore.Listener {
         cacheId = null;
         FacePalette old = palette;
         if (worldDirectory != null && writer != null
-            && (old == null || old.generation != (spriteCacheId().hashCode() & 0x7FFFFFFF))) {
+            && (old == null || old.packs != FacePalette.packsOf(spriteCacheId()))) {
             // Other resource packs: a new palette (it replaces the file when first saved).
             writer.submit(() -> {
                 if (old != null) {
