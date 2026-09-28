@@ -143,6 +143,22 @@ final class FaceRenderer {
      */
     static int lastFound, lastToDraw, lastDrawn, lastMissing;
     static boolean lastPaletteFull;
+    /**
+     * More about the last {@link #addFaces}, for {@link IsoLog}: why blocks needed pictures (complex look, own
+     * renderer, glass touching glass, sides depending on the world), what the caches gave (tile entity pictures by
+     * place: hit, too old, surroundings changed; by surroundings: hit, same as another block of this copy), batches,
+     * and where the time went (finding the blocks, drawing, reading back from the graphics card, storing sprites).
+     */
+    static int whyComplex, whyOwnRenderer, whyGlass, whySides, placeHit, placeExpired, placeChanged, surroundingsHit,
+        surroundingsShared, batches, slotsUsed, tileEntities;
+    static long findNanos, drawNanos, readNanos, storeNanos, setupNanos;
+
+    private static void resetStats() {
+        lastFound = lastToDraw = lastDrawn = lastMissing = 0;
+        whyComplex = whyOwnRenderer = whyGlass = whySides = placeHit = placeExpired = placeChanged = 0;
+        surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
+        findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
+    }
 
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
@@ -158,8 +174,9 @@ final class FaceRenderer {
      * @return false if some pictures weren't taken in time
      */
     static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
-        lastFound = lastToDraw = lastDrawn = lastMissing = 0;
+        resetStats();
         lastPaletteFull = palette.full();
+        long findStart = System.nanoTime();
         if (!available()) {
             // The ones of the copy before are kept.
             blocks.picturesMissing = true;
@@ -243,6 +260,15 @@ final class FaceRenderer {
             if (!needed) {
                 continue;
             }
+            if (look.complex) {
+                whyComplex++;
+            } else if (ownRenderer) {
+                whyOwnRenderer++;
+            } else if (glassLike) {
+                whyGlass++;
+            } else {
+                whySides++;
+            }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
             // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
             long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
@@ -250,22 +276,33 @@ final class FaceRenderer {
             pending.unsure = !aroundLoaded(around, lx, lz);
             found.add(pending);
             if (tileEntity != null) {
+                tileEntities++;
                 Cached cached = BY_PLACE.get(place(x, y, z));
                 if (cached != null && cached.surroundings == surroundings
                     && System.currentTimeMillis() - cached.time < PLACE_KEEP_MS) {
                     System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
+                    placeHit++;
                     continue;
+                }
+                if (cached != null) {
+                    if (cached.surroundings != surroundings) {
+                        placeChanged++;
+                    } else {
+                        placeExpired++;
+                    }
                 }
             } else {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
                 if (known != null) {
                     System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
+                    surroundingsHit++;
                     continue;
                 }
                 List<Pending> same = waiting.get(surroundings);
                 if (same != null) {
                     // Drawn once for all the blocks with the same surroundings.
                     same.add(pending);
+                    surroundingsShared++;
                     continue;
                 }
                 waiting.put(surroundings, new ArrayList<>());
@@ -274,6 +311,7 @@ final class FaceRenderer {
         }
         lastFound = found.size();
         lastToDraw = toDraw.size();
+        findNanos = System.nanoTime() - findStart;
         if (found.isEmpty()) {
             blocks.setFaces(palette.generation, new int[0], new int[0]);
             return true;
@@ -296,6 +334,8 @@ final class FaceRenderer {
             from = to;
             draw(world, batch, palette);
             lastDrawn += batch.size();
+            batches++;
+            slotsUsed += slots;
             for (Pending pending : batch) {
                 if (missing(pending)) {
                     lastMissing++;
@@ -500,6 +540,7 @@ final class FaceRenderer {
 
     /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
+        long setupStart = System.nanoTime();
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
@@ -531,9 +572,12 @@ final class FaceRenderer {
             // Smooth lighting would darken corners by the light around; the sprites are taken unlit.
             mc.gameSettings.ambientOcclusion = 0;
             RenderBlocks renderBlocks = new RenderBlocks(world);
+            long drawStart = System.nanoTime();
+            setupNanos += drawStart - setupStart;
 
             int slot = 0;
             for (Pending pending : batch) {
+                long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
                     GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, pixels, pixels);
@@ -571,7 +615,10 @@ final class FaceRenderer {
                     GL11.glColor4f(1f, 1f, 1f, 1f);
                     drawBlock(mc, renderBlocks, tessellator, pending);
                 }
+                IsoLog.blockDrawn(pending.block, pending.tileEntity, pending.views(), System.nanoTime() - blockStart);
             }
+            long readStart = System.nanoTime();
+            drawNanos += readStart - drawStart;
             for (int plane = 0; plane < 4; plane++) {
                 GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
             }
@@ -584,6 +631,8 @@ final class FaceRenderer {
             }
             int[] all = readPixels;
             readBuffer.get(all, 0, usedRows * SIZE);
+            long storeStart = System.nanoTime();
+            readNanos += storeStart - readStart;
             slot = 0;
             int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
             int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
@@ -604,12 +653,14 @@ final class FaceRenderer {
                     pending.ids[view] = palette.idOf(image);
                 }
             }
+            storeNanos += System.nanoTime() - storeStart;
             failures = 0;
         } catch (Throwable t) {
             // These blocks are drawn from their icons this time.
             for (Pending pending : batch) {
                 Arrays.fill(pending.ids, 0);
             }
+            IsoLog.log("PICTURES_FAILED batch of " + batch.size() + ": " + t);
             if (++failures >= 5) {
                 // Something in this driver or the mods' renderers does not like this: no more pictures.
                 broken = true;

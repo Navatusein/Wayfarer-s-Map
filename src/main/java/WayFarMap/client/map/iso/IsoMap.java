@@ -261,7 +261,8 @@ public final class IsoMap implements BlockStore.Listener {
                     captureQueue.size(),
                     unfinished.size(),
                     tilesQueued(),
-                    pictures == null ? 0 : pictures.unsavedBytes());
+                    pictures == null ? 0 : pictures.unsavedBytes(),
+                    pictures);
             }
         }
     }

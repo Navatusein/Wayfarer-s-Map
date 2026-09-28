@@ -144,6 +144,8 @@ final class IsoTiles {
         final boolean skipped;
         /** Read from the tile's file, not traced (for the log). */
         boolean fromDisk;
+        /** Why it is drawn again, for the log; null if it isn't. */
+        String retryWhy;
         /**
          * Drawn with some blocks not as they look (the game didn't give a block's look in time, a sprite couldn't be
          * read): not saved, drawn again, and not shown over a good picture of the tile.
@@ -530,7 +532,7 @@ final class IsoTiles {
                     start - job.created,
                     System.nanoTime() - start,
                     result.fromDisk ? "disk" : "trace",
-                    result.retry,
+                    result.retryWhy,
                     result.pixels == null);
                 if (running) {
                     done.add(result);
@@ -595,7 +597,13 @@ final class IsoTiles {
             }
         }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
-        result.retry = BlockLooks.takeMissed() | tracer.incomplete;
+        boolean looksMissed = BlockLooks.takeMissed();
+        result.retry = looksMissed | tracer.incomplete;
+        if (result.retry) {
+            result.retryWhy = (looksMissed ? "block looks not ready" : "")
+                + (looksMissed && tracer.incomplete ? " + " : "")
+                + (tracer.incomplete ? "sprites not readable yet" : "");
+        }
         if (file != null && running && !result.retry) {
             writeCached(file, result, tracer.minToward);
         }

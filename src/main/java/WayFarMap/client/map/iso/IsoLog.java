@@ -172,7 +172,10 @@ public final class IsoLog {
                 + "(decorated, quiet) -> SCANNED (flat map) -> QUEUED (for copying) -> CAPTURE (render thread copies "
                 + "blocks + pictures; INCOMPLETE = pictures still missing, copied again) -> SUBMIT (to the writer "
                 + "thread) -> STORE (writer compressed and stored it) -> DONE (all phases) -> MARKED (tiles on screen "
-                + "told to redraw). STATS every second while busy, SUMMARY every 5 minutes and at the end.");
+                + "told to redraw). FACES after a CAPTURE: why blocks need pictures, what the caches gave, and the "
+                + "time finding them, setting up GL, drawing (CPU only), reading back (waits for the graphics card to "
+                + "finish drawing too), storing sprites. STALL: no client tick for a while. STATS every second while "
+                + "busy, SUMMARY every 5 minutes and at the end (with the kinds of blocks whose pictures cost most).");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -196,6 +199,7 @@ public final class IsoLog {
         SETTLED.clear();
         DONE.clear();
         DONE_NAMES.clear();
+        BLOCKS.clear();
     }
 
     private static void writeLines(BufferedWriter out) {
@@ -382,6 +386,8 @@ public final class IsoLog {
         if (trace.firstCapture == 0) {
             trace.firstCapture = now - blockNanos - faceNanos;
         }
+        // How long it waited for this turn since the one before (round and round the queue).
+        String sinceLast = trace.lastCapture == 0 ? "-" : ms(now - blockNanos - faceNanos - trace.lastCapture);
         trace.lastCapture = now;
         trace.captures++;
         trace.blockCaptureNanos += blockNanos;
@@ -402,6 +408,8 @@ public final class IsoLog {
             + trace.reason
             + " attempt="
             + trace.captures
+            + " sinceLastAttemptMs="
+            + sinceLast
             + " whole="
             + whole
             + " unloading="
@@ -423,6 +431,82 @@ public final class IsoLog {
             + (storedAnyway ? " STORED_WITH_MISSING_PICTURES copies=" + copies : "")
             + " tickBudgetLeftMs="
             + ms(budgetLeftNanos));
+        if (FaceRenderer.lastFound > 0) {
+            // Inside the pictures: why blocks need them, what the caches gave, where the time went.
+            line(
+                "FACES " + cx
+                    + ","
+                    + cz
+                    + " attempt="
+                    + trace.captures
+                    + " need[complex="
+                    + FaceRenderer.whyComplex
+                    + " ownRenderer="
+                    + FaceRenderer.whyOwnRenderer
+                    + " glass="
+                    + FaceRenderer.whyGlass
+                    + " sidesDependOnWorld="
+                    + FaceRenderer.whySides
+                    + " tileEntities="
+                    + FaceRenderer.tileEntities
+                    + "] cache[placeHit="
+                    + FaceRenderer.placeHit
+                    + " placeExpired="
+                    + FaceRenderer.placeExpired
+                    + " placeChanged="
+                    + FaceRenderer.placeChanged
+                    + " surroundingsHit="
+                    + FaceRenderer.surroundingsHit
+                    + " sharedInChunk="
+                    + FaceRenderer.surroundingsShared
+                    + "] batches="
+                    + FaceRenderer.batches
+                    + " slots="
+                    + FaceRenderer.slotsUsed
+                    + " ms[find="
+                    + ms(FaceRenderer.findNanos)
+                    + " glSetup="
+                    + ms(FaceRenderer.setupNanos)
+                    + " draw="
+                    + ms(FaceRenderer.drawNanos)
+                    + " readBack="
+                    + ms(FaceRenderer.readNanos)
+                    + " storeSprites="
+                    + ms(FaceRenderer.storeNanos)
+                    + "]");
+        }
+    }
+
+    /** Per kind of block: pictures taken, views, time drawing (render thread). */
+    private static final Map<String, long[]> BLOCKS = new ConcurrentHashMap<>();
+
+    /** A block was drawn for its pictures. */
+    static void blockDrawn(net.minecraft.block.Block block, Object tileEntity, int views, long nanos) {
+        if (!on()) {
+            return;
+        }
+        String name;
+        try {
+            name = String.valueOf(net.minecraft.block.Block.blockRegistry.getNameForObject(block));
+        } catch (RuntimeException e) {
+            name = block.getClass()
+                .getName();
+        }
+        if (tileEntity != null) {
+            name += " [" + tileEntity.getClass()
+                .getSimpleName() + "]";
+        }
+        long[] stats = BLOCKS.get(name);
+        if (stats == null) {
+            if (BLOCKS.size() > 5000) {
+                return;
+            }
+            stats = new long[3];
+            BLOCKS.put(name, stats);
+        }
+        stats[0]++;
+        stats[1] += views;
+        stats[2] += nanos;
     }
 
     /** Copying it failed or gave nothing. */
@@ -593,7 +677,7 @@ public final class IsoLog {
         }
     }
 
-    static void tileDone(IsoTiles.Key key, long waitedNanos, long nanos, String source, boolean retry, boolean empty) {
+    static void tileDone(IsoTiles.Key key, long waitedNanos, long nanos, String source, String retry, boolean empty) {
         if (!on()) {
             return;
         }
@@ -602,11 +686,11 @@ public final class IsoLog {
         if ("disk".equals(source)) {
             tilesFromDisk.incrementAndGet();
         }
-        if (retry) {
+        if (retry != null) {
             tilesRetry.incrementAndGet();
         }
         line("TILE_DONE " + tile(key) + " src=" + source + " waitedMs=" + ms(waitedNanos) + " ms=" + ms(nanos)
-            + (retry ? " RETRY(looks/pictures missing, drawn again)" : "") + (empty ? " empty" : ""));
+            + (retry != null ? " RETRY(" + retry + ", drawn again)" : "") + (empty ? " empty" : ""));
     }
 
     static void tileSkipped(IsoTiles.Key key) {
@@ -636,11 +720,24 @@ public final class IsoLog {
     }
 
     /** End of {@link IsoMap#tick}: time spent and the state of the queues. */
+    private static long lastTickAt;
+    private static long lastGcCount, lastGcMillis;
+
+    /** Chunks unpacked by the tile renderers: from the cache, decoded (and the time), regions read for them. */
+    static final AtomicLong decodedHits = new AtomicLong(), decodedMisses = new AtomicLong(),
+        decodeNanos = new AtomicLong();
+
     static void tick(long nanos, boolean outOfTime, int fresh, int again, int unfinished, int tilesQueued,
-        long paletteUnsaved) {
+        long paletteUnsaved, FacePalette palette) {
         if (!on()) {
             return;
         }
+        long at = System.nanoTime();
+        if (lastTickAt != 0 && at - lastTickAt > 250_000_000L) {
+            // The game didn't tick for a while: a freeze (the 3D map's own share is in tickMs).
+            line("STALL no client tick for " + ms(at - lastTickAt) + "ms (3D map took " + ms(nanos) + "ms of it)");
+        }
+        lastTickAt = at;
         ticks.incrementAndGet();
         tickNanos.addAndGet(nanos);
         if (outOfTime) {
@@ -711,6 +808,25 @@ public final class IsoLog {
                     + BlockLooks.pending()
                     + " picturesUnsavedMB="
                     + (paletteUnsaved >> 20)
+                    + gc()
+                    + (palette == null ? ""
+                        : " sprites[new=" + palette.spritesNew
+                            + " known="
+                            + palette.spritesKnown
+                            + " empty="
+                            + palette.spritesEmpty
+                            + " refused="
+                            + palette.spritesRefused
+                            + " total="
+                            + palette.size()
+                            + "]")
+                    + " decoded[hit="
+                    + decodedHits.getAndSet(0)
+                    + " miss="
+                    + decodedMisses.getAndSet(0)
+                    + " ms="
+                    + ms(decodeNanos.getAndSet(0))
+                    + "]"
                     + " heapUsedMB="
                     + ((runtime.totalMemory() - runtime.freeMemory()) >> 20));
         }
@@ -720,6 +836,20 @@ public final class IsoLog {
             lastSummary = now;
             summary("SUMMARY");
         }
+    }
+
+    /** Garbage collections since the last stats line. */
+    private static String gc() {
+        long count = 0, millis = 0;
+        for (java.lang.management.GarbageCollectorMXBean bean : java.lang.management.ManagementFactory
+            .getGarbageCollectorMXBeans()) {
+            count += Math.max(0, bean.getCollectionCount());
+            millis += Math.max(0, bean.getCollectionTime());
+        }
+        String text = " gc=" + (count - lastGcCount) + " gcMs=" + (millis - lastGcMillis);
+        lastGcCount = count;
+        lastGcMillis = millis;
+        return text;
     }
 
     // ---------------------------------------------------------------- summaries
@@ -732,6 +862,7 @@ public final class IsoLog {
             names = new ArrayList<>(DONE_NAMES);
         }
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
+        blockSummary(title);
         if (all.isEmpty()) {
             return;
         }
@@ -748,6 +879,37 @@ public final class IsoLog {
                 + span(t.queued, now) + " captures=" + t.captures + " facesMissing=" + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** The kinds of blocks whose pictures took the most time. */
+    private static void blockSummary(String title) {
+        List<Map.Entry<String, long[]>> kinds = new ArrayList<>(BLOCKS.entrySet());
+        if (kinds.isEmpty()) {
+            return;
+        }
+        kinds.sort((a, b) -> Long.compare(b.getValue()[2], a.getValue()[2]));
+        long total = 0;
+        for (Map.Entry<String, long[]> kind : kinds) {
+            total += kind.getValue()[2];
+        }
+        line(title + " pictures by block: " + kinds.size() + " kinds, drawing " + ms(total) + "ms in all (without "
+            + "reading back)");
+        for (int n = 0; n < Math.min(40, kinds.size()); n++) {
+            long[] stats = kinds.get(n)
+                .getValue();
+            line(
+                String.format(
+                    Locale.ROOT,
+                    "%s   block#%d %s drawn=%d views=%d ms=%s msPerBlock=%s",
+                    title,
+                    n + 1,
+                    kinds.get(n)
+                        .getKey(),
+                    stats[0],
+                    stats[1],
+                    ms(stats[2]),
+                    String.format(Locale.ROOT, "%.3f", stats[2] / 1e6 / Math.max(1, stats[0]))));
+        }
     }
 
     private static void phaseStats(String title, List<long[]> all, List<String> names, boolean fresh) {

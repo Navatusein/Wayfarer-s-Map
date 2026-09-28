@@ -269,6 +269,7 @@ public final class BlockStore {
         synchronized (decoded) {
             ChunkBlocks cached = decoded.get(key);
             if (cached != null) {
+                IsoLog.decodedHits.incrementAndGet();
                 return cached;
             }
         }
@@ -290,11 +291,15 @@ public final class BlockStore {
             return null;
         }
         ChunkBlocks blocks;
+        long decodeStart = System.nanoTime();
         try {
             blocks = ChunkBlocks.decode(blob);
         } catch (IOException e) {
+            IsoLog.log("DECODE_FAILED " + chunkX + "," + chunkZ + " " + e);
             return null;
         }
+        IsoLog.decodedMisses.incrementAndGet();
+        IsoLog.decodeNanos.addAndGet(System.nanoTime() - decodeStart);
         synchronized (decoded) {
             // A newer version may have been put meanwhile; it replaced the key, so only fill an empty slot.
             if (!decoded.containsKey(key) && blobIsCurrent(region, index, blob)) {

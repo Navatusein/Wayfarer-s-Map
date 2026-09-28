@@ -254,6 +254,7 @@ final class FacePalette {
             }
         }
         if (empty) {
+            spritesEmpty++;
             return EMPTY;
         }
         long hash = hash(image);
@@ -262,17 +263,32 @@ final class FacePalette {
             Entry known = entries.get(id - 1);
             // In the file only its 64-bit hash is known, which is as good as the pixels.
             if (known.pixels == null ? known.side * known.side == image.length : Arrays.equals(known.pixels, image)) {
+                spritesKnown++;
                 return id;
             }
         }
+        if (id != null) {
+            // Same hash, other pixels: rare, stored as a new sprite.
+            IsoLog.log("SPRITE_HASH_CLASH hash=" + hash);
+        }
         if (unsavedBytes > UNSAVED_LIMIT) {
             // The file hasn't caught up: no new sprites until it has, rather than run out of memory.
+            spritesRefused++;
             return 0;
         }
+        spritesNew++;
         Entry entry = new Entry(hash, sideOf(image.length));
         entry.pixels = image.clone();
         unsavedBytes += image.length * 4L;
         return add(entry);
+    }
+
+    /** For the log: sprites taken that were new, already known, empty, refused (palette full). */
+    int spritesNew, spritesKnown, spritesEmpty, spritesRefused;
+
+    /** Sprites in the palette (for the log). */
+    synchronized int size() {
+        return entries.size();
     }
 
     /** Whether no new sprites are taken until the file caught up (for the log). */
