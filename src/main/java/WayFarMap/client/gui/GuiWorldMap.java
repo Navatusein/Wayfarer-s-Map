@@ -885,6 +885,14 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (iso) {
             drawQualitySlider(mouseX, mouseY);
+            if (!Config.record3d) {
+                // Nothing new comes onto the 3D map: it is drawn from the flat map where it has no blocks.
+                String warning = I18n.format("wayfarmap.gui.iso_not_recording");
+                int w = fontRendererObj.getStringWidth(warning);
+                int x = (width - w) / 2, y = height - FOOTER_HEIGHT - 16;
+                Theme.fill(x - 4, y - 3, x + w + 4, y + 11, Theme.LABEL_BG);
+                Theme.text(fontRendererObj, warning, x, y, Theme.DANGER);
+            }
         }
         if (searchAvailable()) {
             searchField.drawTextBox();

@@ -138,6 +138,7 @@ wayfarmap.option.map.chunkGrid=Сетка чанков
 wayfarmap.option.map.chunkGrid.desc=Рисовать границы чанков (каждые 16 блоков) и более яркие границы регионов (каждые 512 блоков) на картах.
 wayfarmap.gui.iso=3D-карта (изометрия как в Dynmap)
 wayfarmap.gui.iso_hint=3D: Q / E поворачивают вид
+wayfarmap.gui.iso_not_recording=Запись блоков выключена: новые места на 3D-карте рисуются из плоской карты (настройки, вкладка «3D-карта»)
 wayfarmap.option.map.isoCaptureMs=Копирование чанков, мс/тик
 wayfarmap.option.map.isoCaptureMs.desc=Время за игровой тик на копирование блоков загруженных чанков в 3D-карту. Больше — новые чанки появляются быстрее, но при полёте над новой местностью может проседать FPS.
 wayfarmap.option.logs.log3d=Лог 3D-карты

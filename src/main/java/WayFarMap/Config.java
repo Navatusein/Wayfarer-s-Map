@@ -83,7 +83,7 @@ public class Config {
     /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
     public static int isoCaptureMs = 5;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
-    public static boolean record3d = true;
+    public static boolean record3d = false;
     /**
      * Write a detailed log of how chunks get onto the 3D map ({@code .minecraft/wayfarmap/logs/3d-*.log}), for finding
      * why some take long.
@@ -287,7 +287,7 @@ public class Config {
             c,
             "record3d",
             "Keep the blocks of explored chunks for the 3D world map (dim<id>/blocks, a few MB per region).",
-            true,
+            false,
             () -> record3d,
             v -> record3d = v);
         parent("record3d");

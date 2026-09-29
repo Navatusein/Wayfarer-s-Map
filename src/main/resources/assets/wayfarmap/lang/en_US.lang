@@ -138,6 +138,7 @@ wayfarmap.option.map.chunkGrid=Chunk grid
 wayfarmap.option.map.chunkGrid.desc=Draw chunk borders (every 16 blocks) and brighter region borders (every 512 blocks) on the maps.
 wayfarmap.gui.iso=3D map (isometric, like Dynmap)
 wayfarmap.gui.iso_hint=3D: Q / E turn the view
+wayfarmap.gui.iso_not_recording=Block recording is off: new places on the 3D map are drawn from the flat map (settings, 3D map tab)
 wayfarmap.option.map.isoCaptureMs=Chunk copying, ms per tick
 wayfarmap.option.map.isoCaptureMs.desc=Time per game tick spent copying the blocks of loaded chunks into the 3D map. More puts new chunks on it sooner, but may cost frames while flying over new land.
 wayfarmap.option.logs.log3d=3D map log
