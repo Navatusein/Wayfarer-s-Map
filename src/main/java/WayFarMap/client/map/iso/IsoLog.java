@@ -141,6 +141,7 @@ public final class IsoLog {
         }
         file = target;
         detailsStopped = false;
+        BlockDiag.clear();
         written.set(0);
         LINES.clear();
         Thread writer = new Thread(() -> writeLines(out), "WayFarMap 3D log");
@@ -1074,6 +1075,7 @@ public final class IsoLog {
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
         blockSummary(title);
         changeSummary(title);
+        BlockDiag.fallbackSummary(title);
         if (all.isEmpty()) {
             return;
         }

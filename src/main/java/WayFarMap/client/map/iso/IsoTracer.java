@@ -1,6 +1,8 @@
 package WayFarMap.client.map.iso;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import WayFarMap.client.map.MapRegion;
 
@@ -81,6 +83,11 @@ final class IsoTracer {
     double minToward;
     /** A sprite of the palette couldn't be read: the block was drawn from its icons, the tile should be again. */
     boolean incomplete;
+    /**
+     * For the log, per kind of block: rays that drew it from its icons for want of a picture (none in the copy, one
+     * that couldn't be read, a solid cube's side without one); null while the log is off.
+     */
+    Map<Integer, int[]> fallbacks;
 
     // State of the current ray.
     private double rayU, rayV;
@@ -108,6 +115,7 @@ final class IsoTracer {
 
     void reset(IsoProjection projection, int level) {
         this.projection = projection;
+        fallbacks = IsoLog.on() ? new HashMap<>() : null;
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         mip = pixelsPerBlock >= 16 ? 0
             : pixelsPerBlock >= 8 ? 1 : pixelsPerBlock >= 4 ? 2 : pixelsPerBlock >= 2 ? 3 : 4;
@@ -292,6 +300,13 @@ final class IsoTracer {
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
                         int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, side, t, lightHere);
+                        if (fallbacks != null && look.complex && !look.opaque && !look.noPictures) {
+                            if (spriteId == 0) {
+                                fallbacks.computeIfAbsent(key, k -> new int[3])[0]++;
+                            } else if (drawn == SPRITE_NONE) {
+                                fallbacks.computeIfAbsent(key, k -> new int[3])[1]++;
+                            }
+                        }
                         if (drawn == SPRITE_STOP) {
                             break;
                         }
@@ -654,6 +669,9 @@ final class IsoTracer {
         if (look.opaque) {
             int id = pictureId(blocks, side);
             FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
+            if (fallbacks != null && look.complex && picture == null && cellIndex >= 0) {
+                fallbacks.computeIfAbsent(ChunkBlocks.lookKey(blocks.cells[cellIndex]), k -> new int[3])[2]++;
+            }
             if (picture == null && id > 0) {
                 incomplete |= palette.has(id);
             }

@@ -597,6 +597,7 @@ final class IsoTiles {
             }
         }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
+        BlockDiag.tracerFallbacks(tracer.fallbacks);
         boolean looksMissed = BlockLooks.takeMissed();
         result.retry = looksMissed | tracer.incomplete;
         if (result.retry) {

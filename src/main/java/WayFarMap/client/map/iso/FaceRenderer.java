@@ -152,6 +152,10 @@ final class FaceRenderer {
         /** For the log: its open sides, and its pictures kept before they were too old. */
         int exposed;
         int[] oldIds;
+        /** For the log: its look key, why it needs pictures, and how they came out. */
+        int lookKey;
+        String why;
+        BlockDiag.Shot shot;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -200,6 +204,8 @@ final class FaceRenderer {
      * up.
      */
     static int sessionReused;
+    /** For the log: blocks of the chunk's list of pictures to take done so far, and in all. */
+    static int progressDone, progressTotal;
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
@@ -215,6 +221,7 @@ final class FaceRenderer {
         surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
         findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
         sessionReused = 0;
+        progressDone = progressTotal = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
         exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
@@ -336,6 +343,8 @@ final class FaceRenderer {
             }
         }
         session.from = from;
+        progressDone = from;
+        progressTotal = toDraw.size();
         if (complete || broken) {
             SESSIONS.remove(chunkKey);
         }
@@ -378,6 +387,9 @@ final class FaceRenderer {
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
+        // For the log: per kind that may need pictures, blocks hidden, only open at the bottom, drawn from icons,
+        // given pictures.
+        Map<Integer, int[]> decisions = IsoLog.on() ? new HashMap<>() : null;
         // The last block found to need no pictures anywhere: most of a chunk is runs of the same few blocks.
         int plainKey = -1;
         // The part of an edge chunk kept below its surface gets no pictures: it starts above it.
@@ -391,6 +403,7 @@ final class FaceRenderer {
                 continue;
             }
             BlockLooks.Look look = BlockLooks.get(key);
+            BlockDiag.kind(key, look);
             if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
                 || look.noPictures) {
                 plainKey = key;
@@ -423,11 +436,13 @@ final class FaceRenderer {
             long t1 = System.nanoTime();
             exposedNanos += t1 - t0;
             if (exposed == 0) {
+                decide(decisions, key, 0);
                 continue;
             }
             if (exposed == 1) {
                 // Only the bottom is open: none of the views sees it (they all look from above), no pictures needed.
                 onlyBottomOpen++;
+                decide(decisions, key, 1);
                 continue;
             }
             TileEntity tileEntity = null;
@@ -446,16 +461,26 @@ final class FaceRenderer {
                 || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
                 || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
             if (!needed) {
+                decide(decisions, key, 2);
                 continue;
             }
+            decide(decisions, key, 3);
+            String why;
             if (look.complex) {
                 whyComplex++;
+                why = "complex(renderType " + look.renderType + ")";
             } else if (ownRenderer) {
                 whyOwnRenderer++;
+                why = "tileEntityRenderer";
             } else if (glassLike) {
                 whyGlass++;
+                why = "glassTouchingGlass";
             } else {
                 whySides++;
+                why = "sidesDependOnWorld";
+            }
+            if (ownRenderer && look.complex) {
+                why += "+tileEntityRenderer";
             }
             // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
             // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
@@ -464,6 +489,8 @@ final class FaceRenderer {
             surroundingsNanos += System.nanoTime() - t2;
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
             pending.exposed = exposed;
+            pending.lookKey = key;
+            pending.why = why;
             pending.unsure = !aroundLoaded(around, lx, lz);
             found.add(pending);
             if (tileEntity != null) {
@@ -500,7 +527,33 @@ final class FaceRenderer {
             }
             toDraw.add(pending);
         }
+        if (decisions != null && !decisions.isEmpty()) {
+            StringBuilder b = new StringBuilder("FIND ").append(chunk.xPosition)
+                .append(',')
+                .append(chunk.zPosition)
+                .append(" blocks that may need pictures, per kind [hidden/onlyBottomOpen/fromIcons/pictures]:");
+            for (Map.Entry<Integer, int[]> kind : decisions.entrySet()) {
+                int[] d = kind.getValue();
+                b.append(' ')
+                    .append(BlockDiag.name(kind.getKey()))
+                    .append('=')
+                    .append(d[0])
+                    .append('/')
+                    .append(d[1])
+                    .append('/')
+                    .append(d[2])
+                    .append('/')
+                    .append(d[3]);
+            }
+            IsoLog.log(b.toString());
+        }
         return new Session(signature, generation, around, found, toDraw, waiting);
+    }
+
+    private static void decide(Map<Integer, int[]> decisions, int key, int what) {
+        if (decisions != null) {
+            decisions.computeIfAbsent(key, k -> new int[4])[what]++;
+        }
     }
 
     /** Whether the chunks the block at (lx, lz) of the chunk touches (itself included) are all loaded. */
@@ -579,6 +632,11 @@ final class FaceRenderer {
             return false;
         }
         return false;
+    }
+
+    /** For the log: whether the block's class has its own world-aware getIcon. */
+    static boolean overridesWorldIconOf(Block block) {
+        return block != null && overridesWorldIcon(block.getClass());
     }
 
     /** Whether the class (or a parent below Block) has its own world-aware getIcon; found by signature. */
@@ -683,8 +741,10 @@ final class FaceRenderer {
             long drawStart = System.nanoTime();
             setupNanos += drawStart - setupStart;
 
+            boolean diagnose = IsoLog.on();
             int slot = 0;
             for (Pending pending : batch) {
+                pending.shot = diagnose ? new BlockDiag.Shot() : null;
                 long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
@@ -775,12 +835,33 @@ final class FaceRenderer {
                         }
                     }
                     long u1 = System.nanoTime();
+                    if (pending.shot != null) {
+                        BlockDiag.measure(image, pending.shot, view);
+                    }
                     pending.ids[view] = palette.idOf(image);
                     unshadeNanos += u1 - u0;
                     idNanos += System.nanoTime() - u1;
                 }
             }
             storeNanos += System.nanoTime() - storeStart;
+            if (diagnose) {
+                for (Pending pending : batch) {
+                    BlockDiag.picture(
+                        pending.block,
+                        pending.lookKey,
+                        pending.tileEntity,
+                        pending.x,
+                        pending.y,
+                        pending.z,
+                        pending.cube,
+                        pending.exposed,
+                        pending.why,
+                        pending.ids,
+                        pending.views(),
+                        pending.shot);
+                    pending.shot = null;
+                }
+            }
             failures = 0;
         } catch (Throwable t) {
             // These blocks are drawn from their icons this time.
@@ -940,8 +1021,18 @@ final class FaceRenderer {
                     drawing = true;
                     renderBlocks.renderBlockByRenderType(pending.block, pending.x, pending.y, pending.z);
                     drawing = false;
-                    tessellator.draw();
+                    int bytes = tessellator.draw();
+                    if (pending.shot != null) {
+                        if (pass == 0) {
+                            pending.shot.passBytes0 = Math.max(0, pending.shot.passBytes0) + bytes;
+                        } else {
+                            pending.shot.passBytes1 = Math.max(0, pending.shot.passBytes1) + bytes;
+                        }
+                    }
                 } catch (RuntimeException e) {
+                    if (pending.shot != null && pending.shot.error == null) {
+                        pending.shot.error = "block renderer, pass " + pass + ": " + BlockDiag.error(e);
+                    }
                     if (drawing) {
                         try {
                             tessellator.draw();
@@ -981,8 +1072,20 @@ final class FaceRenderer {
                 }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);
+                if (pending.shot != null) {
+                    pending.shot.tileEntitiesDrawn++;
+                }
             } catch (RuntimeException e) {
                 // A renderer that needs more than this; the block's own drawing stays.
+                if (pending.shot != null && pending.shot.error == null) {
+                    pending.shot.error = "tile entity renderer "
+                        + tileEntity.getClass()
+                            .getSimpleName()
+                        + ", pass "
+                        + pass
+                        + ": "
+                        + BlockDiag.error(e);
+                }
             }
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glDisable(GL11.GL_LIGHTING);

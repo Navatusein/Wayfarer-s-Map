@@ -145,6 +145,9 @@ public final class IsoMap implements BlockStore.Listener {
      * a hundred such chunks in turn finished none of them for minutes.
      */
     private Long inProgress;
+    /** For the log: when the chunk being finished was started, and its tries since. */
+    private long inProgressSince;
+    private int inProgressTries;
 
     private IsoMap() {}
 
@@ -354,8 +357,18 @@ public final class IsoMap implements BlockStore.Listener {
             IsoLog.dropped(cx, cz, "no longer loaded while its pictures were taken");
             return;
         }
+        inProgressTries++;
         if (capture(world, world.getChunkFromChunkCoords(cx, cz), false, false, deadline)) {
             inProgress = null;
+            IsoLog.log(
+                "IN_PROGRESS_DONE " + cx
+                    + ","
+                    + cz
+                    + " finished in "
+                    + (System.currentTimeMillis() - inProgressSince)
+                    + " ms over "
+                    + inProgressTries
+                    + " more ticks; the next chunk may start");
         }
     }
 
@@ -397,7 +410,17 @@ public final class IsoMap implements BlockStore.Listener {
                     if (inProgress == null) {
                         // Its other pictures are taken in the next ticks, before any other chunk starts on its own.
                         inProgress = key;
-                        IsoLog.log("IN_PROGRESS " + cx + "," + cz + " finished first in the next ticks");
+                        inProgressSince = System.currentTimeMillis();
+                        inProgressTries = 0;
+                        IsoLog.log(
+                            "IN_PROGRESS " + cx
+                                + ","
+                                + cz
+                                + " pictures "
+                                + FaceRenderer.progressDone
+                                + "/"
+                                + FaceRenderer.progressTotal
+                                + " taken; finished first in the next ticks");
                         return;
                     }
                     // Another one is being finished: this one waits its turn (the pictures taken are kept).
@@ -664,6 +687,24 @@ public final class IsoMap implements BlockStore.Listener {
                     deadline - t2);
                 // Stored once all its pictures are taken; until then the map shows the copy before (or the flat
                 // map for a new chunk), not one half drawn.
+                if (FaceRenderer.progressTotal > 0) {
+                    IsoLog.log(
+                        "PROGRESS " + cx
+                            + ","
+                            + cz
+                            + " pictures "
+                            + FaceRenderer.progressDone
+                            + "/"
+                            + FaceRenderer.progressTotal
+                            + " ("
+                            + FaceRenderer.progressDone * 100 / FaceRenderer.progressTotal
+                            + "%), +"
+                            + FaceRenderer.lastDrawn
+                            + " this try in "
+                            + (t2 - t1) / 1_000_000
+                            + " ms"
+                            + (copies > 0 ? ", tries without a picture: " + copies : ""));
+                }
                 if (unfinished.size() > 10_000) {
                     IsoLog.log("UNFINISHED_CLEARED over 10000 chunks with missing pictures");
                     unfinished.clear();
@@ -678,6 +719,15 @@ public final class IsoMap implements BlockStore.Listener {
         }
         unfinished.remove(key);
         FacePalette pictures = palette;
+        if (FaceRenderer.progressTotal > 0 && FaceRenderer.sessionReused != 0) {
+            IsoLog.log(
+                "PROGRESS " + cx
+                    + ","
+                    + cz
+                    + " all "
+                    + FaceRenderer.progressTotal
+                    + " blocks' pictures taken, chunk stored now");
+        }
         // Remembered only for a copy with every picture: one stored with some missing is copied again as before.
         boolean allPictures = complete && pictures != null
             && !blocks.picturesMissing
@@ -713,6 +763,9 @@ public final class IsoMap implements BlockStore.Listener {
                 dimension.store.put(cx, cz, blocks, timing);
                 if (timing[5] != 0 && before != null) {
                     IsoLog.chunkDiff(cx, cz, trace, before, blocks);
+                }
+                if (timing[5] != 0) {
+                    BlockDiag.chunkReport(cx, cz, blocks);
                 }
             } catch (RuntimeException e) {
                 WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
