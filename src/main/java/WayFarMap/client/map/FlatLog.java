@@ -53,6 +53,10 @@ public final class FlatLog {
     private static final Map<Long, long[]> SETTLING = new ConcurrentHashMap<>();
     /** Surface signature of each chunk when last scanned, to tell whether a scan could change anything. */
     private static final Map<Long, Long> SCANNED_SIGNATURE = new ConcurrentHashMap<>();
+    /** Chunks the game loaded and the scanner hasn't seen yet: when loaded. */
+    private static final Map<Long, Long> LOADED = new ConcurrentHashMap<>();
+    /** What each chunk looked like from above when the scanner first saw it (see {@link ArrivalCheck}). */
+    private static final Map<Long, ArrivalCheck.Snapshot> ARRIVED = new ConcurrentHashMap<>();
     /** Chunks put off while their region is read: when first. */
     private static final Map<Long, Long> DEFERRED = new ConcurrentHashMap<>();
     /** Regions asked to be read: when (per map folder and region). */
@@ -64,10 +68,10 @@ public final class FlatLog {
         "region save (writing)", "region save (copying, render thread)", "texture upload", "reduced copy built",
         "frame of the world map (flat)", "scan queue built", "put off->scanned (region read)",
         "map tick (render thread, 2D+3D)", "game hitch (gap between ticks)", "seen->settled (quiet+neighbours)",
-        "seen->settled (timeout)" };
+        "seen->settled (timeout)", "chunk loaded->seen by the scanner" };
     static final int SEEN_TO_SCANNED = 0, SCAN = 1, READ = 2, ASKED_TO_PICKED = 3, BLOCKING_READ = 4, SAVE_WRITE = 5,
         SAVE_COPY = 6, UPLOAD = 7, LOD_BUILD = 8, FRAME = 9, QUEUE_BUILD = 10, DEFER_TO_SCAN = 11, MAP_TICK = 12,
-        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15;
+        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15, LOAD_TO_SEEN = 16;
     @SuppressWarnings("unchecked")
     private static final List<Long>[] SAMPLES = new List[SAMPLE_NAMES.length];
     static {
@@ -150,6 +154,11 @@ public final class FlatLog {
         SETTLING.clear();
         SCANNED_SIGNATURE.clear();
         DEFERRED.clear();
+        LOADED.clear();
+        ARRIVED.clear();
+        for (AtomicLong counter : ARRIVAL_COUNTERS) {
+            counter.set(0);
+        }
         lastPlayerAt = 0;
         mapTickCount.set(0);
         mapTickIsoNanos.set(0);
@@ -190,7 +199,11 @@ public final class FlatLog {
                 + "busy, SUMMARY every minute and at the end. surface=same/changed: whether what is seen from above "
                 + "(heights and top blocks) changed since the chunk was last scanned; MARKS noise/real: the game "
                 + "marked a chunk changed and the surface did not / did change; HITCH: the game stood still between "
-                + "two ticks, with the map's own time in the tick before.");
+                + "two ticks, with the map's own time in the tick before. ARRIVAL: a chunk first mapped compared "
+                + "with how it looked from above when first seen (complete = nothing changed while it waited; snow, "
+                + "ice, tree added after; whether snow and ice predicted from the biome's temperature were right). "
+                + "GONE_UNSEEN: loaded and let go before the scanner saw it. chunksNotYetSentInView: chunks within "
+                + "the view distance the server hasn't sent (yet).");
     }
 
     /** The world was left: the summary, then the file is closed. */
@@ -286,15 +299,118 @@ public final class FlatLog {
                 SETTLING.clear();
             }
             SETTLING.put(key(cx, cz), new long[] { signature, 0, 0 });
+            Long loadedAt = LOADED.remove(key(cx, cz));
+            String sinceLoad = "";
+            if (loadedAt != null) {
+                long delay = System.nanoTime() - loadedAt;
+                sample(LOAD_TO_SEEN, delay);
+                sinceLoad = " loadedMsAgo=" + ms(delay);
+            }
             line(
                 "SEEN " + cx
                     + ","
                     + cz
                     + " "
                     + where
+                    + sinceLoad
                     + (missing.isEmpty() ? " neighboursReady=true" : " missingNeighbours=" + missing));
         }
     }
+
+    /** The game loaded a chunk (its blocks come right after). */
+    static void loaded(int cx, int cz) {
+        if (on()) {
+            chunksLoaded.incrementAndGet();
+            LOADED.put(key(cx, cz), System.nanoTime());
+            if (LOADED.size() > 50_000) {
+                LOADED.clear();
+            }
+        }
+    }
+
+    /** The game let go of a chunk; one the scanner never saw is counted and logged. */
+    static void unloaded(int cx, int cz) {
+        if (!on()) {
+            return;
+        }
+        chunksUnloaded.incrementAndGet();
+        ARRIVED.remove(key(cx, cz));
+        Long loadedAt = LOADED.remove(key(cx, cz));
+        if (loadedAt != null) {
+            goneUnseen.incrementAndGet();
+            line(
+                "GONE_UNSEEN " + cx
+                    + ","
+                    + cz
+                    + " loaded "
+                    + ms(System.nanoTime() - loadedAt)
+                    + " ms ago, never seen");
+        }
+    }
+
+    /** What the chunk looked like from above when the scanner first saw it. */
+    static void arrived(int cx, int cz, ArrivalCheck.Snapshot snapshot) {
+        if (on()) {
+            ARRIVED.put(key(cx, cz), snapshot);
+            if (ARRIVED.size() > 50_000) {
+                ARRIVED.clear();
+            }
+        }
+    }
+
+    /** The snapshot taken when the chunk arrived, if any (once). */
+    static ArrivalCheck.Snapshot takeArrival(int cx, int cz) {
+        return on() ? ARRIVED.remove(key(cx, cz)) : null;
+    }
+
+    /**
+     * A chunk was first mapped: how it changed from when it arrived.
+     *
+     * @param counts see {@link ArrivalCheck#compare}
+     */
+    static void arrival(int cx, int cz, int[] counts, long sinceArrived, String why) {
+        if (!on()) {
+            return;
+        }
+        if (counts[0] == 0) {
+            arrivedComplete.incrementAndGet();
+        } else {
+            arrivedIncomplete.incrementAndGet();
+        }
+        columnsChanged.addAndGet(counts[0]);
+        snowAdded.addAndGet(counts[1]);
+        iceAdded.addAndGet(counts[2]);
+        treeAdded.addAndGet(counts[3]);
+        otherAdded.addAndGet(counts[4]);
+        coldHit.addAndGet(counts[5]);
+        coldMissed.addAndGet(counts[6]);
+        coldWrong.addAndGet(counts[7]);
+        line(
+            "ARRIVAL " + cx
+                + ","
+                + cz
+                + (counts[0] == 0 ? " complete" : " changedColumns=" + counts[0])
+                + (counts[1] > 0 ? " snowAdded=" + counts[1] : "")
+                + (counts[2] > 0 ? " iceAdded=" + counts[2] : "")
+                + (counts[3] > 0 ? " treeAdded=" + counts[3] : "")
+                + (counts[4] > 0 ? " otherChanged=" + counts[4] : "")
+                + (counts[5] + counts[6] + counts[7] > 0
+                    ? " snowIcePredicted[right=" + counts[5] + " missed=" + counts[6] + " wrong=" + counts[7] + "]"
+                    : "")
+                + " afterMs="
+                + ms(sinceArrived)
+                + " scan="
+                + why);
+    }
+
+    private static final AtomicLong chunksLoaded = new AtomicLong(), chunksUnloaded = new AtomicLong(),
+        goneUnseen = new AtomicLong(), arrivedComplete = new AtomicLong(), arrivedIncomplete = new AtomicLong(),
+        columnsChanged = new AtomicLong(), snowAdded = new AtomicLong(), iceAdded = new AtomicLong(),
+        treeAdded = new AtomicLong(), otherAdded = new AtomicLong(), coldHit = new AtomicLong(),
+        coldMissed = new AtomicLong(), coldWrong = new AtomicLong();
+    private static final AtomicLong[] ARRIVAL_COUNTERS = { chunksLoaded, chunksUnloaded, goneUnseen, arrivedComplete,
+        arrivedIncomplete, columnsChanged, snowAdded, iceAdded, treeAdded, otherAdded, coldHit, coldMissed,
+        coldWrong };
 
     /** The game marked a settling chunk changed; whether its surface really changed. */
     static void marked(int cx, int cz, long signature) {
@@ -762,7 +878,7 @@ public final class FlatLog {
     private static long lastPlayerAt;
 
     static void stats(int regions, int reduced, int textures, int pending, int queueLeft, int settling, double playerX,
-        double playerZ, int viewDistance) {
+        double playerZ, int viewDistance, int missingInView) {
         if (!on()) {
             return;
         }
@@ -809,6 +925,35 @@ public final class FlatLog {
                     + speed
                     + " viewDistance="
                     + viewDistance
+                    + " chunksNotYetSentInView="
+                    + missingInView
+                    + " loaded="
+                    + chunksLoaded.getAndSet(0)
+                    + " unloaded="
+                    + chunksUnloaded.getAndSet(0)
+                    + " goneUnseen="
+                    + goneUnseen.getAndSet(0)
+                    + " arrivedComplete="
+                    + arrivedComplete.getAndSet(0)
+                    + " arrivedIncomplete="
+                    + arrivedIncomplete.getAndSet(0)
+                    + " [columns="
+                    + columnsChanged.getAndSet(0)
+                    + " snow="
+                    + snowAdded.getAndSet(0)
+                    + " ice="
+                    + iceAdded.getAndSet(0)
+                    + " tree="
+                    + treeAdded.getAndSet(0)
+                    + " other="
+                    + otherAdded.getAndSet(0)
+                    + "] snowIcePredicted[right="
+                    + coldHit.getAndSet(0)
+                    + " missed="
+                    + coldMissed.getAndSet(0)
+                    + " wrong="
+                    + coldWrong.getAndSet(0)
+                    + "]"
                     + " mapTickAvgMs="
                     + ms(mapTickNanos.getAndSet(0) / ticks)
                     + " mapTickMaxMs="
@@ -940,6 +1085,8 @@ public final class FlatLog {
                 + ", reads asked and not picked up: "
                 + ASKED.size()
                 + ", chunks put off and not scanned yet: "
-                + DEFERRED.size());
+                + DEFERRED.size()
+                + ", chunks loaded and not seen yet: "
+                + LOADED.size());
     }
 }

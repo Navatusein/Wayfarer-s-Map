@@ -576,6 +576,20 @@ public class MapManager implements IResourceManagerReloadListener {
         IsoMap.INSTANCE.onResourcesReloaded();
     }
 
+    /** For the log: chunks within the view distance the client doesn't have (the server hasn't sent them yet). */
+    private static int notLoadedInView(WorldClient world, EntityPlayer player, int radius) {
+        int pcx = MathHelper.floor_double(player.posX) >> 4, pcz = MathHelper.floor_double(player.posZ) >> 4;
+        int missing = 0;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (!ChunkScanner.isChunkReady(world, pcx + dx, pcz + dz)) {
+                    missing++;
+                }
+            }
+        }
+        return missing;
+    }
+
     /** A gap between two ticks past this is a hitch (a tick is 50 ms). */
     private static final long HITCH_NANOS = 150_000_000L;
     /** For the log: when the last tick's map work ended, and how long that took. */
@@ -653,7 +667,8 @@ public class MapManager implements IResourceManagerReloadListener {
                 surfaceTracker.settlingSize() + caveTracker.settlingSize(),
                 mc.thePlayer.posX,
                 mc.thePlayer.posZ,
-                mc.gameSettings.renderDistanceChunks);
+                mc.gameSettings.renderDistanceChunks,
+                notLoadedInView(world, mc.thePlayer, mc.gameSettings.renderDistanceChunks));
         }
 
         if (tick % 100 == 0 && !others.isEmpty()) {
@@ -725,11 +740,23 @@ public class MapManager implements IResourceManagerReloadListener {
         return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes, with3d);
     }
 
+    /** For the log: when the game loaded each chunk. */
+    @SubscribeEvent
+    public void onChunkLoad(ChunkEvent.Load event) {
+        Chunk chunk = event.getChunk();
+        if (event.world != null && event.world.isRemote && event.world == currentWorld && chunk != null) {
+            FlatLog.loaded(chunk.xPosition, chunk.zPosition);
+        }
+    }
+
     /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
     @SubscribeEvent
     public void onChunkUnload(ChunkEvent.Unload event) {
         World world = event.world;
         Chunk chunk = event.getChunk();
+        if (world != null && world.isRemote && world == currentWorld && chunk != null) {
+            FlatLog.unloaded(chunk.xPosition, chunk.zPosition);
+        }
         if (world != null && world.isRemote
             && world == currentWorld
             && chunk != null
@@ -951,6 +978,9 @@ public class MapManager implements IResourceManagerReloadListener {
                         missingNeighbours(world, chunk),
                         where(chunk),
                         surfaceSignature(chunk));
+                    if (surface) {
+                        FlatLog.arrived(chunk.xPosition, chunk.zPosition, ArrivalCheck.take(world, chunk));
+                    }
                 }
                 return false;
             }
@@ -1153,6 +1183,12 @@ public class MapManager implements IResourceManagerReloadListener {
                 int changesBefore = before == null ? -1 : before.getChanges();
                 long onMapSince = before == null ? 0
                     : before.getChunkTime(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1));
+                ArrivalCheck.Snapshot arrived = caveLayer < 0 ? FlatLog.takeArrival(cx, cz) : null;
+                int[] arrival = null;
+                if (arrived != null) {
+                    arrival = new int[8];
+                    ArrivalCheck.compare(chunk, arrived, world.provider.hasNoSky, arrival);
+                }
                 long scanStart = System.nanoTime();
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
                 if (caveLayer < 0 && for3d) {
@@ -1178,6 +1214,9 @@ public class MapManager implements IResourceManagerReloadListener {
                         map.label(),
                         caveLayer < 0 ? surfaceSignature(chunk) : 0,
                         onMapSince);
+                    if (arrival != null) {
+                        FlatLog.arrival(cx, cz, arrival, System.nanoTime() - arrived.at, why);
+                    }
                 }
                 // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
                 // again and again isn't saved again each time (and teammates' newer versions still win).

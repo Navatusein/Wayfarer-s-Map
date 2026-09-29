@@ -208,6 +208,11 @@ public final class ChunkScanner {
         return 0x404040 | (hash >>> 8) & 0xBFBFBF;
     }
 
+    /** y of the topmost block drawn on the surface map, -1 if none (for the log). */
+    static int surfaceY(Chunk chunk, int lx, int lz, boolean noSky) {
+        return findSurface(chunk, lx, lz, noSky);
+    }
+
     private static int findTop(Chunk chunk, int lx, int lz, boolean noSky, int caveLayer) {
         return caveLayer >= 0 ? findCaveFloor(chunk, lx, lz, caveLayer) : findSurface(chunk, lx, lz, noSky);
     }
