@@ -212,13 +212,29 @@ public final class ChunkBlocks {
         long h = 0xCBF29CE484222325L;
         h = (h ^ yMin) * 0x100000001B3L;
         h = (h ^ yMax) * 0x100000001B3L;
-        h = (h ^ picturesFrom) * 0x100000001B3L;
         for (int[] values : new int[][] { cells, grass, foliage, water }) {
             for (int value : values) {
                 h = (h ^ value) * 0x100000001B3L;
             }
         }
-        return h;
+        // 0 stands for "no signature".
+        return h == 0 ? 1 : h;
+    }
+
+    /**
+     * Whether this (stored) copy has every picture of the palette's generation: taken with the palette in use, and
+     * none of its blocks with pictures lacking one (a copy stored after giving up keeps them at 0).
+     */
+    boolean allPicturesTaken(int generation) {
+        if (faceGeneration != generation) {
+            return false;
+        }
+        for (int n = 0; n < faceCells.length; n++) {
+            if (!complete(faceIds, n * PER_CELL)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
