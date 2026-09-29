@@ -127,6 +127,7 @@ wayfarmap.option.map.caveMode.off=Off
 wayfarmap.option.map.caveMode.on=On
 wayfarmap.gui.biomes=Biomes
 wayfarmap.gui.teleport=Teleport
+wayfarmap.gui.show_on_map=Map
 wayfarmap.gui.teleport_here=Teleport here
 wayfarmap.gui.no_teleport_permission=No permission to teleport
 wayfarmap.option.map.displayMode=Map colors
