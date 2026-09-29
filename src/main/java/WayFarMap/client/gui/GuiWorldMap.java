@@ -160,6 +160,15 @@ public class GuiWorldMap extends ScaledScreen {
     private int lastRawMouseY;
     private long lastFrameNanos;
     private int ticks;
+    /** Waypoint to show in the middle of the map when it opens, or null. */
+    private Waypoint focus;
+
+    /** The world map opened on the waypoint, in its dimension. */
+    public static GuiWorldMap showing(Waypoint waypoint) {
+        GuiWorldMap map = new GuiWorldMap();
+        map.focus = waypoint;
+        return map;
+    }
 
     @Override
     public void initGui() {
@@ -170,6 +179,10 @@ public class GuiWorldMap extends ScaledScreen {
             MapManager.INSTANCE.stopViewing();
             if (!restoreView()) {
                 centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            }
+            if (focus != null) {
+                centerOnWaypoint(focus);
+                focus = null;
             }
             if (Mods.isVisualProspectingLoaded()) {
                 ProspectingLayer.onOpenMap();
@@ -1195,6 +1208,24 @@ public class GuiWorldMap extends ScaledScreen {
         }
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
         centerOn(position[0], position[1], position[2]);
+        zooming = false;
+    }
+
+    /** Shows the waypoint in the middle of the map, switching to its dimension if it has a saved map. */
+    private void centerOnWaypoint(Waypoint waypoint) {
+        if (waypoint.dimension != viewDimension()) {
+            if (waypoint.dimension == mc.theWorld.provider.dimensionId) {
+                showDimension(waypoint.dimension);
+            } else {
+                for (MapManager.SavedDimension other : MapManager.INSTANCE.listSavedDimensions()) {
+                    if (other.id == waypoint.dimension) {
+                        showDimension(waypoint.dimension);
+                        break;
+                    }
+                }
+            }
+        }
+        centerOn(waypoint.x + 0.5, waypoint.y, waypoint.z + 0.5);
         zooming = false;
     }
 

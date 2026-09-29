@@ -56,6 +56,8 @@ A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem i
 - The map shows the §fdistance§r next to the name
 
 - §bDeath marker§r — when you die, a §cDeath§r waypoint with a skull is placed there; they all go to the §fDeaths§r group (deleted, it is created again on the next death), the latest few are kept (§bSettings → Waypoints → On death§r)
+- §bTrack§r in the waypoint list — an §farrow§r to the waypoint and its distance show at the top of the screen, and it is shown in the world with a beam even if hidden; tracking stops when you get there (or press it again)
+- §bMap§r in the waypoint list — opens the world map on that waypoint (in its dimension)
 - §bBeam§r in the editor — a §fbeacon-like beam§r in the waypoint's color rises above it in the world (off by default)
 - §bTo chat§r in the editor — sends the waypoint to the chat; players with the mod see its name and an §a[Add]§r button that adds it to theirs §fwith its group§r (created if missing)
 

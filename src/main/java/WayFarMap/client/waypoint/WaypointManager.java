@@ -35,6 +35,8 @@ public class WaypointManager {
 
     private File file;
     private Data data = new Data();
+    /** The waypoint being tracked (arrow on the screen, always shown in the world), or null. */
+    private Waypoint tracked;
 
     private WaypointManager() {}
 
@@ -49,6 +51,7 @@ public class WaypointManager {
         }
         file = newFile;
         data = new Data();
+        tracked = null;
         if (!file.isFile()) {
             return;
         }
@@ -73,6 +76,7 @@ public class WaypointManager {
     public void unload() {
         file = null;
         data = new Data();
+        tracked = null;
     }
 
     public void save() {
@@ -197,7 +201,27 @@ public class WaypointManager {
         save();
     }
 
+    /** @return the tracked waypoint, or null when none is tracked (or it was deleted). */
+    public Waypoint getTracked() {
+        if (tracked != null && !data.waypoints.contains(tracked)) {
+            tracked = null;
+        }
+        return tracked;
+    }
+
+    public boolean isTracked(Waypoint waypoint) {
+        return waypoint != null && waypoint == getTracked();
+    }
+
+    /** Tracks the waypoint (only one at a time), or stops tracking for null. */
+    public void setTracked(Waypoint waypoint) {
+        tracked = waypoint;
+    }
+
     public void removeWaypoint(Waypoint waypoint) {
+        if (waypoint == tracked) {
+            tracked = null;
+        }
         data.waypoints.remove(waypoint);
         save();
     }

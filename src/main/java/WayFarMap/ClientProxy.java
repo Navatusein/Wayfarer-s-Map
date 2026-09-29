@@ -17,6 +17,7 @@ import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.DeathMarker;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
+import WayFarMap.client.waypoint.WaypointTracker;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -69,6 +70,10 @@ public class ClientProxy extends CommonProxy {
 
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
+        FMLCommonHandler.instance()
+            .bus()
+            .register(WaypointTracker.INSTANCE);
+        MinecraftForge.EVENT_BUS.register(WaypointTracker.INSTANCE);
     }
 
     @Override
