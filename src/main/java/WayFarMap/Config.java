@@ -24,9 +24,11 @@ public class Config {
     public static final String CATEGORY_MAP = "map";
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
+    public static final String CATEGORY_LOGS = "logs";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections
-        .unmodifiableList(Arrays.asList(CATEGORY_MINIMAP, CATEGORY_MAP, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS));
+        .unmodifiableList(Arrays
+            .asList(CATEGORY_MINIMAP, CATEGORY_MAP, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS, CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
@@ -74,12 +76,12 @@ public class Config {
      * Write a detailed log of how chunks get onto the 3D map ({@code .minecraft/wayfarmap/logs/3d-*.log}), for finding
      * why some take long.
      */
-    public static boolean log3d = true;
+    public static boolean log3d = false;
     /**
      * Write a detailed log of the flat map ({@code .minecraft/wayfarmap/logs/2d-*.log}): chunks scanned, regions read,
      * saved and drawn, for finding what is slow or wrong.
      */
-    public static boolean log2d = true;
+    public static boolean log2d = false;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -278,22 +280,6 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
-        bool(
-            c,
-            "log3d",
-            "Write a detailed log of how chunks get onto the 3D map (.minecraft/wayfarmap/logs/3d-*.log), to find out "
-                + "why some take long. Takes effect when a world is joined.",
-            true,
-            () -> log3d,
-            v -> log3d = v);
-        bool(
-            c,
-            "log2d",
-            "Write a detailed log of the flat map (.minecraft/wayfarmap/logs/2d-*.log): chunks scanned, regions read "
-                + "from and saved to disk, textures and drawing. Takes effect when a world is joined.",
-            true,
-            () -> log2d,
-            v -> log2d = v);
         group("layers");
         parent(null);
         bool(
@@ -483,6 +469,26 @@ public class Config {
             10,
             () -> waypointLabelMaxWidth,
             v -> waypointLabelMaxWidth = v);
+
+        c = CATEGORY_LOGS;
+        group("logs");
+        parent(null);
+        bool(
+            c,
+            "log3d",
+            "Write a detailed log of how chunks get onto the 3D map (.minecraft/wayfarmap/logs/3d-*.log), to find out "
+                + "why some take long. Takes effect when a world is joined.",
+            false,
+            () -> log3d,
+            v -> log3d = v);
+        bool(
+            c,
+            "log2d",
+            "Write a detailed log of the flat map (.minecraft/wayfarmap/logs/2d-*.log): chunks scanned, regions read "
+                + "from and saved to disk, textures and drawing. Takes effect when a world is joined.",
+            false,
+            () -> log2d,
+            v -> log2d = v);
     }
 
     private static Configuration configuration;
