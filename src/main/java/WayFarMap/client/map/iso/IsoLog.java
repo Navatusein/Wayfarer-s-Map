@@ -440,6 +440,7 @@ public final class IsoLog {
                     + cz
                     + " attempt="
                     + trace.captures
+                    + (FaceRenderer.sessionReused != 0 ? " resumed" : " foundAnew")
                     + " need[complex="
                     + FaceRenderer.whyComplex
                     + " ownRenderer="

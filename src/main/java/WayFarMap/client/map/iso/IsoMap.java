@@ -123,8 +123,17 @@ public final class IsoMap implements BlockStore.Listener {
     private final Map<Long, Long> signatures = new HashMap<>();
     /** Chunks whose pictures are taken anew (the player asked for it): copied and stored even if unchanged. */
     private final Set<Long> refreshing = new HashSet<>();
-    /** Copies after which a chunk is stored even with pictures missing (a chunk with thousands of machines). */
+    /**
+     * Copies in a row without a single new picture after which a chunk is stored with pictures missing (the game
+     * gives none for some block). Copies that take pictures don't count: a chunk with thousands of machines takes
+     * hundreds of ticks, and giving up after 40 left big bases with holes.
+     */
     private static final int MAX_UNFINISHED_COPIES = 40;
+    /**
+     * The chunk whose pictures are being taken, finished before the next one is started: taking a little of each of
+     * a hundred such chunks in turn finished none of them for minutes.
+     */
+    private Long inProgress;
 
     private IsoMap() {}
 
@@ -190,6 +199,7 @@ public final class IsoMap implements BlockStore.Listener {
         unfinished.clear();
         signatures.clear();
         refreshing.clear();
+        inProgress = null;
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         palette = null;
@@ -282,7 +292,7 @@ public final class IsoMap implements BlockStore.Listener {
     private boolean tickCapture(World world) {
         BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
         drainChanges();
-        if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty()) {
+        if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty() && inProgress == null) {
             return false;
         }
         if (world.provider.dimensionId != lastCaptureDimension) {
@@ -294,14 +304,37 @@ public final class IsoMap implements BlockStore.Listener {
             copiedWhileLoaded.clear();
             unfinished.clear();
             refreshing.clear();
+            inProgress = null;
             return false;
         }
         savePicturesIfMany();
         // A chunk takes a fraction of a millisecond, more with pictures.
-        long end = System.nanoTime() + Config.isoCaptureMs * 1_000_000L;
+        long start = System.nanoTime(), budget = Config.isoCaptureMs * 1_000_000L;
+        // The chunk being finished first, with most of the time; the rest for the others (most take a fraction of
+        // a millisecond), so new land keeps coming while a big base is taken.
+        continueInProgress(world, start + budget * 3 / 4);
+        long end = start + budget;
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
-        return !freshQueue.isEmpty() || !captureQueue.isEmpty();
+        return !freshQueue.isEmpty() || !captureQueue.isEmpty() || inProgress != null;
+    }
+
+    /** Takes more pictures of the chunk being finished, until the deadline (at least one batch). */
+    private void continueInProgress(World world, long deadline) {
+        Long key = inProgress;
+        if (key == null) {
+            return;
+        }
+        int cx = (int) (key >> 32), cz = (int) (long) key;
+        if (!ChunkScanner.isChunkReady(world, cx, cz)) {
+            inProgress = null;
+            unfinished.remove(key);
+            IsoLog.dropped(cx, cz, "no longer loaded while its pictures were taken");
+            return;
+        }
+        if (capture(world, world.getChunkFromChunkCoords(cx, cz), false, false, deadline)) {
+            inProgress = null;
+        }
     }
 
     /**
@@ -322,14 +355,19 @@ public final class IsoMap implements BlockStore.Listener {
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk != null && !chunk.isEmpty()) {
                 if (!capture(world, chunk, false, false, end)) {
-                    // Its other pictures are taken in the next ticks (the ones taken are kept), before other chunks
-                    // of its queue get their turn again.
+                    if (inProgress == null) {
+                        // Its other pictures are taken in the next ticks, before any other chunk starts on its own.
+                        inProgress = key;
+                        IsoLog.log("IN_PROGRESS " + cx + "," + cz + " finished first in the next ticks");
+                        return;
+                    }
+                    // Another one is being finished: this one waits its turn (the pictures taken are kept).
                     queue.add(key);
                     IsoLog.log(
                         "REQUEUED " + cx
                             + ","
                             + cz
-                            + " pictures missing, back at the END of "
+                            + " pictures missing, another chunk is being finished; back at the end of "
                             + (queue == freshQueue ? "fresh" : "again")
                             + " queue (position "
                             + queue.size()
@@ -360,6 +398,10 @@ public final class IsoMap implements BlockStore.Listener {
         // Waiting to be copied (for the first time, or again since it changed).
         boolean waitingFresh = freshQueue.contains(key);
         boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
+        if (inProgress != null && inProgress == key) {
+            inProgress = null;
+            waiting = true;
+        }
         // Copied again as a new chunk when it comes back.
         partial.remove(key);
         copiedWhileLoaded.remove(key);
@@ -434,6 +476,7 @@ public final class IsoMap implements BlockStore.Listener {
             unfinished.clear();
             signatures.clear();
             refreshing.clear();
+            inProgress = null;
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
@@ -539,7 +582,9 @@ public final class IsoMap implements BlockStore.Listener {
         String reason = unloading ? unloadReason : null;
         boolean unfinishedGaveUp = false;
         if (!complete && !unloading) {
-            int copies = unfinished.merge(key, 1, Integer::sum);
+            // Only copies that took no picture at all count toward giving up.
+            int copies = FaceRenderer.lastDrawn > 0 ? 0 : unfinished.getOrDefault(key, 0) + 1;
+            unfinished.put(key, copies);
             if (copies < MAX_UNFINISHED_COPIES) {
                 IsoLog.captured(
                     cx,
@@ -804,7 +849,7 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** Chunks waiting to be copied for the 3D map (render thread). */
     public int chunksQueued() {
-        return freshQueue.size() + captureQueue.size();
+        return freshQueue.size() + captureQueue.size() + (inProgress != null ? 1 : 0);
     }
 
     /** Tiles of the 3D map waiting to be drawn, 0 if none. */

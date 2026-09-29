@@ -7,6 +7,7 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,9 +76,44 @@ final class FaceRenderer {
      * Pictures of blocks with a tile entity, by place: they depend on what is in it, so they aren't shared between
      * places, but the chunks near the player are copied every few seconds and are not taken again each time.
      */
-    private static final Map<Long, Cached> BY_PLACE = new HashMap<>();
-    /** How long pictures of a block with a tile entity are kept before they are taken again. */
-    private static final long PLACE_KEEP_MS = 60_000;
+    private static final Map<Long, Cached> BY_PLACE = lru(400_000);
+    /**
+     * Blocks of chunks whose pictures are being taken, by chunk: a chunk with thousands of machines takes many ticks,
+     * and finding its blocks again each tick (their surroundings above all) took half of each tick's time.
+     */
+    private static final Map<Long, Session> SESSIONS = lru(8);
+
+    /** A map that lets go of the entries used longest ago past the size (render thread only). */
+    private static <V> Map<Long, V> lru(int size) {
+        return new LinkedHashMap<Long, V>(256, 0.75f, true) {
+
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<Long, V> eldest) {
+                return size() > size;
+            }
+        };
+    }
+
+    /** The blocks of a chunk that need pictures, found once, and how far their pictures were taken. */
+    private static final class Session {
+
+        final long signature;
+        final int generation;
+        final boolean[] around;
+        final List<Pending> found, toDraw;
+        final Map<Long, List<Pending>> waiting;
+        int from;
+
+        Session(long signature, int generation, boolean[] around, List<Pending> found, List<Pending> toDraw,
+            Map<Long, List<Pending>> waiting) {
+            this.signature = signature;
+            this.generation = generation;
+            this.around = around;
+            this.found = found;
+            this.toDraw = toDraw;
+            this.waiting = waiting;
+        }
+    }
 
     private static final class Cached {
 
@@ -157,12 +193,13 @@ final class FaceRenderer {
     static long findNanos, drawNanos, readNanos, storeNanos, setupNanos;
     /**
      * Checks of what could be skipped, for {@link IsoLog}. Where the finding time goes: sides covered, tile entity
-     * lookups, surroundings; blocks looked at. Pictures taken again after {@link #PLACE_KEEP_MS} that came out the same
-     * as before (or not). Tile entities drawn whose pictures are the same as another's with the same block and
+     * lookups, surroundings; blocks looked at. Pictures taken again (kept by place) that came out the same as before
+     * (or not). Tile entities drawn whose pictures are the same as another's with the same block and
      * surroundings (or not), and the same with its data too. Blocks only open at the bottom (never seen from the
      * views) and blocks whose pictures all came out empty. Time turning pixels into sprites apart from looking them
      * up.
      */
+    static int sessionReused;
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
@@ -177,6 +214,7 @@ final class FaceRenderer {
         whyComplex = whyOwnRenderer = whyGlass = whySides = placeHit = placeExpired = placeChanged = 0;
         surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
         findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
+        sessionReused = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
         exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
@@ -186,6 +224,7 @@ final class FaceRenderer {
     static void clear() {
         BY_SURROUNDINGS.clear();
         BY_PLACE.clear();
+        SESSIONS.clear();
         TWINS.clear();
         TWINS_WITH_DATA.clear();
     }
@@ -209,11 +248,11 @@ final class FaceRenderer {
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_PLACE.clear();
+            SESSIONS.clear();
             TWINS.clear();
             TWINS_WITH_DATA.clear();
             cacheGeneration = palette.generation;
         }
-        int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
         // Which chunks around are there: without them, blocks at the edge are drawn as if the world ended there.
         boolean[] around = new boolean[9];
         for (int dz = -1; dz <= 1; dz++) {
@@ -222,6 +261,119 @@ final class FaceRenderer {
                     .isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz);
             }
         }
+        long chunkKey = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        long signature = blocks.signature();
+        Session session = SESSIONS.get(chunkKey);
+        if (session != null && session.signature == signature
+            && session.generation == palette.generation
+            && Arrays.equals(session.around, around)) {
+            // Same blocks as last tick: go on where it stopped.
+            sessionReused = 1;
+        } else {
+            session = find(world, chunk, blocks, around, signature, palette.generation);
+            SESSIONS.put(chunkKey, session);
+        }
+        List<Pending> found = session.found, toDraw = session.toDraw;
+        Map<Long, List<Pending>> waiting = session.waiting;
+        lastFound = found.size();
+        lastToDraw = toDraw.size() - session.from;
+        findNanos = System.nanoTime() - findStart;
+        if (found.isEmpty()) {
+            SESSIONS.remove(chunkKey);
+            blocks.setFaces(palette.generation, new int[0], new int[0]);
+            return true;
+        }
+        boolean complete = true;
+        int from = session.from;
+        while (from < toDraw.size() && !broken) {
+            if (from > session.from && System.nanoTime() > deadline) {
+                // The rest another time; the pictures taken so far are kept in the caches.
+                complete = false;
+                break;
+            }
+            // As many blocks as their pictures fit in the buffer.
+            int to = from, slots = 0;
+            while (to < toDraw.size() && slots + toDraw.get(to)
+                .views() <= SLOTS) {
+                slots += toDraw.get(to++)
+                    .views();
+            }
+            List<Pending> batch = toDraw.subList(from, to);
+            from = to;
+            draw(world, batch, palette);
+            lastDrawn += batch.size();
+            batches++;
+            slotsUsed += slots;
+            if (IsoLog.on()) {
+                checkSkippable(batch);
+            }
+            for (Pending pending : batch) {
+                if (missing(pending)) {
+                    lastMissing++;
+                    // Not taken (no room for new pictures now): taken again next time, not remembered as none.
+                    continue;
+                }
+                if (pending.tileEntity != null) {
+                    // Kept until its surroundings change (or the player asks for new pictures): taking them again
+                    // after a while gave the same pictures five times out of six, and kept big bases from ever
+                    // being finished.
+                    BY_PLACE.put(
+                        place(pending.x, pending.y, pending.z),
+                        new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
+                } else {
+                    if (BY_SURROUNDINGS.size() > 200_000) {
+                        // A long game: start over rather than grow without end.
+                        BY_SURROUNDINGS.clear();
+                    }
+                    BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
+                    List<Pending> same = waiting.get(pending.surroundings);
+                    if (same != null) {
+                        for (Pending other : same) {
+                            System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
+                        }
+                    }
+                }
+            }
+        }
+        session.from = from;
+        if (complete || broken) {
+            SESSIONS.remove(chunkKey);
+        }
+        if (broken) {
+            blocks.picturesMissing = true;
+            return true;
+        }
+        int[] faceCells = new int[found.size()];
+        int[] ids = new int[found.size() * ChunkBlocks.PER_CELL];
+        for (int n = 0; n < found.size(); n++) {
+            Pending pending = found.get(n);
+            faceCells[n] = pending.cellIndex;
+            System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
+        }
+        blocks.setFaces(palette.generation, faceCells, ids);
+        int unsure = 0;
+        for (Pending pending : found) {
+            if (pending.unsure) {
+                unsure++;
+            }
+        }
+        if (unsure > 0) {
+            int[] unsureCells = new int[unsure];
+            unsure = 0;
+            for (Pending pending : found) {
+                if (pending.unsure) {
+                    unsureCells[unsure++] = pending.cellIndex;
+                }
+            }
+            blocks.unsureCells = unsureCells;
+        }
+        return complete;
+    }
+
+    /** Finds the chunk's blocks that need pictures, and which of them have none in the caches yet. */
+    private static Session find(World world, Chunk chunk, ChunkBlocks blocks, boolean[] around, long signature,
+        int generation) {
+        int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
         List<Pending> found = new ArrayList<>();
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
@@ -273,6 +425,11 @@ final class FaceRenderer {
             if (exposed == 0) {
                 continue;
             }
+            if (exposed == 1) {
+                // Only the bottom is open: none of the views sees it (they all look from above), no pictures needed.
+                onlyBottomOpen++;
+                continue;
+            }
             TileEntity tileEntity = null;
             boolean ownRenderer = false;
             try {
@@ -305,10 +462,6 @@ final class FaceRenderer {
             long t2 = System.nanoTime();
             long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
             surroundingsNanos += System.nanoTime() - t2;
-            if (exposed == 1) {
-                // Only the bottom is open: none of the four views sees it.
-                onlyBottomOpen++;
-            }
             Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
             pending.exposed = exposed;
             pending.unsure = !aroundLoaded(around, lx, lz);
@@ -316,8 +469,7 @@ final class FaceRenderer {
             if (tileEntity != null) {
                 tileEntities++;
                 Cached cached = BY_PLACE.get(place(x, y, z));
-                if (cached != null && cached.surroundings == surroundings
-                    && System.currentTimeMillis() - cached.time < PLACE_KEEP_MS) {
+                if (cached != null && cached.surroundings == surroundings) {
                     System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
                     placeHit++;
                     continue;
@@ -348,93 +500,7 @@ final class FaceRenderer {
             }
             toDraw.add(pending);
         }
-        lastFound = found.size();
-        lastToDraw = toDraw.size();
-        findNanos = System.nanoTime() - findStart;
-        if (found.isEmpty()) {
-            blocks.setFaces(palette.generation, new int[0], new int[0]);
-            return true;
-        }
-        boolean complete = true;
-        for (int from = 0; from < toDraw.size() && !broken;) {
-            if (from > 0 && System.nanoTime() > deadline) {
-                // The rest another time; the pictures taken so far are kept in the caches.
-                complete = false;
-                break;
-            }
-            // As many blocks as their pictures fit in the buffer.
-            int to = from, slots = 0;
-            while (to < toDraw.size() && slots + toDraw.get(to)
-                .views() <= SLOTS) {
-                slots += toDraw.get(to++)
-                    .views();
-            }
-            List<Pending> batch = toDraw.subList(from, to);
-            from = to;
-            draw(world, batch, palette);
-            lastDrawn += batch.size();
-            batches++;
-            slotsUsed += slots;
-            if (IsoLog.on()) {
-                checkSkippable(batch);
-            }
-            for (Pending pending : batch) {
-                if (missing(pending)) {
-                    lastMissing++;
-                    // Not taken (no room for new pictures now): taken again next time, not remembered as none.
-                    continue;
-                }
-                if (pending.tileEntity != null) {
-                    if (BY_PLACE.size() > 100_000) {
-                        BY_PLACE.clear();
-                    }
-                    BY_PLACE.put(
-                        place(pending.x, pending.y, pending.z),
-                        new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
-                } else {
-                    if (BY_SURROUNDINGS.size() > 200_000) {
-                        // A long game: start over rather than grow without end.
-                        BY_SURROUNDINGS.clear();
-                    }
-                    BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
-                    List<Pending> same = waiting.get(pending.surroundings);
-                    if (same != null) {
-                        for (Pending other : same) {
-                            System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
-                        }
-                    }
-                }
-            }
-        }
-        if (broken) {
-            blocks.picturesMissing = true;
-            return true;
-        }
-        int[] faceCells = new int[found.size()];
-        int[] ids = new int[found.size() * ChunkBlocks.PER_CELL];
-        for (int n = 0; n < found.size(); n++) {
-            Pending pending = found.get(n);
-            faceCells[n] = pending.cellIndex;
-            System.arraycopy(pending.ids, 0, ids, n * ChunkBlocks.PER_CELL, ChunkBlocks.PER_CELL);
-        }
-        blocks.setFaces(palette.generation, faceCells, ids);
-        int unsure = 0;
-        for (Pending pending : found) {
-            if (pending.unsure) {
-                unsure++;
-            }
-        }
-        if (unsure > 0) {
-            int[] unsureCells = new int[unsure];
-            unsure = 0;
-            for (Pending pending : found) {
-                if (pending.unsure) {
-                    unsureCells[unsure++] = pending.cellIndex;
-                }
-            }
-            blocks.unsureCells = unsureCells;
-        }
-        return complete;
+        return new Session(signature, generation, around, found, toDraw, waiting);
     }
 
     /** Whether the chunks the block at (lx, lz) of the chunk touches (itself included) are all loaded. */
