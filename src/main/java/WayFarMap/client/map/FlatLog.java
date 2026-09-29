@@ -154,6 +154,10 @@ public final class FlatLog {
         DEFERRED.clear();
         lastPlayerAt = 0;
         mapTickCount.set(0);
+        mapTickIsoNanos.set(0);
+        mapTickIsoMaxNanos.set(0);
+        mapTickUnloadNanos.set(0);
+        mapTickUnloadMaxNanos.set(0);
         for (AtomicLong counter : COUNTERS) {
             counter.set(0);
         }
@@ -501,15 +505,38 @@ public final class FlatLog {
         }
     }
 
-    /** The map's own time in one client tick (2D scanning and the 3D map's copying). */
-    static void mapTick(long nanos) {
-        if (on()) {
-            mapTickCount.incrementAndGet();
-            mapTickNanos.addAndGet(nanos);
-            mapTickMaxNanos.accumulateAndGet(nanos, Math::max);
-            sample(MAP_TICK, nanos);
+    /**
+     * The map's own time in one client tick.
+     *
+     * @param isoNanos    of it, the 3D map's (copying chunks' blocks, taking pictures)
+     * @param unloadNanos of it, mapping chunks the game let go of (2D and 3D)
+     */
+    static void mapTick(long nanos, long isoNanos, long unloadNanos) {
+        if (!on()) {
+            return;
+        }
+        mapTickCount.incrementAndGet();
+        mapTickNanos.addAndGet(nanos);
+        mapTickMaxNanos.accumulateAndGet(nanos, Math::max);
+        mapTickIsoNanos.addAndGet(isoNanos);
+        mapTickIsoMaxNanos.accumulateAndGet(isoNanos, Math::max);
+        mapTickUnloadNanos.addAndGet(unloadNanos);
+        mapTickUnloadMaxNanos.accumulateAndGet(unloadNanos, Math::max);
+        sample(MAP_TICK, nanos);
+        if (nanos > 20_000_000L) {
+            line(
+                "MAP_TICK_SLOW ms=" + ms(nanos)
+                    + " of which 3dMs="
+                    + ms(isoNanos)
+                    + " unloadsMs="
+                    + ms(unloadNanos)
+                    + " flatScanMs="
+                    + ms(nanos - isoNanos - unloadNanos));
         }
     }
+
+    private static final AtomicLong mapTickIsoNanos = new AtomicLong(), mapTickIsoMaxNanos = new AtomicLong(),
+        mapTickUnloadNanos = new AtomicLong(), mapTickUnloadMaxNanos = new AtomicLong();
 
     /**
      * The game stood still between two ticks.
@@ -807,6 +834,15 @@ public final class FlatLog {
                     + ms(mapTickNanos.getAndSet(0) / ticks)
                     + " mapTickMaxMs="
                     + ms(mapTickMaxNanos.getAndSet(0))
+                    + " (3dAvgMs="
+                    + ms(mapTickIsoNanos.getAndSet(0) / ticks)
+                    + " 3dMaxMs="
+                    + ms(mapTickIsoMaxNanos.getAndSet(0))
+                    + " unloadsAvgMs="
+                    + ms(mapTickUnloadNanos.getAndSet(0) / ticks)
+                    + " unloadsMaxMs="
+                    + ms(mapTickUnloadMaxNanos.getAndSet(0))
+                    + ")"
                     + " hitches="
                     + hitches.getAndSet(0)
                     + " hitchMs="

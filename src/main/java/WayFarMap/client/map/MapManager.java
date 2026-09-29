@@ -620,7 +620,9 @@ public class MapManager implements IResourceManagerReloadListener {
                     + (Config.isometric ? " 3D" : " 2D")
                     + (ChunkLoadClient.INSTANCE.statusText() != null ? " chunkload" : ""));
         }
+        long isoStart = System.nanoTime();
         IsoMap.INSTANCE.tick(world);
+        long isoNanos = System.nanoTime() - isoStart;
         MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
 
@@ -633,7 +635,7 @@ public class MapManager implements IResourceManagerReloadListener {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, budget);
         }
         lastMapTick = System.nanoTime() - tickStart + unloadsBefore;
-        FlatLog.mapTick(lastMapTick);
+        FlatLog.mapTick(lastMapTick, isoNanos, unloadsBefore);
         if (FlatLog.on()) {
             int regionCount = 0, lodCount = 0, textureCount = 0, pendingCount = 0;
             for (MapDimension map : allMaps()) {
