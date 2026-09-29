@@ -31,14 +31,8 @@ public class Config {
      */
     public static final String TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Categories in the order the settings screen shows them. */
-    public static final List<String> CATEGORIES = Collections
-        .unmodifiableList(Arrays.asList(
-            CATEGORY_MINIMAP,
-            TAB_MAP_2D,
-            TAB_MAP_3D,
-            CATEGORY_ENTITIES,
-            CATEGORY_WAYPOINTS,
-            CATEGORY_LOGS));
+    public static final List<String> CATEGORIES = Collections.unmodifiableList(
+        Arrays.asList(CATEGORY_MINIMAP, TAB_MAP_2D, TAB_MAP_3D, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS, CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };

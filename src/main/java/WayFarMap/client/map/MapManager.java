@@ -1107,7 +1107,11 @@ public class MapManager implements IResourceManagerReloadListener {
             boolean surfaceReady = map.prepareRegion(rx, rz);
             boolean biomesReady = biomeMap == null || biomeMap.prepareRegion(rx, rz);
             if (!surfaceReady || !biomesReady) {
-                FlatLog.deferred(chunk.xPosition, chunk.zPosition, map.label() + " (chunkload)", surfaceReady,
+                FlatLog.deferred(
+                    chunk.xPosition,
+                    chunk.zPosition,
+                    map.label() + " (chunkload)",
+                    surfaceReady,
                     biomesReady);
                 return false;
             }

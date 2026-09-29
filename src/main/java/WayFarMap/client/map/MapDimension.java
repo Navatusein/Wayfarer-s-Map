@@ -303,15 +303,27 @@ public class MapDimension {
         try {
             MapRegion region = MapRegion.read(file, rx, rz);
             if (FlatLog.on()) {
-                FlatLog.read(label, rx, rz, System.nanoTime() - start, MapRegion.bytesOnDisk(file),
-                    MapRegion.partsOnDisk(file), "OK");
+                FlatLog.read(
+                    label,
+                    rx,
+                    rz,
+                    System.nanoTime() - start,
+                    MapRegion.bytesOnDisk(file),
+                    MapRegion.partsOnDisk(file),
+                    "OK");
             }
             return region;
         } catch (Exception e) {
             WayFarMap.LOG.warn("Could not load map region " + file, e);
             if (FlatLog.on()) {
-                FlatLog.read(label, rx, rz, System.nanoTime() - start, MapRegion.bytesOnDisk(file),
-                    MapRegion.partsOnDisk(file), "FAILED " + e);
+                FlatLog.read(
+                    label,
+                    rx,
+                    rz,
+                    System.nanoTime() - start,
+                    MapRegion.bytesOnDisk(file),
+                    MapRegion.partsOnDisk(file),
+                    "FAILED " + e);
             }
             return null;
         }
@@ -347,11 +359,14 @@ public class MapDimension {
                     region.onSaved();
                 }
                 if (FlatLog.on()) {
-                    FlatLog.saved(name, region.rx, region.rz, System.nanoTime() - start, MapRegion.bytesOnDisk(file),
-                        MapRegion.partsOnDisk(file), result + " queuedMs="
-                        + FlatLog.ms(start - queued)
-                        + " changesSinceLastSave="
-                        + changed);
+                    FlatLog.saved(
+                        name,
+                        region.rx,
+                        region.rz,
+                        System.nanoTime() - start,
+                        MapRegion.bytesOnDisk(file),
+                        MapRegion.partsOnDisk(file),
+                        result + " queuedMs=" + FlatLog.ms(start - queued) + " changesSinceLastSave=" + changed);
                 }
             }));
         }

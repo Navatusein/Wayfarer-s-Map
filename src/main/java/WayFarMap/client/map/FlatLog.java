@@ -82,23 +82,21 @@ public final class FlatLog {
         readsDone = new AtomicLong(), readNanos = new AtomicLong(), readBytes = new AtomicLong(),
         blockingReads = new AtomicLong(), blockingNanos = new AtomicLong(), regionsMade = new AtomicLong(),
         lodBuilt = new AtomicLong(), lodNanos = new AtomicLong(), saves = new AtomicLong(),
-        saveNanos = new AtomicLong(),
-        saveBytes = new AtomicLong(), uploads = new AtomicLong(), uploadNanos = new AtomicLong(),
-        uploadPixels = new AtomicLong(), texturesMade = new AtomicLong(), frames = new AtomicLong(),
-        frameNanos = new AtomicLong(), frameMaxNanos = new AtomicLong(), drawn = new AtomicLong(),
-        notLoaded = new AtomicLong(), noFile = new AtomicLong(), textureWait = new AtomicLong(),
-        shared = new AtomicLong(), sharedOlder = new AtomicLong(), sharedWaiting = new AtomicLong(),
-        scansNoPixels = new AtomicLong(), scansSameSurface = new AtomicLong(), marksNoise = new AtomicLong(),
-        marksReal = new AtomicLong(), settleTimeouts = new AtomicLong(), settleTimeoutsEdge = new AtomicLong(),
-        hitches = new AtomicLong(), hitchNanos = new AtomicLong(), mapTickNanos = new AtomicLong(),
-        mapTickMaxNanos = new AtomicLong();
+        saveNanos = new AtomicLong(), saveBytes = new AtomicLong(), uploads = new AtomicLong(),
+        uploadNanos = new AtomicLong(), uploadPixels = new AtomicLong(), texturesMade = new AtomicLong(),
+        frames = new AtomicLong(), frameNanos = new AtomicLong(), frameMaxNanos = new AtomicLong(),
+        drawn = new AtomicLong(), notLoaded = new AtomicLong(), noFile = new AtomicLong(),
+        textureWait = new AtomicLong(), shared = new AtomicLong(), sharedOlder = new AtomicLong(),
+        sharedWaiting = new AtomicLong(), scansNoPixels = new AtomicLong(), scansSameSurface = new AtomicLong(),
+        marksNoise = new AtomicLong(), marksReal = new AtomicLong(), settleTimeouts = new AtomicLong(),
+        settleTimeoutsEdge = new AtomicLong(), hitches = new AtomicLong(), hitchNanos = new AtomicLong(),
+        mapTickNanos = new AtomicLong(), mapTickMaxNanos = new AtomicLong();
     /** All of them, to start a new file from zero (saves of the world left would count in the next one). */
     private static final AtomicLong[] COUNTERS = { scans, scanNanos, scansDeferred, unloadScans, readsAsked, readsDone,
         readNanos, readBytes, blockingReads, blockingNanos, regionsMade, lodBuilt, lodNanos, saves, saveNanos,
         saveBytes, uploads, uploadNanos, uploadPixels, texturesMade, frames, frameNanos, frameMaxNanos, drawn,
-        notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting, scansNoPixels, scansSameSurface,
-        marksNoise, marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos,
-        mapTickMaxNanos };
+        notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting, scansNoPixels, scansSameSurface, marksNoise,
+        marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos, mapTickMaxNanos };
     private static long lastStats, lastSummary;
     private static final AtomicLong mapTickCount = new AtomicLong();
 
@@ -590,16 +588,7 @@ public final class FlatLog {
         readNanos.addAndGet(nanos);
         readBytes.addAndGet(bytes);
         sample(READ, nanos);
-        line(
-            "READ " + region(map, rx, rz)
-                + " "
-                + result
-                + " ms="
-                + ms(nanos)
-                + " bytes="
-                + bytes
-                + " parts="
-                + parts);
+        line("READ " + region(map, rx, rz) + " " + result + " ms=" + ms(nanos) + " bytes=" + bytes + " parts=" + parts);
     }
 
     /** A read region was taken into memory (render thread). */
@@ -665,16 +654,7 @@ public final class FlatLog {
         saveNanos.addAndGet(nanos);
         saveBytes.addAndGet(bytes);
         sample(SAVE_WRITE, nanos);
-        line(
-            "SAVE " + region(map, rx, rz)
-                + " "
-                + result
-                + " ms="
-                + ms(nanos)
-                + " bytes="
-                + bytes
-                + " parts="
-                + parts);
+        line("SAVE " + region(map, rx, rz) + " " + result + " ms=" + ms(nanos) + " bytes=" + bytes + " parts=" + parts);
     }
 
     static void saveRound(String map, int regions, long copyNanos) {
@@ -683,8 +663,7 @@ public final class FlatLog {
         }
     }
 
-    static void retained(String map, int freed, int keptUnsaved, int textures, int lods, int cancelled,
-        int inMemory) {
+    static void retained(String map, int freed, int keptUnsaved, int textures, int lods, int cancelled, int inMemory) {
         if (on() && freed + textures + lods + cancelled > 0) {
             line(
                 "RETAIN map=" + map
@@ -782,8 +761,8 @@ public final class FlatLog {
     private static double lastPlayerX, lastPlayerZ;
     private static long lastPlayerAt;
 
-    static void stats(int regions, int reduced, int textures, int pending, int queueLeft, int settling,
-        double playerX, double playerZ, int viewDistance) {
+    static void stats(int regions, int reduced, int textures, int pending, int queueLeft, int settling, double playerX,
+        double playerZ, int viewDistance) {
         if (!on()) {
             return;
         }
@@ -847,7 +826,8 @@ public final class FlatLog {
                     + hitches.getAndSet(0)
                     + " hitchMs="
                     + ms(hitchNanos.getAndSet(0))
-                    + " scans=" + scans.getAndSet(0)
+                    + " scans="
+                    + scans.getAndSet(0)
                     + " noPixelChange="
                     + scansNoPixels.getAndSet(0)
                     + " surfaceSame="
