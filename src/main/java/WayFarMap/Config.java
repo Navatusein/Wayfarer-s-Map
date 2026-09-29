@@ -25,10 +25,20 @@ public class Config {
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
     public static final String CATEGORY_LOGS = "logs";
+    /**
+     * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
+     * nothing set before is lost).
+     */
+    public static final String TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections
-        .unmodifiableList(Arrays
-            .asList(CATEGORY_MINIMAP, CATEGORY_MAP, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS, CATEGORY_LOGS));
+        .unmodifiableList(Arrays.asList(
+            CATEGORY_MINIMAP,
+            TAB_MAP_2D,
+            TAB_MAP_3D,
+            CATEGORY_ENTITIES,
+            CATEGORY_WAYPOINTS,
+            CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
@@ -116,6 +126,8 @@ public class Config {
     private static String currentGroup = "";
     /** Switch the options declared next depend on (shown under it), or null. */
     private static BoolOption currentParent;
+    /** Tab the options declared next are shown on, or null for their category's (see {@link #tab}). */
+    private static String currentTab;
 
     static {
         String c = CATEGORY_MINIMAP;
@@ -173,6 +185,7 @@ public class Config {
             v -> minimapShowBiome = v);
 
         c = CATEGORY_MAP;
+        tab(TAB_MAP_2D);
         group("view");
         parent(null);
         choice(
@@ -222,6 +235,7 @@ public class Config {
             true,
             () -> useTextureColors,
             v -> useTextureColors = v);
+        tab(TAB_MAP_3D);
         group("iso");
         parent(null);
         bool(
@@ -280,6 +294,7 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
+        tab(TAB_MAP_2D);
         group("layers");
         parent(null);
         bool(
@@ -354,6 +369,7 @@ public class Config {
             () -> shareMapWithTeam,
             v -> shareMapWithTeam = v);
 
+        tab(null);
         c = CATEGORY_ENTITIES;
         group("shown");
         parent(null);
@@ -514,10 +530,11 @@ public class Config {
         configuration.save();
     }
 
-    public static List<Option> getOptions(String category) {
+    /** The options shown on a tab of the settings screen (see {@link #CATEGORIES}). */
+    public static List<Option> getOptions(String tab) {
         List<Option> result = new ArrayList<>();
         for (Option option : OPTIONS) {
-            if (option.category.equals(category)) {
+            if (option.tab.equals(tab)) {
                 result.add(option);
             }
         }
@@ -638,6 +655,8 @@ public class Config {
         public final String comment;
         /** Section of the settings screen it is shown under ({@code wayfarmap.settings.group.<group>}). */
         public String group = "";
+        /** Tab of the settings screen it is shown on: its category, or a part of it. */
+        public String tab;
         /** The switch it depends on: shown under it, dimmed while it is off; null if none. */
         public BoolOption parent;
 
@@ -645,6 +664,7 @@ public class Config {
             this.category = category;
             this.key = key;
             this.comment = comment;
+            this.tab = category;
         }
 
         /** Translation key of the name; {@code + ".desc"} is the description. */
@@ -798,6 +818,11 @@ public class Config {
         }
     }
 
+    /** Tab the options declared next are shown on; null for their category's own. */
+    private static void tab(String tab) {
+        currentTab = tab;
+    }
+
     private static void group(String group) {
         currentGroup = group;
         currentParent = null;
@@ -817,6 +842,9 @@ public class Config {
 
     private static void add(Option option) {
         option.group = currentGroup;
+        if (currentTab != null) {
+            option.tab = currentTab;
+        }
         option.parent = currentParent;
         OPTIONS.add(option);
     }
