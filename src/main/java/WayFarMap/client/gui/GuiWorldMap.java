@@ -68,7 +68,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17;
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17,
+        ID_FOLLOW = 18;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -100,6 +101,8 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton caveButton;
     private IconButton biomeButton;
     private IconButton gridButton;
+    /** Open the map at the player every time, or where it was closed. */
+    private IconButton followButton;
     private IconButton mobsButton;
     /** 3D (isometric) view on or off (turned with Q / E). */
     private IconButton isoButton;
@@ -174,10 +177,11 @@ public class GuiWorldMap extends ScaledScreen {
     public void initGui() {
         super.initGui();
         if (!initialized && mc.thePlayer != null) {
-            // Only on first open, not when the window is resized: back where the map was closed, or at the player.
+            // Only on first open, not when the window is resized: back where the map was closed (unless it follows
+            // the player), or at the player.
             initialized = true;
             MapManager.INSTANCE.stopViewing();
-            if (!restoreView()) {
+            if (Config.mapFollowPlayer || !restoreView()) {
                 centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
             }
             if (focus != null) {
@@ -212,6 +216,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
         biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
+        followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
@@ -244,8 +249,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
-            teamButton };
+        return new IconButton[] { followButton, nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton,
+            mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -566,6 +571,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.tooltip = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
+        followButton.active = Config.mapFollowPlayer;
         isoButton.active = Config.isometric;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, the dot tells which kind is left.
@@ -590,6 +596,15 @@ public class GuiWorldMap extends ScaledScreen {
             openTeamMenu();
         } else if (button.id == ID_ADDONS) {
             openAddonsMenu();
+        } else if (button.id == ID_FOLLOW) {
+            Config.toggleFollowPlayer();
+            updateLightButtons();
+            if (Config.mapFollowPlayer) {
+                // Turned on: show the player now, as the map will be every time it opens.
+                showDimension(mc.theWorld.provider.dimensionId);
+                centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+                zooming = false;
+            }
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();

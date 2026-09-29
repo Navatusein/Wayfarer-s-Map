@@ -71,6 +71,8 @@ public class Config {
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean chunkGrid = false;
+    /** The world map always opens at the player instead of where it was closed. */
+    public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
     /** Side the 3D view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
@@ -238,6 +240,13 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
+        bool(
+            c,
+            "followPlayer",
+            "The world map always opens at the player. If false, it opens where it was closed.",
+            false,
+            () -> mapFollowPlayer,
+            v -> mapFollowPlayer = v);
         bool(
             c,
             "useTextureColors",
@@ -699,6 +708,11 @@ public class Config {
 
     public static void toggleChunkGrid() {
         chunkGrid = !chunkGrid;
+        save();
+    }
+
+    public static void toggleFollowPlayer() {
+        mapFollowPlayer = !mapFollowPlayer;
         save();
     }
 

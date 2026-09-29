@@ -19,6 +19,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r
+- §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
 - §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
 - §bGrid§r — chunk grid
 - §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it. On the right of the 3D map the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
@@ -33,7 +34,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §eLeft drag§r — move the map
 - §eWheel§r — zoom (towards the cursor)
 - §eSpace§r — back to the player
-- The map opens §fwhere you closed it§r — same zoom and dimension
+- The map opens §fwhere you closed it§r — same zoom and dimension (with §bCrosshair§r on — always at you)
 - §eRight click§r on empty space — menu: §bTeleport here§r, §bNew waypoint§r
 - §eRight click§r on a waypoint — opens its editor
 
