@@ -609,7 +609,12 @@ public final class IsoMap implements BlockStore.Listener {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
-        loading.add(key);
+        if (loading.add(key)) {
+            // Copied and stored again whatever is stored (a chunk drawn from the flat map, or an old copy): the
+            // loading is asked for to make the 3D map of the area anew.
+            refreshing.add(key);
+            IsoLog.log("CHUNKLOAD_CAPTURE " + chunk.xPosition + "," + chunk.zPosition + " forced (stored again)");
+        }
         boolean done = capture(world, chunk, false, false, deadline, true);
         if (done) {
             loading.remove(key);
@@ -619,7 +624,10 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** The chunks of a batch of {@code /wf chunkload} were let go: what was left of them is forgotten. */
     public void forgetLoaded(long key) {
-        loading.remove(key);
+        if (loading.remove(key)) {
+            IsoLog.log("CHUNKLOAD_UNFINISHED " + (int) (key >> 32) + "," + (int) key + " let go before stored");
+            refreshing.remove(key);
+        }
         unfinished.remove(key);
         freshQueue.remove(key);
         captureQueue.remove(key);

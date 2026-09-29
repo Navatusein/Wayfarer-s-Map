@@ -668,11 +668,11 @@ public class MapManager implements IResourceManagerReloadListener {
      * Maps a chunk sent for {@code /wf chunkload} (surface and biomes, shared with the team as any other). False if
      * it can't be yet (its regions are being read, or no world): tried again next tick.
      */
-    public boolean scanForLoad(Chunk chunk) {
+    public boolean scanForLoad(Chunk chunk, boolean with3d) {
         if (currentWorld == null || surface == null || chunk == null || chunk.isEmpty()) {
             return currentWorld == null || chunk == null || chunk.isEmpty();
         }
-        return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes);
+        return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes, with3d);
     }
 
     /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
@@ -992,7 +992,7 @@ public class MapManager implements IResourceManagerReloadListener {
          * Maps a chunk of {@code /wf chunkload} now (its surface and biomes; not queued for the 3D map, the loading
          * does that itself). False if its regions are still being read: tried again next tick.
          */
-        boolean scanForLoad(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap) {
+        boolean scanForLoad(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap, boolean with3d) {
             int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
             boolean surfaceReady = map.prepareRegion(rx, rz);
             boolean biomesReady = biomeMap == null || biomeMap.prepareRegion(rx, rz);
@@ -1001,7 +1001,18 @@ public class MapManager implements IResourceManagerReloadListener {
                     biomesReady);
                 return false;
             }
+            // A chunk new to the map, mapped for the flat map only, isn't drawn on the 3D map from the flat map.
+            MapRegion region = map.getRegion(rx, rz, true);
+            int lx = chunk.xPosition & (MapRegion.CHUNKS - 1), lz = chunk.zPosition & (MapRegion.CHUNKS - 1);
+            boolean flatOnly = !with3d && (region.getChunkTime(lx, lz) == 0 || region.isFlatOnly(lx, lz));
             scanChunk(world, chunk, map, -1, biomeMap, rx, rz, false, false);
+            region.setFlatOnly(lx, lz, flatOnly);
+            FlatLog.log(
+                "CHUNKLOAD_SCAN " + chunk.xPosition
+                    + ","
+                    + chunk.zPosition
+                    + (with3d ? " 3D" : " 2D")
+                    + (flatOnly ? " flat map only (not on the 3D map)" : ""));
             return true;
         }
 
@@ -1060,6 +1071,10 @@ public class MapManager implements IResourceManagerReloadListener {
                         cx & (MapRegion.CHUNKS - 1),
                         cz & (MapRegion.CHUNKS - 1),
                         System.currentTimeMillis());
+                }
+                if (scanned != null && caveLayer < 0 && for3d) {
+                    // Mapped as usual: the 3D map has its blocks, or else draws it from the flat map.
+                    scanned.setFlatOnly(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1), false);
                 }
                 TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
             } catch (Exception e) {

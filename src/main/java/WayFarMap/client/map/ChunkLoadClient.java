@@ -117,7 +117,7 @@ public final class ChunkLoadClient {
                 if (System.nanoTime() >= end) {
                     return;
                 }
-                if (!MapManager.INSTANCE.scanForLoad(chunk)) {
+                if (!MapManager.INSTANCE.scanForLoad(chunk, b.with3d)) {
                     // Its regions are being read: next tick.
                     return;
                 }
