@@ -67,9 +67,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17,
-        ID_FOLLOW = 18;
+    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5, ID_GRID = 6,
+        ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17, ID_FOLLOW = 18;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -250,8 +249,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { followButton, lightButton, caveButton, biomeButton, gridButton, isoButton,
-            mobsButton, teamButton };
+        return new IconButton[] { followButton, lightButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
+            teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */

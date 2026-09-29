@@ -515,13 +515,7 @@ public class Config {
             v -> waypointLabelMaxWidth = v);
         group("death");
         parent(null);
-        bool(
-            c,
-            "deathPoints",
-            "Place a waypoint where you die.",
-            true,
-            () -> deathWaypoints,
-            v -> deathWaypoints = v);
+        bool(c, "deathPoints", "Place a waypoint where you die.", true, () -> deathWaypoints, v -> deathWaypoints = v);
         parent("deathPoints");
         integer(
             c,
