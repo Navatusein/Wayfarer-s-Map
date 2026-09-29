@@ -204,6 +204,55 @@ public final class ChunkBlocks {
     }
 
     /**
+     * Hash of everything of the copy but its pictures: the heights kept, the blocks with their light, the biome
+     * colors. Copies with the same hash look the same but for the pictures of blocks drawn by the game, which change
+     * on their own (a blinking ME controller, a GregTech machine turning on) and are not a reason to copy again.
+     */
+    long signature() {
+        long h = 0xCBF29CE484222325L;
+        h = (h ^ yMin) * 0x100000001B3L;
+        h = (h ^ yMax) * 0x100000001B3L;
+        h = (h ^ picturesFrom) * 0x100000001B3L;
+        for (int[] values : new int[][] { cells, grass, foliage, water }) {
+            for (int value : values) {
+                h = (h ^ value) * 0x100000001B3L;
+            }
+        }
+        return h;
+    }
+
+    /**
+     * Whether this copy is the old one with only its pictures taken again: the same blocks, light and colors, and no
+     * picture the old one lacked. Such a copy isn't stored: pictures of animated blocks differ each time they are
+     * taken, and storing them would redraw the tiles for nothing.
+     */
+    boolean onlyRetakenPictures(ChunkBlocks old) {
+        if (old == null || old.yMin != yMin
+            || old.yMax != yMax
+            || old.faceGeneration != faceGeneration
+            || !Arrays.equals(old.cells, cells)
+            || !Arrays.equals(old.grass, grass)
+            || !Arrays.equals(old.foliage, foliage)
+            || !Arrays.equals(old.water, water)) {
+            return false;
+        }
+        for (int n = 0; n < faceCells.length; n++) {
+            int j = Arrays.binarySearch(old.faceCells, faceCells[n]);
+            if (j < 0) {
+                // A block with pictures now that had none.
+                return false;
+            }
+            for (int slot = 0; slot < PER_CELL; slot++) {
+                if (old.faceIds[j * PER_CELL + slot] == 0 && faceIds[n * PER_CELL + slot] != 0) {
+                    // A picture missing before (stored with some not taken): this copy fills it in.
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
      * Picture id of the cell (index into {@link #cells}): the side (solid cubes) or view side (other blocks), 0 if it
      * has none.
      */

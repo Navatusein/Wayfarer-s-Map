@@ -114,6 +114,15 @@ public final class IsoMap implements BlockStore.Listener {
      * with icons where machines, glass and connected textures belong.
      */
     private final Map<Long, Integer> unfinished = new HashMap<>();
+    /**
+     * Per chunk, {@link ChunkBlocks#signature} of the copy last stored with all its pictures: a chunk copied again
+     * whose blocks are the same is left as it is, without taking its pictures again. Chunks there change pictures
+     * on their own (blinking ME controllers, GregTech machines turning on and off) but not blocks; copying them again
+     * and again took half the game's time in a big base. Pictures are taken anew with {@link #refreshPictures}.
+     */
+    private final Map<Long, Long> signatures = new HashMap<>();
+    /** Chunks whose pictures are taken anew (the player asked for it): copied and stored even if unchanged. */
+    private final Set<Long> refreshing = new HashSet<>();
     /** Copies after which a chunk is stored even with pictures missing (a chunk with thousands of machines). */
     private static final int MAX_UNFINISHED_COPIES = 40;
 
@@ -179,6 +188,8 @@ public final class IsoMap implements BlockStore.Listener {
         partial.clear();
         copiedWhileLoaded.clear();
         unfinished.clear();
+        signatures.clear();
+        refreshing.clear();
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         palette = null;
@@ -282,6 +293,7 @@ public final class IsoMap implements BlockStore.Listener {
             partial.clear();
             copiedWhileLoaded.clear();
             unfinished.clear();
+            refreshing.clear();
             return false;
         }
         savePicturesIfMany();
@@ -420,6 +432,8 @@ public final class IsoMap implements BlockStore.Listener {
             partial.clear();
             copiedWhileLoaded.clear();
             unfinished.clear();
+            signatures.clear();
+            refreshing.clear();
             lastCaptureDimension = dimensionId;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
@@ -491,9 +505,21 @@ public final class IsoMap implements BlockStore.Listener {
         boolean complete = true;
         int cx = chunk.xPosition, cz = chunk.zPosition;
         long t0 = System.nanoTime(), t1 = t0;
+        long signature = 0;
+        boolean refresh = refreshing.contains(key);
         try {
             blocks = BlockCapture.capture(world, chunk, whole);
             t1 = System.nanoTime();
+            if (blocks != null) {
+                signature = blocks.signature();
+                Long stored = signatures.get(key);
+                if (stored != null && stored == signature && !refresh) {
+                    // Nothing changed but maybe pictures of animated blocks: left as it is.
+                    unfinished.remove(key);
+                    IsoLog.unchanged(cx, cz, unloading ? unloadReason : null, t1 - t0);
+                    return true;
+                }
+            }
             if (blocks != null && palette != null) {
                 complete = FaceRenderer.addFaces(world, chunk, blocks, palette, deadline);
             }
@@ -511,6 +537,7 @@ public final class IsoMap implements BlockStore.Listener {
         // Their looks are worked out in the next ticks, so the 3D map has them when it opens.
         BlockLooks.warm(blocks.lookKeys());
         String reason = unloading ? unloadReason : null;
+        boolean unfinishedGaveUp = false;
         if (!complete && !unloading) {
             int copies = unfinished.merge(key, 1, Integer::sum);
             if (copies < MAX_UNFINISHED_COPIES) {
@@ -536,23 +563,43 @@ public final class IsoMap implements BlockStore.Listener {
             }
             IsoLog.captured(cx, cz, reason, whole, unloading, t1 - t0, t2 - t1, false, true, copies, deadline - t2);
             complete = true;
+            unfinishedGaveUp = true;
         } else {
             IsoLog.captured(cx, cz, reason, whole, unloading, t1 - t0, t2 - t1, complete, false, 0, deadline - t2);
         }
         unfinished.remove(key);
         FacePalette pictures = palette;
+        // Remembered only for a copy with every picture: one stored with some missing is copied again as before.
+        boolean allPictures = complete && pictures != null
+            && !blocks.picturesMissing
+            && blocks.unsureCells.length == 0
+            && !unfinishedGaveUp;
+        if (allPictures) {
+            if (signatures.size() > 100_000) {
+                signatures.clear();
+            }
+            signatures.put(key, signature);
+        } else {
+            signatures.remove(key);
+        }
+        boolean force = refreshing.remove(key);
         IsoLog.Trace trace = IsoLog.submitted(cx, cz);
         writer.submit(() -> {
             IsoLog.writerStart(trace);
             long keepNanos = 0;
             long[] timing = new long[7];
             try {
-                ChunkBlocks before = pictures != null || IsoLog.on() ? dimension.store.chunk(cx, cz) : null;
+                ChunkBlocks before = dimension.store.chunk(cx, cz);
                 if (pictures != null) {
                     long start = System.nanoTime();
                     // Pictures this copy lacks, or took without the chunk next door, are kept from the one before.
                     blocks.keepPicturesFrom(before, pictures.generation);
                     keepNanos = System.nanoTime() - start;
+                }
+                if (!force && blocks.onlyRetakenPictures(before)) {
+                    // Only pictures of animated blocks differ: the stored copy stays, the tiles aren't redrawn.
+                    IsoLog.log("STORE_SKIPPED " + cx + "," + cz + " same blocks, only pictures taken again");
+                    return;
                 }
                 dimension.store.put(cx, cz, blocks, timing);
                 if (timing[5] != 0 && before != null) {
@@ -600,6 +647,43 @@ public final class IsoMap implements BlockStore.Listener {
         } else {
             partial.remove(key);
         }
+    }
+
+    /**
+     * Takes the pictures of the loaded chunks around the player anew, nearest first (render thread): blocks drawn by
+     * the game are kept as first seen (a machine off, a controller in one color) until their chunk's blocks change,
+     * and this brings them up to date.
+     *
+     * @return the chunks to be copied again
+     */
+    public int refreshPictures(World world, EntityPlayer player) {
+        if (!Config.record3d || writer == null || world == null || player == null) {
+            return 0;
+        }
+        // Taken anew, not from the caches of pictures taken before.
+        FaceRenderer.clear();
+        int pcx = MathHelper.floor_double(player.posX) >> 4, pcz = MathHelper.floor_double(player.posZ) >> 4;
+        int radius = Minecraft.getMinecraft().gameSettings.renderDistanceChunks + 1;
+        List<long[]> chunks = new ArrayList<>();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (ChunkScanner.isChunkReady(world, pcx + dx, pcz + dz)) {
+                    long key = ((long) (pcx + dx) << 32) | ((pcz + dz) & 0xFFFFFFFFL);
+                    chunks.add(new long[] { dx * dx + dz * dz, key });
+                }
+            }
+        }
+        chunks.sort((a, b) -> Long.compare(a[0], b[0]));
+        for (long[] chunk : chunks) {
+            long key = chunk[1];
+            signatures.remove(key);
+            refreshing.add(key);
+            if (!freshQueue.contains(key)) {
+                captureQueue.add(key);
+            }
+        }
+        IsoLog.log("REFRESH_PICTURES " + chunks.size() + " loaded chunks around " + pcx + "," + pcz);
+        return chunks.size();
     }
 
     /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */
@@ -654,6 +738,7 @@ public final class IsoMap implements BlockStore.Listener {
         }
         // Copied again as they come by, with pictures in the new textures.
         lastCapture.clear();
+        signatures.clear();
         if (tiles != null) {
             tiles.invalidateAll();
         }

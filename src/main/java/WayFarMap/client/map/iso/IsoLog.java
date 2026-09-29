@@ -540,6 +540,19 @@ public final class IsoLog {
         stats[2] += nanos;
     }
 
+    private static final AtomicLong unchangedSkipped = new AtomicLong();
+
+    /** Copied again, but its blocks are the same as the copy stored: left as it is, no pictures taken. */
+    static void unchanged(int cx, int cz, String reason, long nanos) {
+        if (!on()) {
+            return;
+        }
+        unchangedSkipped.incrementAndGet();
+        Trace trace = TRACES.remove(key(cx, cz));
+        line("UNCHANGED " + cx + "," + cz + " reason=" + (trace != null ? trace.reason : reason) + " blocksMs="
+            + ms(nanos) + " (same blocks, pictures kept)");
+    }
+
     /** Copying it failed or gave nothing. */
     static void captureFailed(int cx, int cz, String why) {
         if (on()) {
@@ -966,6 +979,8 @@ public final class IsoLog {
                     + capturesDone.getAndSet(0)
                     + " incomplete="
                     + incompleteCaptures.getAndSet(0)
+                    + " unchanged="
+                    + unchangedSkipped.getAndSet(0)
                     + " captureMs="
                     + ms(captureNanosSum.getAndSet(0))
                     + " stored="

@@ -68,7 +68,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
         ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_ROTATE = 16,
-        ID_EXPORT = 17;
+        ID_EXPORT = 17, ID_REFRESH = 18;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -104,6 +104,8 @@ public class GuiWorldMap extends ScaledScreen {
     /** 3D (isometric) view on or off, and turning it by a quarter while on. */
     private IconButton isoButton;
     private IconButton rotateButton;
+    /** 3D view: takes the pictures of machines and other blocks drawn by the game anew around the player. */
+    private IconButton refreshButton;
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
@@ -203,6 +205,7 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         rotateButton = new IconButton(ID_ROTATE, 0, 4, Icons.ROTATE, I18n.format("wayfarmap.gui.iso_rotate"));
+        refreshButton = new IconButton(ID_REFRESH, 0, 4, Icons.REFRESH, I18n.format("wayfarmap.gui.iso_refresh"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
         teamButton.visible = !TeamMates.INSTANCE.all()
             .isEmpty();
@@ -234,7 +237,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
         return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, rotateButton,
-            mobsButton, teamButton };
+            refreshButton, mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -557,6 +560,7 @@ public class GuiWorldMap extends ScaledScreen {
         gridButton.active = Config.chunkGrid;
         isoButton.active = Config.isometric;
         rotateButton.visible = Config.isometric;
+        refreshButton.visible = Config.isometric && Config.record3d;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, the dot tells which kind is left.
         int mobFilter = Config.getMobFilter();
@@ -587,6 +591,8 @@ public class GuiWorldMap extends ScaledScreen {
             toggleIso();
         } else if (button.id == ID_ROTATE) {
             rotateIso(1);
+        } else if (button.id == ID_REFRESH) {
+            IsoMap.INSTANCE.refreshPictures(mc.theWorld, mc.thePlayer);
         } else if (button.id == ID_EXPORT) {
             openExportMenu();
         } else if (button.id == ID_BIOMES) {
