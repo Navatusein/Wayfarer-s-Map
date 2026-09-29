@@ -326,6 +326,8 @@ public class MapDimension {
             if (!region.isSaveDirty()) {
                 continue;
             }
+            final int changed = region.getChanges() - region.changesAtSave;
+            region.changesAtSave = region.getChanges();
             long copyStart = System.nanoTime();
             final MapRegion.Snapshot data = region.snapshotForSave();
             long copy = System.nanoTime() - copyStart;
@@ -346,7 +348,10 @@ public class MapDimension {
                 }
                 if (FlatLog.on()) {
                     FlatLog.saved(name, region.rx, region.rz, System.nanoTime() - start, MapRegion.bytesOnDisk(file),
-                        MapRegion.partsOnDisk(file), result + " queuedMs=" + FlatLog.ms(start - queued));
+                        MapRegion.partsOnDisk(file), result + " queuedMs="
+                        + FlatLog.ms(start - queued)
+                        + " changesSinceLastSave="
+                        + changed);
                 }
             }));
         }

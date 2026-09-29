@@ -94,6 +94,8 @@ public class MapRegion implements PixelSource {
     private volatile boolean saving;
     /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
     private int changes;
+    /** {@link #changes} when last saved, for the log. */
+    int changesAtSave;
 
     public MapRegion(int rx, int rz) {
         this.rx = rx;

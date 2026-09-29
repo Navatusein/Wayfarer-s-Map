@@ -46,6 +46,15 @@ public final class FlatLog {
 
     /** Chunks seen by the scanner and not scanned yet: when first seen. */
     private static final Map<Long, Long> SEEN = new ConcurrentHashMap<>();
+    /**
+     * Chunks waiting to settle: {surface signature last seen, times marked changed, of those with the surface really
+     * changed}. Tells the game's "changed" marks that change nothing seen from above (light, water) from real ones.
+     */
+    private static final Map<Long, long[]> SETTLING = new ConcurrentHashMap<>();
+    /** Surface signature of each chunk when last scanned, to tell whether a scan could change anything. */
+    private static final Map<Long, Long> SCANNED_SIGNATURE = new ConcurrentHashMap<>();
+    /** Chunks put off while their region is read: when first. */
+    private static final Map<Long, Long> DEFERRED = new ConcurrentHashMap<>();
     /** Regions asked to be read: when (per map folder and region). */
     private static final Map<String, Long> ASKED = new ConcurrentHashMap<>();
 
@@ -53,9 +62,12 @@ public final class FlatLog {
     private static final String[] SAMPLE_NAMES = { "seen->scanned (new chunks)", "scan of a chunk",
         "region read from disk", "region asked->picked up", "region read in the game's way (blocking)",
         "region save (writing)", "region save (copying, render thread)", "texture upload", "reduced copy built",
-        "frame of the world map (flat)", "scan queue built" };
+        "frame of the world map (flat)", "scan queue built", "put off->scanned (region read)",
+        "map tick (render thread, 2D+3D)", "game hitch (gap between ticks)", "seen->settled (quiet+neighbours)",
+        "seen->settled (timeout)" };
     static final int SEEN_TO_SCANNED = 0, SCAN = 1, READ = 2, ASKED_TO_PICKED = 3, BLOCKING_READ = 4, SAVE_WRITE = 5,
-        SAVE_COPY = 6, UPLOAD = 7, LOD_BUILD = 8, FRAME = 9, QUEUE_BUILD = 10;
+        SAVE_COPY = 6, UPLOAD = 7, LOD_BUILD = 8, FRAME = 9, QUEUE_BUILD = 10, DEFER_TO_SCAN = 11, MAP_TICK = 12,
+        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15;
     @SuppressWarnings("unchecked")
     private static final List<Long>[] SAMPLES = new List[SAMPLE_NAMES.length];
     static {
@@ -75,13 +87,20 @@ public final class FlatLog {
         uploadPixels = new AtomicLong(), texturesMade = new AtomicLong(), frames = new AtomicLong(),
         frameNanos = new AtomicLong(), frameMaxNanos = new AtomicLong(), drawn = new AtomicLong(),
         notLoaded = new AtomicLong(), noFile = new AtomicLong(), textureWait = new AtomicLong(),
-        shared = new AtomicLong(), sharedOlder = new AtomicLong(), sharedWaiting = new AtomicLong();
+        shared = new AtomicLong(), sharedOlder = new AtomicLong(), sharedWaiting = new AtomicLong(),
+        scansNoPixels = new AtomicLong(), scansSameSurface = new AtomicLong(), marksNoise = new AtomicLong(),
+        marksReal = new AtomicLong(), settleTimeouts = new AtomicLong(), settleTimeoutsEdge = new AtomicLong(),
+        hitches = new AtomicLong(), hitchNanos = new AtomicLong(), mapTickNanos = new AtomicLong(),
+        mapTickMaxNanos = new AtomicLong();
     /** All of them, to start a new file from zero (saves of the world left would count in the next one). */
     private static final AtomicLong[] COUNTERS = { scans, scanNanos, scansDeferred, unloadScans, readsAsked, readsDone,
         readNanos, readBytes, blockingReads, blockingNanos, regionsMade, lodBuilt, lodNanos, saves, saveNanos,
         saveBytes, uploads, uploadNanos, uploadPixels, texturesMade, frames, frameNanos, frameMaxNanos, drawn,
-        notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting };
+        notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting, scansNoPixels, scansSameSurface,
+        marksNoise, marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos,
+        mapTickMaxNanos };
     private static long lastStats, lastSummary;
+    private static final AtomicLong mapTickCount = new AtomicLong();
 
     private FlatLog() {}
 
@@ -130,6 +149,11 @@ public final class FlatLog {
         }
         SEEN.clear();
         ASKED.clear();
+        SETTLING.clear();
+        SCANNED_SIGNATURE.clear();
+        DEFERRED.clear();
+        lastPlayerAt = 0;
+        mapTickCount.set(0);
         for (AtomicLong counter : COUNTERS) {
             counter.set(0);
         }
@@ -161,7 +185,10 @@ public final class FlatLog {
                 + "thread: file read) -> PICKED (in memory); BLOCKING_READ = read by the game's thread, which waits; "
                 + "MADE = new, no file; LOD = reduced copy for zooming out; SAVE (saver thread) after a COPY on the "
                 + "game's thread; RETAIN = let go. DRAW every second while the map is open. STATS every second while "
-                + "busy, SUMMARY every 5 minutes and at the end.");
+                + "busy, SUMMARY every minute and at the end. surface=same/changed: whether what is seen from above "
+                + "(heights and top blocks) changed since the chunk was last scanned; MARKS noise/real: the game "
+                + "marked a chunk changed and the surface did not / did change; HITCH: the game stood still between "
+                + "two ticks, with the map's own time in the tick before.");
     }
 
     /** The world was left: the summary, then the file is closed. */
@@ -247,34 +274,93 @@ public final class FlatLog {
 
     // ---------------------------------------------------------------- the scanner (render thread)
 
-    static void seen(int cx, int cz, boolean neighboursReady) {
+    /**
+     * @param where distance from the player and whether it is at the edge of the loaded area
+     */
+    static void seen(int cx, int cz, String missing, String where, long signature) {
         if (on() && SEEN.putIfAbsent(key(cx, cz), System.nanoTime()) == null) {
             if (SEEN.size() > 50_000) {
                 SEEN.clear();
+                SETTLING.clear();
             }
-            line("SEEN " + cx + "," + cz + " neighboursReady=" + neighboursReady);
+            SETTLING.put(key(cx, cz), new long[] { signature, 0, 0 });
+            line(
+                "SEEN " + cx
+                    + ","
+                    + cz
+                    + " "
+                    + where
+                    + (missing.isEmpty() ? " neighboursReady=true" : " missingNeighbours=" + missing));
         }
     }
 
-    static void settled(int cx, int cz, String how, int ticks) {
-        if (on()) {
-            Long seen = SEEN.get(key(cx, cz));
-            line(
-                "SETTLED " + cx
-                    + ","
-                    + cz
-                    + " how="
-                    + how
-                    + " ticks="
-                    + ticks
-                    + (seen == null ? "" : " waitedMs=" + ms(System.nanoTime() - seen)));
+    /** The game marked a settling chunk changed; whether its surface really changed. */
+    static void marked(int cx, int cz, long signature) {
+        if (!on()) {
+            return;
         }
+        long[] state = SETTLING.get(key(cx, cz));
+        if (state == null) {
+            return;
+        }
+        state[1]++;
+        if (state[0] != signature) {
+            state[2]++;
+            state[0] = signature;
+            marksReal.incrementAndGet();
+        } else {
+            marksNoise.incrementAndGet();
+        }
+    }
+
+    /**
+     * @param missing neighbours not loaded (+x, -z...), empty if none
+     * @param where   distance from the player and whether it is at the edge of the loaded area
+     * @param edge    at the edge: a missing neighbour there comes only when the player gets closer
+     */
+    static void settled(int cx, int cz, boolean timeout, int quietTicks, String missing, String where, boolean edge,
+        int ticks) {
+        if (!on()) {
+            return;
+        }
+        Long seen = SEEN.get(key(cx, cz));
+        long[] marks = SETTLING.remove(key(cx, cz));
+        long waited = seen == null ? -1 : System.nanoTime() - seen;
+        if (waited >= 0) {
+            sample(timeout ? SETTLE_TIMEOUT : SETTLE_QUIET, waited);
+        }
+        String why = "";
+        if (timeout) {
+            settleTimeouts.incrementAndGet();
+            if (edge) {
+                settleTimeoutsEdge.incrementAndGet();
+            }
+            why = missing.isEmpty() ? " because=kept being marked changed"
+                : edge ? " because=neighbour beyond the loaded area" : " because=neighbour not sent";
+        }
+        line(
+            "SETTLED " + cx
+                + ","
+                + cz
+                + " how="
+                + (timeout ? "timeout" : "quiet+neighbours")
+                + why
+                + " ticks="
+                + ticks
+                + " quietTicks="
+                + quietTicks
+                + (missing.isEmpty() ? "" : " missingNeighbours=" + missing)
+                + " "
+                + where
+                + (marks == null ? "" : " marksChanged=" + marks[1] + " marksWithSurfaceChange=" + marks[2])
+                + (waited < 0 ? "" : " waitedMs=" + ms(waited)));
     }
 
     /** Put off: a region it goes into is being read. */
     static void deferred(int cx, int cz, String map, boolean surfaceReady, boolean biomesReady) {
         if (on()) {
             scansDeferred.incrementAndGet();
+            DEFERRED.putIfAbsent(key(cx, cz), System.nanoTime());
             line(
                 "SCAN_DEFERRED " + cx
                     + ","
@@ -292,20 +378,51 @@ public final class FlatLog {
      *
      * @param why new, changed, rescan (on schedule), unloading, chunkload
      */
+    /**
+     * @param signature  the chunk's surface signature now (0 if not worked out)
+     * @param onMapSince when the map had the chunk before this scan (0 if it didn't)
+     */
     static void scanned(int cx, int cz, int layer, String why, long nanos, int pixelsChanged, boolean regionNew,
-        String map) {
+        String map, long signature, long onMapSince) {
         if (!on()) {
             return;
         }
         scans.incrementAndGet();
         scanNanos.addAndGet(nanos);
         sample(SCAN, nanos);
+        long now = System.nanoTime();
         Long seen = SEEN.remove(key(cx, cz));
+        SETTLING.remove(key(cx, cz));
         String waited = "";
         if (seen != null && layer < 0) {
-            long delay = System.nanoTime() - seen;
+            long delay = now - seen;
             sample(SEEN_TO_SCANNED, delay);
             waited = " seenToScannedMs=" + ms(delay);
+        }
+        Long deferredAt = DEFERRED.remove(key(cx, cz));
+        if (deferredAt != null) {
+            sample(DEFER_TO_SCAN, now - deferredAt);
+            waited += " putOffToScannedMs=" + ms(now - deferredAt);
+        }
+        if (pixelsChanged == 0) {
+            scansNoPixels.incrementAndGet();
+        }
+        String surface = "";
+        if (layer < 0 && signature != 0) {
+            Long before = SCANNED_SIGNATURE.put(key(cx, cz), signature);
+            if (SCANNED_SIGNATURE.size() > 100_000) {
+                SCANNED_SIGNATURE.clear();
+            }
+            if (before != null) {
+                boolean same = before == signature;
+                if (same) {
+                    scansSameSurface.incrementAndGet();
+                }
+                surface = same ? " surface=same" : " surface=changed";
+            }
+        }
+        if (onMapSince > 0) {
+            waited += " wasOnMapAgeS=" + (System.currentTimeMillis() - onMapSince) / 1000;
         }
         line(
             "SCAN " + cx
@@ -321,6 +438,7 @@ public final class FlatLog {
                 + " pixelsChanged="
                 + pixelsChanged
                 + (regionNew ? " (region was not in memory before)" : "")
+                + surface
                 + waited);
     }
 
@@ -372,8 +490,52 @@ public final class FlatLog {
     static void unloadScan(int cx, int cz, String what) {
         if (on()) {
             unloadScans.incrementAndGet();
-            line("UNLOAD " + cx + "," + cz + " " + what);
+            Long seen = SEEN.get(key(cx, cz));
+            line(
+                "UNLOAD " + cx
+                    + ","
+                    + cz
+                    + " "
+                    + what
+                    + (seen == null ? "" : " seenMsAgo=" + ms(System.nanoTime() - seen)));
         }
+    }
+
+    /** The map's own time in one client tick (2D scanning and the 3D map's copying). */
+    static void mapTick(long nanos) {
+        if (on()) {
+            mapTickCount.incrementAndGet();
+            mapTickNanos.addAndGet(nanos);
+            mapTickMaxNanos.accumulateAndGet(nanos, Math::max);
+            sample(MAP_TICK, nanos);
+        }
+    }
+
+    /**
+     * The game stood still between two ticks.
+     *
+     * @param lastMapTick the map's own time in the tick before
+     * @param what        what was going on (world map open, 3D...)
+     */
+    static void hitch(long gapNanos, long lastMapTick, String what) {
+        if (!on()) {
+            return;
+        }
+        hitches.incrementAndGet();
+        hitchNanos.addAndGet(gapNanos);
+        sample(HITCH, gapNanos);
+        line(
+            "HITCH gapMs=" + ms(gapNanos)
+                + " mapTickBeforeMs="
+                + ms(lastMapTick)
+                + " "
+                + what
+                + " heapUsedMB="
+                + ((Runtime.getRuntime()
+                    .totalMemory()
+                    - Runtime.getRuntime()
+                        .freeMemory())
+                    >> 20));
     }
 
     // ---------------------------------------------------------------- regions
@@ -590,7 +752,11 @@ public final class FlatLog {
 
     // ---------------------------------------------------------------- statistics (render thread, each tick)
 
-    static void stats(int regions, int reduced, int textures, int pending, int queueLeft, int settling) {
+    private static double lastPlayerX, lastPlayerZ;
+    private static long lastPlayerAt;
+
+    static void stats(int regions, int reduced, int textures, int pending, int queueLeft, int settling,
+        double playerX, double playerZ, int viewDistance) {
         if (!on()) {
             return;
         }
@@ -620,8 +786,44 @@ public final class FlatLog {
                 frames.set(0);
             }
             Runtime runtime = Runtime.getRuntime();
+            String speed = "";
+            if (lastPlayerAt > 0 && now > lastPlayerAt) {
+                double dx = playerX - lastPlayerX, dz = playerZ - lastPlayerZ;
+                double perSecond = Math.sqrt(dx * dx + dz * dz) * 1000.0 / (now - lastPlayerAt);
+                speed = String.format(Locale.ROOT, " speedBlocksPerS=%.1f", perSecond);
+            }
+            lastPlayerX = playerX;
+            lastPlayerZ = playerZ;
+            lastPlayerAt = now;
+            long ticks = Math.max(1, mapTickCount.getAndSet(0));
             line(
-                "STATS scans=" + scans.getAndSet(0)
+                "STATS player=" + (int) Math.floor(playerX)
+                    + ","
+                    + (int) Math.floor(playerZ)
+                    + speed
+                    + " viewDistance="
+                    + viewDistance
+                    + " mapTickAvgMs="
+                    + ms(mapTickNanos.getAndSet(0) / ticks)
+                    + " mapTickMaxMs="
+                    + ms(mapTickMaxNanos.getAndSet(0))
+                    + " hitches="
+                    + hitches.getAndSet(0)
+                    + " hitchMs="
+                    + ms(hitchNanos.getAndSet(0))
+                    + " scans=" + scans.getAndSet(0)
+                    + " noPixelChange="
+                    + scansNoPixels.getAndSet(0)
+                    + " surfaceSame="
+                    + scansSameSurface.getAndSet(0)
+                    + " marksNoise="
+                    + marksNoise.getAndSet(0)
+                    + " marksReal="
+                    + marksReal.getAndSet(0)
+                    + " settleTimeouts="
+                    + settleTimeouts.getAndSet(0)
+                    + " ofThemAtEdge="
+                    + settleTimeoutsEdge.getAndSet(0)
                     + " scanMs="
                     + ms(scanNanos.getAndSet(0))
                     + " deferred="
@@ -681,7 +883,7 @@ public final class FlatLog {
                     + " heapUsedMB="
                     + ((runtime.totalMemory() - runtime.freeMemory()) >> 20));
         }
-        if (now - lastSummary >= 300_000) {
+        if (now - lastSummary >= 60_000) {
             lastSummary = now;
             summary("SUMMARY");
         }
@@ -720,6 +922,8 @@ public final class FlatLog {
             title + "   chunks seen and not scanned yet: "
                 + SEEN.size()
                 + ", reads asked and not picked up: "
-                + ASKED.size());
+                + ASKED.size()
+                + ", chunks put off and not scanned yet: "
+                + DEFERRED.size());
     }
 }
