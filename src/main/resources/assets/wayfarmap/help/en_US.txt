@@ -26,7 +26,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
 - §bTree§r — biomes
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
-- §bSun§r / §bMoon§r — day / night
+- §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
 - §bTwo people§r — teammates online (shown while there are some)
 - §b?§r bottom right — this help
 
