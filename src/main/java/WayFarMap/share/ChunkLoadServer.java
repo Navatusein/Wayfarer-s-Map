@@ -31,6 +31,7 @@ import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
 
+import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -46,10 +47,8 @@ public final class ChunkLoadServer {
 
     public static final ChunkLoadServer INSTANCE = new ChunkLoadServer();
 
-    /** Chunks per side of a batch (mapped); a ring of one more is sent around it for their neighbours. */
-    private static final int BATCH = 8;
-    /** Time per server tick spent loading and generating chunks. */
-    private static final long TICK_NANOS = 20_000_000L;
+    /** Chunks per side of a batch when none is saved with the job (jobs started before it could be set). */
+    private static final int DEFAULT_BATCH = 8;
     /** Chunks per packet, as the game sends them. */
     private static final int PER_PACKET = 5;
     private static final String FILE = "wayfarmap_chunkload.dat";
@@ -61,6 +60,8 @@ public final class ChunkLoadServer {
         final int dimension, centerX, centerZ, radius;
         final boolean with3d;
         final int id;
+        /** Chunks per side of a batch (mapped); a ring of one more is sent around it for their neighbours. */
+        final int batch;
         /** Batches in the order they are done: grid positions {i, j} around the center, nearest first. */
         final int[] order;
         int index;
@@ -75,8 +76,11 @@ public final class ChunkLoadServer {
         EntityPlayerMP sentTo;
         int[] previousOuter;
         boolean pausedTold;
+        /** For the log: when the batch being loaded was started, and the time spent working on it. */
+        long batchStarted, workNanos;
 
-        Job(UUID player, int dimension, int centerX, int centerZ, int radius, boolean with3d, int id, long started) {
+        Job(UUID player, int dimension, int centerX, int centerZ, int radius, boolean with3d, int id, long started,
+            int batch) {
             this.player = player;
             this.dimension = dimension;
             this.centerX = centerX;
@@ -85,7 +89,8 @@ public final class ChunkLoadServer {
             this.with3d = with3d;
             this.id = id;
             this.started = started;
-            this.order = spiral((radius + BATCH - 1) / BATCH, radius);
+            this.batch = Math.max(2, batch);
+            this.order = spiral((radius + this.batch - 1) / this.batch, radius, this.batch);
             long side = 2L * radius + 1;
             this.total = side * side;
         }
@@ -93,10 +98,10 @@ public final class ChunkLoadServer {
         /** Inner chunks of batch n: {x0, z0, x1, z1}, inclusive, within the area. */
         int[] inner(int n) {
             int i = order[n * 2], j = order[n * 2 + 1];
-            int x0 = Math.max(centerX - radius, centerX + i * BATCH - BATCH / 2);
-            int z0 = Math.max(centerZ - radius, centerZ + j * BATCH - BATCH / 2);
-            int x1 = Math.min(centerX + radius, centerX + i * BATCH + BATCH / 2 - 1);
-            int z1 = Math.min(centerZ + radius, centerZ + j * BATCH + BATCH / 2 - 1);
+            int x0 = Math.max(centerX - radius, centerX + i * batch - batch / 2);
+            int z0 = Math.max(centerZ - radius, centerZ + j * batch - batch / 2);
+            int x1 = Math.min(centerX + radius, centerX + i * batch + batch / 2 - 1);
+            int z1 = Math.min(centerZ + radius, centerZ + j * batch + batch / 2 - 1);
             return new int[] { x0, z0, x1, z1 };
         }
 
@@ -114,7 +119,7 @@ public final class ChunkLoadServer {
      * Batch grid positions ring by ring from the middle ({i, j} pairs), leaving out those outside the area of the
      * radius (the outer ring may reach past it).
      */
-    static int[] spiral(int rings, int radius) {
+    static int[] spiral(int rings, int radius, int batch) {
         int side = 2 * rings + 1;
         int[] order = new int[side * side * 2];
         int n = 0;
@@ -137,7 +142,7 @@ public final class ChunkLoadServer {
                 ring.add(new int[] { -k, j });
             }
             for (int[] p : ring) {
-                if (within(p[0], radius) && within(p[1], radius)) {
+                if (within(p[0], radius, batch) && within(p[1], radius, batch)) {
                     order[n++] = p[0];
                     order[n++] = p[1];
                 }
@@ -147,8 +152,8 @@ public final class ChunkLoadServer {
     }
 
     /** Whether the batches in column (or row) i hold any chunk within the radius. */
-    private static boolean within(int i, int radius) {
-        return i * BATCH - BATCH / 2 <= radius && i * BATCH + BATCH / 2 - 1 >= -radius;
+    private static boolean within(int i, int radius, int batch) {
+        return i * batch - batch / 2 <= radius && i * batch + batch / 2 - 1 >= -radius;
     }
 
     // ---------------------------------------------------------------- the command
@@ -216,7 +221,8 @@ public final class ChunkLoadServer {
             radius,
             with3d,
             (int) (System.nanoTime() & 0x7FFFFFFF),
-            System.currentTimeMillis());
+            System.currentTimeMillis(),
+            Config.chunkloadBatch);
         jobs.put(job.player, job);
         save();
         player.addChatMessage(
@@ -285,7 +291,7 @@ public final class ChunkLoadServer {
                 batchDone(job);
             }
         }
-        long end = System.nanoTime() + TICK_NANOS;
+        long end = System.nanoTime() + Math.max(1, Config.chunkloadServerMs) * 1_000_000L;
         for (Job job : new ArrayList<>(jobs.values())) {
             if (System.nanoTime() >= end) {
                 break;
@@ -340,7 +346,10 @@ public final class ChunkLoadServer {
             int[] inner = job.inner(job.index);
             job.loading = new int[] { inner[0] - 1, inner[1] - 1, inner[2] + 1, inner[3] + 1 };
             job.loadingAt = 0;
+            job.batchStarted = System.nanoTime();
+            job.workNanos = 0;
         }
+        long workStart = System.nanoTime();
         int[] outer = job.loading;
         int width = outer[2] - outer[0] + 1, count = width * (outer[3] - outer[1] + 1);
         while (job.loadingAt < count && System.nanoTime() < end) {
@@ -353,6 +362,7 @@ public final class ChunkLoadServer {
             }
             job.loadingAt++;
         }
+        job.workNanos += System.nanoTime() - workStart;
         if (job.loadingAt < count) {
             return;
         }
@@ -362,12 +372,35 @@ public final class ChunkLoadServer {
     /** Sends the batch's chunks as the game sends them, their tile entities, then the batch itself. */
     private void send(Job job, EntityPlayerMP player, WorldServer world, int[] outer) {
         List<Chunk> chunks = new ArrayList<>();
+        int reloaded = 0, missing = 0;
+        long reloadStart = System.nanoTime();
         for (int z = outer[1]; z <= outer[3]; z++) {
             for (int x = outer[0]; x <= outer[2]; x++) {
+                if (!world.theChunkProviderServer.chunkExists(x, z)) {
+                    // Loaded in an earlier tick and let go since (the server unloads chunks no player is near):
+                    // loaded again (from disk now), or it would be missing on the map.
+                    try {
+                        world.theChunkProviderServer.loadChunk(x, z);
+                        reloaded++;
+                    } catch (RuntimeException e) {
+                        WayFarMap.LOG.warn("Could not load chunk " + x + ", " + z + " for /wf chunkload", e);
+                    }
+                }
                 if (world.theChunkProviderServer.chunkExists(x, z)) {
                     chunks.add(world.getChunkFromChunkCoords(x, z));
+                } else {
+                    missing++;
                 }
             }
+        }
+        job.workNanos += System.nanoTime() - reloadStart;
+        if (reloaded > 0 || missing > 0) {
+            WayFarMap.LOG.info(
+                "/wf chunkload batch {}: {} chunks let go by the server before they were sent were loaded again, {} "
+                    + "could not be loaded",
+                job.index,
+                reloaded,
+                missing);
         }
         for (int from = 0; from < chunks.size(); from += PER_PACKET) {
             player.playerNetServerHandler.sendPacket(
@@ -405,6 +438,11 @@ public final class ChunkLoadServer {
         batch.viewDistance = MinecraftServer.getServer()
             .getConfigurationManager()
             .getViewDistance();
+        batch.sent = chunks.size();
+        batch.reloaded = reloaded;
+        batch.missing = missing;
+        batch.serverMs = (int) ((System.nanoTime() - job.batchStarted) / 1_000_000L);
+        batch.workMs = (int) (job.workNanos / 1_000_000L);
         ShareNetwork.sendTo(batch, player);
         job.waiting = true;
         job.sentTo = player;
@@ -498,7 +536,8 @@ public final class ChunkLoadServer {
                     tag.getInteger("radius"),
                     tag.getBoolean("3d"),
                     tag.getInteger("id"),
-                    tag.getLong("started"));
+                    tag.getLong("started"),
+                    tag.hasKey("batch") ? tag.getInteger("batch") : DEFAULT_BATCH);
                 job.index = tag.getInteger("index");
                 job.done = tag.getLong("done");
                 if (job.index < job.batches()) {
@@ -533,6 +572,7 @@ public final class ChunkLoadServer {
             tag.setBoolean("3d", job.with3d);
             tag.setInteger("id", job.id);
             tag.setLong("started", job.started);
+            tag.setInteger("batch", job.batch);
             tag.setInteger("index", job.index);
             tag.setLong("done", job.done);
             list.appendTag(tag);

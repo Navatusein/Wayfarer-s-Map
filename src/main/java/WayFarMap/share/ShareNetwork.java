@@ -225,6 +225,12 @@ public final class ShareNetwork {
         public long doneBefore, total;
         /** The server's view distance: chunks this close to the player are the game's, not let go. */
         public int viewDistance;
+        /**
+         * For the log: chunks sent, those loaded again because the server had let them go before they were sent,
+         * those it could not give, and the server's time on the batch (from its start, and working on it).
+         */
+        public int sent, reloaded, missing;
+        public int serverMs, workMs;
 
         @Override
         public void fromBytes(ByteBuf buf) {
@@ -243,6 +249,11 @@ public final class ShareNetwork {
             doneBefore = buf.readLong();
             total = buf.readLong();
             viewDistance = buf.readInt();
+            sent = buf.readInt();
+            reloaded = buf.readInt();
+            missing = buf.readInt();
+            serverMs = buf.readInt();
+            workMs = buf.readInt();
         }
 
         @Override
@@ -262,6 +273,11 @@ public final class ShareNetwork {
             buf.writeLong(doneBefore);
             buf.writeLong(total);
             buf.writeInt(viewDistance);
+            buf.writeInt(sent);
+            buf.writeInt(reloaded);
+            buf.writeInt(missing);
+            buf.writeInt(serverMs);
+            buf.writeInt(workMs);
         }
     }
 

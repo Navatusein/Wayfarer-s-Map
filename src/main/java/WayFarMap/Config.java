@@ -25,6 +25,7 @@ public class Config {
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
     public static final String CATEGORY_LOGS = "logs";
+    public static final String CATEGORY_COMMANDS = "commands";
     /**
      * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
      * nothing set before is lost).
@@ -32,7 +33,14 @@ public class Config {
     public static final String TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-        Arrays.asList(CATEGORY_MINIMAP, TAB_MAP_2D, TAB_MAP_3D, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS, CATEGORY_LOGS));
+        Arrays.asList(
+            CATEGORY_MINIMAP,
+            TAB_MAP_2D,
+            TAB_MAP_3D,
+            CATEGORY_ENTITIES,
+            CATEGORY_WAYPOINTS,
+            CATEGORY_COMMANDS,
+            CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
@@ -86,6 +94,12 @@ public class Config {
      * saved and drawn, for finding what is slow or wrong.
      */
     public static boolean log2d = false;
+    /** {@code /wf chunkload}: server milliseconds per tick for loading and generating chunks. */
+    public static int chunkloadServerMs = 20;
+    /** {@code /wf chunkload}: chunks per side of a batch (a new command takes it). */
+    public static int chunkloadBatch = 8;
+    /** {@code /wf chunkload}: client milliseconds per tick for mapping a batch's chunks. */
+    public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -499,6 +513,43 @@ public class Config {
             false,
             () -> log2d,
             v -> log2d = v);
+
+        c = CATEGORY_COMMANDS;
+        group("chunkload");
+        parent(null);
+        integer(
+            c,
+            "chunkloadServerMs",
+            "/wf chunkload: milliseconds of each server tick spent loading and generating chunks. More maps an area "
+                + "faster; on a shared server less keeps the TPS up (in single player the server has time to spare).",
+            20,
+            5,
+            200,
+            5,
+            () -> chunkloadServerMs,
+            v -> chunkloadServerMs = v);
+        integer(
+            c,
+            "chunkloadBatch",
+            "/wf chunkload: chunks per side of a batch. Bigger batches load fewer chunks twice (each batch loads a "
+                + "ring of one chunk around it) and wait less for the client, but hold more chunks in memory. Used by "
+                + "the next command started.",
+            8,
+            4,
+            32,
+            4,
+            () -> chunkloadBatch,
+            v -> chunkloadBatch = v);
+        integer(
+            c,
+            "chunkloadClientMs",
+            "/wf chunkload: milliseconds of each client tick spent mapping the chunks of a batch.",
+            6,
+            2,
+            50,
+            1,
+            () -> chunkloadClientMs,
+            v -> chunkloadClientMs = v);
     }
 
     private static Configuration configuration;

@@ -28,8 +28,6 @@ public final class ChunkLoadClient {
 
     public static final ChunkLoadClient INSTANCE = new ChunkLoadClient();
 
-    /** Time per tick for the flat map of the batch's chunks. */
-    private static final long SCAN_NANOS = 6_000_000L;
     /** How long to wait for a batch's chunks before mapping those that came. */
     private static final long WAIT_MS = 30_000;
 
@@ -45,6 +43,10 @@ public final class ChunkLoadClient {
     private boolean with3d;
     private long startedAt, startedDone;
     private long lastBatchAt;
+    /** For the log: the batch's chunks mapped and those that never came, the time mapping them, when it began. */
+    private int mappedCount, skippedCount;
+    private long workNanos, firstWorkAt;
+    private StringBuilder skippedList = new StringBuilder();
 
     private ChunkLoadClient() {}
 
@@ -107,12 +109,33 @@ public final class ChunkLoadClient {
         if (!arrived(world, b) && System.currentTimeMillis() - batchSince < WAIT_MS) {
             return;
         }
-        long end = System.nanoTime() + SCAN_NANOS;
+        if (firstWorkAt == 0) {
+            firstWorkAt = System.currentTimeMillis();
+        }
+        long start = System.nanoTime();
+        try {
+            mapBatch(world, b, mc, start + Math.max(1, Config.chunkloadClientMs) * 1_000_000L);
+        } finally {
+            workNanos += System.nanoTime() - start;
+        }
+    }
+
+    private void mapBatch(WorldClient world, ShareNetwork.LoadBatch b, Minecraft mc, long end) {
         int width = b.innerX1 - b.innerX0 + 1, count = width * (b.innerZ1 - b.innerZ0 + 1);
         while (at < count) {
             int cx = b.innerX0 + at % width, cz = b.innerZ0 + at / width;
-            Chunk chunk = world.getChunkProvider()
-                .chunkExists(cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
+            // The client's chunk provider says every chunk exists: one not received is empty.
+            Chunk chunk = ChunkScanner.isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
+            if (chunk == null) {
+                // Never came (waited for above): a hole in the map.
+                skippedCount++;
+                if (skippedList.length() < 600) {
+                    skippedList.append(' ')
+                        .append(cx)
+                        .append(',')
+                        .append(cz);
+                }
+            }
             if (chunk != null && !scanned) {
                 if (System.nanoTime() >= end) {
                     return;
@@ -121,6 +144,7 @@ public final class ChunkLoadClient {
                     // Its regions are being read: next tick.
                     return;
                 }
+                mappedCount++;
                 scanned = true;
             }
             if (chunk != null && b.with3d && Config.record3d) {
@@ -147,10 +171,13 @@ public final class ChunkLoadClient {
             startedDone = b.doneBefore;
         }
         batch = b;
-        batchSince = System.currentTimeMillis();
-        lastBatchAt = batchSince;
         at = 0;
+        firstWorkAt = 0;
         scanned = false;
+        mappedCount = 0;
+        skippedCount = 0;
+        workNanos = 0;
+        skippedList = new StringBuilder();
         done = b.doneBefore;
         total = b.total;
         with3d = b.with3d;
@@ -167,22 +194,39 @@ public final class ChunkLoadClient {
             + b.doneBefore
             + "/"
             + b.total
-            + (b.with3d ? " 3D" : " 2D");
+            + (b.with3d ? " 3D" : " 2D")
+            + " server[sent="
+            + b.sent
+            + " loadedAgain="
+            + b.reloaded
+            + " couldNotLoad="
+            + b.missing
+            + " batchMs="
+            + b.serverMs
+            + " workMs="
+            + b.workMs
+            + "] sinceLastBatchMs="
+            + (lastBatchAt == 0 ? -1 : System.currentTimeMillis() - lastBatchAt);
+        batchSince = System.currentTimeMillis();
+        lastBatchAt = batchSince;
         IsoLog.log(text);
         FlatLog.log(text);
     }
 
-    /** Whether every chunk sent in the batch is here. */
+    /**
+     * Whether every chunk sent in the batch is here (the client's chunk provider says every chunk exists; one not
+     * received yet is empty). Chunks the server could not give are not waited for past {@link #WAIT_MS}.
+     */
     private static boolean arrived(WorldClient world, ShareNetwork.LoadBatch b) {
+        int ready = 0;
         for (int z = b.outerZ0; z <= b.outerZ1; z++) {
             for (int x = b.outerX0; x <= b.outerX1; x++) {
-                if (!world.getChunkProvider()
-                    .chunkExists(x, z)) {
-                    return false;
+                if (ChunkScanner.isChunkReady(world, x, z)) {
+                    ready++;
                 }
             }
         }
-        return true;
+        return ready >= b.sent;
     }
 
     /** Lets go of the batch's chunks the game doesn't need, and asks for the next batch. */
@@ -212,6 +256,21 @@ public final class ChunkLoadClient {
             lettingGo = false;
         }
         done = b.doneBefore + (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        String text = "CHUNKLOAD_DONE batch " + b.index
+            + " mapped="
+            + mappedCount
+            + " skipped(never came)="
+            + skippedCount
+            + (skippedCount > 0 ? " [" + skippedList.toString()
+                .trim() + "]" : "")
+            + " waitedForChunksMs="
+            + Math.max(0, firstWorkAt - batchSince)
+            + " clientMs="
+            + String.format(java.util.Locale.ROOT, "%.1f", workNanos / 1e6)
+            + " batchOnClientMs="
+            + (System.currentTimeMillis() - batchSince);
+        IsoLog.log(text);
+        FlatLog.log(text);
         batch = null;
         ShareNetwork.sendToServer(new ShareNetwork.LoadDone(b.job, b.index));
     }
