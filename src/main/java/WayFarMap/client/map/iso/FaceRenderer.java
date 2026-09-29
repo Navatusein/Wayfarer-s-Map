@@ -49,6 +49,11 @@ final class FaceRenderer {
         SLOTS = PER_ROW * PER_ROW;
     /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
     private static final double CLIP_MARGIN = 1 / 32.0;
+    /**
+     * The same for a block's own tile entity model: some are larger than the block (the Blood Magic altar, about
+     * 1.3 blocks wide), and cut to its column they lost every upright face.
+     */
+    private static final double OWN_MODEL_MARGIN = 0.25;
     /** Brightness the game gives each side; taken out of pictures of sides, the tracer shades sides itself. */
     private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
     /**
@@ -782,10 +787,7 @@ final class FaceRenderer {
                     // Only what is inside the block's column: not the other half of a double chest, not neighbours.
                     // A little outside the block, or its own sides, which lie on these planes, get cut off.
                     if (variant != 1) {
-                        clip(0, 1, 0, -(pending.x - CLIP_MARGIN));
-                        clip(1, -1, 0, pending.x + 1 + CLIP_MARGIN);
-                        clip(2, 0, 1, -(pending.z - CLIP_MARGIN));
-                        clip(3, 0, -1, pending.z + 1 + CLIP_MARGIN);
+                        clipColumn(pending, CLIP_MARGIN);
                     } else {
                         for (int plane = 0; plane < 4; plane++) {
                             GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
@@ -1012,6 +1014,14 @@ final class FaceRenderer {
         return slots;
     }
 
+    /** Keeps only what is within the block's column, and the margin around it (with the camera of the view set). */
+    private static void clipColumn(Pending pending, double margin) {
+        clip(0, 1, 0, -(pending.x - margin));
+        clip(1, -1, 0, pending.x + 1 + margin);
+        clip(2, 0, 1, -(pending.z - margin));
+        clip(3, 0, -1, pending.z + 1 + margin);
+    }
+
     /** Keeps what is on the positive side of a vertical plane: a * x + b * z + d >= 0 (world coordinates). */
     private static void clip(int plane, double a, double b, double d) {
         planeBuffer.clear();
@@ -1126,6 +1136,11 @@ final class FaceRenderer {
             try {
                 if (!tileEntity.shouldRenderInPass(pass)) {
                     continue;
+                }
+                if (variant != 1) {
+                    // Its own model with room around; one next to it (a double chest's other half) only in this
+                    // column.
+                    clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN);
                 }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);

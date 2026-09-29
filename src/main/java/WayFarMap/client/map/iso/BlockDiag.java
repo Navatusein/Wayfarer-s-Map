@@ -326,7 +326,9 @@ final class BlockDiag {
         boolean seen = (exposed & ~1) != 0;
         if (empty == views && seen) {
             problems.add("EMPTY_BUT_VISIBLE");
-        } else if (empty > 0 && !cube) {
+        } else if (empty > 0 && !cube && (exposed & 2) != 0) {
+            // With its top open every view sees some of it (a glass pane open to one side only is empty from the
+            // views behind it, as it should be).
             problems.add("SOME_VIEWS_EMPTY");
         }
         for (int view = 0; view < views; view++) {
