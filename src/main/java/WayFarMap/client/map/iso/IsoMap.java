@@ -132,6 +132,8 @@ public final class IsoMap implements BlockStore.Listener {
     /** Chunks whose stored copy the writer is looking at; they come back to their queue when it is done. */
     private final Set<Long> checking = new HashSet<>();
     private final Queue<Long> checked = new ConcurrentLinkedQueue<>();
+    /** Chunks being copied for {@code /wf chunkload}: they don't go into the queues (they are let go soon). */
+    private final Set<Long> loading = new HashSet<>();
     /** Chunks whose pictures are taken anew (the player asked for it): copied and stored even if unchanged. */
     private final Set<Long> refreshing = new HashSet<>();
     /**
@@ -216,6 +218,7 @@ public final class IsoMap implements BlockStore.Listener {
         storedSignatures.clear();
         checking.clear();
         checked.clear();
+        loading.clear();
         inProgress = null;
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
@@ -313,7 +316,7 @@ public final class IsoMap implements BlockStore.Listener {
         while ((done = checked.poll()) != null) {
             // Its stored copy was looked at: its turn again (first, as a chunk new this session), now with the
             // signature at hand.
-            if (checking.remove(done)) {
+            if (checking.remove(done) && !loading.contains(done)) {
                 freshQueue.add(done);
             }
         }
@@ -593,13 +596,51 @@ public final class IsoMap implements BlockStore.Listener {
      * @return false if some pictures are still to be taken (the chunk should be copied again soon)
      */
     private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline) {
+        return capture(world, chunk, whole, unloading, deadline, false);
+    }
+
+    /**
+     * Copies a chunk sent for {@code /wf chunkload} (render thread), for up to the deadline. False until it is done:
+     * its stored copy is looked at first (unchanged: nothing to do), then its pictures may take several ticks. The
+     * chunk is let go after, so it isn't put in the queues.
+     */
+    public boolean captureForLoad(World world, Chunk chunk, long deadline) {
+        if (!Config.record3d || writer == null || chunk == null || chunk.isEmpty()) {
+            return true;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        loading.add(key);
+        boolean done = capture(world, chunk, false, false, deadline, true);
+        if (done) {
+            loading.remove(key);
+        }
+        return done;
+    }
+
+    /** The chunks of a batch of {@code /wf chunkload} were let go: what was left of them is forgotten. */
+    public void forgetLoaded(long key) {
+        loading.remove(key);
+        unfinished.remove(key);
+        freshQueue.remove(key);
+        captureQueue.remove(key);
+        if (inProgress != null && inProgress == key) {
+            inProgress = null;
+        }
+    }
+
+    /**
+     * @param forLoad for {@code /wf chunkload}: false (not done) while its stored copy is being looked at, instead
+     *                of coming back through the queues
+     */
+    private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline,
+        boolean forLoad) {
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         lastCapture.put(key, System.currentTimeMillis());
-        if (!unloading) {
+        if (!unloading && !forLoad) {
             boolean first = copiedWhileLoaded.add(key);
             if (copiedWhileLoaded.size() > 50_000) {
                 copiedWhileLoaded.clear();
@@ -634,7 +675,7 @@ public final class IsoMap implements BlockStore.Listener {
                         if (checking.add(key)) {
                             checkStored(dimension, key, palette.generation);
                         }
-                        return true;
+                        return !forLoad;
                     }
                     if (onDisk == signature) {
                         signatures.put(key, signature);

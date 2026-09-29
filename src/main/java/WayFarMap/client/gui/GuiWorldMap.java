@@ -41,6 +41,7 @@ import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
+import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -844,11 +845,20 @@ public class GuiWorldMap extends ScaledScreen {
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
+        // An area being loaded with /wf chunkload: how far it got, and the time left.
+        String loadStatus = ChunkLoadClient.INSTANCE.statusText();
         if (exportStatus != null) {
             Theme.text(
                 fontRendererObj,
                 exportStatus,
                 helpButton.xPosition - 8 - fontRendererObj.getStringWidth(exportStatus),
+                height - 10,
+                Theme.ACCENT);
+        } else if (loadStatus != null) {
+            Theme.text(
+                fontRendererObj,
+                loadStatus,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(loadStatus),
                 height - 10,
                 Theme.ACCENT);
         } else if (iso) {

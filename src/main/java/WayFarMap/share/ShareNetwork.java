@@ -50,6 +50,8 @@ public final class ShareNetwork {
         channel.registerMessage(ChunksToServer.class, Chunks.class, 2, Side.SERVER);
         channel.registerMessage(ChunksToClient.class, Chunks.class, 3, Side.CLIENT);
         channel.registerMessage(TeammatesToClient.class, Teammates.class, 5, Side.CLIENT);
+        channel.registerMessage(LoadBatchToClient.class, LoadBatch.class, 6, Side.CLIENT);
+        channel.registerMessage(LoadDoneToServer.class, LoadDone.class, 7, Side.SERVER);
     }
 
     public static void sendToServer(IMessage message) {
@@ -208,7 +210,105 @@ public final class ShareNetwork {
         }
     }
 
+    /**
+     * A batch of chunks of {@code /wf chunkload} was sent to the player (as the game sends chunks, just before this):
+     * the client maps the inner ones (the outer ring is there for their neighbours), lets them all go, and answers
+     * with {@link LoadDone}.
+     */
+    public static final class LoadBatch implements IMessage {
+
+        public int job, index, dimension;
+        public boolean with3d;
+        /** Inner chunks to map and the chunks sent (inner and a ring around), inclusive. */
+        public int innerX0, innerZ0, innerX1, innerZ1, outerX0, outerZ0, outerX1, outerZ1;
+        /** Chunks of the whole area done before this batch, and in all. */
+        public long doneBefore, total;
+        /** The server's view distance: chunks this close to the player are the game's, not let go. */
+        public int viewDistance;
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            job = buf.readInt();
+            index = buf.readInt();
+            dimension = buf.readInt();
+            with3d = buf.readBoolean();
+            innerX0 = buf.readInt();
+            innerZ0 = buf.readInt();
+            innerX1 = buf.readInt();
+            innerZ1 = buf.readInt();
+            outerX0 = buf.readInt();
+            outerZ0 = buf.readInt();
+            outerX1 = buf.readInt();
+            outerZ1 = buf.readInt();
+            doneBefore = buf.readLong();
+            total = buf.readLong();
+            viewDistance = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(job);
+            buf.writeInt(index);
+            buf.writeInt(dimension);
+            buf.writeBoolean(with3d);
+            buf.writeInt(innerX0);
+            buf.writeInt(innerZ0);
+            buf.writeInt(innerX1);
+            buf.writeInt(innerZ1);
+            buf.writeInt(outerX0);
+            buf.writeInt(outerZ0);
+            buf.writeInt(outerX1);
+            buf.writeInt(outerZ1);
+            buf.writeLong(doneBefore);
+            buf.writeLong(total);
+            buf.writeInt(viewDistance);
+        }
+    }
+
+    /** The client mapped a batch of {@code /wf chunkload}: the server may send the next one. */
+    public static final class LoadDone implements IMessage {
+
+        public int job, index;
+
+        public LoadDone() {}
+
+        public LoadDone(int job, int index) {
+            this.job = job;
+            this.index = index;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            job = buf.readInt();
+            index = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(job);
+            buf.writeInt(index);
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
+
+    public static final class LoadBatchToClient implements IMessageHandler<LoadBatch, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadBatch message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
+            return null;
+        }
+    }
+
+    public static final class LoadDoneToServer implements IMessageHandler<LoadDone, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadDone message, MessageContext context) {
+            ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
 
     public static final class HelloToServer implements IMessageHandler<Hello, IMessage> {
 

@@ -645,12 +645,27 @@ public class MapManager implements IResourceManagerReloadListener {
         return solid >= UNDERGROUND_ROOF;
     }
 
+    /**
+     * Maps a chunk sent for {@code /wf chunkload} (surface and biomes, shared with the team as any other). False if
+     * it can't be yet (its regions are being read, or no world): tried again next tick.
+     */
+    public boolean scanForLoad(Chunk chunk) {
+        if (currentWorld == null || surface == null || chunk == null || chunk.isEmpty()) {
+            return currentWorld == null || chunk == null || chunk.isEmpty();
+        }
+        return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes);
+    }
+
     /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
     @SubscribeEvent
     public void onChunkUnload(ChunkEvent.Unload event) {
         World world = event.world;
         Chunk chunk = event.getChunk();
-        if (world != null && world.isRemote && world == currentWorld && chunk != null && surface != null) {
+        if (world != null && world.isRemote
+            && world == currentWorld
+            && chunk != null
+            && surface != null
+            && !ChunkLoadClient.INSTANCE.isLettingGo()) {
             // Flying fast, chunks can come and go before their turn: one never mapped is mapped now, while its
             // blocks are still there.
             long start = System.nanoTime();
@@ -925,9 +940,30 @@ public class MapManager implements IResourceManagerReloadListener {
             settling.remove(key);
         }
 
-        /** @param changed scanned before, and its blocks changed since */
+        /**
+         * Maps a chunk of {@code /wf chunkload} now (its surface and biomes; not queued for the 3D map, the loading
+         * does that itself). False if its regions are still being read: tried again next tick.
+         */
+        boolean scanForLoad(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap) {
+            int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
+            if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                return false;
+            }
+            scanChunk(world, chunk, map, -1, biomeMap, rx, rz, false, false);
+            return true;
+        }
+
         private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
             int rx, int rz, boolean changed) {
+            scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, changed, true);
+        }
+
+        /**
+         * @param changed scanned before, and its blocks changed since
+         * @param for3d   the 3D map is told (it copies the chunk's blocks soon)
+         */
+        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
+            int rx, int rz, boolean changed, boolean for3d) {
             int cx = chunk.xPosition, cz = chunk.zPosition;
             try {
                 // The game marks a chunk changed when its blocks or light change (the client never saves chunks,
@@ -940,7 +976,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 int changesBefore = before == null ? -1 : before.getChanges();
                 long scanStart = System.nanoTime();
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
-                if (caveLayer < 0) {
+                if (caveLayer < 0 && for3d) {
                     IsoLog.scanned(cx, cz, changed, changed && modified, modified, System.nanoTime() - scanStart);
                     // The 3D map keeps the surface's blocks.
                     // Copied again soon only if its blocks really changed: a chunk scanned again on schedule is
