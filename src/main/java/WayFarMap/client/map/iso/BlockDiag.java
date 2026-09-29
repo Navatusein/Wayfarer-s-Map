@@ -51,7 +51,58 @@ final class BlockDiag {
         LOGGED.clear();
         FALLBACKS.clear();
         SAVED.clear();
+        VARIED.clear();
         savedFiles.set(0);
+    }
+
+    /** Kinds taken again in other ways to compare (see FaceRenderer.tryVariants). */
+    private static final Set<Integer> VARIED = new HashSet<>();
+
+    /** Whether the first block of this kind drawn by a tile entity renderer is to be taken in other ways too. */
+    static boolean wantsVariants(int key) {
+        return IsoLog.on() && VARIED.size() < 60 && VARIED.add(key);
+    }
+
+    /** A block taken another way, to compare with its usual pictures: logged and saved as PNG. */
+    static void variant(Block block, int key, int x, int y, int z, String how, boolean cube, int views, Shot shot) {
+        String png = savePng(block, key, x, y, z, "VARIANT-" + how, cube, views, shot.images);
+        StringBuilder b = new StringBuilder("PICTURE_VARIANT ").append(how)
+            .append(' ')
+            .append(name(block))
+            .append(':')
+            .append((key >>> 16) & 15)
+            .append(" at ")
+            .append(x)
+            .append(',')
+            .append(y)
+            .append(',')
+            .append(z)
+            .append(" gameDrew[pass0=")
+            .append(shot.passBytes0 < 0 ? "not in pass" : shot.passBytes0 + "B")
+            .append(" pass1=")
+            .append(shot.passBytes1 < 0 ? "not in pass" : shot.passBytes1 + "B")
+            .append(" tileEntityRenders=")
+            .append(shot.tileEntitiesDrawn)
+            .append("] views[");
+        for (int view = 0; view < views; view++) {
+            b.append(view == 0 ? "" : " ")
+                .append("view")
+                .append(view)
+                .append('=')
+                .append(shot.coverage[view])
+                .append("%/bright")
+                .append(shot.brightness[view]);
+        }
+        b.append(']');
+        if (shot.error != null) {
+            b.append(" error=")
+                .append(shot.error);
+        }
+        if (png != null) {
+            b.append(" png=")
+                .append(png);
+        }
+        IsoLog.log(b.toString());
     }
 
     /** Whether the pictures of a block of this kind may still be saved as PNG (keep a copy of them). */
@@ -203,6 +254,8 @@ final class BlockDiag {
         String error;
         /** Percent of pixels drawn at all, and fully (alpha over half); mean brightness of the drawn ones. */
         final int[] coverage = new int[6], solid = new int[6], brightness = new int[6];
+        /** The shading taken out of each side of a cube (1 for none). */
+        final float[] shade = { 1, 1, 1, 1, 1, 1 };
         /** Copies of the pictures, to save as PNG; null if not kept. */
         int[][] images;
     }
@@ -281,7 +334,8 @@ final class BlockDiag {
             if (!open || shot.coverage[view] == 0) {
                 continue;
             }
-            if (brightest > 40 && shot.brightness[view] < brightest * 55 / 100) {
+            // Views of a sprite show different sides of it (a machine's front): compared only between a cube's sides.
+            if (cube && brightest > 40 && shot.brightness[view] < brightest * 55 / 100) {
                 problems.add("DARK_VIEW" + view);
             }
             if (cube && shot.solid[view] < 95 && shot.coverage[view] > 0) {
@@ -338,7 +392,9 @@ final class BlockDiag {
                     ids[view] == FacePalette.EMPTY ? "EMPTY"
                         : ids[view] == 0 ? "NOT_TAKEN"
                             : shot.coverage[view] + "%(solid " + shot.solid[view] + "%)/bright" + shot.brightness[view])
-                .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "");
+                .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "")
+                .append(
+                    cube && shot.shade[view] < 1f ? String.format(Locale.ROOT, "(shade %.2f)", shot.shade[view]) : "");
         }
         b.append(']');
         if (png != null) {
