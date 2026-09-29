@@ -76,6 +76,11 @@ public final class FlatLog {
         frameNanos = new AtomicLong(), frameMaxNanos = new AtomicLong(), drawn = new AtomicLong(),
         notLoaded = new AtomicLong(), noFile = new AtomicLong(), textureWait = new AtomicLong(),
         shared = new AtomicLong(), sharedOlder = new AtomicLong(), sharedWaiting = new AtomicLong();
+    /** All of them, to start a new file from zero (saves of the world left would count in the next one). */
+    private static final AtomicLong[] COUNTERS = { scans, scanNanos, scansDeferred, unloadScans, readsAsked, readsDone,
+        readNanos, readBytes, blockingReads, blockingNanos, regionsMade, lodBuilt, lodNanos, saves, saveNanos,
+        saveBytes, uploads, uploadNanos, uploadPixels, texturesMade, frames, frameNanos, frameMaxNanos, drawn,
+        notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting };
     private static long lastStats, lastSummary;
 
     private FlatLog() {}
@@ -125,6 +130,9 @@ public final class FlatLog {
         }
         SEEN.clear();
         ASKED.clear();
+        for (AtomicLong counter : COUNTERS) {
+            counter.set(0);
+        }
         lastSummary = System.currentTimeMillis();
         Thread writer = new Thread(() -> writeLines(out), "WayFarMap 2D log");
         writer.setDaemon(true);
