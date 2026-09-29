@@ -17,6 +17,8 @@ import WayFarMap.WayFarMap;
 public class MapDimension {
 
     public final int dimensionId;
+    /** A cave layer (dimN/caves/L), not the surface or the biome map. */
+    public final boolean cave;
     private final File directory;
     private final ExecutorService loadExecutor;
     private final Map<Long, MapRegion> regions = new HashMap<>();
@@ -44,8 +46,9 @@ public class MapDimension {
         // dimN, dimN/biomes, dimN/caves/L
         File parent = directory.getParentFile();
         String name = directory.getName();
-        if (parent != null && parent.getName()
-            .equals("caves")) {
+        this.cave = parent != null && parent.getName()
+            .equals("caves");
+        if (cave) {
             File dim = parent.getParentFile();
             this.label = (dim == null ? "" : dim.getName() + "/") + "cave" + name;
         } else if (parent != null && name.equals("biomes")) {

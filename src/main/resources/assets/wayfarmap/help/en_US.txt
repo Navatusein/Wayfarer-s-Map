@@ -83,6 +83,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §bCaves§r / §eK§r: §fauto§r — on while you are underground; §fon§r / §foff§r — always
 - The §fslider§r on the right picks the height layer (16 blocks each)
 - Layers are remembered: explored caves stay on the map
+- Caves are §fdark§r at any time of day: only §ftorches§r and other lights show them (unless lighting is fixed to day; Nether caves stay lit)
 
 > Caves get on the map when you walk through them — the map draws what is around you.
 

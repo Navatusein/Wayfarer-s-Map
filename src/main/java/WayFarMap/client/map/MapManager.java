@@ -376,6 +376,14 @@ public class MapManager implements IResourceManagerReloadListener {
         return worldDirectory;
     }
 
+    /** Whether the dimension has no sky (like the Nether), for the player's own or the viewed one; else false. */
+    public boolean hasNoSky(int dimensionId) {
+        if (currentWorld != null && currentWorld.provider.dimensionId == dimensionId) {
+            return currentWorld.provider.hasNoSky;
+        }
+        return viewed != null && viewed.id == dimensionId && viewed.noSky;
+    }
+
     /** Id of the dimension shown on the world map. */
     public int getViewedDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
