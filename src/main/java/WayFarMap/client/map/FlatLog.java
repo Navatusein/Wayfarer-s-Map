@@ -339,12 +339,7 @@ public final class FlatLog {
         if (loadedAt != null) {
             goneUnseen.incrementAndGet();
             line(
-                "GONE_UNSEEN " + cx
-                    + ","
-                    + cz
-                    + " loaded "
-                    + ms(System.nanoTime() - loadedAt)
-                    + " ms ago, never seen");
+                "GONE_UNSEEN " + cx + "," + cz + " loaded " + ms(System.nanoTime() - loadedAt) + " ms ago, never seen");
         }
     }
 
@@ -409,8 +404,7 @@ public final class FlatLog {
         treeAdded = new AtomicLong(), otherAdded = new AtomicLong(), coldHit = new AtomicLong(),
         coldMissed = new AtomicLong(), coldWrong = new AtomicLong();
     private static final AtomicLong[] ARRIVAL_COUNTERS = { chunksLoaded, chunksUnloaded, goneUnseen, arrivedComplete,
-        arrivedIncomplete, columnsChanged, snowAdded, iceAdded, treeAdded, otherAdded, coldHit, coldMissed,
-        coldWrong };
+        arrivedIncomplete, columnsChanged, snowAdded, iceAdded, treeAdded, otherAdded, coldHit, coldMissed, coldWrong };
 
     /** The game marked a settling chunk changed; whether its surface really changed. */
     static void marked(int cx, int cz, long signature) {

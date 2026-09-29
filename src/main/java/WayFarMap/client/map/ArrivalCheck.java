@@ -45,14 +45,14 @@ final class ArrivalCheck {
                 snapshot.top[i] = Block.getIdFromBlock(block) << 4 | chunk.getBlockMetadata(lx, y, lz);
                 int kind = kind(block);
                 boolean predicted = kind == SNOW || kind == ICE;
-                if (!predicted && !noSky && (kind == WATER || block.getMaterial()
-                    .isSolid() || kind == TREE)) {
+                if (!predicted && !noSky
+                    && (kind == WATER || block.getMaterial()
+                        .isSolid() || kind == TREE)) {
                     try {
                         BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
-                        predicted = biome != null && biome.getFloatTemperature(
-                            chunk.xPosition * 16 + lx,
-                            y + 1,
-                            chunk.zPosition * 16 + lz) < FREEZING;
+                        predicted = biome != null
+                            && biome.getFloatTemperature(chunk.xPosition * 16 + lx, y + 1, chunk.zPosition * 16 + lz)
+                                < FREEZING;
                     } catch (RuntimeException e) {
                         predicted = false;
                     }
