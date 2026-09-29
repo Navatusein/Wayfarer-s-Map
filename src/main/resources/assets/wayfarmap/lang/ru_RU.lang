@@ -273,3 +273,4 @@ wayfarmap.chunkload.finished=Область загружена: %s чанков 
 wayfarmap.chunkload.progress=Загрузка области (%s): %s / %s чанков, %s%%%s
 wayfarmap.chunkload.left=, осталось около %s ч %s мин
 wayfarmap.death.name=Смерть
+wayfarmap.death.group=Смерти

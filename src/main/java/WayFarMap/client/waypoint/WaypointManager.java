@@ -171,14 +171,27 @@ public class WaypointManager {
         save();
     }
 
-    /** Adds a death marker and removes the oldest ones beyond {@code keep}. */
-    public void addDeathWaypoint(Waypoint waypoint, int keep) {
+    /**
+     * Adds a death marker to the death group (created again if it was deleted), moves all death markers into it and
+     * removes the oldest ones beyond {@code keep}.
+     */
+    public void addDeathWaypoint(Waypoint waypoint, String groupName, int keep) {
+        String group = groupName.trim();
+        if (getGroup(group) == null) {
+            data.groups.add(new WaypointGroup(group));
+        }
         waypoint.death = true;
         data.waypoints.add(waypoint);
         int deaths = 0;
         for (int i = data.waypoints.size() - 1; i >= 0; i--) {
-            if (data.waypoints.get(i).death && ++deaths > keep) {
+            Waypoint other = data.waypoints.get(i);
+            if (!other.death) {
+                continue;
+            }
+            if (++deaths > keep) {
                 data.waypoints.remove(i);
+            } else {
+                other.group = group;
             }
         }
         save();

@@ -47,6 +47,7 @@ public class DeathMarker {
             mc.theWorld.provider.dimensionId);
         waypoint.outlineColor = COLOR;
         waypoint.iconItem = "minecraft:skull";
-        WaypointManager.INSTANCE.addDeathWaypoint(waypoint, Config.deathWaypointsKeep);
+        WaypointManager.INSTANCE
+            .addDeathWaypoint(waypoint, I18n.format("wayfarmap.death.group"), Config.deathWaypointsKeep);
     }
 }
