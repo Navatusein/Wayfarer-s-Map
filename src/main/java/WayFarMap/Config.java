@@ -127,6 +127,8 @@ public class Config {
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
     public static int waypointLabelMaxWidth = 100;
+    public static boolean deathWaypoints = true;
+    public static int deathWaypointsKeep = 3;
 
     public static final List<Option> OPTIONS = new ArrayList<>();
 
@@ -493,6 +495,26 @@ public class Config {
             10,
             () -> waypointLabelMaxWidth,
             v -> waypointLabelMaxWidth = v);
+        group("death");
+        parent(null);
+        bool(
+            c,
+            "deathPoints",
+            "Place a waypoint where you die.",
+            true,
+            () -> deathWaypoints,
+            v -> deathWaypoints = v);
+        parent("deathPoints");
+        integer(
+            c,
+            "deathPointsKeep",
+            "How many death waypoints to keep; older ones are removed.",
+            3,
+            1,
+            20,
+            1,
+            () -> deathWaypointsKeep,
+            v -> deathWaypointsKeep = v);
 
         c = CATEGORY_LOGS;
         group("logs");

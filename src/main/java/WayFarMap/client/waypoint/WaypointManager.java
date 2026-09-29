@@ -171,6 +171,19 @@ public class WaypointManager {
         save();
     }
 
+    /** Adds a death marker and removes the oldest ones beyond {@code keep}. */
+    public void addDeathWaypoint(Waypoint waypoint, int keep) {
+        waypoint.death = true;
+        data.waypoints.add(waypoint);
+        int deaths = 0;
+        for (int i = data.waypoints.size() - 1; i >= 0; i--) {
+            if (data.waypoints.get(i).death && ++deaths > keep) {
+                data.waypoints.remove(i);
+            }
+        }
+        save();
+    }
+
     public void removeWaypoint(Waypoint waypoint) {
         data.waypoints.remove(waypoint);
         save();

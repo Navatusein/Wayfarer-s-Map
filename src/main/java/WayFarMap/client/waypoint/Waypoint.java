@@ -23,6 +23,8 @@ public class Waypoint {
     public boolean enabled = true;
     /** A beacon-like beam of light rises from it in the world. */
     public boolean beam;
+    /** Placed automatically where the player died; only the latest few are kept. */
+    public boolean death;
 
     private transient ItemStack cachedIcon;
     private transient boolean iconResolved;
@@ -45,6 +47,7 @@ public class Waypoint {
         copy.group = group;
         copy.enabled = enabled;
         copy.beam = beam;
+        copy.death = death;
         return copy;
     }
 
@@ -60,6 +63,7 @@ public class Waypoint {
         group = other.group;
         enabled = other.enabled;
         beam = other.beam;
+        death = other.death;
         iconResolved = false;
     }
 
