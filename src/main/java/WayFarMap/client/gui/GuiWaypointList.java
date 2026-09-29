@@ -89,7 +89,7 @@ public class GuiWaypointList extends ScaledScreen {
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
-        int panelWidth = Math.min(width - 20, 440);
+        int panelWidth = Math.min(width - 20, 380);
         listLeft = (width - panelWidth) / 2;
         listRight = listLeft + panelWidth;
         listTop = 28;
@@ -472,7 +472,23 @@ public class GuiWaypointList extends ScaledScreen {
         WaypointRenderer.drawMapMarker(waypoint, x + 7, y + ROW_HEIGHT / 2.0, 12f, false);
         x += 18;
 
-        // Buttons first, from the right: the name and coordinates get the room left of them.
+        boolean shown = manager.isVisible(waypoint);
+        String name = waypoint.name.isEmpty() ? "-" : Theme.ellipsize(fontRendererObj, waypoint.name, 110);
+        fontRendererObj.drawString(name, x, y + 6, shown ? Theme.TEXT : Theme.TEXT_DISABLED);
+        x += fontRendererObj.getStringWidth(name) + 6;
+
+        String info = waypoint.x + " " + waypoint.y + " " + waypoint.z;
+        if (mc.theWorld != null && waypoint.dimension != mc.theWorld.provider.dimensionId) {
+            info += "  [DIM " + waypoint.dimension + "]";
+        } else if (mc.thePlayer != null) {
+            double dx = waypoint.x + 0.5 - mc.thePlayer.posX;
+            double dz = waypoint.z + 0.5 - mc.thePlayer.posZ;
+            info += "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m";
+        }
+        // Leave room for the row's buttons on the right.
+        info = Theme.ellipsize(fontRendererObj, info, Math.max(0, listRight - 184 - x));
+        fontRendererObj.drawString(info, x, y + 6, Theme.TEXT_MUTED);
+
         int bx = listRight - 4;
         bx = drawTextButton(
             bx,
@@ -490,47 +506,13 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint)));
-        bx = drawTextButton(
-            bx,
-            y + 4,
-            I18n.format("wayfarmap.gui.show_on_map"),
-            Theme.TEXT,
-            mouseX,
-            mouseY,
-            () -> mc.displayGuiScreen(GuiWorldMap.showing(waypoint)));
-        boolean tracked = manager.isTracked(waypoint);
-        bx = drawTextButton(
-            bx,
-            y + 4,
-            I18n.format(tracked ? "wayfarmap.gui.untrack" : "wayfarmap.gui.track"),
-            tracked ? Theme.SUCCESS : Theme.TEXT,
-            mouseX,
-            mouseY,
-            () -> manager.setTracked(tracked ? null : waypoint));
         // Teleporting needs /tp permission and the same dimension.
         if (Teleport.isAllowed() && mc.theWorld != null && waypoint.dimension == mc.theWorld.provider.dimensionId) {
-            bx = drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.teleport"), Theme.ACCENT, mouseX, mouseY, () -> {
+            drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.teleport"), Theme.ACCENT, mouseX, mouseY, () -> {
                 mc.displayGuiScreen(null);
                 Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
             });
         }
-
-        boolean shown = manager.isVisible(waypoint);
-        int nameRoom = Math.max(fontRendererObj.getStringWidth("..."), Math.min(110, bx - 4 - x));
-        String name = waypoint.name.isEmpty() ? "-" : Theme.ellipsize(fontRendererObj, waypoint.name, nameRoom);
-        fontRendererObj.drawString(name, x, y + 6, tracked ? Theme.SUCCESS : shown ? Theme.TEXT : Theme.TEXT_DISABLED);
-        x += fontRendererObj.getStringWidth(name) + 6;
-
-        String info = waypoint.x + " " + waypoint.y + " " + waypoint.z;
-        if (mc.theWorld != null && waypoint.dimension != mc.theWorld.provider.dimensionId) {
-            info += "  [DIM " + waypoint.dimension + "]";
-        } else if (mc.thePlayer != null) {
-            double dx = waypoint.x + 0.5 - mc.thePlayer.posX;
-            double dz = waypoint.z + 0.5 - mc.thePlayer.posZ;
-            info += "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m";
-        }
-        info = Theme.ellipsize(fontRendererObj, info, Math.max(0, bx - 4 - x));
-        fontRendererObj.drawString(info, x, y + 6, Theme.TEXT_MUTED);
     }
 
     private void drawCheckbox(int x, int y, boolean checked, int mouseX, int mouseY, Runnable action) {

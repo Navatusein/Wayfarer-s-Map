@@ -1,6 +1,5 @@
 package WayFarMap.client.waypoint;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
@@ -234,30 +233,16 @@ public class WaypointRenderer {
             return;
         }
         int dimension = mc.theWorld.provider.dimensionId;
-        if (MapManager.INSTANCE.getDimension() != null) {
-            // The tracked waypoint is always shown, with a beam, even if hidden or too far.
-            Waypoint tracked = WaypointManager.INSTANCE.getTracked();
-            if (tracked != null && tracked.dimension != dimension) {
-                tracked = null;
-            }
-            List<Waypoint> waypoints = Config.waypointsInWorld
-                ? WaypointManager.INSTANCE.getVisibleWaypoints(dimension)
-                : new ArrayList<>();
-            waypoints.remove(tracked);
+        if (Config.waypointsInWorld && MapManager.INSTANCE.getDimension() != null) {
+            List<Waypoint> waypoints = WaypointManager.INSTANCE.getVisibleWaypoints(dimension);
             // Beams first: the markers are drawn over everything.
-            if (tracked != null) {
-                renderBeam(mc, tracked, event.partialTicks);
-            }
             for (Waypoint waypoint : waypoints) {
                 if (waypoint.beam) {
                     renderBeam(mc, waypoint, event.partialTicks);
                 }
             }
             for (Waypoint waypoint : waypoints) {
-                renderInWorld(mc, waypoint, false);
-            }
-            if (tracked != null) {
-                renderInWorld(mc, tracked, true);
+                renderInWorld(mc, waypoint);
             }
         }
         if (Mods.isVisualProspectingLoaded()) {
@@ -357,11 +342,10 @@ public class WaypointRenderer {
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
-    private static void renderInWorld(Minecraft mc, Waypoint waypoint, boolean anyDistance) {
+    private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
         final ItemStack icon = waypoint.getIcon();
         renderBillboard(
             mc,
-            anyDistance,
             waypoint.x + 0.5,
             waypoint.y,
             waypoint.z + 0.5,
@@ -385,19 +369,12 @@ public class WaypointRenderer {
      */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon) {
-        renderBillboard(mc, false, x, y, z, name, outlineColor, icon);
-    }
-
-    /** @param anyDistance draw it even past {@link Config#waypointMaxDistance} */
-    public static void renderBillboard(Minecraft mc, boolean anyDistance, double x, double y, double z, String name,
-        Integer outlineColor, BillboardIcon icon) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;
         double dz = z - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        boolean tooFar = !anyDistance && Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance;
-        if (distance < 0.5 || tooFar) {
+        if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
             return;
         }
         // Far markers are drawn closer (inside the view distance) and scaled to look as if they were at their real
