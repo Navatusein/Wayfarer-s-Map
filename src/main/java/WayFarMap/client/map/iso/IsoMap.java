@@ -547,13 +547,17 @@ public final class IsoMap implements BlockStore.Listener {
             long keepNanos = 0;
             long[] timing = new long[7];
             try {
+                ChunkBlocks before = pictures != null || IsoLog.on() ? dimension.store.chunk(cx, cz) : null;
                 if (pictures != null) {
                     long start = System.nanoTime();
                     // Pictures this copy lacks, or took without the chunk next door, are kept from the one before.
-                    blocks.keepPicturesFrom(dimension.store.chunk(cx, cz), pictures.generation);
+                    blocks.keepPicturesFrom(before, pictures.generation);
                     keepNanos = System.nanoTime() - start;
                 }
                 dimension.store.put(cx, cz, blocks, timing);
+                if (timing[5] != 0 && before != null) {
+                    IsoLog.chunkDiff(cx, cz, trace, before, blocks);
+                }
             } catch (RuntimeException e) {
                 WayFarMap.LOG.warn("Could not store chunk blocks for the 3D map", e);
                 IsoLog.log("STORE_FAILED " + cx + "," + cz + " " + e);

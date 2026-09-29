@@ -200,6 +200,7 @@ public final class IsoLog {
         DONE.clear();
         DONE_NAMES.clear();
         BLOCKS.clear();
+        CHANGED_BY.clear();
     }
 
     private static void writeLines(BufferedWriter out) {
@@ -658,6 +659,169 @@ public final class IsoLog {
         }
     }
 
+    /** Per kind of block: cells changed (block, light), pictures changed, in copies stored as changed. */
+    private static final Map<String, long[]> CHANGED_BY = new ConcurrentHashMap<>();
+    /** Copies stored as changed, by what changed: blocks, only light, only colors, only pictures, only the height. */
+    private static final AtomicLong diffBlocks = new AtomicLong(), diffLightOnly = new AtomicLong(),
+        diffColorsOnly = new AtomicLong(), diffPicturesOnly = new AtomicLong(), diffOther = new AtomicLong();
+
+    private static String blockName(int id) {
+        try {
+            net.minecraft.block.Block block = net.minecraft.block.Block.getBlockById(id);
+            return String.valueOf(net.minecraft.block.Block.blockRegistry.getNameForObject(block));
+        } catch (RuntimeException e) {
+            return "#" + id;
+        }
+    }
+
+    private static void countChange(Map<String, Integer> local, String name, int column) {
+        local.merge(name, 1, Integer::sum);
+        long[] stats = CHANGED_BY.get(name);
+        if (stats == null) {
+            if (CHANGED_BY.size() > 5000) {
+                return;
+            }
+            stats = new long[3];
+            CHANGED_BY.put(name, stats);
+        }
+        synchronized (stats) {
+            stats[column]++;
+        }
+    }
+
+    /**
+     * A copy was stored as changed (writer thread): what changed against the copy before. Blocks (id or metadata),
+     * only the light in cells, biome colors, the pictures of cells (and of which blocks), the height range.
+     */
+    static void chunkDiff(int cx, int cz, Trace trace, ChunkBlocks before, ChunkBlocks now) {
+        if (!on()) {
+            return;
+        }
+        int blocks = 0, light = 0;
+        Map<String, Integer> blockNames = new java.util.HashMap<>(), pictureNames = new java.util.HashMap<>();
+        int from = Math.max(before.yMin, now.yMin), to = Math.min(before.yMax, now.yMax);
+        for (int y = from; y <= to; y++) {
+            for (int i = 0; i < 256; i++) {
+                int a = before.cells[((y - before.yMin) << 8) | i], b = now.cells[((y - now.yMin) << 8) | i];
+                if (a == b) {
+                    continue;
+                }
+                if (ChunkBlocks.lookKey(a) != ChunkBlocks.lookKey(b)) {
+                    blocks++;
+                    countChange(blockNames, blockName(ChunkBlocks.blockId(b)), 0);
+                } else {
+                    light++;
+                    if (light <= 64) {
+                        countChange(new java.util.HashMap<>(), blockName(ChunkBlocks.blockId(b)), 1);
+                    }
+                }
+            }
+        }
+        boolean range = before.yMin != now.yMin || before.yMax != now.yMax;
+        boolean colors = !Arrays.equals(before.grass, now.grass) || !Arrays.equals(before.foliage, now.foliage)
+            || !Arrays.equals(before.water, now.water);
+        // Pictures by cell: the same cell in both copies (cells are indices from yMin, so compared by place).
+        Map<Long, Integer> old = new java.util.HashMap<>();
+        for (int n = 0; n < before.faceCells.length; n++) {
+            old.put(place(before, before.faceCells[n]), n);
+        }
+        int pictures = 0, picturesNew = 0, picturesGone = 0, generation = 0;
+        if (before.faceGeneration != now.faceGeneration) {
+            generation = 1;
+        }
+        for (int n = 0; n < now.faceCells.length; n++) {
+            int cell = now.faceCells[n];
+            Integer m = old.remove(place(now, cell));
+            if (m == null) {
+                picturesNew++;
+                continue;
+            }
+            for (int slot = 0; slot < ChunkBlocks.PER_CELL; slot++) {
+                if (before.faceIds[m * ChunkBlocks.PER_CELL + slot] != now.faceIds[n * ChunkBlocks.PER_CELL + slot]) {
+                    pictures++;
+                    countChange(pictureNames, blockName(ChunkBlocks.blockId(now.cells[cell])), 2);
+                    break;
+                }
+            }
+        }
+        picturesGone = old.size();
+        boolean picturesChanged = pictures + picturesNew + picturesGone > 0;
+        // What changed, joined: BLOCKS, LIGHT, COLORS, PICTURES, HEIGHT; NOTHING_SEEN if only other stored data.
+        StringBuilder parts = new StringBuilder();
+        if (blocks > 0) {
+            parts.append("+BLOCKS");
+        }
+        if (light > 0) {
+            parts.append("+LIGHT");
+        }
+        if (colors) {
+            parts.append("+COLORS");
+        }
+        if (picturesChanged) {
+            parts.append("+PICTURES");
+        }
+        if (range) {
+            parts.append("+HEIGHT");
+        }
+        String what = parts.length() == 0 ? "NOTHING_SEEN" : parts.substring(1);
+        if (blocks > 0) {
+            diffBlocks.incrementAndGet();
+        } else if (what.equals("PICTURES")) {
+            diffPicturesOnly.incrementAndGet();
+        } else if (what.equals("LIGHT")) {
+            diffLightOnly.incrementAndGet();
+        } else if (what.equals("COLORS")) {
+            diffColorsOnly.incrementAndGet();
+        } else {
+            diffOther.incrementAndGet();
+        }
+        line(
+            "CHUNK_DIFF " + cx
+                + ","
+                + cz
+                + " "
+                + what
+                + " reason="
+                + (trace == null ? "?" : trace.reason)
+                + " blocks="
+                + blocks
+                + " lightOnlyCells="
+                + light
+                + " pictures="
+                + pictures
+                + " picturesNew="
+                + picturesNew
+                + " picturesGone="
+                + picturesGone
+                + " colors="
+                + colors
+                + " heightRange="
+                + (range ? before.yMin + ".." + before.yMax + "->" + now.yMin + ".." + now.yMax : "same")
+                + (generation != 0 ? " otherPalette" : "")
+                + (blockNames.isEmpty() ? "" : " changedBlocks=" + top(blockNames))
+                + (pictureNames.isEmpty() ? "" : " changedPicturesOf=" + top(pictureNames)));
+    }
+
+    private static long place(ChunkBlocks blocks, int cell) {
+        return (long) (blocks.yMin + (cell >> 8)) << 8 | (cell & 255);
+    }
+
+    /** The five most frequent names, with counts. */
+    private static String top(Map<String, Integer> names) {
+        List<Map.Entry<String, Integer>> list = new ArrayList<>(names.entrySet());
+        list.sort((a, b) -> b.getValue() - a.getValue());
+        StringBuilder b = new StringBuilder();
+        for (int n = 0; n < Math.min(5, list.size()); n++) {
+            b.append(n == 0 ? "" : ",")
+                .append(list.get(n)
+                    .getKey())
+                .append('x')
+                .append(list.get(n)
+                    .getValue());
+        }
+        return b.toString();
+    }
+
     // ---------------------------------------------------------------- saver thread
 
     static void saverStart(String what) {
@@ -893,6 +1057,7 @@ public final class IsoLog {
         }
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
         blockSummary(title);
+        changeSummary(title);
         if (all.isEmpty()) {
             return;
         }
@@ -909,6 +1074,41 @@ public final class IsoLog {
                 + span(t.queued, now) + " captures=" + t.captures + " facesMissing=" + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** What made copies count as changed, and which kinds of blocks. */
+    private static void changeSummary(String title) {
+        line(
+            title + " changed copies: blocks=" + diffBlocks.get()
+                + " picturesOnly="
+                + diffPicturesOnly.get()
+                + " lightOnly="
+                + diffLightOnly.get()
+                + " colorsOnly="
+                + diffColorsOnly.get()
+                + " otherMixes="
+                + diffOther.get());
+        List<Map.Entry<String, long[]>> kinds = new ArrayList<>(CHANGED_BY.entrySet());
+        kinds.sort(
+            (a, b) -> Long.compare(
+                b.getValue()[0] + b.getValue()[1] + b.getValue()[2],
+                a.getValue()[0] + a.getValue()[1] + a.getValue()[2]));
+        for (int n = 0; n < Math.min(30, kinds.size()); n++) {
+            long[] stats = kinds.get(n)
+                .getValue();
+            line(
+                title + "   changed#"
+                    + (n + 1)
+                    + " "
+                    + kinds.get(n)
+                        .getKey()
+                    + " blockChanged="
+                    + stats[0]
+                    + " lightChanged="
+                    + stats[1]
+                    + " pictureChanged="
+                    + stats[2]);
+        }
     }
 
     /** The kinds of blocks whose pictures took the most time. */
