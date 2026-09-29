@@ -745,6 +745,9 @@ final class FaceRenderer {
             int slot = 0;
             for (Pending pending : batch) {
                 pending.shot = diagnose ? new BlockDiag.Shot() : null;
+                if (pending.shot != null && BlockDiag.wantsImages(pending.lookKey)) {
+                    pending.shot.images = new int[pending.views()][];
+                }
                 long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;

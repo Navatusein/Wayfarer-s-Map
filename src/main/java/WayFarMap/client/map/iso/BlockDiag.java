@@ -1,5 +1,7 @@
 package WayFarMap.client.map.iso;
 
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,6 +10,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.imageio.ImageIO;
 
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
@@ -33,10 +40,27 @@ final class BlockDiag {
     /** Per kind, rays of the tiles that drew it from icons for want of a picture: see {@link #tracerFallbacks}. */
     private static final Map<Integer, long[]> FALLBACKS = new ConcurrentHashMap<>();
 
+    /** Pictures saved as PNG per kind, fine and wrong, and in all this session. */
+    private static final int PNG_OK = 2, PNG_BAD = 4, PNG_MAX = 3000;
+    private static final Map<Integer, int[]> SAVED = new HashMap<>();
+    private static final AtomicInteger savedFiles = new AtomicInteger();
+    private static ExecutorService pngWriter;
+
     static void clear() {
         DESCRIBED.clear();
         LOGGED.clear();
         FALLBACKS.clear();
+        SAVED.clear();
+        savedFiles.set(0);
+    }
+
+    /** Whether the pictures of a block of this kind may still be saved as PNG (keep a copy of them). */
+    static boolean wantsImages(int key) {
+        if (!IsoLog.on() || savedFiles.get() >= PNG_MAX) {
+            return false;
+        }
+        int[] saved = SAVED.get(key);
+        return saved == null || saved[0] < PNG_OK || saved[1] < PNG_BAD;
     }
 
     static String name(Block block) {
@@ -177,7 +201,10 @@ final class BlockDiag {
 
         int passBytes0 = -1, passBytes1 = -1, tileEntitiesDrawn;
         String error;
-        final int[] coverage = new int[6], brightness = new int[6];
+        /** Percent of pixels drawn at all, and fully (alpha over half); mean brightness of the drawn ones. */
+        final int[] coverage = new int[6], solid = new int[6], brightness = new int[6];
+        /** Copies of the pictures, to save as PNG; null if not kept. */
+        int[][] images;
     }
 
     /** The game failed drawing a block for its pictures. */
@@ -191,16 +218,27 @@ final class BlockDiag {
 
     /** Share of drawn pixels (percent) and their mean brightness (0-255) of a picture. */
     static void measure(int[] image, Shot shot, int view) {
-        long sum = 0;
-        int drawn = 0;
+        long sum = 0, weight = 0;
+        int drawn = 0, solid = 0;
         for (int pixel : image) {
-            if ((pixel >>> 24) >= 128) {
+            int alpha = pixel >>> 24;
+            if (alpha >= 8) {
                 drawn++;
-                sum += (((pixel >> 16) & 0xFF) * 299 + ((pixel >> 8) & 0xFF) * 587 + (pixel & 0xFF) * 114) / 1000;
+                if (alpha >= 128) {
+                    solid++;
+                }
+                weight += alpha;
+                sum += (long) alpha
+                    * ((((pixel >> 16) & 0xFF) * 299 + ((pixel >> 8) & 0xFF) * 587 + (pixel & 0xFF) * 114) / 1000);
             }
         }
-        shot.coverage[view] = drawn * 100 / image.length;
-        shot.brightness[view] = drawn == 0 ? 0 : (int) (sum / drawn);
+        // Rounded up: a picture with a few pixels drawn isn't 0%.
+        shot.coverage[view] = (drawn * 100 + image.length - 1) / image.length;
+        shot.solid[view] = (solid * 100 + image.length - 1) / image.length;
+        shot.brightness[view] = weight == 0 ? 0 : (int) (sum / weight);
+        if (shot.images != null && view < shot.images.length) {
+            shot.images[view] = image.clone();
+        }
     }
 
     /**
@@ -219,7 +257,10 @@ final class BlockDiag {
             if (ids[view] == FacePalette.EMPTY || shot.coverage[view] == 0) {
                 empty++;
             }
-            brightest = Math.max(brightest, shot.brightness[view]);
+            // Only sides the map can show (a hidden side's picture shows the block from inside, never used).
+            if (!cube || (exposed & 1 << view) != 0) {
+                brightest = Math.max(brightest, shot.brightness[view]);
+            }
         }
         boolean drewNothing = shot.passBytes0 <= 0 && shot.passBytes1 <= 0 && shot.tileEntitiesDrawn == 0;
         if (shot.error != null) {
@@ -243,14 +284,24 @@ final class BlockDiag {
             if (brightest > 40 && shot.brightness[view] < brightest * 55 / 100) {
                 problems.add("DARK_VIEW" + view);
             }
-            if (cube && shot.coverage[view] < 95 && shot.coverage[view] > 0) {
+            if (cube && shot.solid[view] < 95 && shot.coverage[view] > 0) {
                 problems.add("HOLES_SIDE" + view);
             }
         }
         int[] logged = LOGGED.computeIfAbsent(key, k -> new int[3]);
         boolean bad = !problems.isEmpty();
+        String png = null;
+        if (shot.images != null) {
+            int[] saved = SAVED.computeIfAbsent(key, k -> new int[2]);
+            if (bad ? saved[1] < PNG_BAD : saved[0] < PNG_OK) {
+                saved[bad ? 1 : 0]++;
+                png = savePng(block, key, x, y, z, bad ? String.join("-", problems) : "OK", cube, views, shot.images);
+            }
+        }
         if (bad ? logged[1]++ >= MAX_BAD : logged[0]++ >= SAMPLES) {
-            return;
+            if (png == null) {
+                return;
+            }
         }
         StringBuilder b = new StringBuilder("PICTURE ").append(bad ? String.join(",", problems) : "OK")
             .append(' ')
@@ -284,14 +335,84 @@ final class BlockDiag {
                 .append('=')
                 .append(
                     ids[view] == FacePalette.EMPTY ? "EMPTY"
-                        : ids[view] == 0 ? "NOT_TAKEN" : shot.coverage[view] + "%/bright" + shot.brightness[view]);
+                        : ids[view] == 0 ? "NOT_TAKEN"
+                            : shot.coverage[view] + "%(solid "
+                                + shot.solid[view]
+                                + "%)/bright"
+                                + shot.brightness[view])
+                .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "");
         }
         b.append(']');
+        if (png != null) {
+            b.append(" png=")
+                .append(png);
+        }
         if (shot.error != null) {
             b.append(" error=")
                 .append(shot.error);
         }
         IsoLog.log(b.toString());
+    }
+
+    /**
+     * Saves a block's pictures side by side as a PNG next to the log (in the background): the top row over a
+     * checkerboard (see-through parts show it), the bottom row their alpha (white drawn, black empty); sides of a cube
+     * are 32 pixels, drawn 4 times larger. Returns the file's name, null if it isn't saved.
+     */
+    private static String savePng(Block block, int key, int x, int y, int z, String what, boolean cube, int views,
+        int[][] images) {
+        File directory = IsoLog.pictureDirectory();
+        if (directory == null || savedFiles.incrementAndGet() > PNG_MAX) {
+            return null;
+        }
+        String name = (name(block) + "_" + ((key >>> 16) & 15) + "_" + x + "_" + y + "_" + z + "_" + what)
+            .replaceAll("[^A-Za-z0-9._-]", "_") + ".png";
+        int[][] copies = images.clone();
+        synchronized (BlockDiag.class) {
+            if (pngWriter == null) {
+                pngWriter = Executors.newSingleThreadExecutor(r -> {
+                    Thread thread = new Thread(r, "WayFarMap 3D log pictures");
+                    thread.setDaemon(true);
+                    thread.setPriority(Thread.MIN_PRIORITY);
+                    return thread;
+                });
+            }
+        }
+        pngWriter.submit(() -> writePng(new File(directory, name), cube, views, copies));
+        return name;
+    }
+
+    private static void writePng(File file, boolean cube, int views, int[][] images) {
+        try {
+            int cell = 128;
+            BufferedImage out = new BufferedImage(views * cell, cell * 2, BufferedImage.TYPE_INT_RGB);
+            for (int view = 0; view < views; view++) {
+                int[] image = images[view];
+                if (image == null) {
+                    continue;
+                }
+                int side = (int) Math.round(Math.sqrt(image.length));
+                int scale = cell / side;
+                for (int py = 0; py < cell; py++) {
+                    for (int px = 0; px < cell; px++) {
+                        int pixel = image[(py / scale) * side + px / scale];
+                        int alpha = pixel >>> 24;
+                        int checker = ((px >> 3) + (py >> 3) & 1) == 0 ? 0xC0 : 0x80;
+                        int r = ((pixel >> 16 & 0xFF) * alpha + checker * (255 - alpha)) / 255;
+                        int g = ((pixel >> 8 & 0xFF) * alpha + checker * (255 - alpha)) / 255;
+                        int b = ((pixel & 0xFF) * alpha + checker * (255 - alpha)) / 255;
+                        out.setRGB(view * cell + px, py, r << 16 | g << 8 | b);
+                        out.setRGB(view * cell + px, cell + py, alpha << 16 | alpha << 8 | alpha);
+                    }
+                }
+            }
+            File parent = file.getParentFile();
+            if (parent.isDirectory() || parent.mkdirs()) {
+                ImageIO.write(out, "png", file);
+            }
+        } catch (Throwable t) {
+            IsoLog.log("PNG_FAILED " + file.getName() + " " + t);
+        }
     }
 
     private static String sides(int mask) {

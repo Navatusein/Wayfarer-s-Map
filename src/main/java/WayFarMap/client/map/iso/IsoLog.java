@@ -100,6 +100,16 @@ public final class IsoLog {
 
     private IsoLog() {}
 
+    /** Folder next to the log where pictures of blocks are saved as PNG, null while the log is off. */
+    static File pictureDirectory() {
+        File log = file;
+        return log == null ? null
+            : new File(
+                log.getParentFile(),
+                log.getName()
+                    .replace(".log", "") + "-pictures");
+    }
+
     static boolean on() {
         return Config.log3d && file != null;
     }
