@@ -1,8 +1,11 @@
 package WayFarMap.client.map.iso;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import WayFarMap.client.map.MapRegion;
 
@@ -113,8 +116,31 @@ final class IsoTracer {
         this.palette = palette;
     }
 
+    /**
+     * A block's cell as the view sees it, around the block's center on the projection plane: a hexagon, its corners
+     * (u, v) in turn. A sprite's pixels outside it are parts of a model larger than its block (the Blood Magic
+     * altar), which rays through the block never meet.
+     */
+    private double[] outline;
+    private static final int[] NO_CELLS = new int[0];
+    /** Per palette generation, sprite and view side: whether the sprite reaches past its block's cell. */
+    private static final Map<Long, Boolean> REACHES_OUT = new ConcurrentHashMap<>();
+
+    /** The cells of a chunk whose sprites reach out, for one view side and palette. */
+    private static final class Overhangs {
+
+        final long key;
+        final int[] cells;
+
+        Overhangs(long key, int[] cells) {
+            this.key = key;
+            this.cells = cells;
+        }
+    }
+
     void reset(IsoProjection projection, int level) {
         this.projection = projection;
+        outline = outline(projection);
         fallbacks = IsoLog.on() ? new HashMap<>() : null;
         double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         mip = pixelsPerBlock >= 16 ? 0
@@ -246,7 +272,10 @@ final class IsoTracer {
                     int layer = (y - blocks.yMin) >> 2;
                     int air = blocks.airBricks()[layer];
                     int brick = (lz >> 2) << 2 | lx >> 2;
-                    if ((air & 1 << brick) != 0) {
+                    // A model reaching past its cell shows in the air around it: that air is gone through block by
+                    // block (only in chunks with such models).
+                    int[] reaching = overhangs(blocks);
+                    if ((air & 1 << brick) != 0 && reaching.length == 0) {
                         // Only air around here: jump to where the ray leaves the empty bricks under it, or the whole
                         // empty part of the chunk (layers where it holds nothing), instead of going block by block.
                         int x0, z0, size, bottom;
@@ -288,6 +317,10 @@ final class IsoTracer {
                     }
                     cellIndex = ((y - blocks.yMin) << 8) | (lz << 4) | lx;
                     int cell = blocks.cells[cellIndex];
+                    if (reaching.length > 0 && ChunkBlocks.blockId(cell) == 0
+                        && reachingOut(blocks, reaching, x, y, z, side, t, previousLight) == SPRITE_STOP) {
+                        break;
+                    }
                     int key = ChunkBlocks.lookKey(cell);
                     if (key != insideLiquid) {
                         insideLiquid = 0;
@@ -389,6 +422,159 @@ final class IsoTracer {
         int a = clamp(alpha * 255) << 24;
         nightColor = a | clamp(nightR / alpha) << 16 | clamp(nightG / alpha) << 8 | clamp(nightB / alpha);
         return a | clamp(accR / alpha) << 16 | clamp(accG / alpha) << 8 | clamp(accB / alpha);
+    }
+
+    /** The corners of a block's cell seen from the view, around its center, in turn (its convex outline). */
+    private static double[] outline(IsoProjection p) {
+        double[][] points = new double[8][];
+        for (int i = 0; i < 8; i++) {
+            double x = (i & 1) - 0.5, y = (i >> 1 & 1) - 0.5, z = (i >> 2 & 1) - 0.5;
+            points[i] = new double[] { p.u(x, z), p.v(x, y, z) };
+        }
+        Arrays.sort(points, (a, b) -> a[0] != b[0] ? Double.compare(a[0], b[0]) : Double.compare(a[1], b[1]));
+        // Monotone chain: the lower and upper hull.
+        double[][] hull = new double[16][];
+        int n = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            int start = n;
+            for (int k = 0; k < 8; k++) {
+                double[] q = points[pass == 0 ? k : 7 - k];
+                while (n >= start + 2 && cross(hull[n - 2], hull[n - 1], q) <= 1e-9) {
+                    n--;
+                }
+                hull[n++] = q;
+            }
+            n--;
+        }
+        double[] result = new double[n * 2];
+        for (int i = 0; i < n; i++) {
+            result[i * 2] = hull[i][0];
+            result[i * 2 + 1] = hull[i][1];
+        }
+        return result;
+    }
+
+    private static double cross(double[] a, double[] b, double[] c) {
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    }
+
+    /** Whether a point (around a block's center) is within the block's outline, grown by the margin. */
+    private boolean withinCell(double u, double v, double margin) {
+        double[] o = outline;
+        int n = o.length / 2;
+        for (int i = 0; i < n; i++) {
+            double ax = o[i * 2], ay = o[i * 2 + 1];
+            double bx = o[(i + 1) % n * 2], by = o[(i + 1) % n * 2 + 1];
+            double ex = bx - ax, ey = by - ay;
+            double side = ex * (v - ay) - ey * (u - ax);
+            if (side < -margin * Math.sqrt(ex * ex + ey * ey)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Cells of the chunk with sprites reaching past them, for this view (worked out once per copy and view). */
+    private int[] overhangs(ChunkBlocks blocks) {
+        if (palette == null || blocks.faceCells.length == 0 || blocks.faceGeneration != palette.generation) {
+            return NO_CELLS;
+        }
+        int rotation = projection.rotation;
+        long key = (long) palette.generation << 2 | rotation;
+        Object known = blocks.overhangs;
+        if (known instanceof Overhangs && ((Overhangs) known).key == key) {
+            return ((Overhangs) known).cells;
+        }
+        List<Integer> found = new ArrayList<>();
+        boolean unsure = false;
+        for (int n = 0; n < blocks.faceCells.length; n++) {
+            int cell = blocks.cells[blocks.faceCells[n]];
+            BlockLooks.Look look = BlockLooks.get(ChunkBlocks.lookKey(cell));
+            if (look.opaque || look.noPictures || look.translucent) {
+                continue;
+            }
+            int id = blocks.faceIds[n * ChunkBlocks.PER_CELL + rotation];
+            if (id <= 0) {
+                continue;
+            }
+            Boolean out = reachesOut(id, rotation);
+            if (out == null) {
+                unsure = true;
+            } else if (out) {
+                found.add(blocks.faceCells[n]);
+            }
+        }
+        int[] cells = found.isEmpty() ? NO_CELLS : new int[found.size()];
+        for (int i = 0; i < cells.length; i++) {
+            cells[i] = found.get(i);
+        }
+        if (!unsure) {
+            // Kept once every sprite could be looked at (one not read yet is looked at again next time).
+            blocks.overhangs = new Overhangs(key, cells);
+        }
+        return cells;
+    }
+
+    /** Whether a sprite has drawn pixels outside its block's outline for this view; null if it can't be read yet. */
+    private Boolean reachesOut(int id, int rotation) {
+        long key = (long) palette.generation << 34 | (long) id << 2 | rotation;
+        Boolean known = REACHES_OUT.get(key);
+        if (known != null) {
+            return known;
+        }
+        FacePalette.Sprite sprite = palette.sprite(id);
+        if (sprite == null) {
+            return null;
+        }
+        boolean out = false;
+        int grid = 64;
+        for (int j = 0; j < grid && !out; j++) {
+            for (int i = 0; i < grid; i++) {
+                double su = (i + 0.5) / grid, sv = (j + 0.5) / grid;
+                if ((sprite.texel(su, sv, 0) >>> 24) >= 128 && !withinCell(su * 2 - 1, sv * 2 - 1, 0.03)) {
+                    out = true;
+                    break;
+                }
+            }
+        }
+        if (REACHES_OUT.size() > 100_000) {
+            REACHES_OUT.clear();
+        }
+        REACHES_OUT.put(key, out);
+        return out;
+    }
+
+    /**
+     * In a cell of air: the parts of models next to it that reach past their own cell (rays through their cells
+     * draw the rest). Returns {@link #SPRITE_STOP} if one is met.
+     */
+    private int reachingOut(ChunkBlocks blocks, int[] reaching, int x, int y, int z, int side, double t,
+        int previousLight) {
+        int lx = x & 15, lz = z & 15;
+        for (int cell : reaching) {
+            int oy = blocks.yMin + (cell >> 8), olx = cell & 15, olz = cell >> 4 & 15;
+            if (Math.abs(olx - lx) > 1 || Math.abs(olz - lz) > 1 || Math.abs(oy - y) > 1) {
+                continue;
+            }
+            int ox = (x & ~15) + olx, oz = (z & ~15) + olz;
+            double du = rayU - projection.u(ox + 0.5, oz + 0.5);
+            double dv = rayV - projection.v(ox + 0.5, oy + 0.5, oz + 0.5);
+            if (withinCell(du, dv, 0)) {
+                // That part is drawn by rays through the model's own cell.
+                continue;
+            }
+            int id = blocks.pictureId(cell, projection.rotation);
+            if (id <= 0) {
+                continue;
+            }
+            int blockCell = blocks.cells[cell];
+            BlockLooks.Look look = BlockLooks.get(ChunkBlocks.lookKey(blockCell));
+            int light = brighter(light(blockCell), previousLight);
+            if (sprite(id, look, ox, oy, oz, side, t, light) == SPRITE_STOP) {
+                return SPRITE_STOP;
+            }
+        }
+        return SPRITE_PASS;
     }
 
     /** Picture id of the current cell (a side of a solid cube, else a view side), 0 if it has none. */

@@ -400,6 +400,8 @@ public final class ChunkBlocks {
 
     /** See {@link #airBricks}; null until worked out. */
     private volatile int[] airBricks;
+    /** For the tracer: its blocks whose sprites reach past their cell, worked out when first needed. */
+    volatile Object overhangs;
     /** See {@link #airFloor}; set before {@link #airBricks}. */
     private byte[] airFloors;
 
