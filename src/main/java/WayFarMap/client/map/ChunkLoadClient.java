@@ -154,21 +154,22 @@ public final class ChunkLoadClient {
         done = b.doneBefore;
         total = b.total;
         with3d = b.with3d;
-        IsoLog.log(
-            "CHUNKLOAD batch " + b.index
-                + " inner "
-                + b.innerX0
-                + ","
-                + b.innerZ0
-                + ".."
-                + b.innerX1
-                + ","
-                + b.innerZ1
-                + " done "
-                + b.doneBefore
-                + "/"
-                + b.total
-                + (b.with3d ? " 3D" : " 2D"));
+        String text = "CHUNKLOAD batch " + b.index
+            + " inner "
+            + b.innerX0
+            + ","
+            + b.innerZ0
+            + ".."
+            + b.innerX1
+            + ","
+            + b.innerZ1
+            + " done "
+            + b.doneBefore
+            + "/"
+            + b.total
+            + (b.with3d ? " 3D" : " 2D");
+        IsoLog.log(text);
+        FlatLog.log(text);
     }
 
     /** Whether every chunk sent in the batch is here. */

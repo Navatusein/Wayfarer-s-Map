@@ -75,6 +75,11 @@ public class Config {
      * why some take long.
      */
     public static boolean log3d = true;
+    /**
+     * Write a detailed log of the flat map ({@code .minecraft/wayfarmap/logs/2d-*.log}): chunks scanned, regions read,
+     * saved and drawn, for finding what is slow or wrong.
+     */
+    public static boolean log2d = true;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -281,6 +286,14 @@ public class Config {
             true,
             () -> log3d,
             v -> log3d = v);
+        bool(
+            c,
+            "log2d",
+            "Write a detailed log of the flat map (.minecraft/wayfarmap/logs/2d-*.log): chunks scanned, regions read "
+                + "from and saved to disk, textures and drawing. Takes effect when a world is joined.",
+            true,
+            () -> log2d,
+            v -> log2d = v);
         group("layers");
         parent(null);
         bool(

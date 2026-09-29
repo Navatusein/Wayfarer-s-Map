@@ -17,6 +17,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.map.FlatLog;
 import WayFarMap.client.map.LodTile;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -65,6 +66,14 @@ public final class MapDrawer {
      */
     public static void drawMap(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
         int width, int height) {
+        drawMap(dimension, centerX, centerZ, scale, x, y, width, height, false);
+    }
+
+    /** @param minimap drawn by the minimap (kept apart in the flat map log) */
+    public static void drawMap(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
+        int width, int height, boolean minimap) {
+        long frameStart = System.nanoTime();
+        int drawnCount = 0, loadingCount = 0, missingCount = 0, textureLimited = 0;
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
         double right = left + width / scale;
@@ -92,15 +101,34 @@ public final class MapDrawer {
                 LodTile tile = null;
                 if (lod) {
                     tile = dimension.requestLod(rx, rz);
-                    if (tile == null || (!tile.hasTexture() && newTextures-- <= 0)) {
+                    if (tile == null) {
+                        if (dimension.isKnownMissing(rx, rz)) {
+                            missingCount++;
+                        } else {
+                            loadingCount++;
+                        }
+                        continue;
+                    }
+                    if (!tile.hasTexture() && newTextures-- <= 0) {
+                        textureLimited++;
                         continue;
                     }
                 } else {
                     region = dimension.requestRegion(rx, rz);
-                    if (region == null || (!region.hasTexture() && newTextures-- <= 0)) {
+                    if (region == null) {
+                        if (dimension.isKnownMissing(rx, rz)) {
+                            missingCount++;
+                        } else {
+                            loadingCount++;
+                        }
+                        continue;
+                    }
+                    if (!region.hasTexture() && newTextures-- <= 0) {
+                        textureLimited++;
                         continue;
                     }
                 }
+                drawnCount++;
 
                 // Part of the region that is inside the view, in block coordinates.
                 double regionX = (double) rx * MapRegion.SIZE;
@@ -148,6 +176,17 @@ public final class MapDrawer {
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
+        if (FlatLog.on()) {
+            FlatLog.frame(
+                minimap,
+                lod,
+                (rx1 - rx0 + 1) * (rz1 - rz0 + 1),
+                drawnCount,
+                loadingCount,
+                missingCount,
+                textureLimited,
+                System.nanoTime() - frameStart);
+        }
     }
 
     private static final int CHUNK_LINE = 0x30FFFFFF;

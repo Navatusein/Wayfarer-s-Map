@@ -83,6 +83,8 @@ public class MapRegion implements PixelSource {
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
     private long lastUpload;
+    /** When the area waiting for upload was first changed (for the flat map log). */
+    private long dirtySince;
     private volatile boolean saveDirty;
     private volatile boolean saving;
     /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
@@ -234,6 +236,7 @@ public class MapRegion implements PixelSource {
 
     private void markTextureDirty(int localX, int localZ) {
         if (dirtyMaxX < dirtyMinX) {
+            dirtySince = System.nanoTime();
             dirtyMinX = dirtyMaxX = localX;
             dirtyMinZ = dirtyMaxZ = localZ;
         } else {
@@ -291,13 +294,21 @@ public class MapRegion implements PixelSource {
             dirtyMinZ = 0;
             dirtyMaxX = SIZE - 1;
             dirtyMaxZ = SIZE - 1;
+            dirtySince = 0;
+            FlatLog.textureMade(rx, rz, false);
         } else {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
         }
         long now = System.currentTimeMillis();
         if (dirtyMaxX >= dirtyMinX && (now - lastUpload >= UPLOAD_INTERVAL_MS || isFullyDirty())) {
             lastUpload = now;
-            upload(dirtyMinX, dirtyMinZ, dirtyMaxX - dirtyMinX + 1, dirtyMaxZ - dirtyMinZ + 1);
+            int width = dirtyMaxX - dirtyMinX + 1, height = dirtyMaxZ - dirtyMinZ + 1;
+            long start = System.nanoTime();
+            upload(dirtyMinX, dirtyMinZ, width, height);
+            if (FlatLog.on()) {
+                long end = System.nanoTime();
+                FlatLog.uploaded(rx, rz, width, height, end - start, dirtySince == 0 ? 0 : end - dirtySince, false);
+            }
             dirtyMaxX = -1;
             dirtyMinX = 0;
         }
@@ -422,6 +433,32 @@ public class MapRegion implements PixelSource {
 
     public static File getFile(File dimensionDir, int rx, int rz) {
         return new File(dimensionDir, "r." + rx + "." + rz + ".png");
+    }
+
+    /** Size of the region's files on disk (image, extra, light, times), for the log. */
+    static long bytesOnDisk(File imageFile) {
+        return imageFile.length() + getExtraFile(imageFile).length()
+            + getLightFile(imageFile).length()
+            + getTimesFile(imageFile).length();
+    }
+
+    /** Which of the region's files are on disk and their sizes in KB, for the log. */
+    static String partsOnDisk(File imageFile) {
+        StringBuilder parts = new StringBuilder();
+        File[] files = { imageFile, getExtraFile(imageFile), getLightFile(imageFile), getTimesFile(imageFile) };
+        String[] names = { "png", "dat", "light", "time" };
+        for (int i = 0; i < files.length; i++) {
+            if (files[i].isFile()) {
+                if (parts.length() > 0) {
+                    parts.append('+');
+                }
+                parts.append(names[i])
+                    .append(':')
+                    .append((files[i].length() + 1023) >> 10)
+                    .append("KB");
+            }
+        }
+        return parts.length() == 0 ? "-" : parts.toString();
     }
 
     private static File getExtraFile(File imageFile) {
