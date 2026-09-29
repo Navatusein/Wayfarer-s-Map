@@ -45,6 +45,8 @@ The top of the map has §ficons§r; hover one to see its name.
 
 ! In another dimension you can't teleport or change claims, and the player and mobs are not shown.
 
+Under §fglass§r the map shows what is below it, lightly tinted with the glass color (§bSettings → Map → See through glass§r).
+
 The bottom left shows the coordinates under the cursor. §7(?)§r means the place is not explored yet.
 
 # Waypoints

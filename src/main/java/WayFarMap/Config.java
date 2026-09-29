@@ -112,6 +112,8 @@ public class Config {
     /** Share the explored map with the ServerUtilities team (where the server has the mod). */
     public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
+    /** Clear glass shows what is under it, lightly tinted with the glass color. */
+    public static boolean seeThroughGlass = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
 
@@ -254,6 +256,13 @@ public class Config {
             true,
             () -> useTextureColors,
             v -> useTextureColors = v);
+        bool(
+            c,
+            "seeThroughGlass",
+            "Show what is under glass, lightly tinted with the glass color. Applies as chunks are rescanned.",
+            true,
+            () -> seeThroughGlass,
+            v -> seeThroughGlass = v);
         tab(TAB_MAP_3D);
         group("iso");
         parent(null);

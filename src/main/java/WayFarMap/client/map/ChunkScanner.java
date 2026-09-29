@@ -7,6 +7,8 @@ import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 
+import WayFarMap.Config;
+
 /** Turns a loaded chunk into map pixels. */
 public final class ChunkScanner {
 
@@ -88,8 +90,11 @@ public final class ChunkScanner {
                 } else {
                     region.setPixel(baseX + lx, baseZ + lz, argb);
                 }
-                // Torches and other lights: the map glows there at night.
-                region.setLight(baseX + lx, baseZ + lz, y == NO_BLOCK ? 0 : blockLight(chunk, lx, y, lz));
+                // Torches and other lights: the map glows there at night (under glass, those lighting the floor).
+                region.setLight(
+                    baseX + lx,
+                    baseZ + lz,
+                    y == NO_BLOCK ? 0 : blockLight(chunk, lx, seenThroughGlass(chunk, lx, y, lz), lz));
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
                     int biomeArgb = biome == null ? 0 : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
@@ -285,12 +290,43 @@ public final class ChunkScanner {
         return block.getRenderType() != -1 || material.isLiquid();
     }
 
+    /** How much of the glass color shows over what is under it. */
+    private static final float GLASS_TINT = 0.2f;
+
+    /** Glass you can see through (not glowstone, which is glass too but solid). */
+    private static boolean isClearGlass(Block block) {
+        return block.getMaterial() == Material.glass && !block.isOpaqueCube();
+    }
+
+    /**
+     * The block seen from above at {@code y}: under clear glass (when {@link Config#seeThroughGlass} is on), the first
+     * other visible block below it; otherwise {@code y} itself.
+     */
+    private static int seenThroughGlass(Chunk chunk, int lx, int y, int lz) {
+        if (!Config.seeThroughGlass || !isClearGlass(chunk.getBlock(lx, y, lz))) {
+            return y;
+        }
+        for (int below = y - 1; below >= 0; below--) {
+            Block block = chunk.getBlock(lx, below, lz);
+            if (isVisible(block) && !isClearGlass(block)) {
+                return below;
+            }
+        }
+        return y;
+    }
+
     private static int columnColor(World world, Chunk chunk, int lx, int y, int lz) {
         int x = chunk.xPosition * 16 + lx;
         int z = chunk.zPosition * 16 + lz;
         Block block = chunk.getBlock(lx, y, lz);
         int meta = chunk.getBlockMetadata(lx, y, lz);
         int color = BlockColors.getColor(world, block, meta, x, y, z);
+
+        int seen = seenThroughGlass(chunk, lx, y, lz);
+        if (seen != y) {
+            // Glass: what is under it (water with its floor too), lightly tinted with the glass.
+            return BlockColors.blend(columnColor(world, chunk, lx, seen, lz), color, GLASS_TINT);
+        }
 
         if (block.getMaterial() == Material.water) {
             // Let the floor shine through shallow water.
