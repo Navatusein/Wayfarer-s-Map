@@ -243,6 +243,11 @@ public final class BlockLooks {
         return was;
     }
 
+    /** For the log: looks the renderers wait for / looks asked for ahead. */
+    static String pending() {
+        return REQUESTS.size() + "/" + WARM.size();
+    }
+
     /** Works out the looks the renderers wait for, for up to the given time (render thread). */
     public static void pump(long budgetNanos) {
         renderThread = Thread.currentThread();

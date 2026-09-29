@@ -58,6 +58,11 @@ public class MapRegion implements PixelSource {
      * team has it already). Cleared when we map the chunk ourselves.
      */
     private final long[] fromTeam = new long[CHUNKS * CHUNKS / 64];
+    /**
+     * One bit per chunk: mapped only for the flat map by {@code /wf chunkload 2d}, so the 3D map doesn't draw it from
+     * the flat map. Cleared when the chunk is mapped as usual.
+     */
+    private final long[] flatOnly = new long[CHUNKS * CHUNKS / 64];
 
     /**
      * Block light (torches, lamps, lava) just above the surface of each pixel, 0-15; null while there is none. At
@@ -83,10 +88,14 @@ public class MapRegion implements PixelSource {
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
     private long lastUpload;
+    /** When the area waiting for upload was first changed (for the flat map log). */
+    private long dirtySince;
     private volatile boolean saveDirty;
     private volatile boolean saving;
     /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
     private int changes;
+    /** {@link #changes} when last saved, for the log. */
+    int changesAtSave;
 
     public MapRegion(int rx, int rz) {
         this.rx = rx;
@@ -234,6 +243,7 @@ public class MapRegion implements PixelSource {
 
     private void markTextureDirty(int localX, int localZ) {
         if (dirtyMaxX < dirtyMinX) {
+            dirtySince = System.nanoTime();
             dirtyMinX = dirtyMaxX = localX;
             dirtyMinZ = dirtyMaxZ = localZ;
         } else {
@@ -291,13 +301,21 @@ public class MapRegion implements PixelSource {
             dirtyMinZ = 0;
             dirtyMaxX = SIZE - 1;
             dirtyMaxZ = SIZE - 1;
+            dirtySince = 0;
+            FlatLog.textureMade(rx, rz, false);
         } else {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
         }
         long now = System.currentTimeMillis();
         if (dirtyMaxX >= dirtyMinX && (now - lastUpload >= UPLOAD_INTERVAL_MS || isFullyDirty())) {
             lastUpload = now;
-            upload(dirtyMinX, dirtyMinZ, dirtyMaxX - dirtyMinX + 1, dirtyMaxZ - dirtyMinZ + 1);
+            int width = dirtyMaxX - dirtyMinX + 1, height = dirtyMaxZ - dirtyMinZ + 1;
+            long start = System.nanoTime();
+            upload(dirtyMinX, dirtyMinZ, width, height);
+            if (FlatLog.on()) {
+                long end = System.nanoTime();
+                FlatLog.uploaded(rx, rz, width, height, end - start, dirtySince == 0 ? 0 : end - dirtySince, false);
+            }
             dirtyMaxX = -1;
             dirtyMinX = 0;
         }
@@ -378,6 +396,25 @@ public class MapRegion implements PixelSource {
         return (fromTeam[index >> 6] & 1L << (index & 63)) != 0;
     }
 
+    /** Marks the chunk as mapped for the flat map only, or not (see {@link #flatOnly}). */
+    public void setFlatOnly(int localChunkX, int localChunkZ, boolean only) {
+        int index = localChunkZ * CHUNKS + localChunkX;
+        long bit = 1L << (index & 63);
+        if (((flatOnly[index >> 6] & bit) != 0) != only) {
+            if (only) {
+                flatOnly[index >> 6] |= bit;
+            } else {
+                flatOnly[index >> 6] &= ~bit;
+            }
+            saveDirty = true;
+        }
+    }
+
+    public boolean isFlatOnly(int localChunkX, int localChunkZ) {
+        int index = localChunkZ * CHUNKS + localChunkX;
+        return (flatOnly[index >> 6] & 1L << (index & 63)) != 0;
+    }
+
     public boolean isSaveDirty() {
         return saveDirty;
     }
@@ -391,6 +428,7 @@ public class MapRegion implements PixelSource {
             extra != null ? extra.clone() : null,
             chunkTimes.clone(),
             fromTeam.clone(),
+            flatOnly.clone(),
             light != null ? light.clone() : null);
     }
 
@@ -400,13 +438,15 @@ public class MapRegion implements PixelSource {
         final byte[] extra;
         final long[] chunkTimes;
         final long[] fromTeam;
+        final long[] flatOnly;
         final byte[] light;
 
-        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam, byte[] light) {
+        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam, long[] flatOnly, byte[] light) {
             this.pixels = pixels;
             this.extra = extra;
             this.chunkTimes = chunkTimes;
             this.fromTeam = fromTeam;
+            this.flatOnly = flatOnly;
             this.light = light;
         }
     }
@@ -422,6 +462,32 @@ public class MapRegion implements PixelSource {
 
     public static File getFile(File dimensionDir, int rx, int rz) {
         return new File(dimensionDir, "r." + rx + "." + rz + ".png");
+    }
+
+    /** Size of the region's files on disk (image, extra, light, times), for the log. */
+    static long bytesOnDisk(File imageFile) {
+        return imageFile.length() + getExtraFile(imageFile).length()
+            + getLightFile(imageFile).length()
+            + getTimesFile(imageFile).length();
+    }
+
+    /** Which of the region's files are on disk and their sizes in KB, for the log. */
+    static String partsOnDisk(File imageFile) {
+        StringBuilder parts = new StringBuilder();
+        File[] files = { imageFile, getExtraFile(imageFile), getLightFile(imageFile), getTimesFile(imageFile) };
+        String[] names = { "png", "dat", "light", "time" };
+        for (int i = 0; i < files.length; i++) {
+            if (files[i].isFile()) {
+                if (parts.length() > 0) {
+                    parts.append('+');
+                }
+                parts.append(names[i])
+                    .append(':')
+                    .append((files[i].length() + 1023) >> 10)
+                    .append("KB");
+            }
+        }
+        return parts.length() == 0 ? "-" : parts.toString();
     }
 
     private static File getExtraFile(File imageFile) {
@@ -465,6 +531,10 @@ public class MapRegion implements PixelSource {
             }
             // Added later: older versions stop reading before it.
             for (long bits : snapshot.fromTeam) {
+                out.writeLong(bits);
+            }
+            // Added later still (SurfaceFallback reads it too).
+            for (long bits : snapshot.flatOnly) {
                 out.writeLong(bits);
             }
         }
@@ -534,9 +604,12 @@ public class MapRegion implements PixelSource {
                     for (int i = 0; i < region.fromTeam.length; i++) {
                         region.fromTeam[i] = in.readLong();
                     }
+                    for (int i = 0; i < region.flatOnly.length; i++) {
+                        region.flatOnly[i] = in.readLong();
+                    }
                 } catch (EOFException e) {
-                    // Saved before it was kept: everything counts as ours.
-                    Arrays.fill(region.fromTeam, 0L);
+                    // Saved before it was kept: everything counts as ours, and on the 3D map.
+                    Arrays.fill(region.flatOnly, 0L);
                 }
             } catch (IOException e) {
                 // Fall back to the file's date below.

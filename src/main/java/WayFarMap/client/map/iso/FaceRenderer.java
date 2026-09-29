@@ -7,6 +7,7 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,6 +15,7 @@ import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderBlocks;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
@@ -47,6 +49,11 @@ final class FaceRenderer {
         SLOTS = PER_ROW * PER_ROW;
     /** How far outside the block the clip planes are (less than the gap to a chest's other half, 1/16). */
     private static final double CLIP_MARGIN = 1 / 32.0;
+    /**
+     * The same for a block's own tile entity model: some are larger than the block (the Blood Magic altar, about
+     * 1.3 blocks wide), and cut to its column they lost every upright face.
+     */
+    private static final double OWN_MODEL_MARGIN = 0.25;
     /** Brightness the game gives each side; taken out of pictures of sides, the tracer shades sides itself. */
     private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
     /**
@@ -75,9 +82,44 @@ final class FaceRenderer {
      * Pictures of blocks with a tile entity, by place: they depend on what is in it, so they aren't shared between
      * places, but the chunks near the player are copied every few seconds and are not taken again each time.
      */
-    private static final Map<Long, Cached> BY_PLACE = new HashMap<>();
-    /** How long pictures of a block with a tile entity are kept before they are taken again. */
-    private static final long PLACE_KEEP_MS = 60_000;
+    private static final Map<Long, Cached> BY_PLACE = lru(400_000);
+    /**
+     * Blocks of chunks whose pictures are being taken, by chunk: a chunk with thousands of machines takes many ticks,
+     * and finding its blocks again each tick (their surroundings above all) took half of each tick's time.
+     */
+    private static final Map<Long, Session> SESSIONS = lru(8);
+
+    /** A map that lets go of the entries used longest ago past the size (render thread only). */
+    private static <V> Map<Long, V> lru(int size) {
+        return new LinkedHashMap<Long, V>(256, 0.75f, true) {
+
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<Long, V> eldest) {
+                return size() > size;
+            }
+        };
+    }
+
+    /** The blocks of a chunk that need pictures, found once, and how far their pictures were taken. */
+    private static final class Session {
+
+        final long signature;
+        final int generation;
+        final boolean[] around;
+        final List<Pending> found, toDraw;
+        final Map<Long, List<Pending>> waiting;
+        int from;
+
+        Session(long signature, int generation, boolean[] around, List<Pending> found, List<Pending> toDraw,
+            Map<Long, List<Pending>> waiting) {
+            this.signature = signature;
+            this.generation = generation;
+            this.around = around;
+            this.found = found;
+            this.toDraw = toDraw;
+            this.waiting = waiting;
+        }
+    }
 
     private static final class Cached {
 
@@ -113,6 +155,13 @@ final class FaceRenderer {
         final int[] ids = new int[ChunkBlocks.PER_CELL];
         /** A chunk it touches wasn't loaded: its pictures may be wrong at the chunk's edge. */
         boolean unsure;
+        /** For the log: its open sides, and its pictures kept before they were too old. */
+        int exposed;
+        int[] oldIds;
+        /** For the log: its look key, why it needs pictures, and how they came out. */
+        int lookKey;
+        String why;
+        BlockDiag.Shot shot;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -137,10 +186,67 @@ final class FaceRenderer {
         return !broken && OpenGlHelper.isFramebufferEnabled();
     }
 
+    /**
+     * For {@link IsoLog}, about the last {@link #addFaces} (render thread): blocks needing pictures, blocks whose
+     * pictures had to be taken, taken this time, not taken (no room), and whether the palette was full.
+     */
+    static int lastFound, lastToDraw, lastDrawn, lastMissing;
+    static boolean lastPaletteFull;
+    /**
+     * More about the last {@link #addFaces}, for {@link IsoLog}: why blocks needed pictures (complex look, own
+     * renderer, glass touching glass, sides depending on the world), what the caches gave (tile entity pictures by
+     * place: hit, too old, surroundings changed; by surroundings: hit, same as another block of this copy), batches,
+     * and where the time went (finding the blocks, drawing, reading back from the graphics card, storing sprites).
+     */
+    static int whyComplex, whyOwnRenderer, whyGlass, whySides, placeHit, placeExpired, placeChanged, surroundingsHit,
+        surroundingsShared, batches, slotsUsed, tileEntities;
+    static long findNanos, drawNanos, readNanos, storeNanos, setupNanos;
+    /**
+     * Checks of what could be skipped, for {@link IsoLog}. Where the finding time goes: sides covered, tile entity
+     * lookups, surroundings; blocks looked at. Pictures taken again (kept by place) that came out the same as before
+     * (or not). Tile entities drawn whose pictures are the same as another's with the same block and
+     * surroundings (or not), and the same with its data too. Blocks only open at the bottom (never seen from the
+     * views) and blocks whose pictures all came out empty. Time turning pixels into sprites apart from looking them
+     * up.
+     */
+    /**
+     * For the log: pictures taken another way to compare (0 the usual way; 1 not cut to the block's column, 2 with
+     * back faces culled for the tile entity too, 3 with the game's item lighting for the tile entity). Not stored.
+     */
+    private static int variant;
+    private static final String[] VARIANTS = { "usual", "noClip", "cullBackFaces", "itemLighting" };
+    private static boolean cullLogged;
+    static int sessionReused;
+    /** For the log: blocks of the chunk's list of pictures to take done so far, and in all. */
+    static int progressDone, progressTotal;
+    static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
+        differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
+    static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
+    /**
+     * Pictures of tile entities by block and surroundings (and with their data), to tell whether pictures could be
+     * shared between places; for the log only.
+     */
+    private static final Map<Long, int[]> TWINS = new HashMap<>(), TWINS_WITH_DATA = new HashMap<>();
+
+    private static void resetStats() {
+        lastFound = lastToDraw = lastDrawn = lastMissing = 0;
+        whyComplex = whyOwnRenderer = whyGlass = whySides = placeHit = placeExpired = placeChanged = 0;
+        surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
+        findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
+        sessionReused = 0;
+        progressDone = progressTotal = 0;
+        blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
+        differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
+        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
+    }
+
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
         BY_PLACE.clear();
+        SESSIONS.clear();
+        TWINS.clear();
+        TWINS_WITH_DATA.clear();
     }
 
     /**
@@ -151,6 +257,9 @@ final class FaceRenderer {
      * @return false if some pictures weren't taken in time
      */
     static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
+        resetStats();
+        lastPaletteFull = palette.full();
+        long findStart = System.nanoTime();
         if (!available()) {
             // The ones of the copy before are kept.
             blocks.picturesMissing = true;
@@ -159,9 +268,11 @@ final class FaceRenderer {
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_PLACE.clear();
+            SESSIONS.clear();
+            TWINS.clear();
+            TWINS_WITH_DATA.clear();
             cacheGeneration = palette.generation;
         }
-        int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
         // Which chunks around are there: without them, blocks at the edge are drawn as if the world ended there.
         boolean[] around = new boolean[9];
         for (int dz = -1; dz <= 1; dz++) {
@@ -170,106 +281,32 @@ final class FaceRenderer {
                     .isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz);
             }
         }
-        List<Pending> found = new ArrayList<>();
-        List<Pending> toDraw = new ArrayList<>();
-        Map<Long, List<Pending>> waiting = new HashMap<>();
-        int[] cells = blocks.cells;
-        // The last block found to need no pictures anywhere: most of a chunk is runs of the same few blocks.
-        int plainKey = -1;
-        // The part of an edge chunk kept below its surface gets no pictures: it starts above it.
-        for (int i = Math.max(0, blocks.picturesFrom - blocks.yMin) << 8; i < cells.length; i++) {
-            int cell = cells[i];
-            if (ChunkBlocks.blockId(cell) == 0) {
-                continue;
-            }
-            int key = ChunkBlocks.lookKey(cell);
-            if (key == plainKey) {
-                continue;
-            }
-            BlockLooks.Look look = BlockLooks.get(key);
-            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
-                || look.noPictures) {
-                plainKey = key;
-                continue;
-            }
-            Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
-            int meta = ChunkBlocks.meta(cell);
-            // Glass and other see-through cubes: connected textures may come from outside the block (a mod hooking
-            // the game's block renderer, resource packs), so they are drawn by the game wherever one touches another.
-            // Not leaves (no faces between see-through blocks of the same kind is what makes it glass).
-            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque && look.skipSame;
-            boolean maybe;
-            try {
-                maybe = look.complex || glassLike
-                    || block.hasTileEntity(meta)
-                    || (look.renderType == 0 && overridesWorldIcon(block.getClass()));
-            } catch (RuntimeException e) {
-                maybe = false;
-            }
-            if (!maybe) {
-                // Most blocks: drawn from their icons.
-                plainKey = key;
-                continue;
-            }
-            int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);
-            int x = baseX + lx, z = baseZ + lz;
-            int exposed = exposedSides(world, blocks, lx, y, lz, x, z);
-            if (exposed == 0) {
-                continue;
-            }
-            TileEntity tileEntity = null;
-            boolean ownRenderer = false;
-            try {
-                if (block.hasTileEntity(meta)) {
-                    tileEntity = world.getTileEntity(x, y, z);
-                    ownRenderer = tileEntity != null
-                        && TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity);
-                }
-            } catch (RuntimeException e) {
-                tileEntity = null;
-            }
-            boolean needed = look.complex || ownRenderer
-                || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
-                || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
-            if (!needed) {
-                continue;
-            }
-            // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
-            // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
-            long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
-            Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
-            pending.unsure = !aroundLoaded(around, lx, lz);
-            found.add(pending);
-            if (tileEntity != null) {
-                Cached cached = BY_PLACE.get(place(x, y, z));
-                if (cached != null && cached.surroundings == surroundings
-                    && System.currentTimeMillis() - cached.time < PLACE_KEEP_MS) {
-                    System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
-                    continue;
-                }
-            } else {
-                int[] known = BY_SURROUNDINGS.get(surroundings);
-                if (known != null) {
-                    System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
-                    continue;
-                }
-                List<Pending> same = waiting.get(surroundings);
-                if (same != null) {
-                    // Drawn once for all the blocks with the same surroundings.
-                    same.add(pending);
-                    continue;
-                }
-                waiting.put(surroundings, new ArrayList<>());
-            }
-            toDraw.add(pending);
+        long chunkKey = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        long signature = blocks.signature();
+        Session session = SESSIONS.get(chunkKey);
+        if (session != null && session.signature == signature
+            && session.generation == palette.generation
+            && Arrays.equals(session.around, around)) {
+            // Same blocks as last tick: go on where it stopped.
+            sessionReused = 1;
+        } else {
+            session = find(world, chunk, blocks, around, signature, palette.generation);
+            SESSIONS.put(chunkKey, session);
         }
+        List<Pending> found = session.found, toDraw = session.toDraw;
+        Map<Long, List<Pending>> waiting = session.waiting;
+        lastFound = found.size();
+        lastToDraw = toDraw.size() - session.from;
+        findNanos = System.nanoTime() - findStart;
         if (found.isEmpty()) {
+            SESSIONS.remove(chunkKey);
             blocks.setFaces(palette.generation, new int[0], new int[0]);
             return true;
         }
         boolean complete = true;
-        for (int from = 0; from < toDraw.size() && !broken;) {
-            if (from > 0 && System.nanoTime() > deadline) {
+        int from = session.from;
+        while (from < toDraw.size() && !broken) {
+            if (from > session.from && System.nanoTime() > deadline) {
                 // The rest another time; the pictures taken so far are kept in the caches.
                 complete = false;
                 break;
@@ -284,15 +321,25 @@ final class FaceRenderer {
             List<Pending> batch = toDraw.subList(from, to);
             from = to;
             draw(world, batch, palette);
+            if (IsoLog.on()) {
+                tryVariants(world, batch, palette);
+            }
+            lastDrawn += batch.size();
+            batches++;
+            slotsUsed += slots;
+            if (IsoLog.on()) {
+                checkSkippable(batch);
+            }
             for (Pending pending : batch) {
                 if (missing(pending)) {
+                    lastMissing++;
                     // Not taken (no room for new pictures now): taken again next time, not remembered as none.
                     continue;
                 }
                 if (pending.tileEntity != null) {
-                    if (BY_PLACE.size() > 100_000) {
-                        BY_PLACE.clear();
-                    }
+                    // Kept until its surroundings change (or the player asks for new pictures): taking them again
+                    // after a while gave the same pictures five times out of six, and kept big bases from ever
+                    // being finished.
                     BY_PLACE.put(
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
@@ -310,6 +357,12 @@ final class FaceRenderer {
                     }
                 }
             }
+        }
+        session.from = from;
+        progressDone = from;
+        progressTotal = toDraw.size();
+        if (complete || broken) {
+            SESSIONS.remove(chunkKey);
         }
         if (broken) {
             blocks.picturesMissing = true;
@@ -340,6 +393,183 @@ final class FaceRenderer {
             blocks.unsureCells = unsureCells;
         }
         return complete;
+    }
+
+    /** Finds the chunk's blocks that need pictures, and which of them have none in the caches yet. */
+    private static Session find(World world, Chunk chunk, ChunkBlocks blocks, boolean[] around, long signature,
+        int generation) {
+        int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
+        List<Pending> found = new ArrayList<>();
+        List<Pending> toDraw = new ArrayList<>();
+        Map<Long, List<Pending>> waiting = new HashMap<>();
+        int[] cells = blocks.cells;
+        // For the log: per kind that may need pictures, blocks hidden, only open at the bottom, drawn from icons,
+        // given pictures.
+        Map<Integer, int[]> decisions = IsoLog.on() ? new HashMap<>() : null;
+        // The last block found to need no pictures anywhere: most of a chunk is runs of the same few blocks.
+        int plainKey = -1;
+        // The part of an edge chunk kept below its surface gets no pictures: it starts above it.
+        for (int i = Math.max(0, blocks.picturesFrom - blocks.yMin) << 8; i < cells.length; i++) {
+            int cell = cells[i];
+            if (ChunkBlocks.blockId(cell) == 0) {
+                continue;
+            }
+            int key = ChunkBlocks.lookKey(cell);
+            if (key == plainKey) {
+                continue;
+            }
+            BlockLooks.Look look = BlockLooks.get(key);
+            BlockDiag.kind(key, look);
+            if (look.shape == BlockLooks.SHAPE_NONE && !look.complex || look.shape == BlockLooks.SHAPE_LIQUID
+                || look.noPictures) {
+                plainKey = key;
+                continue;
+            }
+            Block block = Block.getBlockById(ChunkBlocks.blockId(cell));
+            int meta = ChunkBlocks.meta(cell);
+            // Glass and other see-through cubes: connected textures may come from outside the block (a mod hooking
+            // the game's block renderer, resource packs), so they are drawn by the game wherever one touches another.
+            // Not leaves (no faces between see-through blocks of the same kind is what makes it glass).
+            boolean glassLike = look.renderType == 0 && look.fullCube && !look.opaque && look.skipSame;
+            boolean maybe;
+            try {
+                maybe = look.complex || glassLike
+                    || block.hasTileEntity(meta)
+                    || (look.renderType == 0 && overridesWorldIcon(block.getClass()));
+            } catch (RuntimeException e) {
+                maybe = false;
+            }
+            if (!maybe) {
+                // Most blocks: drawn from their icons.
+                plainKey = key;
+                continue;
+            }
+            int lx = i & 15, lz = (i >> 4) & 15, y = blocks.yMin + (i >> 8);
+            int x = baseX + lx, z = baseZ + lz;
+            blocksLooked++;
+            long t0 = System.nanoTime();
+            int exposed = exposedSides(world, blocks, lx, y, lz, x, z);
+            long t1 = System.nanoTime();
+            exposedNanos += t1 - t0;
+            if (exposed == 0) {
+                decide(decisions, key, 0);
+                continue;
+            }
+            if (exposed == 1) {
+                // Only the bottom is open: none of the views sees it (they all look from above), no pictures needed.
+                onlyBottomOpen++;
+                decide(decisions, key, 1);
+                continue;
+            }
+            TileEntity tileEntity = null;
+            boolean ownRenderer = false;
+            try {
+                if (block.hasTileEntity(meta)) {
+                    tileEntity = world.getTileEntity(x, y, z);
+                    ownRenderer = tileEntity != null
+                        && TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity);
+                }
+            } catch (RuntimeException e) {
+                tileEntity = null;
+            }
+            tileEntityNanos += System.nanoTime() - t1;
+            boolean needed = look.complex || ownRenderer
+                || (glassLike && touchesSame(world, blocks, cell, lx, y, lz, x, z))
+                || (look.renderType == 0 && sidesDependOnWorld(world, block, meta, x, y, z, exposed));
+            if (!needed) {
+                decide(decisions, key, 2);
+                continue;
+            }
+            decide(decisions, key, 3);
+            String why;
+            if (look.complex) {
+                whyComplex++;
+                why = "complex(renderType " + look.renderType + ")";
+            } else if (ownRenderer) {
+                whyOwnRenderer++;
+                why = "tileEntityRenderer";
+            } else if (glassLike) {
+                whyGlass++;
+                why = "glassTouchingGlass";
+            } else {
+                whySides++;
+                why = "sidesDependOnWorld";
+            }
+            if (ownRenderer && look.complex) {
+                why += "+tileEntityRenderer";
+            }
+            // Blocks with a tile entity (pipes, machines, chests) look by what is in it: each is drawn.
+            // Blocks that fill their cell (glass too) connect their textures with all 26 blocks around them.
+            long t2 = System.nanoTime();
+            long surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
+            surroundingsNanos += System.nanoTime() - t2;
+            Pending pending = new Pending(i, x, y, z, block, tileEntity, surroundings, look.opaque, ownRenderer);
+            pending.exposed = exposed;
+            pending.lookKey = key;
+            pending.why = why;
+            pending.unsure = !aroundLoaded(around, lx, lz);
+            found.add(pending);
+            if (tileEntity != null) {
+                tileEntities++;
+                Cached cached = BY_PLACE.get(place(x, y, z));
+                if (cached != null && cached.surroundings == surroundings) {
+                    System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
+                    placeHit++;
+                    continue;
+                }
+                if (cached != null) {
+                    if (cached.surroundings != surroundings) {
+                        placeChanged++;
+                    } else {
+                        placeExpired++;
+                        pending.oldIds = cached.ids;
+                    }
+                }
+            } else {
+                int[] known = BY_SURROUNDINGS.get(surroundings);
+                if (known != null) {
+                    System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
+                    surroundingsHit++;
+                    continue;
+                }
+                List<Pending> same = waiting.get(surroundings);
+                if (same != null) {
+                    // Drawn once for all the blocks with the same surroundings.
+                    same.add(pending);
+                    surroundingsShared++;
+                    continue;
+                }
+                waiting.put(surroundings, new ArrayList<>());
+            }
+            toDraw.add(pending);
+        }
+        if (decisions != null && !decisions.isEmpty()) {
+            StringBuilder b = new StringBuilder("FIND ").append(chunk.xPosition)
+                .append(',')
+                .append(chunk.zPosition)
+                .append(" blocks that may need pictures, per kind [hidden/onlyBottomOpen/fromIcons/pictures]:");
+            for (Map.Entry<Integer, int[]> kind : decisions.entrySet()) {
+                int[] d = kind.getValue();
+                b.append(' ')
+                    .append(BlockDiag.name(kind.getKey()))
+                    .append('=')
+                    .append(d[0])
+                    .append('/')
+                    .append(d[1])
+                    .append('/')
+                    .append(d[2])
+                    .append('/')
+                    .append(d[3]);
+            }
+            IsoLog.log(b.toString());
+        }
+        return new Session(signature, generation, around, found, toDraw, waiting);
+    }
+
+    private static void decide(Map<Integer, int[]> decisions, int key, int what) {
+        if (decisions != null) {
+            decisions.computeIfAbsent(key, k -> new int[4])[what]++;
+        }
     }
 
     /** Whether the chunks the block at (lx, lz) of the chunk touches (itself included) are all loaded. */
@@ -420,6 +650,11 @@ final class FaceRenderer {
         return false;
     }
 
+    /** For the log: whether the block's class has its own world-aware getIcon. */
+    static boolean overridesWorldIconOf(Block block) {
+        return block != null && overridesWorldIcon(block.getClass());
+    }
+
     /** Whether the class (or a parent below Block) has its own world-aware getIcon; found by signature. */
     private static boolean overridesWorldIcon(Class<?> type) {
         Boolean known = WORLD_ICONS.get(type);
@@ -487,6 +722,7 @@ final class FaceRenderer {
 
     /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
+        long setupStart = System.nanoTime();
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
@@ -518,9 +754,19 @@ final class FaceRenderer {
             // Smooth lighting would darken corners by the light around; the sprites are taken unlit.
             mc.gameSettings.ambientOcclusion = 0;
             RenderBlocks renderBlocks = new RenderBlocks(world);
+            long drawStart = System.nanoTime();
+            setupNanos += drawStart - setupStart;
 
+            boolean diagnose = IsoLog.on();
             int slot = 0;
             for (Pending pending : batch) {
+                if (variant == 0) {
+                    pending.shot = diagnose ? new BlockDiag.Shot() : null;
+                    if (pending.shot != null && BlockDiag.wantsImages(pending.lookKey)) {
+                        pending.shot.images = new int[pending.views()][];
+                    }
+                }
+                long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
                     GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, pixels, pixels);
@@ -540,10 +786,13 @@ final class FaceRenderer {
                     GL11.glTranslated(-(pending.x + 0.5), -(pending.y + 0.5), -(pending.z + 0.5));
                     // Only what is inside the block's column: not the other half of a double chest, not neighbours.
                     // A little outside the block, or its own sides, which lie on these planes, get cut off.
-                    clip(0, 1, 0, -(pending.x - CLIP_MARGIN));
-                    clip(1, -1, 0, pending.x + 1 + CLIP_MARGIN);
-                    clip(2, 0, 1, -(pending.z - CLIP_MARGIN));
-                    clip(3, 0, -1, pending.z + 1 + CLIP_MARGIN);
+                    if (variant != 1) {
+                        clipColumn(pending, CLIP_MARGIN);
+                    } else {
+                        for (int plane = 0; plane < 4; plane++) {
+                            GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
+                        }
+                    }
                     // Again for every sprite: a tile entity renderer may have changed any of it.
                     GL11.glDisable(GL11.GL_CULL_FACE);
                     GL11.glDisable(GL11.GL_LIGHTING);
@@ -556,9 +805,31 @@ final class FaceRenderer {
                     GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
                     GL11.glEnable(GL11.GL_TEXTURE_2D);
                     GL11.glColor4f(1f, 1f, 1f, 1f);
-                    drawBlock(mc, renderBlocks, tessellator, pending);
+                    drawBlock(mc, renderBlocks, tessellator, pending, mirrored(pending.cube, view));
+                }
+                if (variant != 0) {
+                    continue;
+                }
+                long blockNanos = System.nanoTime() - blockStart;
+                IsoLog.blockDrawn(pending.block, pending.tileEntity, pending.views(), blockNanos);
+                if (blockNanos > 10_000_000L) {
+                    IsoLog.log(
+                        "SLOW_BLOCK " + pending.block.getUnlocalizedName()
+                            + (pending.tileEntity == null ? ""
+                                : " [" + pending.tileEntity.getClass()
+                                    .getName() + "]")
+                            + " at "
+                            + pending.x
+                            + ","
+                            + pending.y
+                            + ","
+                            + pending.z
+                            + " ms="
+                            + blockNanos / 1_000_000);
                 }
             }
+            long readStart = System.nanoTime();
+            drawNanos += readStart - drawStart;
             for (int plane = 0; plane < 4; plane++) {
                 GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
             }
@@ -571,6 +842,8 @@ final class FaceRenderer {
             }
             int[] all = readPixels;
             readBuffer.get(all, 0, usedRows * SIZE);
+            long storeStart = System.nanoTime();
+            readNanos += storeStart - readStart;
             slot = 0;
             int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
             int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
@@ -580,7 +853,12 @@ final class FaceRenderer {
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
-                    float shade = pending.cube && !pending.ownRenderer ? SIDE_SHADE[view] : 1f;
+                    float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
+                        : 1f;
+                    if (pending.shot != null) {
+                        pending.shot.shade[view] = shade;
+                    }
+                    long u0 = System.nanoTime();
                     for (int row = 0; row < pixels; row++) {
                         // Read back bottom-up; pictures are top-down.
                         int from = (sy + pixels - 1 - row) * SIZE + sx;
@@ -588,7 +866,36 @@ final class FaceRenderer {
                             image[row * pixels + column] = unshade(all[from + column], shade);
                         }
                     }
+                    long u1 = System.nanoTime();
+                    if (pending.shot != null) {
+                        BlockDiag.measure(image, pending.shot, view);
+                    }
+                    if (variant != 0) {
+                        // Only to compare, in the log: not a picture of the palette.
+                        continue;
+                    }
                     pending.ids[view] = palette.idOf(image);
+                    unshadeNanos += u1 - u0;
+                    idNanos += System.nanoTime() - u1;
+                }
+            }
+            storeNanos += System.nanoTime() - storeStart;
+            if (diagnose && variant == 0) {
+                for (Pending pending : batch) {
+                    BlockDiag.picture(
+                        pending.block,
+                        pending.lookKey,
+                        pending.tileEntity,
+                        pending.x,
+                        pending.y,
+                        pending.z,
+                        pending.cube,
+                        pending.exposed,
+                        pending.why,
+                        pending.ids,
+                        pending.views(),
+                        pending.shot);
+                    pending.shot = null;
                 }
             }
             failures = 0;
@@ -597,6 +904,7 @@ final class FaceRenderer {
             for (Pending pending : batch) {
                 Arrays.fill(pending.ids, 0);
             }
+            IsoLog.log("PICTURES_FAILED batch of " + batch.size() + ": " + t);
             if (++failures >= 5) {
                 // Something in this driver or the mods' renderers does not like this: no more pictures.
                 broken = true;
@@ -618,6 +926,76 @@ final class FaceRenderer {
         }
     }
 
+    /**
+     * For the log: whether the pictures just taken could have been skipped. Taken again only because they were too
+     * old, yet the same? The same as another tile entity's with the same block and surroundings (with and without
+     * its data)? All empty (and the block only open at the bottom)?
+     */
+    private static void checkSkippable(List<Pending> batch) {
+        for (Pending pending : batch) {
+            if (missing(pending)) {
+                continue;
+            }
+            boolean empty = true;
+            for (int view = 0; view < pending.views(); view++) {
+                empty &= pending.ids[view] == FacePalette.EMPTY;
+            }
+            if (empty) {
+                allEmpty++;
+                if (pending.exposed == 1) {
+                    allEmptyOnlyBottom++;
+                }
+            }
+            if (pending.oldIds != null) {
+                if (Arrays.equals(pending.oldIds, pending.ids)) {
+                    expiredSame++;
+                } else {
+                    expiredDiffer++;
+                }
+            }
+            if (pending.tileEntity == null) {
+                continue;
+            }
+            if (TWINS.size() > 200_000) {
+                TWINS.clear();
+                TWINS_WITH_DATA.clear();
+            }
+            long twin = pending.surroundings * 31 + pending.tileEntity.getClass()
+                .hashCode();
+            int[] other = TWINS.putIfAbsent(twin, pending.ids.clone());
+            if (other != null) {
+                if (Arrays.equals(other, pending.ids)) {
+                    sameAsTwin++;
+                } else {
+                    differFromTwin++;
+                }
+            }
+            long withData = twin * 31 + dataHash(pending.tileEntity);
+            int[] otherWithData = TWINS_WITH_DATA.putIfAbsent(withData, pending.ids.clone());
+            if (otherWithData != null) {
+                if (Arrays.equals(otherWithData, pending.ids)) {
+                    sameAsTwinWithData++;
+                } else {
+                    differFromTwinWithData++;
+                }
+            }
+        }
+    }
+
+    /** Hash of what a tile entity keeps, without where it is. */
+    private static int dataHash(TileEntity tileEntity) {
+        try {
+            net.minecraft.nbt.NBTTagCompound tag = new net.minecraft.nbt.NBTTagCompound();
+            tileEntity.writeToNBT(tag);
+            tag.removeTag("x");
+            tag.removeTag("y");
+            tag.removeTag("z");
+            return tag.hashCode();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** Whether a picture of the block wasn't taken (0: the palette had no room, or drawing failed). */
     private static boolean missing(Pending pending) {
         for (int view = 0; view < pending.views(); view++) {
@@ -636,6 +1014,14 @@ final class FaceRenderer {
         return slots;
     }
 
+    /** Keeps only what is within the block's column, and the margin around it (with the camera of the view set). */
+    private static void clipColumn(Pending pending, double margin) {
+        clip(0, 1, 0, -(pending.x - margin));
+        clip(1, -1, 0, pending.x + 1 + margin);
+        clip(2, 0, 1, -(pending.z - margin));
+        clip(3, 0, -1, pending.z + 1 + margin);
+    }
+
     /** Keeps what is on the positive side of a vertical plane: a * x + b * z + d >= 0 (world coordinates). */
     private static void clip(int plane, double a, double b, double d) {
         planeBuffer.clear();
@@ -649,7 +1035,8 @@ final class FaceRenderer {
     }
 
     /** The block as the world draws it, then its tile entity and those next to it (a double chest's other half). */
-    private static void drawBlock(Minecraft mc, RenderBlocks renderBlocks, Tessellator tessellator, Pending pending) {
+    private static void drawBlock(Minecraft mc, RenderBlocks renderBlocks, Tessellator tessellator, Pending pending,
+        boolean mirrored) {
         try {
             mc.getTextureManager()
                 .bindTexture(TextureMap.locationBlocksTexture);
@@ -660,6 +1047,16 @@ final class FaceRenderer {
         // renderers (connected glass, modded blocks, see-through parts) draw nothing when asked in another pass,
         // which left their sprites empty and the blocks invisible on the map.
         int worldPass = RenderPass.world(), entityPass = RenderPass.entity();
+        // See-through blocks (glass) with back faces culled, as the game draws the world: without it their far
+        // faces showed through the near ones, darker, as shadows inside the glass on the map.
+        BlockLooks.Look look = BlockLooks.get(pending.lookKey);
+        boolean cull = look.translucent || look.fullCube && !look.opaque || variant == 2;
+        if (cull) {
+            // The map's camera may be a mirror image: then the faces toward it wind the other way.
+            GL11.glFrontFace(mirrored ? GL11.GL_CW : GL11.GL_CCW);
+            GL11.glCullFace(GL11.GL_BACK);
+            GL11.glEnable(GL11.GL_CULL_FACE);
+        }
         try {
             for (int pass = 0; pass < 2; pass++) {
                 boolean inPass;
@@ -679,8 +1076,18 @@ final class FaceRenderer {
                     drawing = true;
                     renderBlocks.renderBlockByRenderType(pending.block, pending.x, pending.y, pending.z);
                     drawing = false;
-                    tessellator.draw();
+                    int bytes = tessellator.draw();
+                    if (pending.shot != null) {
+                        if (pass == 0) {
+                            pending.shot.passBytes0 = Math.max(0, pending.shot.passBytes0) + bytes;
+                        } else {
+                            pending.shot.passBytes1 = Math.max(0, pending.shot.passBytes1) + bytes;
+                        }
+                    }
                 } catch (RuntimeException e) {
+                    if (pending.shot != null && pending.shot.error == null) {
+                        pending.shot.error = "block renderer, pass " + pass + ": " + BlockDiag.error(e);
+                    }
                     if (drawing) {
                         try {
                             tessellator.draw();
@@ -689,15 +1096,27 @@ final class FaceRenderer {
                 }
             }
             RenderPass.setWorld(worldPass);
+            if (cull && variant != 2) {
+                // Tile entity renderers as before (their models may wind either way).
+                GL11.glDisable(GL11.GL_CULL_FACE);
+            }
             if (pending.tileEntity != null) {
+                if (variant == 3) {
+                    RenderHelper.enableStandardItemLighting();
+                }
                 for (int pass = 0; pass < 2; pass++) {
                     RenderPass.setEntity(pass);
                     drawTileEntities(pending, pass);
+                }
+                if (variant == 3) {
+                    RenderHelper.disableStandardItemLighting();
                 }
             }
         } finally {
             RenderPass.setWorld(worldPass);
             RenderPass.setEntity(entityPass);
+            GL11.glDisable(GL11.GL_CULL_FACE);
+            GL11.glFrontFace(GL11.GL_CCW);
         }
     }
 
@@ -718,13 +1137,143 @@ final class FaceRenderer {
                 if (!tileEntity.shouldRenderInPass(pass)) {
                     continue;
                 }
+                if (variant != 1) {
+                    // Its own model with room around; one next to it (a double chest's other half) only in this
+                    // column.
+                    clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN);
+                }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);
+                if (pending.shot != null) {
+                    pending.shot.tileEntitiesDrawn++;
+                }
             } catch (RuntimeException e) {
                 // A renderer that needs more than this; the block's own drawing stays.
+                if (pending.shot != null && pending.shot.error == null) {
+                    pending.shot.error = "tile entity renderer " + tileEntity.getClass()
+                        .getSimpleName() + ", pass " + pass + ": " + BlockDiag.error(e);
+                }
             }
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glDisable(GL11.GL_LIGHTING);
+        }
+    }
+
+    /**
+     * The game's shading of a side taken out: how much darker the side came out than its icon. Renderers shade in
+     * their own ways (GregTech's machine casings: the top as dark as the bottom), so it isn't taken from the game's
+     * usual numbers but measured; its usual number when it can't be (a tinted or unreadable icon, nothing drawn).
+     */
+    private static float sideShade(int[] all, int sx, int sy, int pixels, Pending pending, int side) {
+        float usual = SIDE_SHADE[side];
+        BlockLooks.Look look = BlockLooks.get(pending.lookKey);
+        BlockLooks.Texture icon = look.textures[side];
+        if (icon == null || icon.mips[0] == null || look.tint != BlockLooks.TINT_NONE && look.tintSide[side]) {
+            return usual;
+        }
+        double iconLight = meanLight(icon.mips[0], 0, 0, (int) Math.round(Math.sqrt(icon.mips[0].length)), 0);
+        double pictureLight = meanLight(all, sx, sy, pixels, SIZE);
+        if (iconLight <= 8 || pictureLight <= 0) {
+            return usual;
+        }
+        // Never brighter than the icon, never more than 2.5 times darker (a machine front darker than its icon).
+        return (float) Math.max(0.4, Math.min(1.0, pictureLight / iconLight));
+    }
+
+    /** Mean brightness of the drawn pixels of a square (of {@code stride} pixels per row, 0 for its own width). */
+    private static double meanLight(int[] pixels, int x0, int y0, int size, int stride) {
+        int width = stride == 0 ? size : stride;
+        long sum = 0;
+        int count = 0;
+        for (int y = 0; y < size; y++) {
+            int row = (y0 + y) * width + x0;
+            for (int x = 0; x < size; x++) {
+                int pixel = pixels[row + x];
+                if ((pixel >>> 24) >= 128) {
+                    sum += ((pixel >> 16) & 0xFF) * 299 + ((pixel >> 8) & 0xFF) * 587 + (pixel & 0xFF) * 114;
+                    count++;
+                }
+            }
+        }
+        return count == 0 ? 0 : sum / 1000.0 / count;
+    }
+
+    /** Whether the camera for a view (or a cube's side) is a mirror image, which turns faces' winding around. */
+    private static boolean mirrored(boolean cube, int view) {
+        double[] r;
+        if (cube) {
+            float[] m = SIDE_VIEWS[view];
+            r = new double[] { m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10] };
+        } else {
+            IsoProjection p = IsoProjection.of(view);
+            double sin = IsoProjection.SIN, cos = IsoProjection.COS;
+            r = new double[] { p.rightX, 0, p.rightZ, -sin * p.towardX, cos, -sin * p.towardZ, cos * p.towardX, sin,
+                cos * p.towardZ };
+        }
+        double det = r[0] * (r[4] * r[8] - r[5] * r[7]) - r[1] * (r[3] * r[8] - r[5] * r[6])
+            + r[2] * (r[3] * r[7] - r[4] * r[6]);
+        if (!cullLogged) {
+            cullLogged = true;
+            StringBuilder b = new StringBuilder("CAMERAS mirrored (faces wind the other way):");
+            for (int v = 0; v < ChunkBlocks.VIEWS; v++) {
+                b.append(" view")
+                    .append(v)
+                    .append('=')
+                    .append(mirrored(false, v));
+            }
+            for (int side = 0; side < 6; side++) {
+                b.append(" side")
+                    .append(side)
+                    .append('=')
+                    .append(mirrored(true, side));
+            }
+            IsoLog.log(b.toString());
+        }
+        return det < 0;
+    }
+
+    /**
+     * For the log: the first block of each kind drawn by a tile entity renderer is taken again in other ways (not cut
+     * to its column, back faces culled, the game's item lighting), saved as PNG to compare, to find why a model lacks
+     * parts on the map (a Blood Magic altar without sides).
+     */
+    private static void tryVariants(World world, List<Pending> batch, FacePalette palette) {
+        for (Pending pending : batch) {
+            if (pending.tileEntity == null || !pending.ownRenderer || !BlockDiag.wantsVariants(pending.lookKey)) {
+                continue;
+            }
+            for (int v = 1; v < VARIANTS.length; v++) {
+                Pending copy = new Pending(
+                    pending.cellIndex,
+                    pending.x,
+                    pending.y,
+                    pending.z,
+                    pending.block,
+                    pending.tileEntity,
+                    pending.surroundings,
+                    pending.cube,
+                    pending.ownRenderer);
+                copy.lookKey = pending.lookKey;
+                copy.exposed = pending.exposed;
+                copy.shot = new BlockDiag.Shot();
+                copy.shot.images = new int[copy.views()][];
+                variant = v;
+                try {
+                    draw(world, java.util.Collections.singletonList(copy), palette);
+                } finally {
+                    variant = 0;
+                }
+                BlockDiag.variant(
+                    copy.block,
+                    copy.lookKey,
+                    copy.x,
+                    copy.y,
+                    copy.z,
+                    VARIANTS[v],
+                    copy.cube,
+                    copy.views(),
+                    copy.shot);
+            }
         }
     }
 

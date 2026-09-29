@@ -1,6 +1,7 @@
 package WayFarMap.client.map.iso;
 
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -94,6 +95,21 @@ final class SurfaceFallback {
                         entry.explored[i] = in.readLong() != 0;
                     }
                     read = true;
+                    // Then the teammates' bits, then the chunks mapped for the flat map only (/wf chunkload 2d),
+                    // which the 3D map leaves out.
+                    for (int i = 0; i < 16; i++) {
+                        in.readLong();
+                    }
+                    for (int i = 0; i < 16; i++) {
+                        long bits = in.readLong();
+                        for (int b = 0; b < 64; b++) {
+                            if ((bits & 1L << b) != 0) {
+                                entry.explored[i * 64 + b] = false;
+                            }
+                        }
+                    }
+                } catch (EOFException e) {
+                    // Saved before those were kept.
                 } catch (IOException e) {
                     // Treated as all explored below.
                 }

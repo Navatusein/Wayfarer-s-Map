@@ -11,6 +11,7 @@ import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.WaypointRenderer;
@@ -54,6 +55,9 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(TeamMapClient.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(ChunkLoadClient.INSTANCE);
 
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
@@ -66,5 +70,10 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void receiveTeamMap(IMessage message) {
         TeamMapClient.INSTANCE.receive(message);
+    }
+
+    @Override
+    public void receiveChunkLoad(IMessage message) {
+        ChunkLoadClient.INSTANCE.receive(message);
     }
 }

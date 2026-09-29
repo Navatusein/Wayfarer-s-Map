@@ -115,11 +115,13 @@ public final class LodTile implements PixelSource {
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_GENERATE_MIPMAP, GL11.GL_TRUE);
             uploadPending = true;
+            FlatLog.textureMade(0, 0, true);
         } else {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
         }
         if (uploadPending) {
             uploadPending = false;
+            long start = System.nanoTime();
             if (uploadBuffer == null) {
                 uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
             }
@@ -140,6 +142,9 @@ public final class LodTile implements PixelSource {
                 GL12.GL_BGRA,
                 GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
                 uploadBuffer);
+            if (FlatLog.on()) {
+                FlatLog.uploaded(0, 0, SIZE, SIZE, System.nanoTime() - start, 0, true);
+            }
         }
     }
 

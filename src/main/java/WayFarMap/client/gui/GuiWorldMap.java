@@ -41,6 +41,7 @@ import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
+import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -67,8 +68,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_ROTATE = 16,
-        ID_EXPORT = 17;
+        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -101,9 +101,8 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton biomeButton;
     private IconButton gridButton;
     private IconButton mobsButton;
-    /** 3D (isometric) view on or off, and turning it by a quarter while on. */
+    /** 3D (isometric) view on or off (turned with Q / E). */
     private IconButton isoButton;
-    private IconButton rotateButton;
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
@@ -202,7 +201,6 @@ public class GuiWorldMap extends ScaledScreen {
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
-        rotateButton = new IconButton(ID_ROTATE, 0, 4, Icons.ROTATE, I18n.format("wayfarmap.gui.iso_rotate"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
         teamButton.visible = !TeamMates.INSTANCE.all()
             .isEmpty();
@@ -233,8 +231,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, rotateButton,
-            mobsButton, teamButton };
+        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
+            teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -556,7 +554,6 @@ public class GuiWorldMap extends ScaledScreen {
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
         isoButton.active = Config.isometric;
-        rotateButton.visible = Config.isometric;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, the dot tells which kind is left.
         int mobFilter = Config.getMobFilter();
@@ -585,8 +582,6 @@ public class GuiWorldMap extends ScaledScreen {
             updateLightButtons();
         } else if (button.id == ID_ISO) {
             toggleIso();
-        } else if (button.id == ID_ROTATE) {
-            rotateIso(1);
         } else if (button.id == ID_EXPORT) {
             openExportMenu();
         } else if (button.id == ID_BIOMES) {
@@ -838,6 +833,8 @@ public class GuiWorldMap extends ScaledScreen {
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
+        // An area being loaded with /wf chunkload: how far it got, and the time left.
+        String loadStatus = ChunkLoadClient.INSTANCE.statusText();
         if (exportStatus != null) {
             Theme.text(
                 fontRendererObj,
@@ -845,10 +842,15 @@ public class GuiWorldMap extends ScaledScreen {
                 helpButton.xPosition - 8 - fontRendererObj.getStringWidth(exportStatus),
                 height - 10,
                 Theme.ACCENT);
+        } else if (loadStatus != null) {
+            Theme.text(
+                fontRendererObj,
+                loadStatus,
+                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(loadStatus),
+                height - 10,
+                Theme.ACCENT);
         } else if (iso) {
-            int chunks = IsoMap.INSTANCE.chunksQueued(), queued = IsoMap.INSTANCE.tilesQueued();
-            String note = chunks > 0 ? I18n.format("wayfarmap.gui.iso_copying", chunks, queued)
-                : queued > 0 ? I18n.format("wayfarmap.gui.iso_drawing", queued) : I18n.format("wayfarmap.gui.iso_hint");
+            String note = I18n.format("wayfarmap.gui.iso_hint");
             Theme.text(
                 fontRendererObj,
                 note,
@@ -883,6 +885,14 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (iso) {
             drawQualitySlider(mouseX, mouseY);
+            if (!Config.record3d) {
+                // Nothing new comes onto the 3D map: it is drawn from the flat map where it has no blocks.
+                String warning = I18n.format("wayfarmap.gui.iso_not_recording");
+                int w = fontRendererObj.getStringWidth(warning);
+                int x = (width - w) / 2, y = height - FOOTER_HEIGHT - 16;
+                Theme.fill(x - 4, y - 3, x + w + 4, y + 11, Theme.LABEL_BG);
+                Theme.text(fontRendererObj, warning, x, y, Theme.DANGER);
+            }
         }
         if (searchAvailable()) {
             searchField.drawTextBox();

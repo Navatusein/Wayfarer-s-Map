@@ -36,6 +36,7 @@ import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.map.export.MapExport;
+import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.share.ChunkRecord;
@@ -473,12 +474,14 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         int rx = record.chunkX >> (MapRegion.SHIFT - 4), rz = record.chunkZ >> (MapRegion.SHIFT - 4);
         if (map == null || !map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+            FlatLog.shared(record.chunkX, record.chunkZ, "waiting");
             return false;
         }
         MapRegion region = map.getRegion(rx, rz, true);
         int localX = record.chunkX & (MapRegion.CHUNKS - 1), localZ = record.chunkZ & (MapRegion.CHUNKS - 1);
         if (region.getChunkTime(localX, localZ) >= record.time) {
             // Ours is as new or newer: keep it.
+            FlatLog.shared(record.chunkX, record.chunkZ, "ours newer");
             return true;
         }
         region.setChunkTime(localX, localZ, record.time, true);
@@ -519,7 +522,27 @@ public class MapManager implements IResourceManagerReloadListener {
         if (record.layer < 0) {
             IsoMap.INSTANCE.onFlatChunkChanged(dimension, record.chunkX, record.chunkZ);
         }
+        FlatLog.shared(record.chunkX, record.chunkZ, "written");
         return true;
+    }
+
+    /**
+     * What the chunk looks like from above, as one number (heights and top blocks), for the log: a scan or a
+     * "changed" mark with the same signature can't change the map.
+     */
+    static long surfaceSignature(Chunk chunk) {
+        long hash = 1125899906842597L;
+        for (int z = 0; z < 16; z++) {
+            for (int x = 0; x < 16; x++) {
+                int y = chunk.getHeightValue(x, z);
+                hash = hash * 31 + y;
+                if (y > 0) {
+                    hash = hash * 31 + Block.getIdFromBlock(chunk.getBlock(x, y - 1, z));
+                    hash = hash * 31 + chunk.getBlockMetadata(x, y - 1, z);
+                }
+            }
+        }
+        return hash == 0 ? 1 : hash;
     }
 
     private MapDimension getCaveLayer(int layer) {
@@ -553,11 +576,38 @@ public class MapManager implements IResourceManagerReloadListener {
         IsoMap.INSTANCE.onResourcesReloaded();
     }
 
+    /** For the log: chunks within the view distance the client doesn't have (the server hasn't sent them yet). */
+    private static int notLoadedInView(WorldClient world, EntityPlayer player, int radius) {
+        int pcx = MathHelper.floor_double(player.posX) >> 4, pcz = MathHelper.floor_double(player.posZ) >> 4;
+        int missing = 0;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (!ChunkScanner.isChunkReady(world, pcx + dx, pcz + dz)) {
+                    missing++;
+                }
+            }
+        }
+        return missing;
+    }
+
+    /** A gap between two ticks past this is a hitch (a tick is 50 ms). */
+    private static final long HITCH_NANOS = 150_000_000L;
+    /** For the log: when the last tick's map work ended, and how long that took. */
+    private long lastTickEnd, lastMapTick;
+
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
+        try {
+            clientTick();
+        } finally {
+            lastTickEnd = System.nanoTime();
+        }
+    }
+
+    private void clientTick() {
         Minecraft mc = Minecraft.getMinecraft();
         WorldClient world = mc.theWorld;
         if (world != currentWorld) {
@@ -572,8 +622,21 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
+        // Time mapping chunks let go by the game since the last tick (they are let go while its packets are handled).
+        long unloadsBefore = unloadNanos;
         unloadNanos = 0;
+        long tickStart = System.nanoTime();
+        if (FlatLog.on() && lastTickEnd != 0 && tickStart - lastTickEnd > HITCH_NANOS) {
+            FlatLog.hitch(
+                tickStart - lastTickEnd,
+                lastMapTick,
+                (mc.currentScreen instanceof GuiWorldMap ? "worldMapOpen" : "inGame")
+                    + (Config.isometric ? " 3D" : " 2D")
+                    + (ChunkLoadClient.INSTANCE.statusText() != null ? " chunkload" : ""));
+        }
+        long isoStart = System.nanoTime();
         IsoMap.INSTANCE.tick(world);
+        long isoNanos = System.nanoTime() - isoStart;
         MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
 
@@ -584,6 +647,28 @@ public class MapManager implements IResourceManagerReloadListener {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, Math.max(1, budget / 4));
         } else {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, budget);
+        }
+        lastMapTick = System.nanoTime() - tickStart + unloadsBefore;
+        FlatLog.mapTick(lastMapTick, isoNanos, unloadsBefore);
+        if (FlatLog.on()) {
+            int regionCount = 0, lodCount = 0, textureCount = 0, pendingCount = 0;
+            for (MapDimension map : allMaps()) {
+                regionCount += map.regionCount();
+                lodCount += map.lodCount();
+                textureCount += map.textureCount();
+                pendingCount += map.pendingCount();
+            }
+            FlatLog.stats(
+                regionCount,
+                lodCount,
+                textureCount,
+                pendingCount,
+                surfaceTracker.queueSize() + caveTracker.queueSize(),
+                surfaceTracker.settlingSize() + caveTracker.settlingSize(),
+                mc.thePlayer.posX,
+                mc.thePlayer.posZ,
+                mc.gameSettings.renderDistanceChunks,
+                notLoadedInView(world, mc.thePlayer, mc.gameSettings.renderDistanceChunks));
         }
 
         if (tick % 100 == 0 && !others.isEmpty()) {
@@ -644,12 +729,39 @@ public class MapManager implements IResourceManagerReloadListener {
         return solid >= UNDERGROUND_ROOF;
     }
 
+    /**
+     * Maps a chunk sent for {@code /wf chunkload} (surface and biomes, shared with the team as any other). False if
+     * it can't be yet (its regions are being read, or no world): tried again next tick.
+     */
+    public boolean scanForLoad(Chunk chunk, boolean with3d) {
+        if (currentWorld == null || surface == null || chunk == null || chunk.isEmpty()) {
+            return currentWorld == null || chunk == null || chunk.isEmpty();
+        }
+        return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes, with3d);
+    }
+
+    /** For the log: when the game loaded each chunk. */
+    @SubscribeEvent
+    public void onChunkLoad(ChunkEvent.Load event) {
+        Chunk chunk = event.getChunk();
+        if (event.world != null && event.world.isRemote && event.world == currentWorld && chunk != null) {
+            FlatLog.loaded(chunk.xPosition, chunk.zPosition);
+        }
+    }
+
     /** A chunk the game lets go of: the 3D map keeps the ones left at the edge of the explored map whole. */
     @SubscribeEvent
     public void onChunkUnload(ChunkEvent.Unload event) {
         World world = event.world;
         Chunk chunk = event.getChunk();
-        if (world != null && world.isRemote && world == currentWorld && chunk != null && surface != null) {
+        if (world != null && world.isRemote && world == currentWorld && chunk != null) {
+            FlatLog.unloaded(chunk.xPosition, chunk.zPosition);
+        }
+        if (world != null && world.isRemote
+            && world == currentWorld
+            && chunk != null
+            && surface != null
+            && !ChunkLoadClient.INSTANCE.isLettingGo()) {
             // Flying fast, chunks can come and go before their turn: one never mapped is mapped now, while its
             // blocks are still there.
             long start = System.nanoTime();
@@ -710,6 +822,7 @@ public class MapManager implements IResourceManagerReloadListener {
         biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
         lastAutosave = System.currentTimeMillis();
         IsoMap.INSTANCE.open(worldDirectory);
+        FlatLog.open(mc.mcDataDir, dimensionDirectory, dimensionId);
         WayFarMap.LOG.info("Map data for dimension {} is stored in {}", dimensionId, dimensionDirectory);
     }
 
@@ -731,6 +844,7 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         // Saves the blocks of the 3D map and waits for it too.
         IsoMap.INSTANCE.close();
+        FlatLog.close();
         BiomeHighlight.clear();
         viewed = null;
         others.clear();
@@ -855,20 +969,118 @@ public class MapManager implements IResourceManagerReloadListener {
                 settling.put(key, state);
                 if (surface) {
                     chunk.isModified = false;
+                    IsoLog.seen(chunk.xPosition, chunk.zPosition, allAroundReady(world, chunk));
+                }
+                if (FlatLog.on()) {
+                    FlatLog.seen(
+                        chunk.xPosition,
+                        chunk.zPosition,
+                        missingNeighbours(world, chunk),
+                        where(chunk),
+                        surfaceSignature(chunk));
+                    if (surface) {
+                        FlatLog.arrived(chunk.xPosition, chunk.zPosition, ArrivalCheck.take(world, chunk));
+                    }
                 }
                 return false;
             }
             if (tick - state[0] >= SETTLE_MAX_TICKS) {
+                if (surface && IsoLog.enabled()) {
+                    IsoLog.settled(
+                        chunk.xPosition,
+                        chunk.zPosition,
+                        "timeout(neighboursReady=" + allAroundReady(world, chunk)
+                            + ", quietTicks="
+                            + (tick - state[1])
+                            + ")",
+                        tick - state[0]);
+                }
+                if (FlatLog.on()) {
+                    FlatLog.settled(
+                        chunk.xPosition,
+                        chunk.zPosition,
+                        true,
+                        tick - state[1],
+                        missingNeighbours(world, chunk),
+                        where(chunk),
+                        atEdge(chunk),
+                        tick - state[0]);
+                }
                 return true;
             }
             if (surface && chunk.isModified) {
                 chunk.isModified = false;
                 state[1] = tick;
+                if (FlatLog.on()) {
+                    FlatLog.marked(chunk.xPosition, chunk.zPosition, surfaceSignature(chunk));
+                }
                 return false;
             }
             if (tick - state[1] < SETTLE_QUIET_TICKS) {
                 return false;
             }
+            if (!allAroundReady(world, chunk)) {
+                return false;
+            }
+            if (surface) {
+                IsoLog.settled(chunk.xPosition, chunk.zPosition, "quiet+neighbours", tick - state[0]);
+            }
+            if (FlatLog.on()) {
+                FlatLog.settled(
+                    chunk.xPosition,
+                    chunk.zPosition,
+                    false,
+                    tick - state[1],
+                    "",
+                    where(chunk),
+                    atEdge(chunk),
+                    tick - state[0]);
+            }
+            return true;
+        }
+
+        /** The neighbours not loaded (for the log): "+x-z,-x" style, empty if all are. */
+        private String missingNeighbours(WorldClient world, Chunk chunk) {
+            StringBuilder missing = new StringBuilder();
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((dx != 0 || dz != 0)
+                        && !ChunkScanner.isChunkReady(world, chunk.xPosition + dx, chunk.zPosition + dz)) {
+                        if (missing.length() > 0) {
+                            missing.append(',');
+                        }
+                        missing.append(dx < 0 ? "-x" : dx > 0 ? "+x" : "")
+                            .append(dz < 0 ? "-z" : dz > 0 ? "+z" : "");
+                    }
+                }
+            }
+            return missing.toString();
+        }
+
+        /** Chunks from the player (the larger of x and z), for the log. */
+        private int distance(Chunk chunk) {
+            EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+            if (player == null) {
+                return -1;
+            }
+            return Math.max(
+                Math.abs(chunk.xPosition - (MathHelper.floor_double(player.posX) >> 4)),
+                Math.abs(chunk.zPosition - (MathHelper.floor_double(player.posZ) >> 4)));
+        }
+
+        /** At the edge of the area the server sends: the chunks past it come only when the player gets closer. */
+        private boolean atEdge(Chunk chunk) {
+            return distance(chunk) >= Minecraft.getMinecraft().gameSettings.renderDistanceChunks;
+        }
+
+        private String where(Chunk chunk) {
+            return "distance=" + distance(chunk)
+                + "/"
+                + Minecraft.getMinecraft().gameSettings.renderDistanceChunks
+                + (atEdge(chunk) ? " (edge)" : "");
+        }
+
+        private boolean allAroundReady(WorldClient world, Chunk chunk) {
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     if ((dx != 0 || dz != 0)
@@ -890,16 +1102,75 @@ public class MapManager implements IResourceManagerReloadListener {
             int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
             // Only if its regions are in memory: waiting for the disk here would freeze the game.
             if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                FlatLog.unloadScan(
+                    chunk.xPosition,
+                    chunk.zPosition,
+                    "SKIPPED region not in memory (being read), never scanned=" + !scanned);
+                IsoLog.log(
+                    "UNLOAD_SCAN_SKIPPED " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " flat region not in memory, never scanned="
+                        + !scanned);
                 return;
             }
-            scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
+            FlatLog.unloadScan(chunk.xPosition, chunk.zPosition, scanned ? "scanned (changed)" : "scanned (never was)");
+            unloading = true;
+            try {
+                scanChunk(world, chunk, map, -1, biomeMap, rx, rz, scanned);
+            } finally {
+                unloading = false;
+            }
             lastScanTick.put(key, tick);
             settling.remove(key);
         }
 
-        /** @param changed scanned before, and its blocks changed since */
+        /** While a chunk let go by the game is scanned (for the log). */
+        private boolean unloading;
+
+        /**
+         * Maps a chunk of {@code /wf chunkload} now (its surface and biomes; not queued for the 3D map, the loading
+         * does that itself). False if its regions are still being read: tried again next tick.
+         */
+        boolean scanForLoad(WorldClient world, Chunk chunk, MapDimension map, MapDimension biomeMap, boolean with3d) {
+            int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
+            boolean surfaceReady = map.prepareRegion(rx, rz);
+            boolean biomesReady = biomeMap == null || biomeMap.prepareRegion(rx, rz);
+            if (!surfaceReady || !biomesReady) {
+                FlatLog.deferred(
+                    chunk.xPosition,
+                    chunk.zPosition,
+                    map.label() + " (chunkload)",
+                    surfaceReady,
+                    biomesReady);
+                return false;
+            }
+            // A chunk new to the map, mapped for the flat map only, isn't drawn on the 3D map from the flat map.
+            MapRegion region = map.getRegion(rx, rz, true);
+            int lx = chunk.xPosition & (MapRegion.CHUNKS - 1), lz = chunk.zPosition & (MapRegion.CHUNKS - 1);
+            boolean flatOnly = !with3d && (region.getChunkTime(lx, lz) == 0 || region.isFlatOnly(lx, lz));
+            scanChunk(world, chunk, map, -1, biomeMap, rx, rz, false, false);
+            region.setFlatOnly(lx, lz, flatOnly);
+            FlatLog.log(
+                "CHUNKLOAD_SCAN " + chunk.xPosition
+                    + ","
+                    + chunk.zPosition
+                    + (with3d ? " 3D" : " 2D")
+                    + (flatOnly ? " flat map only (not on the 3D map)" : ""));
+            return true;
+        }
+
         private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
             int rx, int rz, boolean changed) {
+            scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, changed, true);
+        }
+
+        /**
+         * @param changed scanned before, and its blocks changed since
+         * @param for3d   the 3D map is told (it copies the chunk's blocks soon)
+         */
+        private void scanChunk(WorldClient world, Chunk chunk, MapDimension map, int caveLayer, MapDimension biomeMap,
+            int rx, int rz, boolean changed, boolean for3d) {
             int cx = chunk.xPosition, cz = chunk.zPosition;
             try {
                 // The game marks a chunk changed when its blocks or light change (the client never saves chunks,
@@ -910,14 +1181,43 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 MapRegion before = map.getLoadedRegion(rx, rz);
                 int changesBefore = before == null ? -1 : before.getChanges();
+                long onMapSince = before == null ? 0
+                    : before.getChunkTime(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1));
+                ArrivalCheck.Snapshot arrived = caveLayer < 0 ? FlatLog.takeArrival(cx, cz) : null;
+                int[] arrival = null;
+                if (arrived != null) {
+                    arrival = new int[8];
+                    ArrivalCheck.compare(chunk, arrived, world.provider.hasNoSky, arrival);
+                }
+                long scanStart = System.nanoTime();
                 ChunkScanner.scan(world, chunk, map, caveLayer, biomeMap);
-                if (caveLayer < 0) {
+                if (caveLayer < 0 && for3d) {
+                    IsoLog.scanned(cx, cz, changed, changed && modified, modified, System.nanoTime() - scanStart);
                     // The 3D map keeps the surface's blocks.
                     // Copied again soon only if its blocks really changed: a chunk scanned again on schedule is
                     // copied again rarely, instead of taking the time of new chunks.
                     IsoMap.INSTANCE.onChunkScanned(world, chunk, changed && modified);
                 }
                 MapRegion scanned = map.getLoadedRegion(rx, rz);
+                if (FlatLog.on()) {
+                    String why = !for3d ? "chunkload"
+                        : unloading ? (changed ? "unloading(changed)" : "unloading(never scanned)")
+                            : !changed ? "new" : modified ? "changed" : "rescan";
+                    FlatLog.scanned(
+                        cx,
+                        cz,
+                        caveLayer,
+                        why,
+                        System.nanoTime() - scanStart,
+                        scanned == null ? 0 : scanned.getChanges() - Math.max(0, changesBefore),
+                        before == null,
+                        map.label(),
+                        caveLayer < 0 ? surfaceSignature(chunk) : 0,
+                        onMapSince);
+                    if (arrival != null) {
+                        FlatLog.arrival(cx, cz, arrival, System.nanoTime() - arrived.at, why);
+                    }
+                }
                 // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
                 // again and again isn't saved again each time (and teammates' newer versions still win).
                 boolean same = scanned != null && scanned == before
@@ -928,6 +1228,10 @@ public class MapManager implements IResourceManagerReloadListener {
                         cx & (MapRegion.CHUNKS - 1),
                         cz & (MapRegion.CHUNKS - 1),
                         System.currentTimeMillis());
+                }
+                if (scanned != null && caveLayer < 0 && for3d) {
+                    // Mapped as usual: the 3D map has its blocks, or else draws it from the flat map.
+                    scanned.setFlatOnly(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1), false);
                 }
                 TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
             } catch (Exception e) {
@@ -949,7 +1253,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 nextQueueBuild = tick + QUEUE_REBUILD_TICKS;
                 queuedAround = around;
             }
-            long end = System.nanoTime() + SCAN_BUDGET_NANOS;
+            long tickStart = System.nanoTime();
+            long end = tickStart + SCAN_BUDGET_NANOS;
+            int budgetGiven = budget, deferredCount = 0;
             boolean first = true;
             while (budget > 0 && !queue.isEmpty() && (first || System.nanoTime() < end)) {
                 first = false;
@@ -962,7 +1268,14 @@ public class MapManager implements IResourceManagerReloadListener {
                 // Reading a region from disk takes tens of milliseconds: it is done in the background, and the
                 // chunk is scanned on a later tick instead of freezing the game (both reads start right away).
                 int rx = cx >> (MapRegion.SHIFT - 4), rz = cz >> (MapRegion.SHIFT - 4);
-                if (!map.prepareRegion(rx, rz) | (biomeMap != null && !biomeMap.prepareRegion(rx, rz))) {
+                boolean surfaceReady = map.prepareRegion(rx, rz);
+                boolean biomesReady = biomeMap == null || biomeMap.prepareRegion(rx, rz);
+                if (!surfaceReady || !biomesReady) {
+                    if (surface) {
+                        IsoLog.scanDeferred(cx, cz);
+                    }
+                    FlatLog.deferred(cx, cz, map.label(), surfaceReady, biomesReady);
+                    deferredCount++;
                     continue;
                 }
                 Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
@@ -971,9 +1284,28 @@ public class MapManager implements IResourceManagerReloadListener {
                 settling.remove(key);
                 budget--;
             }
+            if (FlatLog.on()) {
+                FlatLog.tick(
+                    caveLayer,
+                    budgetGiven - budget,
+                    deferredCount,
+                    queue.size(),
+                    System.nanoTime() - tickStart,
+                    budgetGiven);
+            }
+        }
+
+        int queueSize() {
+            return queue.size();
+        }
+
+        int settlingSize() {
+            return settling.size();
         }
 
         private void buildQueue(Minecraft mc, WorldClient world, EntityPlayer player) {
+            long buildStart = System.nanoTime();
+            int loaded = 0, fresh = 0, changedCount = 0, rescans = 0;
             int pcx = MathHelper.floor_double(player.posX) >> 4;
             int pcz = MathHelper.floor_double(player.posZ) >> 4;
             int radius = mc.gameSettings.renderDistanceChunks + 1;
@@ -1010,6 +1342,7 @@ public class MapManager implements IResourceManagerReloadListener {
                     if (!ChunkScanner.isChunkReady(world, cx, cz)) {
                         continue;
                     }
+                    loaded++;
                     boolean changed = false;
                     if (last == null && !settled(world, world.getChunkFromChunkCoords(cx, cz), key)) {
                         continue;
@@ -1027,6 +1360,13 @@ public class MapManager implements IResourceManagerReloadListener {
                             continue;
                         }
                     }
+                    if (last == null) {
+                        fresh++;
+                    } else if (changed) {
+                        changedCount++;
+                    } else {
+                        rescans++;
+                    }
                     long priority = (last == null ? 0 : changed ? 500 : 1000) + distance;
                     candidates.add(new long[] { priority, key });
                 }
@@ -1034,6 +1374,17 @@ public class MapManager implements IResourceManagerReloadListener {
             Collections.sort(candidates, (a, b) -> Long.compare(a[0], b[0]));
             for (long[] candidate : candidates) {
                 queue.add(candidate[1]);
+            }
+            if (FlatLog.on()) {
+                FlatLog.queueBuilt(
+                    surface ? -1 : activeCaveLayer,
+                    radius,
+                    loaded,
+                    fresh,
+                    changedCount,
+                    rescans,
+                    settling.size(),
+                    System.nanoTime() - buildStart);
             }
         }
     }

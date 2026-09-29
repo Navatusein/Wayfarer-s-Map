@@ -181,7 +181,7 @@ public class MinimapRenderer {
         GL11.glTranslated(-inner / 2.0, -inner / 2.0, 0);
         MapDrawer.iconRotation = rotation;
         try {
-            MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner);
+            MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
             if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }

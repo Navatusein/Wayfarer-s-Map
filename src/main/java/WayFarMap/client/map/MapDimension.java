@@ -34,10 +34,42 @@ public class MapDimension {
         boolean keep(int rx, int rz);
     }
 
+    /** Short name of the map for the flat map log (surface, biomes, cave layer folder). */
+    private final String label;
+
     public MapDimension(int dimensionId, File directory, ExecutorService loadExecutor) {
         this.dimensionId = dimensionId;
         this.directory = directory;
         this.loadExecutor = loadExecutor;
+        // dimN, dimN/biomes, dimN/caves/L
+        File parent = directory.getParentFile();
+        String name = directory.getName();
+        if (parent != null && parent.getName()
+            .equals("caves")) {
+            File dim = parent.getParentFile();
+            this.label = (dim == null ? "" : dim.getName() + "/") + "cave" + name;
+        } else if (parent != null && name.equals("biomes")) {
+            this.label = parent.getName() + "/biomes";
+        } else {
+            this.label = name;
+        }
+    }
+
+    /** Short name of the map for the log. */
+    String label() {
+        return label;
+    }
+
+    /** Who asked for a region from the render thread, for the log (not the scanner's own frames). */
+    private static String caller() {
+        StackTraceElement[] stack = new Throwable().getStackTrace();
+        for (int i = 2; i < stack.length && i < 8; i++) {
+            String cls = stack[i].getClassName();
+            if (!cls.endsWith("MapDimension")) {
+                return cls.substring(cls.lastIndexOf('.') + 1) + "." + stack[i].getMethodName();
+            }
+        }
+        return "?";
     }
 
     /** Folder of the region files. */
@@ -76,6 +108,11 @@ public class MapDimension {
         return tile == null ? 0 : tile.getExtra(lx / LodTile.FACTOR, lz / LodTile.FACTOR);
     }
 
+    /** Whether the region is known to have no file (and none was made): nothing to draw there. */
+    public boolean isKnownMissing(int rx, int rz) {
+        return missing.contains(key(rx, rz));
+    }
+
     /** Region that is already in memory, or null. */
     public MapRegion getLoadedRegion(int rx, int rz) {
         return regions.get(key(rx, rz));
@@ -94,10 +131,23 @@ public class MapDimension {
             return region;
         }
         Future<MapRegion> pending = loading.remove(key);
+        boolean log = FlatLog.on();
         if (pending != null) {
+            boolean done = pending.isDone();
+            long start = System.nanoTime();
             region = await(pending);
+            if (log) {
+                if (!done) {
+                    FlatLog.blockingRead(label, rx, rz, System.nanoTime() - start, true, caller());
+                }
+                FlatLog.picked(label, rx, rz, region != null, caller() + (done ? "" : "(waited)"));
+            }
         } else if (!missing.contains(key)) {
-            region = readFile(directory, rx, rz);
+            long start = System.nanoTime();
+            region = readFile(directory, rx, rz, label);
+            if (log) {
+                FlatLog.blockingRead(label, rx, rz, System.nanoTime() - start, false, caller());
+            }
         }
         if (region == null) {
             missing.add(key);
@@ -106,6 +156,7 @@ public class MapDimension {
             }
             region = new MapRegion(rx, rz);
             missing.remove(key);
+            FlatLog.made(label, rx, rz);
         }
         regions.put(key, region);
         return region;
@@ -123,8 +174,7 @@ public class MapDimension {
         }
         Future<MapRegion> pending = loading.get(key);
         if (pending == null) {
-            final File dir = directory;
-            loading.put(key, loadExecutor.submit(() -> readFile(dir, rx, rz)));
+            startRead(key, rx, rz, "draw");
             return null;
         }
         if (!pending.isDone()) {
@@ -132,6 +182,7 @@ public class MapDimension {
         }
         loading.remove(key);
         region = await(pending);
+        FlatLog.picked(label, rx, rz, region != null, "draw");
         if (region == null) {
             missing.add(key);
         } else {
@@ -151,12 +202,18 @@ public class MapDimension {
         }
         Future<MapRegion> pending = loading.get(key);
         if (pending == null) {
-            final File dir = directory;
-            loading.put(key, loadExecutor.submit(() -> readFile(dir, rx, rz)));
+            startRead(key, rx, rz, "scan");
             return false;
         }
         // A finished read is picked up by getRegion without waiting.
         return pending.isDone();
+    }
+
+    private void startRead(long key, int rx, int rz, String why) {
+        final File dir = directory;
+        final String name = label;
+        loading.put(key, loadExecutor.submit(() -> readFile(dir, rx, rz, name)));
+        FlatLog.readAsked(label, rx, rz, why, loading.size() + lodLoading.size());
     }
 
     /** How often a reduced copy of a region that keeps changing (around the player) is rebuilt. */
@@ -173,12 +230,16 @@ public class MapDimension {
         MapRegion region = regions.get(key);
         if (region != null) {
             if (tile == null) {
+                long start = System.nanoTime();
                 tile = new LodTile();
                 tile.update(region);
                 lods.put(key, tile);
+                FlatLog.lod(label, rx, rz, "region in memory", System.nanoTime() - start);
             } else if (tile.sourceChanges != region.getChanges()
                 && System.currentTimeMillis() - tile.builtAt >= LOD_REBUILD_MS) {
+                    long start = System.nanoTime();
                     tile.update(region);
+                    FlatLog.lod(label, rx, rz, "region changed", System.nanoTime() - start);
                 }
             return tile;
         }
@@ -188,10 +249,18 @@ public class MapDimension {
         Future<LodTile> pending = lodLoading.get(key);
         if (pending == null) {
             final File dir = directory;
+            final String name = label;
             lodLoading.put(key, loadExecutor.submit(() -> {
-                MapRegion read = readFile(dir, rx, rz);
-                return read == null ? null : LodTile.of(read.pixelArray(), read.extraArray());
+                MapRegion read = readFile(dir, rx, rz, name);
+                if (read == null) {
+                    return null;
+                }
+                long start = System.nanoTime();
+                LodTile built = LodTile.of(read.pixelArray(), read.extraArray());
+                FlatLog.lod(name, rx, rz, "file", System.nanoTime() - start);
+                return built;
             }));
+            FlatLog.readAsked(label, rx, rz, "reduced", loading.size() + lodLoading.size());
             return null;
         }
         if (!pending.isDone()) {
@@ -204,6 +273,7 @@ public class MapDimension {
             WayFarMap.LOG.warn("Could not load map region", e);
             tile = null;
         }
+        FlatLog.picked(label, rx, rz, tile != null, "reduced");
         if (tile == null) {
             missing.add(key);
         } else {
@@ -221,15 +291,40 @@ public class MapDimension {
         }
     }
 
-    private static MapRegion readFile(File directory, int rx, int rz) {
+    private static MapRegion readFile(File directory, int rx, int rz, String label) {
+        long start = System.nanoTime();
         File file = MapRegion.getFile(directory, rx, rz);
         if (!file.isFile()) {
+            if (FlatLog.on()) {
+                FlatLog.read(label, rx, rz, System.nanoTime() - start, 0, "-", "NO_FILE");
+            }
             return null;
         }
         try {
-            return MapRegion.read(file, rx, rz);
+            MapRegion region = MapRegion.read(file, rx, rz);
+            if (FlatLog.on()) {
+                FlatLog.read(
+                    label,
+                    rx,
+                    rz,
+                    System.nanoTime() - start,
+                    MapRegion.bytesOnDisk(file),
+                    MapRegion.partsOnDisk(file),
+                    "OK");
+            }
+            return region;
         } catch (Exception e) {
             WayFarMap.LOG.warn("Could not load map region " + file, e);
+            if (FlatLog.on()) {
+                FlatLog.read(
+                    label,
+                    rx,
+                    rz,
+                    System.nanoTime() - start,
+                    MapRegion.bytesOnDisk(file),
+                    MapRegion.partsOnDisk(file),
+                    "FAILED " + e);
+            }
             return null;
         }
     }
@@ -237,22 +332,45 @@ public class MapDimension {
     /** Queues all modified regions for writing on the given executor. */
     public List<Future<?>> save(ExecutorService executor) {
         List<Future<?>> futures = new ArrayList<>();
+        long copyTotal = 0;
+        final String name = label;
         for (MapRegion region : regions.values()) {
             if (!region.isSaveDirty()) {
                 continue;
             }
+            final int changed = region.getChanges() - region.changesAtSave;
+            region.changesAtSave = region.getChanges();
+            long copyStart = System.nanoTime();
             final MapRegion.Snapshot data = region.snapshotForSave();
+            long copy = System.nanoTime() - copyStart;
+            copyTotal += copy;
+            FlatLog.saveCopy(label, region.rx, region.rz, copy);
             final File file = MapRegion.getFile(directory, region.rx, region.rz);
+            final long queued = System.nanoTime();
             futures.add(executor.submit(() -> {
+                long start = System.nanoTime();
+                String result = "OK";
                 try {
                     MapRegion.write(file, data);
                 } catch (Exception e) {
                     WayFarMap.LOG.warn("Could not save map region " + file, e);
+                    result = "FAILED " + e;
                 } finally {
                     region.onSaved();
                 }
+                if (FlatLog.on()) {
+                    FlatLog.saved(
+                        name,
+                        region.rx,
+                        region.rz,
+                        System.nanoTime() - start,
+                        MapRegion.bytesOnDisk(file),
+                        MapRegion.partsOnDisk(file),
+                        result + " queuedMs=" + FlatLog.ms(start - queued) + " changesSinceLastSave=" + changed);
+                }
             }));
         }
+        FlatLog.saveRound(label, futures.size(), copyTotal);
         return futures;
     }
 
@@ -266,6 +384,8 @@ public class MapDimension {
      * again when needed) and background reads that nobody waits for anymore. Changed regions stay until saved.
      */
     public void retain(RegionFilter filter) {
+        int freed = 0, keptUnsaved = 0, textures = 0, lodsFreed = 0;
+        int cancelled = loading.size() + lodLoading.size();
         Iterator<MapRegion> it = regions.values()
             .iterator();
         while (it.hasNext()) {
@@ -273,9 +393,15 @@ public class MapDimension {
             if (filter.keep(region.rx, region.rz)) {
                 continue;
             }
+            if (region.hasTexture()) {
+                textures++;
+            }
             region.deleteTexture();
             if (!region.isSaveDirty() && !region.isSaving()) {
                 it.remove();
+                freed++;
+            } else {
+                keptUnsaved++;
             }
         }
         Iterator<Map.Entry<Long, LodTile>> lodIt = lods.entrySet()
@@ -286,10 +412,13 @@ public class MapDimension {
                 entry.getValue()
                     .deleteTexture();
                 lodIt.remove();
+                lodsFreed++;
             }
         }
         dropPending(loading, filter);
         dropPending(lodLoading, filter);
+        cancelled -= loading.size() + lodLoading.size();
+        FlatLog.retained(label, freed, keptUnsaved, textures, lodsFreed, cancelled, regions.size());
     }
 
     /** Cancels background reads outside the filter; a read already running just finishes and is dropped. */
@@ -312,6 +441,34 @@ public class MapDimension {
 
     private static int rz(long key) {
         return (int) key;
+    }
+
+    /** For the log's statistics: regions and reduced copies in memory, textures, background reads. */
+    int regionCount() {
+        return regions.size();
+    }
+
+    int lodCount() {
+        return lods.size();
+    }
+
+    int textureCount() {
+        int count = 0;
+        for (MapRegion region : regions.values()) {
+            if (region.hasTexture()) {
+                count++;
+            }
+        }
+        for (LodTile tile : lods.values()) {
+            if (tile.hasTexture()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    int pendingCount() {
+        return loading.size() + lodLoading.size();
     }
 
     public void deleteTextures() {

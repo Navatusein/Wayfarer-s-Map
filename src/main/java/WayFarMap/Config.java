@@ -24,9 +24,23 @@ public class Config {
     public static final String CATEGORY_MAP = "map";
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
+    public static final String CATEGORY_LOGS = "logs";
+    public static final String CATEGORY_COMMANDS = "commands";
+    /**
+     * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
+     * nothing set before is lost).
+     */
+    public static final String TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Categories in the order the settings screen shows them. */
-    public static final List<String> CATEGORIES = Collections
-        .unmodifiableList(Arrays.asList(CATEGORY_MINIMAP, CATEGORY_MAP, CATEGORY_ENTITIES, CATEGORY_WAYPOINTS));
+    public static final List<String> CATEGORIES = Collections.unmodifiableList(
+        Arrays.asList(
+            CATEGORY_MINIMAP,
+            TAB_MAP_2D,
+            TAB_MAP_3D,
+            CATEGORY_ENTITIES,
+            CATEGORY_WAYPOINTS,
+            CATEGORY_COMMANDS,
+            CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
@@ -69,7 +83,23 @@ public class Config {
     /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
     public static int isoCaptureMs = 5;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
-    public static boolean record3d = true;
+    public static boolean record3d = false;
+    /**
+     * Write a detailed log of how chunks get onto the 3D map ({@code .minecraft/wayfarmap/logs/3d-*.log}), for finding
+     * why some take long.
+     */
+    public static boolean log3d = false;
+    /**
+     * Write a detailed log of the flat map ({@code .minecraft/wayfarmap/logs/2d-*.log}): chunks scanned, regions read,
+     * saved and drawn, for finding what is slow or wrong.
+     */
+    public static boolean log2d = false;
+    /** {@code /wf chunkload}: server milliseconds per tick for loading and generating chunks. */
+    public static int chunkloadServerMs = 20;
+    /** {@code /wf chunkload}: chunks per side of a batch (a new command takes it). */
+    public static int chunkloadBatch = 8;
+    /** {@code /wf chunkload}: client milliseconds per tick for mapping a batch's chunks. */
+    public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
     public static boolean showUndergroundFluids = false;
@@ -104,6 +134,8 @@ public class Config {
     private static String currentGroup = "";
     /** Switch the options declared next depend on (shown under it), or null. */
     private static BoolOption currentParent;
+    /** Tab the options declared next are shown on, or null for their category's (see {@link #tab}). */
+    private static String currentTab;
 
     static {
         String c = CATEGORY_MINIMAP;
@@ -161,6 +193,7 @@ public class Config {
             v -> minimapShowBiome = v);
 
         c = CATEGORY_MAP;
+        tab(TAB_MAP_2D);
         group("view");
         parent(null);
         choice(
@@ -210,6 +243,7 @@ public class Config {
             true,
             () -> useTextureColors,
             v -> useTextureColors = v);
+        tab(TAB_MAP_3D);
         group("iso");
         parent(null);
         bool(
@@ -253,7 +287,7 @@ public class Config {
             c,
             "record3d",
             "Keep the blocks of explored chunks for the 3D world map (dim<id>/blocks, a few MB per region).",
-            true,
+            false,
             () -> record3d,
             v -> record3d = v);
         parent("record3d");
@@ -268,6 +302,7 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
+        tab(TAB_MAP_2D);
         group("layers");
         parent(null);
         bool(
@@ -342,6 +377,7 @@ public class Config {
             () -> shareMapWithTeam,
             v -> shareMapWithTeam = v);
 
+        tab(null);
         c = CATEGORY_ENTITIES;
         group("shown");
         parent(null);
@@ -457,6 +493,63 @@ public class Config {
             10,
             () -> waypointLabelMaxWidth,
             v -> waypointLabelMaxWidth = v);
+
+        c = CATEGORY_LOGS;
+        group("logs");
+        parent(null);
+        bool(
+            c,
+            "log3d",
+            "Write a detailed log of how chunks get onto the 3D map (.minecraft/wayfarmap/logs/3d-*.log), to find out "
+                + "why some take long. Takes effect when a world is joined.",
+            false,
+            () -> log3d,
+            v -> log3d = v);
+        bool(
+            c,
+            "log2d",
+            "Write a detailed log of the flat map (.minecraft/wayfarmap/logs/2d-*.log): chunks scanned, regions read "
+                + "from and saved to disk, textures and drawing. Takes effect when a world is joined.",
+            false,
+            () -> log2d,
+            v -> log2d = v);
+
+        c = CATEGORY_COMMANDS;
+        group("chunkload");
+        parent(null);
+        integer(
+            c,
+            "chunkloadServerMs",
+            "/wf chunkload: milliseconds of each server tick spent loading and generating chunks. More maps an area "
+                + "faster; on a shared server less keeps the TPS up (in single player the server has time to spare).",
+            20,
+            5,
+            200,
+            5,
+            () -> chunkloadServerMs,
+            v -> chunkloadServerMs = v);
+        integer(
+            c,
+            "chunkloadBatch",
+            "/wf chunkload: chunks per side of a batch. Bigger batches load fewer chunks twice (each batch loads a "
+                + "ring of one chunk around it) and wait less for the client, but hold more chunks in memory. Used by "
+                + "the next command started.",
+            8,
+            4,
+            32,
+            4,
+            () -> chunkloadBatch,
+            v -> chunkloadBatch = v);
+        integer(
+            c,
+            "chunkloadClientMs",
+            "/wf chunkload: milliseconds of each client tick spent mapping the chunks of a batch.",
+            6,
+            2,
+            50,
+            1,
+            () -> chunkloadClientMs,
+            v -> chunkloadClientMs = v);
     }
 
     private static Configuration configuration;
@@ -482,10 +575,11 @@ public class Config {
         configuration.save();
     }
 
-    public static List<Option> getOptions(String category) {
+    /** The options shown on a tab of the settings screen (see {@link #CATEGORIES}). */
+    public static List<Option> getOptions(String tab) {
         List<Option> result = new ArrayList<>();
         for (Option option : OPTIONS) {
-            if (option.category.equals(category)) {
+            if (option.tab.equals(tab)) {
                 result.add(option);
             }
         }
@@ -606,6 +700,8 @@ public class Config {
         public final String comment;
         /** Section of the settings screen it is shown under ({@code wayfarmap.settings.group.<group>}). */
         public String group = "";
+        /** Tab of the settings screen it is shown on: its category, or a part of it. */
+        public String tab;
         /** The switch it depends on: shown under it, dimmed while it is off; null if none. */
         public BoolOption parent;
 
@@ -613,6 +709,7 @@ public class Config {
             this.category = category;
             this.key = key;
             this.comment = comment;
+            this.tab = category;
         }
 
         /** Translation key of the name; {@code + ".desc"} is the description. */
@@ -766,6 +863,11 @@ public class Config {
         }
     }
 
+    /** Tab the options declared next are shown on; null for their category's own. */
+    private static void tab(String tab) {
+        currentTab = tab;
+    }
+
     private static void group(String group) {
         currentGroup = group;
         currentParent = null;
@@ -785,6 +887,9 @@ public class Config {
 
     private static void add(Option option) {
         option.group = currentGroup;
+        if (currentTab != null) {
+            option.tab = currentTab;
+        }
         option.parent = currentParent;
         OPTIONS.add(option);
     }

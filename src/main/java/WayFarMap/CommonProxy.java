@@ -1,5 +1,6 @@
 package WayFarMap;
 
+import WayFarMap.share.ChunkLoadServer;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.TeamMapServer;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -21,6 +22,9 @@ public class CommonProxy {
     }
 
     public void init(FMLInitializationEvent event) {
+        FMLCommonHandler.instance()
+            .bus()
+            .register(ChunkLoadServer.INSTANCE);
         if (TeamMapServer.isActive()) {
             FMLCommonHandler.instance()
                 .bus()
@@ -30,9 +34,13 @@ public class CommonProxy {
 
     public void postInit(FMLPostInitializationEvent event) {}
 
-    public void serverStarting(FMLServerStartingEvent event) {}
+    public void serverStarting(FMLServerStartingEvent event) {
+        event.registerServerCommand(new ChunkLoadServer.Command());
+        ChunkLoadServer.INSTANCE.start();
+    }
 
     public void serverStopping(FMLServerStoppingEvent event) {
+        ChunkLoadServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }
@@ -40,4 +48,7 @@ public class CommonProxy {
 
     /** A team map message for the client; only the client proxy handles it. */
     public void receiveTeamMap(IMessage message) {}
+
+    /** A batch of {@code /wf chunkload} for the client; only the client proxy handles it. */
+    public void receiveChunkLoad(IMessage message) {}
 }
