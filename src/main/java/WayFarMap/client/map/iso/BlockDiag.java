@@ -67,8 +67,9 @@ final class BlockDiag {
         try {
             return String.valueOf(Block.blockRegistry.getNameForObject(block));
         } catch (RuntimeException e) {
-            return block == null ? "null" : block.getClass()
-                .getName();
+            return block == null ? "null"
+                : block.getClass()
+                    .getName();
         }
     }
 
@@ -191,8 +192,7 @@ final class BlockDiag {
                         : look.shape == BlockLooks.SHAPE_NONE && !look.complex ? "never (not drawn)"
                             : look.complex ? "yes (the map doesn't imitate its renderer)"
                                 : "if needed (tile entity, glass touching glass, sides depending on the world)")
-            .append(
-                look.opaque ? " as 6 side pictures (solid cube)" : " as 4 view sprites (drawn from each map side)");
+            .append(look.opaque ? " as 6 side pictures (solid cube)" : " as 4 view sprites (drawn from each map side)");
         IsoLog.log(b.toString());
     }
 
@@ -308,9 +308,10 @@ final class BlockDiag {
             .append(name(block))
             .append(':')
             .append((key >>> 16) & 15)
-            .append(tileEntity == null ? ""
-                : " [" + tileEntity.getClass()
-                    .getSimpleName() + "]")
+            .append(
+                tileEntity == null ? ""
+                    : " [" + tileEntity.getClass()
+                        .getSimpleName() + "]")
             .append(" at ")
             .append(x)
             .append(',')
@@ -336,10 +337,7 @@ final class BlockDiag {
                 .append(
                     ids[view] == FacePalette.EMPTY ? "EMPTY"
                         : ids[view] == 0 ? "NOT_TAKEN"
-                            : shot.coverage[view] + "%(solid "
-                                + shot.solid[view]
-                                + "%)/bright"
-                                + shot.brightness[view])
+                            : shot.coverage[view] + "%(solid " + shot.solid[view] + "%)/bright" + shot.brightness[view])
                 .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "");
         }
         b.append(']');

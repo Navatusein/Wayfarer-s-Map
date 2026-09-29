@@ -321,8 +321,8 @@ public final class IsoMap implements BlockStore.Listener {
             return false;
         }
         if (world.provider.dimensionId != lastCaptureDimension) {
-            IsoLog.log(
-                "DIMENSION_CHANGED queues cleared: fresh=" + freshQueue.size() + " again=" + captureQueue.size());
+            IsoLog
+                .log("DIMENSION_CHANGED queues cleared: fresh=" + freshQueue.size() + " again=" + captureQueue.size());
             captureQueue.clear();
             freshQueue.clear();
             partial.clear();
@@ -673,18 +673,8 @@ public final class IsoMap implements BlockStore.Listener {
             int copies = FaceRenderer.lastDrawn > 0 ? 0 : unfinished.getOrDefault(key, 0) + 1;
             unfinished.put(key, copies);
             if (copies < MAX_UNFINISHED_COPIES) {
-                IsoLog.captured(
-                    cx,
-                    cz,
-                    reason,
-                    whole,
-                    unloading,
-                    t1 - t0,
-                    t2 - t1,
-                    false,
-                    false,
-                    copies,
-                    deadline - t2);
+                IsoLog
+                    .captured(cx, cz, reason, whole, unloading, t1 - t0, t2 - t1, false, false, copies, deadline - t2);
                 // Stored once all its pictures are taken; until then the map shows the copy before (or the flat
                 // map for a new chunk), not one half drawn.
                 if (FaceRenderer.progressTotal > 0) {

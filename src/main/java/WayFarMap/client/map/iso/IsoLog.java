@@ -134,8 +134,10 @@ public final class IsoLog {
         }
         File[] old = directory.listFiles((d, name) -> name.startsWith("3d-") && name.endsWith(".log"));
         if (old != null && old.length >= FILES_KEPT) {
-            Arrays.sort(old, (a, b) -> a.getName()
-                .compareTo(b.getName()));
+            Arrays.sort(
+                old,
+                (a, b) -> a.getName()
+                    .compareTo(b.getName()));
             for (int i = 0; i <= old.length - FILES_KEPT; i++) {
                 old[i].delete();
             }
@@ -308,7 +310,14 @@ public final class IsoLog {
         long now = System.nanoTime();
         SETTLED.put(key, new long[] { seen == null ? 0 : seen, now });
         line(
-            "SETTLED " + cx + "," + cz + " how=" + how + " ticks=" + ticksWaited + " ms="
+            "SETTLED " + cx
+                + ","
+                + cz
+                + " how="
+                + how
+                + " ticks="
+                + ticksWaited
+                + " ms="
                 + span(seen == null ? 0 : seen, now));
     }
 
@@ -325,8 +334,18 @@ public final class IsoLog {
         if (!on()) {
             return;
         }
-        line("SCANNED " + cx + "," + cz + " again=" + again + " changed=" + changed + " modified=" + modified + " ms="
-            + ms(nanos));
+        line(
+            "SCANNED " + cx
+                + ","
+                + cz
+                + " again="
+                + again
+                + " changed="
+                + changed
+                + " modified="
+                + modified
+                + " ms="
+                + ms(nanos));
     }
 
     // ---------------------------------------------------------------- IsoMap (render thread)
@@ -365,8 +384,18 @@ public final class IsoLog {
         trace.queued = now;
         trace.queue = queue;
         line(
-            "QUEUED " + cx + "," + cz + " reason=" + reason + " queue=" + queue + " freshQueue=" + fresh
-                + " againQueue=" + again + (created ? "" : " (already traced, first reason=" + trace.reason + ")"));
+            "QUEUED " + cx
+                + ","
+                + cz
+                + " reason="
+                + reason
+                + " queue="
+                + queue
+                + " freshQueue="
+                + fresh
+                + " againQueue="
+                + again
+                + (created ? "" : " (already traced, first reason=" + trace.reason + ")"));
     }
 
     /** It left its queue without being copied. */
@@ -375,9 +404,18 @@ public final class IsoLog {
             return;
         }
         Trace trace = TRACES.remove(key(cx, cz));
-        line("DROPPED " + cx + "," + cz + " " + why + (trace == null ? ""
-            : " reason=" + trace.reason + " waitedMs=" + span(trace.queued, System.nanoTime()) + " captures="
-                + trace.captures));
+        line(
+            "DROPPED " + cx
+                + ","
+                + cz
+                + " "
+                + why
+                + (trace == null ? ""
+                    : " reason=" + trace.reason
+                        + " waitedMs="
+                        + span(trace.queued, System.nanoTime())
+                        + " captures="
+                        + trace.captures));
     }
 
     /** A copy of its blocks was made (it may lack pictures: then it is copied again). */
@@ -413,36 +451,37 @@ public final class IsoLog {
         if (!complete) {
             incompleteCaptures.incrementAndGet();
         }
-        line((complete ? "CAPTURE " : "CAPTURE_INCOMPLETE ") + cx
-            + ","
-            + cz
-            + " reason="
-            + trace.reason
-            + " attempt="
-            + trace.captures
-            + " sinceLastAttemptMs="
-            + sinceLast
-            + " whole="
-            + whole
-            + " unloading="
-            + unloading
-            + " blocksMs="
-            + ms(blockNanos)
-            + " picturesMs="
-            + ms(faceNanos)
-            + " facesFound="
-            + FaceRenderer.lastFound
-            + " toDraw="
-            + FaceRenderer.lastToDraw
-            + " drawn="
-            + FaceRenderer.lastDrawn
-            + " missing="
-            + FaceRenderer.lastMissing
-            + " paletteFull="
-            + FaceRenderer.lastPaletteFull
-            + (storedAnyway ? " STORED_WITH_MISSING_PICTURES copies=" + copies : "")
-            + " tickBudgetLeftMs="
-            + ms(budgetLeftNanos));
+        line(
+            (complete ? "CAPTURE " : "CAPTURE_INCOMPLETE ") + cx
+                + ","
+                + cz
+                + " reason="
+                + trace.reason
+                + " attempt="
+                + trace.captures
+                + " sinceLastAttemptMs="
+                + sinceLast
+                + " whole="
+                + whole
+                + " unloading="
+                + unloading
+                + " blocksMs="
+                + ms(blockNanos)
+                + " picturesMs="
+                + ms(faceNanos)
+                + " facesFound="
+                + FaceRenderer.lastFound
+                + " toDraw="
+                + FaceRenderer.lastToDraw
+                + " drawn="
+                + FaceRenderer.lastDrawn
+                + " missing="
+                + FaceRenderer.lastMissing
+                + " paletteFull="
+                + FaceRenderer.lastPaletteFull
+                + (storedAnyway ? " STORED_WITH_MISSING_PICTURES copies=" + copies : "")
+                + " tickBudgetLeftMs="
+                + ms(budgetLeftNanos));
         if (FaceRenderer.lastFound > 0) {
             // Inside the pictures: why blocks need them, what the caches gave, where the time went.
             line(
@@ -561,8 +600,15 @@ public final class IsoLog {
         }
         unchangedSkipped.incrementAndGet();
         Trace trace = TRACES.remove(key(cx, cz));
-        line("UNCHANGED " + cx + "," + cz + " reason=" + (trace != null ? trace.reason : reason) + " blocksMs="
-            + ms(nanos) + " (same blocks, pictures kept)");
+        line(
+            "UNCHANGED " + cx
+                + ","
+                + cz
+                + " reason="
+                + (trace != null ? trace.reason : reason)
+                + " blocksMs="
+                + ms(nanos)
+                + " (same blocks, pictures kept)");
     }
 
     /** Copying it failed or gave nothing. */
@@ -838,11 +884,13 @@ public final class IsoLog {
         StringBuilder b = new StringBuilder();
         for (int n = 0; n < Math.min(5, list.size()); n++) {
             b.append(n == 0 ? "" : ",")
-                .append(list.get(n)
-                    .getKey())
+                .append(
+                    list.get(n)
+                        .getKey())
                 .append('x')
-                .append(list.get(n)
-                    .getValue());
+                .append(
+                    list.get(n)
+                        .getValue());
         }
         return b.toString();
     }
@@ -862,20 +910,51 @@ public final class IsoLog {
     }
 
     static void regionSaved(int dimension, int rx, int rz, long bytes, long copyNanos, long writeNanos, boolean ok) {
-        log("REGION_SAVED dim=" + dimension + " r=" + rx + "," + rz + " bytes=" + bytes + " copyUnderLockMs="
-            + ms(copyNanos) + " writeMs=" + ms(writeNanos) + (ok ? "" : " FAILED"));
+        log(
+            "REGION_SAVED dim=" + dimension
+                + " r="
+                + rx
+                + ","
+                + rz
+                + " bytes="
+                + bytes
+                + " copyUnderLockMs="
+                + ms(copyNanos)
+                + " writeMs="
+                + ms(writeNanos)
+                + (ok ? "" : " FAILED"));
     }
 
     static void regionRead(int dimension, int rx, int rz, String what, long nanos, long bytes) {
-        log("REGION_READ dim=" + dimension + " r=" + rx + "," + rz + " " + what + " ms=" + ms(nanos) + " bytes=" + bytes
-            + " [" + Thread.currentThread()
-                .getName()
-            + "]");
+        log(
+            "REGION_READ dim=" + dimension
+                + " r="
+                + rx
+                + ","
+                + rz
+                + " "
+                + what
+                + " ms="
+                + ms(nanos)
+                + " bytes="
+                + bytes
+                + " ["
+                + Thread.currentThread()
+                    .getName()
+                + "]");
     }
 
     static void regionTrimmed(int dimension, int dropped, long bytesBefore, long bytesAfter, long nanos) {
-        log("BLOBS_TRIMMED dim=" + dimension + " regionsDropped=" + dropped + " mbBefore=" + (bytesBefore >> 20)
-            + " mbAfter=" + (bytesAfter >> 20) + " ms=" + ms(nanos));
+        log(
+            "BLOBS_TRIMMED dim=" + dimension
+                + " regionsDropped="
+                + dropped
+                + " mbBefore="
+                + (bytesBefore >> 20)
+                + " mbAfter="
+                + (bytesAfter >> 20)
+                + " ms="
+                + ms(nanos));
     }
 
     // ---------------------------------------------------------------- tiles
@@ -884,8 +963,16 @@ public final class IsoLog {
     static void marked(int dimension, int cx, int cz, long changeTimeMs, int tiles, int tilesInMemory) {
         if (on()) {
             line(
-                "MARKED " + cx + "," + cz + " dim=" + dimension + " delayMs="
-                    + (System.currentTimeMillis() - changeTimeMs) + " tilesDirtied=" + tiles + " tilesInMemory="
+                "MARKED " + cx
+                    + ","
+                    + cz
+                    + " dim="
+                    + dimension
+                    + " delayMs="
+                    + (System.currentTimeMillis() - changeTimeMs)
+                    + " tilesDirtied="
+                    + tiles
+                    + " tilesInMemory="
                     + tilesInMemory);
         }
     }
@@ -908,8 +995,16 @@ public final class IsoLog {
         if (retry != null) {
             tilesRetry.incrementAndGet();
         }
-        line("TILE_DONE " + tile(key) + " src=" + source + " waitedMs=" + ms(waitedNanos) + " ms=" + ms(nanos)
-            + (retry != null ? " RETRY(" + retry + ", drawn again)" : "") + (empty ? " empty" : ""));
+        line(
+            "TILE_DONE " + tile(key)
+                + " src="
+                + source
+                + " waitedMs="
+                + ms(waitedNanos)
+                + " ms="
+                + ms(nanos)
+                + (retry != null ? " RETRY(" + retry + ", drawn again)" : "")
+                + (empty ? " empty" : ""));
     }
 
     static void tileSkipped(IsoTiles.Key key) {
@@ -1098,8 +1193,21 @@ public final class IsoLog {
         waiting.sort((a, b) -> Long.compare(a.queued, b.queued));
         for (int n = 0; n < Math.min(20, waiting.size()); n++) {
             Trace t = waiting.get(n);
-            line(title + "   stuck " + t.cx + "," + t.cz + " reason=" + t.reason + " queue=" + t.queue + " queuedMsAgo="
-                + span(t.queued, now) + " captures=" + t.captures + " facesMissing=" + t.facesMissing);
+            line(
+                title + "   stuck "
+                    + t.cx
+                    + ","
+                    + t.cz
+                    + " reason="
+                    + t.reason
+                    + " queue="
+                    + t.queue
+                    + " queuedMsAgo="
+                    + span(t.queued, now)
+                    + " captures="
+                    + t.captures
+                    + " facesMissing="
+                    + t.facesMissing);
         }
         writeSlowest(title, all, names);
     }
@@ -1107,7 +1215,8 @@ public final class IsoLog {
     /** What made copies count as changed, and which kinds of blocks. */
     private static void changeSummary(String title) {
         line(
-            title + " changed copies: blocks=" + diffBlocks.get()
+            title + " changed copies: blocks="
+                + diffBlocks.get()
                 + " picturesOnly="
                 + diffPicturesOnly.get()
                 + " lightOnly="
@@ -1150,8 +1259,13 @@ public final class IsoLog {
         for (Map.Entry<String, long[]> kind : kinds) {
             total += kind.getValue()[2];
         }
-        line(title + " pictures by block: " + kinds.size() + " kinds, drawing " + ms(total) + "ms in all (without "
-            + "reading back)");
+        line(
+            title + " pictures by block: "
+                + kinds.size()
+                + " kinds, drawing "
+                + ms(total)
+                + "ms in all (without "
+                + "reading back)");
         for (int n = 0; n < Math.min(40, kinds.size()); n++) {
             long[] stats = kinds.get(n)
                 .getValue();

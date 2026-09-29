@@ -791,8 +791,9 @@ final class FaceRenderer {
                 if (blockNanos > 10_000_000L) {
                     IsoLog.log(
                         "SLOW_BLOCK " + pending.block.getUnlocalizedName()
-                            + (pending.tileEntity == null ? "" : " [" + pending.tileEntity.getClass()
-                                .getName() + "]")
+                            + (pending.tileEntity == null ? ""
+                                : " [" + pending.tileEntity.getClass()
+                                    .getName() + "]")
                             + " at "
                             + pending.x
                             + ","
@@ -1081,13 +1082,8 @@ final class FaceRenderer {
             } catch (RuntimeException e) {
                 // A renderer that needs more than this; the block's own drawing stays.
                 if (pending.shot != null && pending.shot.error == null) {
-                    pending.shot.error = "tile entity renderer "
-                        + tileEntity.getClass()
-                            .getSimpleName()
-                        + ", pass "
-                        + pass
-                        + ": "
-                        + BlockDiag.error(e);
+                    pending.shot.error = "tile entity renderer " + tileEntity.getClass()
+                        .getSimpleName() + ", pass " + pass + ": " + BlockDiag.error(e);
                 }
             }
             GL11.glColor4f(1f, 1f, 1f, 1f);
