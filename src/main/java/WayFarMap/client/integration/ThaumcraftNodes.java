@@ -1,6 +1,7 @@
 package WayFarMap.client.integration;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -139,6 +140,18 @@ public final class ThaumcraftNodes {
     // ---------------------------------------------------------------- search
 
     private static String[] searchTokens = {};
+
+    /** Nodes found, per dimension, for the statistics. */
+    public static Map<Integer, Integer> countFound() {
+        Map<Integer, Integer> byDimension = new HashMap<>();
+        List<NodeList> sources = TCNodeTracker.nodelist;
+        if (sources != null) {
+            for (NodeList source : sources) {
+                byDimension.merge(source.dim, 1, Integer::sum);
+            }
+        }
+        return byDimension;
+    }
 
     /** Aspect search ("ignis", "Aer ordo"): nodes lacking one of the aspects are dimmed. */
     public static void setSearch(String text) {

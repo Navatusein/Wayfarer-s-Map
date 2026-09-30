@@ -67,8 +67,9 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_DAY = 1, ID_NIGHT = 2, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5,
-        ID_GRID = 6, ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17;
+    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5, ID_GRID = 6,
+        ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17, ID_FOLLOW = 18,
+        ID_STATS = 19;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -79,6 +80,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
+    /** Lang key suffixes of {@link Config#mapLightMode} values. */
+    private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
     /** Lang key suffixes of {@link Config#getMobFilter()} values. */
     private static final String[] MOB_FILTER_KEYS = { "all", "friendly", "hostile", "none" };
 
@@ -95,11 +98,13 @@ public class GuiWorldMap extends ScaledScreen {
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
 
-    private IconButton dayButton;
-    private IconButton nightButton;
+    /** Map lighting: auto, day or night, switched in turn. */
+    private IconButton lightButton;
     private IconButton caveButton;
     private IconButton biomeButton;
     private IconButton gridButton;
+    /** Open the map at the player every time, or where it was closed. */
+    private IconButton followButton;
     private IconButton mobsButton;
     /** 3D (isometric) view on or off (turned with Q / E). */
     private IconButton isoButton;
@@ -160,16 +165,30 @@ public class GuiWorldMap extends ScaledScreen {
     private int lastRawMouseY;
     private long lastFrameNanos;
     private int ticks;
+    /** Waypoint to show in the middle of the map when it opens, or null. */
+    private Waypoint focus;
+
+    /** The world map opened on the waypoint, in its dimension. */
+    public static GuiWorldMap showing(Waypoint waypoint) {
+        GuiWorldMap map = new GuiWorldMap();
+        map.focus = waypoint;
+        return map;
+    }
 
     @Override
     public void initGui() {
         super.initGui();
         if (!initialized && mc.thePlayer != null) {
-            // Only on first open, not when the window is resized: back where the map was closed, or at the player.
+            // Only on first open, not when the window is resized: back where the map was closed (unless it follows
+            // the player), or at the player.
             initialized = true;
             MapManager.INSTANCE.stopViewing();
-            if (!restoreView()) {
+            if (Config.mapFollowPlayer || !restoreView()) {
                 centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            }
+            if (focus != null) {
+                centerOnWaypoint(focus);
+                focus = null;
             }
             if (Mods.isVisualProspectingLoaded()) {
                 ProspectingLayer.onOpenMap();
@@ -181,29 +200,43 @@ public class GuiWorldMap extends ScaledScreen {
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
         x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
-        x = addIconButton(
-            new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
-            x);
+        // The others can be hidden in the settings; the settings button and the dimension title always stay.
+        if (Config.isMapButtonShown("waypoints")) {
+            x = addIconButton(
+                new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
+                x);
+        }
+        if (Config.isMapButtonShown("stats")) {
+            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.stats")), x);
+        }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
-        x = addIconButton(exportButton, x);
+        if (Config.isMapButtonShown("export")) {
+            x = addIconButton(exportButton, x);
+        }
         addonsButton = null;
-        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
+        if (Config.isMapButtonShown("addons") && (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
             || Mods.isPowerfailsAvailable()
-            || Mods.isThaumcraftNodesAvailable()) {
+            || Mods.isThaumcraftNodesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
             addIconButton(addonsButton, x);
         }
 
-        nightButton = new IconButton(ID_NIGHT, 0, 4, Icons.NIGHT, I18n.format("wayfarmap.gui.night"));
-        dayButton = new IconButton(ID_DAY, 0, 4, Icons.DAY, I18n.format("wayfarmap.gui.day"));
+        lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
         biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
+        followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
-        teamButton.visible = !TeamMates.INSTANCE.all()
-            .isEmpty();
+        teamButton.visible = teamShown();
+        followButton.visible = Config.isMapButtonShown("follow");
+        lightButton.visible = Config.isMapButtonShown("light");
+        caveButton.visible = Config.isMapButtonShown("caves");
+        biomeButton.visible = Config.isMapButtonShown("biomes");
+        gridButton.visible = Config.isMapButtonShown("grid");
+        isoButton.visible = Config.isMapButtonShown("iso");
+        mobsButton.visible = Config.isMapButtonShown("mobs");
         for (IconButton button : rightButtons()) {
             buttonList.add(button);
         }
@@ -219,6 +252,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.HELP,
             I18n.format("wayfarmap.gui.help_button"));
         helpButton.setHeight(13);
+        helpButton.visible = Config.isMapButtonShown("help");
         buttonList.add(helpButton);
 
         Keyboard.enableRepeatEvents(true);
@@ -229,9 +263,15 @@ public class GuiWorldMap extends ScaledScreen {
         applySearch();
     }
 
+    /** The teammates button: while some are online, unless hidden in the settings. */
+    private boolean teamShown() {
+        return Config.isMapButtonShown("team") && !TeamMates.INSTANCE.all()
+            .isEmpty();
+    }
+
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { nightButton, dayButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
+        return new IconButton[] { followButton, lightButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
             teamButton };
     }
 
@@ -544,8 +584,15 @@ public class GuiWorldMap extends ScaledScreen {
             // The layers shown may have changed; send them the search.
             applySearch();
         }
-        dayButton.active = Config.mapLightMode == Config.LIGHT_DAY;
-        nightButton.active = Config.mapLightMode == Config.LIGHT_NIGHT;
+        // Lighting: the sun or the moon when fixed, a half dark circle with a dot when automatic.
+        int light = Config.mapLightMode >= 0 && Config.mapLightMode < LIGHT_MODE_KEYS.length ? Config.mapLightMode
+            : Config.LIGHT_AUTO;
+        lightButton.icon = light == Config.LIGHT_DAY ? Icons.DAY
+            : light == Config.LIGHT_NIGHT ? Icons.NIGHT : Icons.DAY_NIGHT;
+        lightButton.active = light != Config.LIGHT_AUTO;
+        lightButton.badge = light == Config.LIGHT_AUTO ? Theme.ACCENT : 0;
+        lightButton.tooltip = I18n.format("wayfarmap.option.map.lightMode") + ": "
+            + I18n.format("wayfarmap.option.map.lightMode." + LIGHT_MODE_KEYS[light]);
         // Caves: highlighted when on, a dot when automatic, dimmed when off.
         caveButton.active = Config.caveMode == Config.CAVES_ON;
         caveButton.dim = Config.caveMode == Config.CAVES_OFF;
@@ -553,6 +600,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.tooltip = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
         gridButton.active = Config.chunkGrid;
+        followButton.active = Config.mapFollowPlayer;
         isoButton.active = Config.isometric;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, the dot tells which kind is left.
@@ -573,10 +621,21 @@ public class GuiWorldMap extends ScaledScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
+        } else if (button.id == ID_STATS) {
+            mc.displayGuiScreen(new GuiMapStats(this));
         } else if (button.id == ID_TEAM) {
             openTeamMenu();
         } else if (button.id == ID_ADDONS) {
             openAddonsMenu();
+        } else if (button.id == ID_FOLLOW) {
+            Config.toggleFollowPlayer();
+            updateLightButtons();
+            if (Config.mapFollowPlayer) {
+                // Turned on: show the player now, as the map will be every time it opens.
+                showDimension(mc.theWorld.provider.dimensionId);
+                centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+                zooming = false;
+            }
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
@@ -596,11 +655,11 @@ public class GuiWorldMap extends ScaledScreen {
             openMobsMenu();
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
-        } else if (button.id == ID_DAY) {
-            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_AUTO : Config.LIGHT_DAY);
-            updateLightButtons();
-        } else if (button.id == ID_NIGHT) {
-            Config.setMapLightMode(Config.mapLightMode == Config.LIGHT_NIGHT ? Config.LIGHT_AUTO : Config.LIGHT_NIGHT);
+        } else if (button.id == ID_LIGHT) {
+            // Auto -> day -> night -> auto.
+            Config.setMapLightMode(
+                Config.mapLightMode == Config.LIGHT_AUTO ? Config.LIGHT_DAY
+                    : Config.mapLightMode == Config.LIGHT_DAY ? Config.LIGHT_NIGHT : Config.LIGHT_AUTO);
             updateLightButtons();
         }
     }
@@ -692,8 +751,7 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         // Teammates come and go while the map is open.
-        boolean teammates = !TeamMates.INSTANCE.all()
-            .isEmpty();
+        boolean teammates = teamShown();
         if (teammates != teamButton.visible) {
             teamButton.visible = teammates;
             layoutRightButtons();
@@ -1195,6 +1253,24 @@ public class GuiWorldMap extends ScaledScreen {
         }
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
         centerOn(position[0], position[1], position[2]);
+        zooming = false;
+    }
+
+    /** Shows the waypoint in the middle of the map, switching to its dimension if it has a saved map. */
+    private void centerOnWaypoint(Waypoint waypoint) {
+        if (waypoint.dimension != viewDimension()) {
+            if (waypoint.dimension == mc.theWorld.provider.dimensionId) {
+                showDimension(waypoint.dimension);
+            } else {
+                for (MapManager.SavedDimension other : MapManager.INSTANCE.listSavedDimensions()) {
+                    if (other.id == waypoint.dimension) {
+                        showDimension(waypoint.dimension);
+                        break;
+                    }
+                }
+            }
+        }
+        centerOn(waypoint.x + 0.5, waypoint.y, waypoint.z + 0.5);
         zooming = false;
     }
 

@@ -87,8 +87,10 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        float[] tint = lightTint(Minecraft.getMinecraft());
-        float night = nightAmount(Minecraft.getMinecraft());
+        // Dark caves are drawn as at night with their own tint: only torches and other lights show them.
+        boolean darkCave = isDarkCave(dimension);
+        float night = darkCave ? 1f : nightAmount(Minecraft.getMinecraft());
+        float[] tint = darkCave ? CAVE_TINT : tint(night);
         GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
 
         Tessellator tessellator = Tessellator.instance;
@@ -242,11 +244,27 @@ public final class MapDrawer {
     /** Map color multiplier for night. */
     private static final float[] NIGHT_TINT = { 0.28f, 0.32f, 0.5f };
 
+    /** Map color multiplier for caves: no sun or moon down there, only torches light them up. */
+    private static final float[] CAVE_TINT = { 0.2f, 0.2f, 0.23f };
+
     /** RGB multiplier for the map according to {@link Config#mapLightMode} and the time of day. */
     public static float[] lightTint(Minecraft mc) {
-        float day = 1f - nightAmount(mc);
+        return tint(nightAmount(mc));
+    }
+
+    private static float[] tint(float night) {
+        float day = 1f - night;
         return new float[] { NIGHT_TINT[0] + (1f - NIGHT_TINT[0]) * day, NIGHT_TINT[1] + (1f - NIGHT_TINT[1]) * day,
             NIGHT_TINT[2] + (1f - NIGHT_TINT[2]) * day };
+    }
+
+    /**
+     * Cave layers of dimensions with a sky are dark at any time of day, lit only where torches and other lights are
+     * (unless the map is fixed to day). Dimensions without a sky, like the Nether, keep their caves lit.
+     */
+    private static boolean isDarkCave(MapDimension dimension) {
+        return dimension.cave && Config.mapLightMode != Config.LIGHT_DAY
+            && !MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
     }
 
     /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */

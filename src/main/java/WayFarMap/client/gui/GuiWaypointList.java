@@ -29,6 +29,8 @@ public class GuiWaypointList extends ScaledScreen {
     private static final int ROW_HEIGHT = 20;
     private static final int ID_GROUP_ACTION = 0, ID_NEW_WAYPOINT = 1, ID_DONE = 2;
     private static final long CONFIRM_MS = 3000;
+    /** Width taken by the "on the map" button in a waypoint row. */
+    private static final int SHOW_ON_MAP_ROOM = 56;
     private static final String UNGROUPED_KEY = "\u0000ungrouped";
 
     /** Collapsed groups (by name) stay collapsed while the game runs. */
@@ -89,7 +91,7 @@ public class GuiWaypointList extends ScaledScreen {
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
-        int panelWidth = Math.min(width - 20, 380);
+        int panelWidth = Math.min(width - 20, 420);
         listLeft = (width - panelWidth) / 2;
         listRight = listLeft + panelWidth;
         listTop = 28;
@@ -486,7 +488,7 @@ public class GuiWaypointList extends ScaledScreen {
             info += "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m";
         }
         // Leave room for the row's buttons on the right.
-        info = Theme.ellipsize(fontRendererObj, info, Math.max(0, listRight - 184 - x));
+        info = Theme.ellipsize(fontRendererObj, info, Math.max(0, listRight - 184 - SHOW_ON_MAP_ROOM - x));
         fontRendererObj.drawString(info, x, y + 6, Theme.TEXT_MUTED);
 
         int bx = listRight - 4;
@@ -506,6 +508,14 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint)));
+        bx = drawTextButton(
+            bx,
+            y + 4,
+            I18n.format("wayfarmap.gui.show_on_map"),
+            Theme.TEXT,
+            mouseX,
+            mouseY,
+            () -> mc.displayGuiScreen(GuiWorldMap.showing(waypoint)));
         // Teleporting needs /tp permission and the same dimension.
         if (Teleport.isAllowed() && mc.theWorld != null && waypoint.dimension == mc.theWorld.provider.dimensionId) {
             drawTextButton(bx, y + 4, I18n.format("wayfarmap.gui.teleport"), Theme.ACCENT, mouseX, mouseY, () -> {

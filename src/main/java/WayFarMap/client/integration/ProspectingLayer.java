@@ -3,6 +3,7 @@ package WayFarMap.client.integration;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -183,6 +184,33 @@ public final class ProspectingLayer {
         veins = newVeins;
         positions = newPositions;
         fluids = newFluids;
+    }
+
+    /**
+     * Everything found so far, for the statistics: per dimension {ore veins, prospected underground fluids}.
+     * Render thread (VisualProspecting's cache is kept there).
+     */
+    public static Map<Integer, int[]> countFound() {
+        Map<Integer, int[]> byDimension = new HashMap<>();
+        try {
+            for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
+                if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN) {
+                    byDimension.computeIfAbsent(vein.dimensionId, k -> new int[2])[0]++;
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("ore veins", t);
+        }
+        try {
+            for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
+                if (fluid.isProspected()) {
+                    byDimension.computeIfAbsent(fluid.dimensionId, k -> new int[2])[1]++;
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("underground fluids", t);
+        }
+        return byDimension;
     }
 
     private static final Set<String> WARNED = new HashSet<>();

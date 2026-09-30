@@ -94,12 +94,13 @@ public class GuiItemPicker extends ScaledScreen {
         gridX = (width - columns * CELL) / 2;
         gridY = 44;
 
+        // Made like the fields of the waypoint editor: a click on it gives the focus, a click elsewhere takes it away.
+        // Not focused at first: typing starts once the field is clicked.
         String oldText = search != null ? search.getText() : "";
-        search = new FlatTextField(fontRendererObj, gridX, 22, columns * CELL, 16)
-            .setHint(I18n.format("wayfarmap.gui.search"));
+        search = new FlatTextField(fontRendererObj, gridX, 20, columns * CELL, 18);
+        search.setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
-        search.setFocused(true);
 
         buttonList.clear();
         int buttonY = gridY + rows * CELL + 8;
@@ -154,8 +155,13 @@ public class GuiItemPicker extends ScaledScreen {
             mc.displayGuiScreen(parent);
             return;
         }
-        if (search.textboxKeyTyped(typedChar, keyCode)) {
-            applyFilter();
+        // As in the waypoint editor: the key goes to the field if it has the focus; the list follows its text.
+        if (search.isFocused()) {
+            String before = search.getText();
+            search.textboxKeyTyped(typedChar, keyCode);
+            if (!before.equals(search.getText())) {
+                applyFilter();
+            }
         }
     }
 
@@ -209,7 +215,7 @@ public class GuiItemPicker extends ScaledScreen {
                 drawRect(cx, cy, cx + CELL, cy + CELL, Theme.CONTROL_HOVER);
                 Theme.outline(cx, cy, cx + CELL, cy + CELL, Theme.ACCENT);
             }
-            WaypointRenderer.drawItem(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
+            WaypointRenderer.drawItemDirect(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
         }
 
         String count = filtered.size() + "";

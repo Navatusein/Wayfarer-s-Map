@@ -15,6 +15,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 
 import org.lwjgl.opengl.GL11;
@@ -39,6 +40,26 @@ public class WaypointRenderer {
 
     /** Draws an item icon of {@code size} GUI pixels centered on the given point. */
     public static void drawItem(ItemStack stack, double centerX, double centerY, float size) {
+        // As the game draws it in the inventory, taken once off-screen: the same everywhere, whatever the state here.
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        boolean drawn = ItemSprites.draw(stack, centerX, centerY, size, true);
+        GL11.glPopAttrib();
+        if (drawn) {
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            return;
+        }
+        drawItemDirect(stack, centerX, centerY, size);
+    }
+
+    /**
+     * Draws the item with the game's item renderer right here, as the inventory does: for many items at once (the
+     * icon picker's grid), where taking a picture of each would cost frames.
+     */
+    public static void drawItemDirect(ItemStack stack, double centerX, double centerY, float size) {
         Minecraft mc = Minecraft.getMinecraft();
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
@@ -195,6 +216,12 @@ public class WaypointRenderer {
         if (item == null) {
             return false;
         }
+        // The whole item as in the inventory (a block's icon alone is one face; own renderers have none). Its
+        // picture isn't taken here, while the world is drawn, but next time the HUD is.
+        if (ItemSprites.draw(stack, centerX, centerY, size, false)) {
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            return true;
+        }
         Minecraft mc = Minecraft.getMinecraft();
         TextureManager textureManager = mc.getTextureManager();
         boolean drew = false;
@@ -224,6 +251,14 @@ public class WaypointRenderer {
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
         return drew;
+    }
+
+    /** Pictures of icons asked for while the world was drawn are taken here, in the inventory's own state. */
+    @SubscribeEvent
+    public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
+        if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
+            ItemSprites.takeQueued();
+        }
     }
 
     @SubscribeEvent
@@ -256,18 +291,20 @@ public class WaypointRenderer {
     private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
 
     /**
-     * A beacon beam above the waypoint, in its outline color (white without one): a turning inner beam with a
-     * scrolling texture and a faint outer glow, like the vanilla beacon. Hidden behind terrain like a real one.
+     * A beacon beam through the waypoint's column, from the bottom of the world to the top, in its outline color
+     * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
+     * beacon. Hidden behind terrain like a real one.
      */
     private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks) {
         double x = waypoint.x - RenderManager.renderPosX;
-        double y = waypoint.y - RenderManager.renderPosY;
+        // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
+        double y = -RenderManager.renderPosY;
         double z = waypoint.z - RenderManager.renderPosZ;
         double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
         if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
             return;
         }
-        double height = Math.max(1, 256 - waypoint.y);
+        double height = Math.max(1, mc.theWorld.getHeight());
         int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
         int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
         float time = mc.theWorld.getTotalWorldTime() % 100_000L + partialTicks;

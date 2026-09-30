@@ -14,6 +14,7 @@ import WayFarMap.client.integration.Mods;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.TeamMapClient;
+import WayFarMap.client.waypoint.DeathMarker;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -58,6 +59,9 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(ChunkLoadClient.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(DeathMarker.INSTANCE);
 
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
