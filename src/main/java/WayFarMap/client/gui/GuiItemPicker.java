@@ -94,13 +94,12 @@ public class GuiItemPicker extends ScaledScreen {
         gridX = (width - columns * CELL) / 2;
         gridY = 44;
 
+        // Made like the fields of the waypoint editor: a click elsewhere takes the focus away, a click on it gives it.
         String oldText = search != null ? search.getText() : "";
-        search = new FlatTextField(fontRendererObj, gridX, 22, columns * CELL, 16)
-            .setHint(I18n.format("wayfarmap.gui.search"));
+        search = new FlatTextField(fontRendererObj, gridX, 20, columns * CELL, 18);
+        search.setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
-        // The only field: it keeps the focus, so typing always goes to it (clicks on the grid used to take it away).
-        search.setCanLoseFocus(false);
         search.setFocused(true);
 
         buttonList.clear();
@@ -151,31 +150,18 @@ public class GuiItemPicker extends ScaledScreen {
     }
 
     @Override
-    public void handleKeyboardInput() {
-        if (Keyboard.getEventKeyState()) {
-            super.handleKeyboardInput();
-            return;
-        }
-        // Some input setups (lwjgl3ify on newer Java) send a typed letter as an event of its own, without a key
-        // press: the search takes those too.
-        char typed = Keyboard.getEventCharacter();
-        if (Keyboard.getEventKey() == 0 && typed >= ' ' && typed != 127) {
-            keyTyped(typed, 0);
-        }
-    }
-
-    @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(parent);
             return;
         }
-        // Every key goes to the search, whatever the field thinks of its focus; the list follows its text.
-        String before = search.getText();
-        search.setFocused(true);
-        search.textboxKeyTyped(typedChar, keyCode);
-        if (!before.equals(search.getText())) {
-            applyFilter();
+        // As in the waypoint editor: the key goes to the field if it has the focus; the list follows its text.
+        if (search.isFocused()) {
+            String before = search.getText();
+            search.textboxKeyTyped(typedChar, keyCode);
+            if (!before.equals(search.getText())) {
+                applyFilter();
+            }
         }
     }
 
