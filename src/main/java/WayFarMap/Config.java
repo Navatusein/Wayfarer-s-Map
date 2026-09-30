@@ -30,11 +30,12 @@ public class Config {
      * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
      * nothing set before is lost).
      */
-    public static final String TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
+    public static final String TAB_MAP = CATEGORY_MAP, TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
         Arrays.asList(
             CATEGORY_MINIMAP,
+            TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
             CATEGORY_ENTITIES,
@@ -46,6 +47,14 @@ public class Config {
     public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
     /** Fullscreen map zoom levels, in GUI pixels per block. */
     public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0 };
+
+    /**
+     * Buttons of the world map that can be hidden (lang {@code wayfarmap.option.map.button_<name>}); the settings
+     * button and the dimension title always stay.
+     */
+    public static final String[] MAP_BUTTONS = { "waypoints", "export", "addons", "follow", "light", "caves", "biomes",
+        "grid", "iso", "mobs", "team", "help" };
+    private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -201,8 +210,8 @@ public class Config {
             v -> minimapShowBiome = v);
 
         c = CATEGORY_MAP;
-        tab(TAB_MAP_2D);
-        group("view");
+        tab(TAB_MAP);
+        group("general");
         parent(null);
         choice(
             c,
@@ -213,6 +222,20 @@ public class Config {
             new String[] { "auto", "s1", "s2", "s3", "s4", "s5", "s6" },
             () -> uiScale,
             v -> uiScale = v);
+        group("buttons");
+        for (int i = 0; i < MAP_BUTTONS.length; i++) {
+            final int index = i;
+            mapButtonShown[i] = true;
+            bool(
+                c,
+                "button_" + MAP_BUTTONS[i],
+                "Show the " + MAP_BUTTONS[i] + " button on the world map.",
+                true,
+                () -> mapButtonShown[index],
+                v -> mapButtonShown[index] = v);
+        }
+        tab(TAB_MAP_2D);
+        group("view");
         choice(
             c,
             "lightMode",
@@ -726,6 +749,16 @@ public class Config {
     public static void toggleChunkGrid() {
         chunkGrid = !chunkGrid;
         save();
+    }
+
+    /** Whether the world map shows this button ({@link #MAP_BUTTONS}); unknown names are shown. */
+    public static boolean isMapButtonShown(String name) {
+        for (int i = 0; i < MAP_BUTTONS.length; i++) {
+            if (MAP_BUTTONS[i].equals(name)) {
+                return mapButtonShown[i];
+            }
+        }
+        return true;
     }
 
     public static void toggleFollowPlayer() {

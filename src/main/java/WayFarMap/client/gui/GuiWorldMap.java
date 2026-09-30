@@ -199,15 +199,20 @@ public class GuiWorldMap extends ScaledScreen {
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
         x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
-        x = addIconButton(
-            new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
-            x);
+        // The others can be hidden in the settings; the settings button and the dimension title always stay.
+        if (Config.isMapButtonShown("waypoints")) {
+            x = addIconButton(
+                new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
+                x);
+        }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
-        x = addIconButton(exportButton, x);
+        if (Config.isMapButtonShown("export")) {
+            x = addIconButton(exportButton, x);
+        }
         addonsButton = null;
-        if (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
+        if (Config.isMapButtonShown("addons") && (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
             || Mods.isPowerfailsAvailable()
-            || Mods.isThaumcraftNodesAvailable()) {
+            || Mods.isThaumcraftNodesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
             addIconButton(addonsButton, x);
         }
@@ -220,8 +225,14 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
-        teamButton.visible = !TeamMates.INSTANCE.all()
-            .isEmpty();
+        teamButton.visible = teamShown();
+        followButton.visible = Config.isMapButtonShown("follow");
+        lightButton.visible = Config.isMapButtonShown("light");
+        caveButton.visible = Config.isMapButtonShown("caves");
+        biomeButton.visible = Config.isMapButtonShown("biomes");
+        gridButton.visible = Config.isMapButtonShown("grid");
+        isoButton.visible = Config.isMapButtonShown("iso");
+        mobsButton.visible = Config.isMapButtonShown("mobs");
         for (IconButton button : rightButtons()) {
             buttonList.add(button);
         }
@@ -237,6 +248,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.HELP,
             I18n.format("wayfarmap.gui.help_button"));
         helpButton.setHeight(13);
+        helpButton.visible = Config.isMapButtonShown("help");
         buttonList.add(helpButton);
 
         Keyboard.enableRepeatEvents(true);
@@ -245,6 +257,12 @@ public class GuiWorldMap extends ScaledScreen {
         searchField.setMaxStringLength(40);
         searchField.setText(searchText);
         applySearch();
+    }
+
+    /** The teammates button: while some are online, unless hidden in the settings. */
+    private boolean teamShown() {
+        return Config.isMapButtonShown("team") && !TeamMates.INSTANCE.all()
+            .isEmpty();
     }
 
     /** Buttons on the right of the header, from the right edge to the left. */
@@ -727,8 +745,7 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         // Teammates come and go while the map is open.
-        boolean teammates = !TeamMates.INSTANCE.all()
-            .isEmpty();
+        boolean teammates = teamShown();
         if (teammates != teamButton.visible) {
             teamButton.visible = teammates;
             layoutRightButtons();
