@@ -1,0 +1,198 @@
+package WayFarMap.client.waypoint;
+
+import java.nio.IntBuffer;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.RenderHelper;
+import net.minecraft.client.renderer.entity.RenderItem;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.client.shader.Framebuffer;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+
+import WayFarMap.WayFarMap;
+
+/**
+ * Pictures of items exactly as the game draws them in the inventory (blocks in 3D, items with their own renderer,
+ * several layers), taken once in an off-screen buffer with the game's GUI setup and kept as textures. Waypoint icons
+ * are drawn from them anywhere: in the world a block's icon alone was one face of it (a chest showed its planks),
+ * items drawn by their own renderer have no icon at all and were invisible, and on the maps the state around could
+ * cut blocks off. Render thread only.
+ */
+final class ItemSprites {
+
+    /** Pixels per side of a picture (an inventory slot is 16 GUI pixels). */
+    private static final int SIZE = 64;
+    private static final int MAX_PICTURES = 256;
+    /** GL_FRAMEBUFFER_BINDING (same value for the EXT and core versions). */
+    private static final int FRAMEBUFFER_BINDING = 0x8CA6;
+
+    private static final RenderItem RENDER_ITEM = new RenderItem();
+    private static final Map<String, DynamicTexture> PICTURES = new LinkedHashMap<String, DynamicTexture>(
+        64,
+        0.75f,
+        true) {
+
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, DynamicTexture> eldest) {
+            if (size() > MAX_PICTURES) {
+                eldest.getValue()
+                    .deleteGlTexture();
+                return true;
+            }
+            return false;
+        }
+    };
+    /** Items whose picture came out empty: drawn the old way. */
+    private static final Set<String> EMPTY = new HashSet<>();
+
+    private static Framebuffer framebuffer;
+    private static IntBuffer readBuffer;
+    private static int failures;
+
+    private ItemSprites() {}
+
+    /**
+     * Draws the item's picture as a square of {@code size} centered on (cx, cy) in the current coordinates (a GUI or
+     * a billboard in the world), with the current blending.
+     *
+     * @return false if there is no picture of it (then it is drawn another way)
+     */
+    static boolean draw(ItemStack stack, double cx, double cy, double size) {
+        DynamicTexture picture = picture(stack);
+        if (picture == null) {
+            return false;
+        }
+        double x0 = cx - size / 2, y0 = cy - size / 2, x1 = x0 + size, y1 = y0 + size;
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, picture.getGlTextureId());
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glTexCoord2d(0, 1);
+        GL11.glVertex3d(x0, y1, 0);
+        GL11.glTexCoord2d(1, 1);
+        GL11.glVertex3d(x1, y1, 0);
+        GL11.glTexCoord2d(1, 0);
+        GL11.glVertex3d(x1, y0, 0);
+        GL11.glTexCoord2d(0, 0);
+        GL11.glVertex3d(x0, y0, 0);
+        GL11.glEnd();
+        return true;
+    }
+
+    private static DynamicTexture picture(ItemStack stack) {
+        Item item = stack.getItem();
+        if (item == null || failures >= 5 || !OpenGlHelper.isFramebufferEnabled()) {
+            return null;
+        }
+        String key = Item.getIdFromItem(item) + ":" + stack.getItemDamage();
+        DynamicTexture picture = PICTURES.get(key);
+        if (picture != null || EMPTY.contains(key)) {
+            return picture;
+        }
+        int[] pixels = take(stack);
+        if (pixels == null) {
+            EMPTY.add(key);
+            return null;
+        }
+        picture = new DynamicTexture(SIZE, SIZE);
+        System.arraycopy(pixels, 0, picture.getTextureData(), 0, pixels.length);
+        picture.updateDynamicTexture();
+        // Smooth when drawn smaller than taken.
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, picture.getGlTextureId());
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        PICTURES.put(key, picture);
+        return picture;
+    }
+
+    /** Draws the item as in an inventory slot into the buffer and reads it back; null if nothing was drawn. */
+    private static int[] take(ItemStack stack) {
+        Minecraft mc = Minecraft.getMinecraft();
+        int previous = GL11.glGetInteger(FRAMEBUFFER_BINDING);
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPushMatrix();
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPushMatrix();
+        boolean bound = false;
+        try {
+            if (framebuffer == null) {
+                framebuffer = new Framebuffer(SIZE, SIZE, true);
+                readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
+            }
+            framebuffer.bindFramebuffer(true);
+            bound = true;
+            GL11.glClearColor(0f, 0f, 0f, 0f);
+            GL11.glClearDepth(1.0);
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+            // The game's GUI projection for a 16x16 slot.
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glLoadIdentity();
+            GL11.glOrtho(0, 16, 16, 0, 1000, 3000);
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glLoadIdentity();
+            GL11.glTranslatef(0f, 0f, -2000f);
+            GL11.glDisable(GL11.GL_FOG);
+            GL11.glDisable(GL11.GL_CULL_FACE);
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+            GL11.glDepthMask(true);
+            GL11.glEnable(GL11.GL_ALPHA_TEST);
+            GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+            GL11.glEnable(GL12.GL_RESCALE_NORMAL);
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            RenderHelper.enableGUIStandardItemLighting();
+            RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
+            RenderHelper.disableStandardItemLighting();
+
+            readBuffer.clear();
+            GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
+            int[] all = new int[SIZE * SIZE];
+            readBuffer.get(all);
+            // The top of the picture is read last: turn the rows around.
+            int[] pixels = new int[SIZE * SIZE];
+            boolean drawn = false;
+            for (int row = 0; row < SIZE; row++) {
+                System.arraycopy(all, (SIZE - 1 - row) * SIZE, pixels, row * SIZE, SIZE);
+            }
+            for (int pixel : pixels) {
+                if ((pixel >>> 24) != 0) {
+                    drawn = true;
+                    break;
+                }
+            }
+            failures = 0;
+            return drawn ? pixels : null;
+        } catch (Throwable t) {
+            // A modded renderer that fails here: the item is drawn another way.
+            if (++failures >= 5) {
+                WayFarMap.LOG.warn("Waypoint icons can't be drawn off-screen; plain icons are used", t);
+            }
+            return null;
+        } finally {
+            if (bound) {
+                // Back to the buffer bound before: the game's own while a frame is drawn.
+                Framebuffer game = mc.getFramebuffer();
+                if (game != null && previous != 0 && previous == game.framebufferObject) {
+                    game.bindFramebuffer(false);
+                } else {
+                    framebuffer.unbindFramebuffer();
+                }
+            }
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glPopMatrix();
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
+        }
+    }
+}

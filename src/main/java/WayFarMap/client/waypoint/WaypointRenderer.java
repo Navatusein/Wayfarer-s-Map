@@ -40,6 +40,18 @@ public class WaypointRenderer {
     /** Draws an item icon of {@code size} GUI pixels centered on the given point. */
     public static void drawItem(ItemStack stack, double centerX, double centerY, float size) {
         Minecraft mc = Minecraft.getMinecraft();
+        // As the game draws it in the inventory, taken once off-screen: the same everywhere, whatever the state here.
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        boolean drawn = ItemSprites.draw(stack, centerX, centerY, size);
+        GL11.glPopAttrib();
+        if (drawn) {
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            return;
+        }
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
         GL11.glTranslated(centerX - size / 2.0, centerY - size / 2.0, 0);
@@ -194,6 +206,11 @@ public class WaypointRenderer {
         Item item = stack.getItem();
         if (item == null) {
             return false;
+        }
+        // The whole item as in the inventory (a block's icon alone is one face; own renderers have none).
+        if (ItemSprites.draw(stack, centerX, centerY, size)) {
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            return true;
         }
         Minecraft mc = Minecraft.getMinecraft();
         TextureManager textureManager = mc.getTextureManager();
