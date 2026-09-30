@@ -15,6 +15,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 
 import org.lwjgl.opengl.GL11;
@@ -45,7 +46,7 @@ public class WaypointRenderer {
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        boolean drawn = ItemSprites.draw(stack, centerX, centerY, size);
+        boolean drawn = ItemSprites.draw(stack, centerX, centerY, size, true);
         GL11.glPopAttrib();
         if (drawn) {
             GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -215,8 +216,9 @@ public class WaypointRenderer {
         if (item == null) {
             return false;
         }
-        // The whole item as in the inventory (a block's icon alone is one face; own renderers have none).
-        if (ItemSprites.draw(stack, centerX, centerY, size)) {
+        // The whole item as in the inventory (a block's icon alone is one face; own renderers have none). Its
+        // picture isn't taken here, while the world is drawn, but next time the HUD is.
+        if (ItemSprites.draw(stack, centerX, centerY, size, false)) {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             return true;
         }
@@ -249,6 +251,14 @@ public class WaypointRenderer {
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
         return drew;
+    }
+
+    /** Pictures of icons asked for while the world was drawn are taken here, in the inventory's own state. */
+    @SubscribeEvent
+    public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
+        if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
+            ItemSprites.takeQueued();
+        }
     }
 
     @SubscribeEvent

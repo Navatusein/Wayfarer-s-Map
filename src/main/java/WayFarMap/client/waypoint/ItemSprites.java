@@ -1,10 +1,10 @@
 package WayFarMap.client.waypoint;
 
 import java.nio.IntBuffer;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.OpenGlHelper;
@@ -59,8 +59,15 @@ final class ItemSprites {
             return false;
         }
     };
-    /** Items whose picture came out empty: drawn the old way. */
-    private static final Set<String> EMPTY = new HashSet<>();
+    /** Items whose picture came out empty, and when: drawn the old way until tried again. */
+    private static final Map<String, Long> EMPTY = new HashMap<>();
+    /** Pictures asked for where they can't be taken (while the world is drawn), taken while the HUD is drawn. */
+    private static final Map<String, ItemStack> QUEUE = new LinkedHashMap<>();
+    /** After joining a world, how long before pictures are taken. */
+    private static final long SETTLE_MS = 3000;
+    /** How long before an empty picture is tried again. */
+    private static final long RETRY_MS = 10_000;
+    private static long worldSince;
 
     private static Framebuffer framebuffer;
     private static IntBuffer readBuffer;
@@ -78,8 +85,8 @@ final class ItemSprites {
      *
      * @return false if there is no picture of it (then it is drawn another way)
      */
-    static boolean draw(ItemStack stack, double cx, double cy, double size) {
-        DynamicTexture picture = picture(stack);
+    static boolean draw(ItemStack stack, double cx, double cy, double size, boolean mayTake) {
+        DynamicTexture picture = picture(stack, mayTake);
         if (picture == null) {
             return false;
         }
@@ -100,38 +107,66 @@ final class ItemSprites {
         return true;
     }
 
-    private static DynamicTexture picture(ItemStack stack) {
+    /**
+     * Takes the pictures asked for while the world was drawn. Called while the HUD is drawn: the same state as the
+     * inventory, which the world's drawing is not (pictures taken in it could come out broken).
+     */
+    static void takeQueued() {
+        if (QUEUE.isEmpty()) {
+            return;
+        }
+        for (ItemStack stack : new ArrayList<>(QUEUE.values())) {
+            picture(stack, true);
+        }
+    }
+
+    private static DynamicTexture picture(ItemStack stack, boolean mayTake) {
         Item item = stack.getItem();
         if (item == null || failures >= 5 || !OpenGlHelper.isFramebufferEnabled()) {
             return null;
         }
         Object world = Minecraft.getMinecraft().theWorld;
+        long now = System.currentTimeMillis();
         if (world != pictureWorld) {
-            // Taken again in each world: a picture taken while the game was still setting up could be wrong.
+            // Taken again in each world, and only once it has settled: a picture taken while the game was still
+            // setting the world up could be wrong.
             pictureWorld = world;
+            worldSince = now;
             for (DynamicTexture old : PICTURES.values()) {
                 old.deleteGlTexture();
             }
             PICTURES.clear();
             EMPTY.clear();
+            QUEUE.clear();
         }
         String key = Item.getIdFromItem(item) + ":" + stack.getItemDamage();
         DynamicTexture picture = PICTURES.get(key);
-        if (picture != null || EMPTY.contains(key)) {
+        if (picture != null) {
             return picture;
         }
-        long now = System.nanoTime();
-        if (now - frameStart > FRAME_NANOS) {
-            frameStart = now;
+        Long emptyAt = EMPTY.get(key);
+        if (emptyAt != null && now - emptyAt < RETRY_MS) {
+            return null;
+        }
+        if (!mayTake || now - worldSince < SETTLE_MS) {
+            QUEUE.put(key, stack);
+            return null;
+        }
+        long nanos = System.nanoTime();
+        if (nanos - frameStart > FRAME_NANOS) {
+            frameStart = nanos;
             takenThisFrame = 0;
         }
         if (takenThisFrame >= NEW_PER_FRAME) {
+            QUEUE.put(key, stack);
             return null;
         }
         takenThisFrame++;
+        QUEUE.remove(key);
         int[] pixels = take(stack);
         if (pixels == null) {
-            EMPTY.add(key);
+            // Drawn the old way for now; tried again later (a mod's textures may not have been ready).
+            EMPTY.put(key, now);
             return null;
         }
         picture = new DynamicTexture(SIZE, SIZE);

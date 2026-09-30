@@ -94,13 +94,13 @@ public class GuiItemPicker extends ScaledScreen {
         gridX = (width - columns * CELL) / 2;
         gridY = 44;
 
-        // Made like the fields of the waypoint editor: a click elsewhere takes the focus away, a click on it gives it.
+        // Made like the fields of the waypoint editor: a click on it gives the focus, a click elsewhere takes it away.
+        // Not focused at first: typing starts once the field is clicked.
         String oldText = search != null ? search.getText() : "";
         search = new FlatTextField(fontRendererObj, gridX, 20, columns * CELL, 18);
         search.setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
-        search.setFocused(true);
 
         buttonList.clear();
         int buttonY = gridY + rows * CELL + 8;
