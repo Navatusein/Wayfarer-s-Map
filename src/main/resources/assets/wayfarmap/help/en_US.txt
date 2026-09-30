@@ -17,6 +17,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bGear§r — settings
 - §bFlag§r — waypoint list
 - §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
+- §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r
@@ -24,7 +25,6 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
 - §bGrid§r — chunk grid
 - §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it. On the right of the 3D map the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
-- §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
 - §bTree§r — biomes
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
@@ -58,7 +58,7 @@ A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem i
 - Create: §eB§r, §eRight click → New waypoint§r or the button in the list
 - Edit: §eright click§r it on the map or in the list §b(§eU§b)
 - Pick the color in the color picker: color swatch → hue, saturation, brightness
-- The icon can be any item
+- The icon can be any item; to search, §fclick the search field§r. It is drawn §fas in the inventory§r: blocks in 3D, modded items as they look (Tinkers' tools with their parts)
 - The map shows the §fdistance§r next to the name
 
 - §bDeath marker§r — when you die, a §cDeath§r waypoint with a skull is placed there; they all go to the §fDeaths§r group (deleted, it is created again on the next death), the latest few are kept (§bSettings → Waypoints → On death§r)
@@ -67,6 +67,8 @@ A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem i
 - §bTo chat§r in the editor — sends the waypoint to the chat; players with the mod see its name and an §a[Add]§r button that adds it to theirs §fwith its group§r (created if missing)
 
 > Long names are cut so labels don't overlap. Hover a waypoint to see the full name at the bottom.
+
+> Very many waypoints (hundreds)? Set §bSettings → Waypoints → View distance§r: the world shows only the near ones, the maps show all.
 
 # Waypoint groups
 Groups hide waypoints in bulk, for example §f"Ores"§r or §f"Bases"§r.
@@ -99,10 +101,9 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
 
 # Map view
-- §bDay§r / §bNight§r — force a bright or dark map; at night places lit by torches, lamps and lava glow
-- Both off — the map §ffollows the time of day§r
+- §bLighting§r (sun / moon) — one button, round and round: §fauto§r (the map §ffollows the time of day§r) → §falways day§r → §falways night§r; at night places lit by torches, lamps and lava glow
 - §bGrid§r — the 16×16 chunk grid
-- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
+- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Under roofs and overhangs the real floor shows, not solid stone (how deep to look — §bSettings → 3D map → Look under roofs§r). Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
 - §bMobs§r — a menu: §fshow all§r, §fshow friendly only§r, §fshow hostile only§r or §fhide all§r. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
@@ -169,16 +170,33 @@ Every player has §ftheir own map§r. If the mod is on the §fserver§r too (wit
 - The §bTwo people§r icon at the top right (while someone of the team is online) lists your teammates and their dimension; a click moves the map to them, even into another dimension
 
 ! Without a team your map stays yours only — nobody else's reaches you.
-> To turn it off: §bSettings → Map → Team map§r.
+> To turn it off: §bSettings → 2D map → Team map§r.
+
+# Loading an area (/wf chunkload)
+The command maps a §flarge area around you§r without walking it: the server loads (and generates if needed) the chunks, and the map draws them.
+
+- §e/wf chunkload 2d <radius>§r — the flat map, radius in chunks
+- §e/wf chunkload 3d <radius>§r — the flat and the 3D map (slower)
+- §e/wf chunkload status§r — how far it got
+- §e/wf chunkload stop§r — stop it
+
+- The world map shows it at the bottom: chunks done and §fseconds elapsed§r
+- Leave the world or go to another dimension — it pauses and goes on when you are back
+- Speed — §bSettings → Commands§r
+
+! Needs operator rights (cheats in single player). On a shared server a large radius loads the server.
 
 # Settings
 The §bSettings§r button on the map opens all options by category:
 
 - §fMinimap§r — size, corner, zoom, coordinates and biome, §fround shape§r and §frotate with view§r (view direction always up). The compass points N, E, S, W are marked on the minimap's edge
 - §fWorld map§r — §finterface scale§r (the map and the mod's screens don't depend on Minecraft's GUI scale; Auto fits the window) and which §fbuttons§r the map shows
-- §f2D map§r — caves, lighting, colors, scan speed, autosave
+- §f2D map§r — caves, lighting, colors, glass, mod layers, scan speed, autosave, team map
+- §f3D map§r — 3D view, view side, quality, smoothing, recording blocks, copy speed, looking under roofs
 - §fEntities§r — players, hostile and passive mobs, icon limit, vertical range
-- §fWaypoints§r — size, label width, max distance, in-world and minimap visibility
+- §fWaypoints§r — where they show, size, label width, view distance, §fdeath markers§r
+- §fCommands§r — how fast §e/wf chunkload§r runs on the server and the client, batch size
+- §fLogs§r — detailed logs of the 2D and 3D map to track down problems
 
 Within a category the options are grouped into sections. Options that depend on a switch sit indented under it and are dimmed while it is off.
 
