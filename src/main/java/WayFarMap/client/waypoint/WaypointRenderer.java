@@ -39,7 +39,6 @@ public class WaypointRenderer {
 
     /** Draws an item icon of {@code size} GUI pixels centered on the given point. */
     public static void drawItem(ItemStack stack, double centerX, double centerY, float size) {
-        Minecraft mc = Minecraft.getMinecraft();
         // As the game draws it in the inventory, taken once off-screen: the same everywhere, whatever the state here.
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
         GL11.glDisable(GL11.GL_LIGHTING);
@@ -52,6 +51,15 @@ public class WaypointRenderer {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             return;
         }
+        drawItemDirect(stack, centerX, centerY, size);
+    }
+
+    /**
+     * Draws the item with the game's item renderer right here, as the inventory does: for many items at once (the
+     * icon picker's grid), where taking a picture of each would cost frames.
+     */
+    public static void drawItemDirect(ItemStack stack, double centerX, double centerY, float size) {
+        Minecraft mc = Minecraft.getMinecraft();
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
         GL11.glTranslated(centerX - size / 2.0, centerY - size / 2.0, 0);

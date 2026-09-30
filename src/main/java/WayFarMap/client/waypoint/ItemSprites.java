@@ -31,8 +31,15 @@ import WayFarMap.WayFarMap;
 final class ItemSprites {
 
     /** Pixels per side of a picture (an inventory slot is 16 GUI pixels). */
-    private static final int SIZE = 64;
-    private static final int MAX_PICTURES = 256;
+    private static final int SIZE = 32;
+    /** Pictures kept (4 KB each): more than the waypoints of a world use. */
+    private static final int MAX_PICTURES = 1024;
+    /**
+     * New pictures taken per frame at most: each waits for the graphics card. Until an item's turn it is drawn the
+     * old way.
+     */
+    private static final int NEW_PER_FRAME = 4;
+    private static final long FRAME_NANOS = 10_000_000L;
     /** GL_FRAMEBUFFER_BINDING (same value for the EXT and core versions). */
     private static final int FRAMEBUFFER_BINDING = 0x8CA6;
 
@@ -58,6 +65,8 @@ final class ItemSprites {
     private static Framebuffer framebuffer;
     private static IntBuffer readBuffer;
     private static int failures;
+    private static long frameStart;
+    private static int takenThisFrame;
 
     private ItemSprites() {}
 
@@ -99,6 +108,15 @@ final class ItemSprites {
         if (picture != null || EMPTY.contains(key)) {
             return picture;
         }
+        long now = System.nanoTime();
+        if (now - frameStart > FRAME_NANOS) {
+            frameStart = now;
+            takenThisFrame = 0;
+        }
+        if (takenThisFrame >= NEW_PER_FRAME) {
+            return null;
+        }
+        takenThisFrame++;
         int[] pixels = take(stack);
         if (pixels == null) {
             EMPTY.add(key);

@@ -99,6 +99,8 @@ public class GuiItemPicker extends ScaledScreen {
             .setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
+        // The only field: it keeps the focus, so typing always goes to it (clicks on the grid used to take it away).
+        search.setCanLoseFocus(false);
         search.setFocused(true);
 
         buttonList.clear();
@@ -209,7 +211,7 @@ public class GuiItemPicker extends ScaledScreen {
                 drawRect(cx, cy, cx + CELL, cy + CELL, Theme.CONTROL_HOVER);
                 Theme.outline(cx, cy, cx + CELL, cy + CELL, Theme.ACCENT);
             }
-            WaypointRenderer.drawItem(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
+            WaypointRenderer.drawItemDirect(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
         }
 
         String count = filtered.size() + "";
