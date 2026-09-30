@@ -140,6 +140,12 @@ public final class ThaumcraftNodes {
 
     private static String[] searchTokens = {};
 
+    /** Nodes found in all dimensions, for the statistics. */
+    public static int countFound() {
+        List<NodeList> sources = TCNodeTracker.nodelist;
+        return sources == null ? 0 : sources.size();
+    }
+
     /** Aspect search ("ignis", "Aer ordo"): nodes lacking one of the aspects are dimmed. */
     public static void setSearch(String text) {
         String q = text == null ? ""

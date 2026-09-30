@@ -185,6 +185,33 @@ public final class ProspectingLayer {
         fluids = newFluids;
     }
 
+    /**
+     * Everything found so far in all dimensions, for the statistics: {ore veins, prospected underground fluids}.
+     * Render thread (VisualProspecting's cache is kept there).
+     */
+    public static int[] countFound() {
+        int veinCount = 0, fluidCount = 0;
+        try {
+            for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
+                if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN) {
+                    veinCount++;
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("ore veins", t);
+        }
+        try {
+            for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
+                if (fluid.isProspected()) {
+                    fluidCount++;
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("underground fluids", t);
+        }
+        return new int[] { veinCount, fluidCount };
+    }
+
     private static final Set<String> WARNED = new HashSet<>();
 
     /** Logs a problem with VisualProspecting data once per kind, so a broken entry doesn't flood the log. */

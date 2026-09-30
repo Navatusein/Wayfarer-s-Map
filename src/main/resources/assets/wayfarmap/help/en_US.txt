@@ -16,7 +16,7 @@ The top of the map has §ficons§r; hover one to see its name.
 §fLeft:§r
 - §bGear§r — settings
 - §bFlag§r — waypoint list
-- §bBar chart§r — statistics: disk space of this world's 2D and 3D maps, per dimension; counted again each time it opens
+- §bBar chart§r (§fStats§r) — disk space of this world's 2D and 3D maps per dimension, and how many GregTech ore veins, underground fluids and Thaumcraft nodes were found (with those mods); counted again each time it opens
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r

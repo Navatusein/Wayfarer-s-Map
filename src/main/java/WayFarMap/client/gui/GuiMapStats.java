@@ -16,6 +16,9 @@ import org.lwjgl.input.Keyboard;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.ProspectingLayer;
+import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
 
 /**
@@ -81,6 +84,8 @@ public class GuiMapStats extends ScaledScreen {
     private int left, top, right, bottom;
     /** Counted once per opening (not again when the window is resized). */
     private boolean started;
+    /** Found with the mods, counted on opening: ore veins, underground fluids, aura nodes; -1 without the mod. */
+    private int veins = -1, fluids = -1, nodes = -1;
 
     public GuiMapStats(GuiScreen parent) {
         this.parent = parent;
@@ -89,7 +94,7 @@ public class GuiMapStats extends ScaledScreen {
     @Override
     public void initGui() {
         int panelWidth = Math.min(width - 16, 360);
-        int panelHeight = Math.min(height - 16, 280);
+        int panelHeight = Math.min(height - 16, 330);
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         right = left + panelWidth;
@@ -100,6 +105,27 @@ public class GuiMapStats extends ScaledScreen {
             started = true;
             if (counting == null) {
                 startCount();
+            }
+            countFound();
+        }
+    }
+
+    /** What was found with VisualProspecting (GregTech ore veins, underground fluids) and TCNodeTracker (nodes). */
+    private void countFound() {
+        if (Mods.isVisualProspectingLoaded()) {
+            try {
+                int[] found = ProspectingLayer.countFound();
+                veins = found[0];
+                fluids = found[1];
+            } catch (Throwable t) {
+                veins = fluids = -1;
+            }
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            try {
+                nodes = ThaumcraftNodes.countFound();
+            } catch (Throwable t) {
+                nodes = -1;
             }
         }
     }
@@ -180,6 +206,26 @@ public class GuiMapStats extends ScaledScreen {
         return sum;
     }
 
+    /** {label, count} of what was found with each installed mod. */
+    private List<String[]> foundLines() {
+        List<String[]> lines = new ArrayList<>();
+        if (veins >= 0) {
+            lines.add(new String[] { I18n.format("wayfarmap.stats.veins"), number(veins) });
+        }
+        if (fluids >= 0) {
+            lines.add(new String[] { I18n.format("wayfarmap.stats.fluids"), number(fluids) });
+        }
+        if (nodes >= 0) {
+            lines.add(new String[] { I18n.format("wayfarmap.stats.nodes"), number(nodes) });
+        }
+        return lines;
+    }
+
+    /** 1234 -> 1,234. */
+    private static String number(long value) {
+        return String.format(Locale.US, "%,d", value);
+    }
+
     /** 0 B, 512 B, 1.5 KB, 12.3 MB, 1.2 GB. */
     private static String bytes(long bytes) {
         if (bytes < 1024) {
@@ -247,7 +293,7 @@ public class GuiMapStats extends ScaledScreen {
             }
             // Old numbers are dimmed while they are counted again.
             int value = updating ? Theme.TEXT_DISABLED : Theme.TEXT;
-            int limit = bottom - 70;
+            int limit = bottom - 70 - foundLines().size() * ROW_HEIGHT - (foundLines().isEmpty() ? 0 : 20);
             for (int i = 0; i < stats.rows.size(); i++) {
                 Row row = stats.rows.get(i);
                 if (y > limit) {
@@ -284,6 +330,20 @@ public class GuiMapStats extends ScaledScreen {
                 left + 10,
                 y,
                 Theme.TEXT_MUTED);
+        }
+        y += ROW_HEIGHT;
+
+        // Found with the mods, if they are installed.
+        List<String[]> found = foundLines();
+        if (!found.isEmpty()) {
+            y += 6;
+            Theme.text(fontRendererObj, I18n.format("wayfarmap.stats.found"), left + 10, y, Theme.TEXT_MUTED);
+            y += ROW_HEIGHT + 2;
+            for (String[] line : found) {
+                Theme.text(fontRendererObj, line[0], left + 10, y, Theme.TEXT);
+                Theme.text(fontRendererObj, line[1], colFlat, y, Theme.ACCENT);
+                y += ROW_HEIGHT;
+            }
         }
 
         // Bottom left: counting now, or when the numbers were counted.
