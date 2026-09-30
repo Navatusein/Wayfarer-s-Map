@@ -1,5 +1,6 @@
 package WayFarMap.client.map;
 
+import java.util.Locale;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -41,7 +42,9 @@ public final class ChunkLoadClient {
     // Progress, for the world map.
     private long done, total;
     private boolean with3d;
-    private long startedAt, startedDone;
+    private long startedAt;
+    /** When the last chunk of the area was mapped, 0 while it isn't done. */
+    private long finishedAt;
     private long lastBatchAt;
     /** For the log: the batch's chunks mapped and those that never came, the time mapping them, when it began. */
     private int mappedCount, skippedCount;
@@ -68,14 +71,11 @@ public final class ChunkLoadClient {
             return null;
         }
         long percent = done * 100 / total;
-        String left = "";
-        long elapsed = System.currentTimeMillis() - startedAt;
-        long gained = done - startedDone;
-        if (gained > 0 && elapsed > 5_000 && done < total) {
-            long seconds = (total - done) * elapsed / gained / 1000;
-            left = I18n.format("wayfarmap.chunkload.left", seconds / 3600, seconds / 60 % 60);
-        }
-        return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, left);
+        // Seconds since the area was started (or taken up again), stopped once it is done.
+        long end = finishedAt != 0 ? finishedAt : System.currentTimeMillis();
+        long seconds = Math.max(0, end - startedAt) / 1000;
+        String elapsed = I18n.format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", seconds));
+        return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
     }
 
     @SubscribeEvent
@@ -168,7 +168,7 @@ public final class ChunkLoadClient {
         if (total <= 0 || b.doneBefore < done - 64 || b.total != total || b.with3d != with3d) {
             // A new area (or one taken up again): the time left is worked out from here.
             startedAt = System.currentTimeMillis();
-            startedDone = b.doneBefore;
+            finishedAt = 0;
         }
         batch = b;
         at = 0;
@@ -256,6 +256,9 @@ public final class ChunkLoadClient {
             lettingGo = false;
         }
         done = b.doneBefore + (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        if (done >= total && finishedAt == 0) {
+            finishedAt = System.currentTimeMillis();
+        }
         String text = "CHUNKLOAD_DONE batch " + b.index
             + " mapped="
             + mappedCount

@@ -304,6 +304,6 @@ wayfarmap.chunkload.status=Загрузка области для %s-карты:
 wayfarmap.chunkload.paused=Загрузка области на паузе: продолжится в измерении %s.
 wayfarmap.chunkload.finished=Область загружена: %s чанков за %s ч %s мин %s с.
 wayfarmap.chunkload.progress=Загрузка области (%s): %s / %s чанков, %s%%%s
-wayfarmap.chunkload.left=, осталось около %s ч %s мин
+wayfarmap.chunkload.elapsed=, прошло %s с
 wayfarmap.death.name=Смерть
 wayfarmap.death.group=Смерти
