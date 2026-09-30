@@ -3,6 +3,7 @@ package WayFarMap.client.integration;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -186,15 +187,15 @@ public final class ProspectingLayer {
     }
 
     /**
-     * Everything found so far in all dimensions, for the statistics: {ore veins, prospected underground fluids}.
+     * Everything found so far, for the statistics: per dimension {ore veins, prospected underground fluids}.
      * Render thread (VisualProspecting's cache is kept there).
      */
-    public static int[] countFound() {
-        int veinCount = 0, fluidCount = 0;
+    public static Map<Integer, int[]> countFound() {
+        Map<Integer, int[]> byDimension = new HashMap<>();
         try {
             for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
                 if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN) {
-                    veinCount++;
+                    byDimension.computeIfAbsent(vein.dimensionId, k -> new int[2])[0]++;
                 }
             }
         } catch (Throwable t) {
@@ -203,13 +204,13 @@ public final class ProspectingLayer {
         try {
             for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
                 if (fluid.isProspected()) {
-                    fluidCount++;
+                    byDimension.computeIfAbsent(fluid.dimensionId, k -> new int[2])[1]++;
                 }
             }
         } catch (Throwable t) {
             warnOnce("underground fluids", t);
         }
-        return new int[] { veinCount, fluidCount };
+        return byDimension;
     }
 
     private static final Set<String> WARNED = new HashSet<>();
