@@ -139,7 +139,12 @@ final class ItemSprites {
             EMPTY.clear();
             QUEUE.clear();
         }
-        String key = Item.getIdFromItem(item) + ":" + stack.getItemDamage();
+        // Items drawn from their NBT (Tinkers' tools) look different with each.
+        String key = Item.getIdFromItem(item) + ":"
+            + stack.getItemDamage()
+            + (stack.hasTagCompound() ? ":" + stack.getTagCompound()
+                .toString()
+                .hashCode() : "");
         DynamicTexture picture = PICTURES.get(key);
         if (picture != null) {
             return picture;
