@@ -16,7 +16,7 @@ The top of the map has §ficons§r; hover one to see its name.
 §fLeft:§r
 - §bGear§r — settings
 - §bFlag§r — waypoint list
-- §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked with the ‹ › arrows): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
+- §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r

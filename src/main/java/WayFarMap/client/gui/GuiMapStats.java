@@ -15,6 +15,7 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
@@ -34,7 +35,9 @@ import WayFarMap.client.waypoint.WaypointManager;
  */
 public class GuiMapStats extends ScaledScreen {
 
-    private static final int ID_CLOSE = 0, ID_PREV = 1, ID_NEXT = 2;
+    private static final int ID_CLOSE = 0, ID_DIMENSION = 1;
+    /** Height of a line of the dimension list. */
+    private static final int LIST_ROW = 14;
     private static final int ROW_HEIGHT = 12;
     /** Where the dimension picker is, from the top of the panel. */
     private static final int PICKER_Y = 122;
@@ -97,6 +100,10 @@ public class GuiMapStats extends ScaledScreen {
     private Map<Integer, Integer> nodes;
     private final Map<Integer, Integer> waypoints = new HashMap<>();
     private final Map<Integer, String> names = new HashMap<>();
+    private FlatButton dimensionButton;
+    /** The dimension list is open, and how far it is scrolled (lines). */
+    private boolean listOpen;
+    private int listScroll;
 
     public GuiMapStats(GuiScreen parent) {
         this.parent = parent;
@@ -112,8 +119,10 @@ public class GuiMapStats extends ScaledScreen {
         bottom = top + panelHeight;
         buttonList.clear();
         buttonList.add(new FlatButton(ID_CLOSE, right - 88, bottom - 26, 80, 18, I18n.format("gui.done")));
-        buttonList.add(new FlatButton(ID_PREV, left + 10, top + PICKER_Y, 18, 16, "<"));
-        buttonList.add(new FlatButton(ID_NEXT, right - 28, top + PICKER_Y, 18, 16, ">"));
+        // The picked dimension; a click opens the list of them under it.
+        dimensionButton = new FlatButton(ID_DIMENSION, left + 10, top + PICKER_Y, right - left - 20, 16, "");
+        buttonList.add(dimensionButton);
+        listOpen = false;
         if (!started) {
             started = true;
             if (counting == null) {
@@ -329,23 +338,103 @@ public class GuiMapStats extends ScaledScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == ID_CLOSE) {
             mc.displayGuiScreen(parent);
-        } else if (button.id == ID_PREV || button.id == ID_NEXT) {
-            // All dimensions, then each one, round and round.
-            List<Integer> choices = new ArrayList<>();
-            choices.add(null);
-            choices.addAll(dimensions(visibleStats()));
-            int at = Math.max(0, choices.indexOf(picked));
-            int step = button.id == ID_NEXT ? 1 : -1;
-            picked = choices.get(Math.floorMod(at + step, choices.size()));
+        } else if (button.id == ID_DIMENSION) {
+            listOpen = !listOpen;
+            listScroll = 0;
         }
     }
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (keyCode == Keyboard.KEY_ESCAPE) {
-            mc.displayGuiScreen(parent);
-        } else if (keyCode == Keyboard.KEY_LEFT || keyCode == Keyboard.KEY_RIGHT) {
-            actionPerformed((GuiButton) buttonList.get(keyCode == Keyboard.KEY_LEFT ? 1 : 2));
+            if (listOpen) {
+                listOpen = false;
+            } else {
+                mc.displayGuiScreen(parent);
+            }
+        }
+    }
+
+    /** What the list offers: all dimensions (null), then each one. */
+    private List<Integer> choices() {
+        List<Integer> choices = new ArrayList<>();
+        choices.add(null);
+        choices.addAll(dimensions(visibleStats()));
+        return choices;
+    }
+
+    /** Lines of the list shown at once: down to the bottom of the panel. */
+    private int listVisible() {
+        int room = (bottom - 8 - (top + PICKER_Y + 17)) / LIST_ROW;
+        return Math.max(1, Math.min(choices().size(), room));
+    }
+
+    /** Index into {@link #choices()} of the list line under the mouse, -1 if none. */
+    private int listIndexAt(int mouseX, int mouseY) {
+        int x0 = dimensionButton.xPosition, y0 = top + PICKER_Y + 17;
+        if (!listOpen || mouseX < x0 || mouseX >= x0 + dimensionButton.getWidth() || mouseY < y0) {
+            return -1;
+        }
+        int line = (mouseY - y0) / LIST_ROW;
+        return line < listVisible() ? line + listScroll : -1;
+    }
+
+    @Override
+    protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (listOpen) {
+            // While it is open, a click picks from the list or closes it.
+            int index = listIndexAt(mouseX, mouseY);
+            if (index >= 0 && index < choices().size() && button == 0) {
+                picked = choices().get(index);
+            }
+            if (index >= 0 || !dimensionButton.isMouseOver(mouseX, mouseY)) {
+                listOpen = false;
+                return;
+            }
+        }
+        super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public void handleMouseInput() {
+        super.handleMouseInput();
+        int wheel = Mouse.getEventDWheel();
+        if (wheel != 0 && listOpen) {
+            int max = Math.max(0, choices().size() - listVisible());
+            listScroll = Math.max(0, Math.min(max, listScroll + (wheel > 0 ? -1 : 1)));
+        }
+    }
+
+    private void drawList(int mouseX, int mouseY) {
+        List<Integer> choices = choices();
+        int x0 = dimensionButton.xPosition, x1 = x0 + dimensionButton.getWidth();
+        int y0 = top + PICKER_Y + 17, visible = listVisible();
+        listScroll = Math.max(0, Math.min(listScroll, choices.size() - visible));
+        Theme.fill(x0, y0, x1, y0 + visible * LIST_ROW, Theme.PANEL_ALT);
+        Theme.outline(x0, y0, x1, y0 + visible * LIST_ROW, Theme.BORDER);
+        int hovered = listIndexAt(mouseX, mouseY);
+        for (int line = 0; line < visible; line++) {
+            int index = line + listScroll;
+            Integer dimension = choices.get(index);
+            int y = y0 + line * LIST_ROW;
+            boolean current = dimension == null ? picked == null : dimension.equals(picked);
+            if (index == hovered) {
+                Theme.fill(x0 + 1, y, x1 - 1, y + LIST_ROW, Theme.CONTROL_HOVER);
+            }
+            String label = dimension == null ? I18n.format("wayfarmap.stats.all_dims") : dimensionName(dimension);
+            Theme.text(
+                fontRendererObj,
+                Theme.ellipsize(fontRendererObj, label, x1 - x0 - 12),
+                x0 + 6,
+                y + 3,
+                current ? Theme.ACCENT : Theme.TEXT);
+        }
+        if (choices.size() > visible) {
+            // Scroll bar.
+            int height = visible * LIST_ROW;
+            int bar = Math.max(8, height * visible / choices.size());
+            int barY = y0 + (height - bar) * listScroll / (choices.size() - visible);
+            Theme.fill(x1 - 4, barY, x1 - 2, barY + bar, Theme.BORDER);
         }
     }
 
@@ -396,12 +485,8 @@ public class GuiMapStats extends ScaledScreen {
             picked = null;
         }
         String title = picked == null ? I18n.format("wayfarmap.stats.all_dims") : dimensionName(picked);
-        Theme.centered(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, title, right - left - 80),
-            (left + right) / 2,
-            top + PICKER_Y + 4,
-            Theme.TEXT);
+        dimensionButton.displayString = Theme.ellipsize(fontRendererObj, title, dimensionButton.getWidth() - 24)
+            + (listOpen ? " \u25B4" : " \u25BE");
 
         y = top + PICKER_Y + 24;
         Row row = stats == null ? null : picked == null ? null : stats.rows.get(picked);
@@ -446,6 +531,10 @@ public class GuiMapStats extends ScaledScreen {
         String note = Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.stats.note"), right - 100 - left - 10);
         Theme.text(fontRendererObj, note, left + 10, bottom - 21, Theme.TEXT_MUTED);
         super.drawScaled(mouseX, mouseY, partialTicks);
+        if (listOpen) {
+            // Over everything else.
+            drawList(mouseX, mouseY);
+        }
     }
 
     @Override
