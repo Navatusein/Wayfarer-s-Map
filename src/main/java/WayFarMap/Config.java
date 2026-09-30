@@ -84,6 +84,8 @@ public class Config {
     public static boolean isoSmooth = true;
     /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
     public static int isoCaptureMs = 5;
+    /** How far under a roof the 3D map looks for the floor, in blocks (0 = the roof counts as solid ground). */
+    public static int isoOverhangDepth = 16;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
     public static boolean record3d = false;
     /**
@@ -322,6 +324,18 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
+        integer(
+            c,
+            "isoOverhangDepth",
+            "How many blocks under a roof or an overhang the 3D map keeps, so the space under it is not drawn as "
+                + "solid stone when seen from the side. 0 = off. More takes more memory. Applies as chunks are copied "
+                + "again.",
+            16,
+            0,
+            64,
+            4,
+            () -> isoOverhangDepth,
+            v -> isoOverhangDepth = v);
         tab(TAB_MAP_2D);
         group("layers");
         parent(null);

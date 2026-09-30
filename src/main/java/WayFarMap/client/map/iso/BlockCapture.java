@@ -8,16 +8,13 @@ import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 
+import WayFarMap.Config;
+
 /** Copies the blocks of a loaded chunk that the 3D map can see (render thread; the rest is done in the background). */
 final class BlockCapture {
 
     /** How much deeper than its own floor a chunk is stored for a neighbour's lower ground. */
     private static final int MAX_EXTRA_DEPTH = 32;
-    /**
-     * How far below a block that hides what is under it (a roof, a floor on pillars) the space under it is looked
-     * into: seen from the side under an overhang, it would otherwise be drawn as solid ground.
-     */
-    private static final int MAX_OVERHANG = 16;
 
     private BlockCapture() {}
 
@@ -71,13 +68,15 @@ final class BlockCapture {
 
     /**
      * The floor of a column whose first block from the top that hides what is below is at {@code y}: under a roof
-     * (with open space below it) the floor under that space, down to {@link #MAX_OVERHANG} blocks, several storeys if
-     * there are; {@code y} itself for solid ground.
+     * (with open space below it) the floor under that space, down to {@link Config#isoOverhangDepth} blocks, several
+     * storeys if there are; {@code y} itself for solid ground. Seen from the side under an overhang, the space would
+     * otherwise be drawn as solid ground.
      */
     private static int underOverhang(Chunk chunk, int x, int z, int y) {
         int floor = y;
         boolean open = false;
-        for (int yy = y - 1; yy >= 0 && yy >= y - MAX_OVERHANG; yy--) {
+        int depth = Math.max(0, Config.isoOverhangDepth);
+        for (int yy = y - 1; yy >= 0 && yy >= y - depth; yy--) {
             if (!hidesBelow(chunk.getBlock(x, yy, z))) {
                 open = true;
             } else if (open) {
