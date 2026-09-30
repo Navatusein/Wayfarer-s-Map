@@ -256,18 +256,20 @@ public class WaypointRenderer {
     private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
 
     /**
-     * A beacon beam above the waypoint, in its outline color (white without one): a turning inner beam with a
-     * scrolling texture and a faint outer glow, like the vanilla beacon. Hidden behind terrain like a real one.
+     * A beacon beam through the waypoint's column, from the bottom of the world to the top, in its outline color
+     * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
+     * beacon. Hidden behind terrain like a real one.
      */
     private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks) {
         double x = waypoint.x - RenderManager.renderPosX;
-        double y = waypoint.y - RenderManager.renderPosY;
+        // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
+        double y = -RenderManager.renderPosY;
         double z = waypoint.z - RenderManager.renderPosZ;
         double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
         if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
             return;
         }
-        double height = Math.max(1, 256 - waypoint.y);
+        double height = Math.max(1, mc.theWorld.getHeight());
         int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
         int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
         float time = mc.theWorld.getTotalWorldTime() % 100_000L + partialTicks;
