@@ -67,6 +67,8 @@ final class ItemSprites {
     private static int failures;
     private static long frameStart;
     private static int takenThisFrame;
+    /** The world the pictures were taken in. */
+    private static Object pictureWorld;
 
     private ItemSprites() {}
 
@@ -102,6 +104,16 @@ final class ItemSprites {
         Item item = stack.getItem();
         if (item == null || failures >= 5 || !OpenGlHelper.isFramebufferEnabled()) {
             return null;
+        }
+        Object world = Minecraft.getMinecraft().theWorld;
+        if (world != pictureWorld) {
+            // Taken again in each world: a picture taken while the game was still setting up could be wrong.
+            pictureWorld = world;
+            for (DynamicTexture old : PICTURES.values()) {
+                old.deleteGlTexture();
+            }
+            PICTURES.clear();
+            EMPTY.clear();
         }
         String key = Item.getIdFromItem(item) + ":" + stack.getItemDamage();
         DynamicTexture picture = PICTURES.get(key);
@@ -157,6 +169,15 @@ final class ItemSprites {
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glLoadIdentity();
             GL11.glOrtho(0, 16, 16, 0, 1000, 3000);
+            // No light map, as in the inventory: taken while the world is drawn (the in-world marker) it tinted the
+            // picture with the light of some place, often black, and the broken picture stayed.
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GL11.glEnable(GL11.GL_BLEND);
+            OpenGlHelper
+                .glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glLoadIdentity();
             GL11.glTranslatef(0f, 0f, -2000f);

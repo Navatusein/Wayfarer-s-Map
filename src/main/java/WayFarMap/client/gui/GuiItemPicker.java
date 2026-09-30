@@ -151,12 +151,30 @@ public class GuiItemPicker extends ScaledScreen {
     }
 
     @Override
+    public void handleKeyboardInput() {
+        if (Keyboard.getEventKeyState()) {
+            super.handleKeyboardInput();
+            return;
+        }
+        // Some input setups (lwjgl3ify on newer Java) send a typed letter as an event of its own, without a key
+        // press: the search takes those too.
+        char typed = Keyboard.getEventCharacter();
+        if (Keyboard.getEventKey() == 0 && typed >= ' ' && typed != 127) {
+            keyTyped(typed, 0);
+        }
+    }
+
+    @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(parent);
             return;
         }
-        if (search.textboxKeyTyped(typedChar, keyCode)) {
+        // Every key goes to the search, whatever the field thinks of its focus; the list follows its text.
+        String before = search.getText();
+        search.setFocused(true);
+        search.textboxKeyTyped(typedChar, keyCode);
+        if (!before.equals(search.getText())) {
             applyFilter();
         }
     }
