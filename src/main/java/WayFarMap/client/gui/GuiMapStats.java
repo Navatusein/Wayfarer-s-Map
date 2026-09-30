@@ -190,10 +190,10 @@ public class GuiMapStats extends ScaledScreen {
                     stats.rows.put(dimension, row);
                 } else if (file.getName()
                     .equals("iso-sprites.dat")) {
-                    stats.sprites += size(file);
-                } else {
-                    stats.other += size(file);
-                }
+                        stats.sprites += size(file);
+                    } else {
+                        stats.other += size(file);
+                    }
             }
         }
         // Every world played: wayfarmap/singleplayer/<world> and wayfarmap/multiplayer/<server>.
@@ -235,14 +235,14 @@ public class GuiMapStats extends ScaledScreen {
                 addDimension(file, sizes);
             } else if (file.isDirectory() && file.getName()
                 .startsWith("player-")) {
-                // Each account's map of the world.
-                addWorld(file, sizes);
-            } else if (file.getName()
-                .equals("iso-sprites.dat")) {
-                sizes[1] += size(file);
-            } else {
-                sizes[2] += size(file);
-            }
+                    // Each account's map of the world.
+                    addWorld(file, sizes);
+                } else if (file.getName()
+                    .equals("iso-sprites.dat")) {
+                        sizes[1] += size(file);
+                    } else {
+                        sizes[2] += size(file);
+                    }
         }
     }
 
