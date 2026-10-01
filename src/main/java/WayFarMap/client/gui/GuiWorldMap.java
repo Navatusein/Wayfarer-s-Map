@@ -743,17 +743,6 @@ public class GuiWorldMap extends ScaledScreen {
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
-        drawMap(mouseX, mouseY, partialTicks);
-        // The cursor of the settings over everything, at the mouse's exact place (not rounded to GUI pixels).
-        MapCursor.updateSystemCursor();
-        if (MapCursor.isCustom() && Mouse.isInsideWindow()) {
-            MapCursor.draw(
-                Mouse.getX() * width / (double) mc.displayWidth,
-                height - Mouse.getY() * height / (double) mc.displayHeight);
-        }
-    }
-
-    private void drawMap(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
 
         MapDimension dimension = MapManager.INSTANCE.getViewMap();
@@ -815,7 +804,7 @@ public class GuiWorldMap extends ScaledScreen {
                 double[] ahead = toScreen(px - Math.sin(r), py, pz + Math.cos(r));
                 yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
             }
-            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f, 0xFFFFFFFF);
+            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f);
         }
         drawOverlay(mouseX, mouseY, partialTicks, dimension, dimensionId, otherDimension, iso);
     }
@@ -1770,7 +1759,6 @@ public class GuiWorldMap extends ScaledScreen {
     public void onGuiClosed() {
         super.onGuiClosed();
         Keyboard.enableRepeatEvents(false);
-        MapCursor.restoreSystemCursor();
         // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
         if (Mods.isVisualProspectingLoaded()) {
             ProspectingLayer.setSearch("");

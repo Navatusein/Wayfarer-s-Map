@@ -25,7 +25,7 @@ public class Config {
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
     public static final String CATEGORY_LOGS = "logs";
-    public static final String CATEGORY_CURSOR = "cursor";
+    public static final String CATEGORY_PLAYER_MARKER = "playerMarker";
     public static final String CATEGORY_COMMANDS = "commands";
     /**
      * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
@@ -39,7 +39,7 @@ public class Config {
             TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
-            CATEGORY_CURSOR,
+            CATEGORY_PLAYER_MARKER,
             CATEGORY_ENTITIES,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
@@ -78,16 +78,15 @@ public class Config {
     public static boolean minimapFrame = true;
     public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
     public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
-    /** Mouse cursor on the world map: the system one, or one of the shapes the map draws itself. */
-    public static final int CURSOR_SYSTEM = 0, CURSOR_ARROW = 1, CURSOR_CROSSHAIR = 2, CURSOR_PLUS = 3, CURSOR_DOT = 4,
-        CURSOR_CIRCLE = 5, CURSOR_TARGET = 6, CURSOR_SQUARE = 7;
-    public static int cursorStyle = CURSOR_SYSTEM;
-    /** Size of the drawn cursor in GUI pixels. */
-    public static int cursorSize = 14;
-    public static final int CURSOR_COLOR = 0xFFFFFF;
-    public static int cursorColor = CURSOR_COLOR;
-    /** A dark line around the drawn cursor, so it shows on light ground too. */
-    public static boolean cursorOutline = true;
+    /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
+    public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
+        MARKER_CIRCLE = 4, MARKER_DOT = 5;
+    public static int playerMarkerStyle = MARKER_ARROW;
+    public static int playerMarkerScale = 100;
+    public static final int PLAYER_MARKER_COLOR = 0xFFFFFF;
+    public static int playerMarkerColor = PLAYER_MARKER_COLOR;
+    /** A dark line around the marker, so it shows on light ground too. */
+    public static boolean playerMarkerOutline = true;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
 
@@ -471,27 +470,42 @@ public class Config {
             v -> shareMapWithTeam = v);
 
         tab(null);
-        c = CATEGORY_CURSOR;
+        c = CATEGORY_PLAYER_MARKER;
         group("look");
         parent(null);
         choice(
             c,
             "style",
-            "Cursor on the world map: 0 = system, 1 = arrow, 2 = crosshair, 3 = plus, 4 = dot, 5 = circle, "
-                + "6 = target, 7 = square.",
-            CURSOR_SYSTEM,
-            new String[] { "system", "arrow", "crosshair", "plus", "dot", "circle", "target", "square" },
-            () -> cursorStyle,
-            v -> cursorStyle = v);
-        integer(c, "size", "Size of the cursor in GUI pixels.", 14, 6, 48, 2, () -> cursorSize, v -> cursorSize = v);
-        color(c, "color", "Color of the cursor, as #RRGGBB.", CURSOR_COLOR, () -> cursorColor, v -> cursorColor = v);
+            "Look of the player on the maps: 0 = arrow, 1 = triangle, 2 = chevron, 3 = kite, 4 = circle with a nose, "
+                + "5 = dot.",
+            MARKER_ARROW,
+            new String[] { "arrow", "triangle", "chevron", "kite", "circle", "dot" },
+            () -> playerMarkerStyle,
+            v -> playerMarkerStyle = v);
+        integer(
+            c,
+            "scale",
+            "Size of the player marker, in percent of the usual size.",
+            100,
+            50,
+            300,
+            10,
+            () -> playerMarkerScale,
+            v -> playerMarkerScale = v);
+        color(
+            c,
+            "color",
+            "Color of the player marker, as #RRGGBB.",
+            PLAYER_MARKER_COLOR,
+            () -> playerMarkerColor,
+            v -> playerMarkerColor = v);
         bool(
             c,
             "outline",
-            "Dark outline around the cursor, so it shows on light ground too.",
+            "Dark outline around the player marker, so it shows on light ground too.",
             true,
-            () -> cursorOutline,
-            v -> cursorOutline = v);
+            () -> playerMarkerOutline,
+            v -> playerMarkerOutline = v);
 
         c = CATEGORY_ENTITIES;
         group("shown");

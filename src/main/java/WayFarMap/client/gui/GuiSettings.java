@@ -10,8 +10,10 @@ import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.MapDrawer;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
@@ -349,8 +351,8 @@ public class GuiSettings extends ScaledScreen {
                 drawControl(option, controlX(), y + 3, mouseX, mouseY);
             }
         }
-        if (Config.CATEGORY_CURSOR.equals(category)) {
-            drawCursorPreview();
+        if (Config.CATEGORY_PLAYER_MARKER.equals(category)) {
+            drawMarkerPreview();
         }
         if (maxScroll() > 0) {
             int track = contentBottom - contentTop;
@@ -365,8 +367,8 @@ public class GuiSettings extends ScaledScreen {
         super.drawScaled(mouseX, mouseY, partialTicks);
     }
 
-    /** Under the cursor's options: the cursor as it will look, on dark and on light ground. */
-    private void drawCursorPreview() {
+    /** Under the marker's options: the marker as on the world map, on dark and on light ground. */
+    private void drawMarkerPreview() {
         List<Row> rows = rows();
         Row last = rows.get(rows.size() - 1);
         int y = contentTop + last.y + last.height + 10 - scroll;
@@ -374,23 +376,18 @@ public class GuiSettings extends ScaledScreen {
         if (y + 12 < contentTop || y + 12 + boxHeight > contentBottom) {
             return;
         }
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.cursor_preview"), contentLeft, y, Theme.ACCENT);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), contentLeft, y, Theme.ACCENT);
         y += 12;
         int middle = (contentLeft + boxRight) / 2;
         Theme.fill(contentLeft, y, middle, y + boxHeight, 0xFF0C0E11);
         Theme.fill(middle, y, boxRight, y + boxHeight, 0xFFC9D3B4);
         Theme.outline(contentLeft, y, boxRight, y + boxHeight, Theme.BORDER);
-        if (!MapCursor.isCustom()) {
-            String note = I18n.format("wayfarmap.settings.cursor_system");
-            Theme.centered(fontRendererObj, note, (contentLeft + middle) / 2, y + boxHeight / 2 - 4, Theme.TEXT_MUTED);
-            return;
-        }
-        // The arrow is placed by its tip: moved so that it looks centered too.
-        boolean arrow = Config.cursorStyle == Config.CURSOR_ARROW;
-        double dx = arrow ? -Config.cursorSize * 0.3 : 0, dy = arrow ? -Config.cursorSize * 0.5 : 0;
-        double cy = y + boxHeight / 2.0 + dy;
-        MapCursor.draw((contentLeft + middle) / 2.0 + dx, cy);
-        MapCursor.draw((middle + boxRight) / 2.0 + dx, cy);
+        // Turning slowly, so its direction shows. The world map's size (5 at 100%).
+        float yaw = (System.currentTimeMillis() % 8000L) * 360f / 8000f;
+        double cy = y + boxHeight / 2.0;
+        MapDrawer.drawPlayerArrow((contentLeft + middle) / 2.0, cy, yaw, 5f);
+        MapDrawer.drawPlayerArrow((middle + boxRight) / 2.0, cy, yaw, 5f);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**

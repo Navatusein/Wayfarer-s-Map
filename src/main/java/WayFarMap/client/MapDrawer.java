@@ -286,8 +286,24 @@ public final class MapDrawer {
         return 1f - day;
     }
 
-    /** Draws an arrow at the given screen position pointing where the player looks. */
-    public static void drawPlayerArrow(double sx, double sy, float yaw, float size, int color) {
+    /**
+     * Draws the player's marker at the given screen position, pointing where the player looks, in the look, size and
+     * color of the settings; {@code size} is the marker's size at 100%.
+     */
+    public static void drawPlayerArrow(double sx, double sy, float yaw, float size) {
+        drawPlayerMarker(
+            sx,
+            sy,
+            yaw,
+            size * Config.playerMarkerScale / 100f,
+            Config.playerMarkerStyle,
+            0xFF000000 | Config.playerMarkerColor,
+            Config.playerMarkerOutline);
+    }
+
+    /** Draws a player marker of the given look; yaw 180 points up. */
+    public static void drawPlayerMarker(double sx, double sy, float yaw, float size, int style, int color,
+        boolean outline) {
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -299,25 +315,80 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
         Tessellator tessellator = Tessellator.instance;
-        // Dark outline, then the colored arrow on top.
-        drawArrowShape(tessellator, size + 1.2f, 0xFF000000);
-        drawArrowShape(tessellator, size, color);
+        tessellator.startDrawing(GL11.GL_TRIANGLES);
+        if (outline) {
+            // The shape in black shifted all around, then in its color on top: an even dark line around any shape.
+            tessellator.setColorRGBA_I(0, 0xFF);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx != 0 || dy != 0) {
+                        markerShape(tessellator, style, size, dx * 0.8, dy * 0.8);
+                    }
+                }
+            }
+        }
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        markerShape(tessellator, style, size, 0, 0);
+        tessellator.draw();
 
         GL11.glPopAttrib();
         GL11.glPopMatrix();
     }
 
-    private static void drawArrowShape(Tessellator tessellator, float size, int color) {
-        tessellator.startDrawing(GL11.GL_TRIANGLES);
-        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
-        // Two triangles forming an arrow head with a notch at the back.
-        tessellator.addVertex(0, -size, 0);
-        tessellator.addVertex(-size * 0.75f, size, 0);
-        tessellator.addVertex(0, size * 0.45f, 0);
-        tessellator.addVertex(0, -size, 0);
-        tessellator.addVertex(0, size * 0.45f, 0);
-        tessellator.addVertex(size * 0.75f, size, 0);
-        tessellator.draw();
+    private static final int MARKER_SEGMENTS = 24;
+
+    /** Triangles of a marker pointing up (-y), centered on (ox, oy). */
+    private static void markerShape(Tessellator t, int style, float s, double ox, double oy) {
+        switch (style) {
+            case Config.MARKER_TRIANGLE:
+                triangle(t, ox, oy, 0, -s, -s * 0.7, s * 0.8, s * 0.7, s * 0.8);
+                break;
+            case Config.MARKER_CHEVRON:
+                // An arrow with a deep notch: a thin V.
+                triangle(t, ox, oy, 0, -s, -s * 0.8, s * 0.85, 0, -s * 0.15);
+                triangle(t, ox, oy, 0, -s, 0, -s * 0.15, s * 0.8, s * 0.85);
+                break;
+            case Config.MARKER_KITE:
+                triangle(t, ox, oy, 0, -s, -s * 0.6, s * 0.3, 0, s * 0.8);
+                triangle(t, ox, oy, 0, -s, 0, s * 0.8, s * 0.6, s * 0.3);
+                break;
+            case Config.MARKER_CIRCLE:
+                // A disc with a nose showing the direction.
+                disc(t, ox, oy, s * 0.6);
+                triangle(t, ox, oy, 0, -s * 1.2, -s * 0.42, -s * 0.38, s * 0.42, -s * 0.38);
+                break;
+            case Config.MARKER_DOT:
+                disc(t, ox, oy, s * 0.6);
+                break;
+            default:
+                // Arrow head with a notch at the back.
+                triangle(t, ox, oy, 0, -s, -s * 0.75, s, 0, s * 0.45);
+                triangle(t, ox, oy, 0, -s, 0, s * 0.45, s * 0.75, s);
+                break;
+        }
+    }
+
+    private static void triangle(Tessellator t, double ox, double oy, double x0, double y0, double x1, double y1,
+        double x2, double y2) {
+        t.addVertex(ox + x0, oy + y0, 0);
+        t.addVertex(ox + x1, oy + y1, 0);
+        t.addVertex(ox + x2, oy + y2, 0);
+    }
+
+    private static void disc(Tessellator t, double ox, double oy, double radius) {
+        for (int i = 0; i < MARKER_SEGMENTS; i++) {
+            double a0 = 2 * Math.PI * i / MARKER_SEGMENTS, a1 = 2 * Math.PI * (i + 1) / MARKER_SEGMENTS;
+            triangle(
+                t,
+                ox,
+                oy,
+                0,
+                0,
+                Math.cos(a0) * radius,
+                Math.sin(a0) * radius,
+                Math.cos(a1) * radius,
+                Math.sin(a1) * radius);
+        }
     }
 
     /** Draws a filled square marker centered on the given position. */

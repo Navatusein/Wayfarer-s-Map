@@ -148,7 +148,7 @@ public class MinimapRenderer {
         if (Config.waypointsOnMinimap) {
             drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation);
         }
-        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f, 0xFFFFFFFF);
+        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f);
         if (Config.minimapCompass) {
             drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
         }
