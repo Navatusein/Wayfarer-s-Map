@@ -2,7 +2,10 @@ package WayFarMap.client;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 
 import net.minecraft.client.Minecraft;
@@ -10,6 +13,7 @@ import net.minecraft.client.model.ModelBase;
 import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.model.ModelBox;
 import net.minecraft.client.model.ModelRenderer;
+import net.minecraft.client.model.ModelSlime;
 import net.minecraft.client.model.PositionTextureVertex;
 import net.minecraft.client.model.TexturedQuad;
 import net.minecraft.client.renderer.Tessellator;
@@ -36,13 +40,45 @@ public final class EntityIcons {
         final float u0, v0, u1, v1;
         final float width, height;
 
+        /**
+         * For a face made of several boxes (a slime: its body, eyes and mouth inside a see-through cube), each one's
+         * front with its place in the face, back ones first; null for a single box.
+         */
+        final Part[] parts;
+
         Face(float u0, float v0, float u1, float v1, float width, float height) {
+            this(u0, v0, u1, v1, width, height, null);
+        }
+
+        Face(float u0, float v0, float u1, float v1, float width, float height, Part[] parts) {
             this.u0 = u0;
             this.v0 = v0;
             this.u1 = u1;
             this.v1 = v1;
             this.width = width;
             this.height = height;
+            this.parts = parts;
+        }
+    }
+
+    /** The front of one box of a face made of several: its texture square, and where it is in the face (0-1). */
+    private static final class Part {
+
+        final float u0, v0, u1, v1;
+        final float x0, y0, x1, y1;
+        /** Depth of the front, to draw the back ones first. */
+        final float z;
+
+        Part(float[] uv, float x0, float y0, float x1, float y1, float z) {
+            this.u0 = uv[0];
+            this.v0 = uv[1];
+            this.u1 = uv[2];
+            this.v1 = uv[3];
+            this.x0 = x0;
+            this.y0 = y0;
+            this.x1 = x1;
+            this.y1 = y1;
+            this.z = z;
         }
     }
 
@@ -52,6 +88,8 @@ public final class EntityIcons {
 
     private static Method textureMethod;
     private static Field mainModelField;
+    /** The model drawn over the main one (the slime's see-through outer cube); null if not found. */
+    private static Field renderPassModelField;
     private static Field quadListField;
     private static boolean reflectionFailed;
 
@@ -101,6 +139,18 @@ public final class EntityIcons {
         GL11.glColor4f(1f, 1f, 1f, 1f);
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawingQuads();
+        if (face.parts != null) {
+            for (Part part : face.parts) {
+                double x0 = sx - halfW + part.x0 * 2 * halfW, x1 = sx - halfW + part.x1 * 2 * halfW;
+                double y0 = sy - halfH + part.y0 * 2 * halfH, y1 = sy - halfH + part.y1 * 2 * halfH;
+                tessellator.addVertexWithUV(x0, y1, 0, part.u0, part.v1);
+                tessellator.addVertexWithUV(x1, y1, 0, part.u1, part.v1);
+                tessellator.addVertexWithUV(x1, y0, 0, part.u1, part.v0);
+                tessellator.addVertexWithUV(x0, y0, 0, part.u0, part.v0);
+            }
+            tessellator.draw();
+            return true;
+        }
         tessellator.addVertexWithUV(sx - halfW, sy + halfH, 0, face.u0, face.v1);
         tessellator.addVertexWithUV(sx + halfW, sy + halfH, 0, face.u1, face.v1);
         tessellator.addVertexWithUV(sx + halfW, sy - halfH, 0, face.u1, face.v0);
@@ -131,8 +181,12 @@ public final class EntityIcons {
             for (Field field : RendererLivingEntity.class.getDeclaredFields()) {
                 if (field.getType() == ModelBase.class) {
                     field.setAccessible(true);
-                    mainModelField = field;
-                    break;
+                    if (mainModelField == null) {
+                        mainModelField = field;
+                    } else {
+                        renderPassModelField = field;
+                        break;
+                    }
                 }
             }
             for (Field field : ModelBox.class.getDeclaredFields()) {
@@ -156,30 +210,104 @@ public final class EntityIcons {
     private static Face findFace(RendererLivingEntity render) {
         try {
             ModelBase model = (ModelBase) mainModelField.get(render);
+            if (model instanceof ModelSlime) {
+                Face face = slimeFace(render, model);
+                if (face != null) {
+                    return face;
+                }
+            }
             ModelRenderer head = findHead(model);
             if (head == null) {
                 return NONE;
             }
-            ModelBox box = (ModelBox) head.cubeList.get(0);
-            TexturedQuad[] quads = (TexturedQuad[]) quadListField.get(box);
-            // ModelBox creates its faces in a fixed order; index 4 is the front (-Z), where mobs have their face.
-            TexturedQuad front = quads[4];
-            float u0 = 1, v0 = 1, u1 = 0, v1 = 0;
-            for (PositionTextureVertex vertex : front.vertexPositions) {
-                u0 = Math.min(u0, vertex.texturePositionX);
-                u1 = Math.max(u1, vertex.texturePositionX);
-                v0 = Math.min(v0, vertex.texturePositionY);
-                v1 = Math.max(v1, vertex.texturePositionY);
-            }
-            float width = (u1 - u0) * model.textureWidth;
-            float height = (v1 - v0) * model.textureHeight;
+            float[] uv = frontUv((ModelBox) head.cubeList.get(0));
+            float width = (uv[2] - uv[0]) * model.textureWidth;
+            float height = (uv[3] - uv[1]) * model.textureHeight;
             if (width <= 0 || height <= 0) {
                 return NONE;
             }
-            return new Face(u0, v0, u1, v1, width, height);
+            return new Face(uv[0], uv[1], uv[2], uv[3], width, height);
         } catch (Throwable t) {
             return NONE;
         }
+    }
+
+    /** {u0, v0, u1, v1} of the front (-Z) of a box. */
+    private static float[] frontUv(ModelBox box) throws IllegalAccessException {
+        TexturedQuad[] quads = (TexturedQuad[]) quadListField.get(box);
+        // ModelBox creates its faces in a fixed order; index 4 is the front (-Z), where mobs have their face.
+        TexturedQuad front = quads[4];
+        float u0 = 1, v0 = 1, u1 = 0, v1 = 0;
+        for (PositionTextureVertex vertex : front.vertexPositions) {
+            u0 = Math.min(u0, vertex.texturePositionX);
+            u1 = Math.max(u1, vertex.texturePositionX);
+            v0 = Math.min(v0, vertex.texturePositionY);
+            v1 = Math.max(v1, vertex.texturePositionY);
+        }
+        return new float[] { u0, v0, u1, v1 };
+    }
+
+    /**
+     * A slime's face as the game shows it: the body, eyes and mouth of the main model (separate boxes inside), and
+     * the see-through outer cube drawn over them. Vanilla slimes and those of mods using the slime model (Tinkers'
+     * Construct's blue slime and King Slime). Null if it can't be made.
+     */
+    private static Face slimeFace(RendererLivingEntity render, ModelBase inner) throws IllegalAccessException {
+        List<ModelBase> models = new ArrayList<>();
+        models.add(inner);
+        ModelBase outer = renderPassModelField == null ? null : (ModelBase) renderPassModelField.get(render);
+        if (outer instanceof ModelSlime) {
+            models.add(outer);
+        }
+        // Boxes in model units, then fitted into the face's square.
+        List<float[]> boxes = new ArrayList<>();
+        List<float[]> uvs = new ArrayList<>();
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (int m = 0; m < models.size(); m++) {
+            ModelBase model = models.get(m);
+            if (model.boxList == null) {
+                continue;
+            }
+            for (Object o : model.boxList) {
+                ModelRenderer renderer = (ModelRenderer) o;
+                if (renderer.cubeList == null) {
+                    continue;
+                }
+                for (Object c : renderer.cubeList) {
+                    if (!(c instanceof ModelBox)) {
+                        continue;
+                    }
+                    ModelBox box = (ModelBox) c;
+                    float x0 = renderer.rotationPointX + box.posX1, x1 = renderer.rotationPointX + box.posX2;
+                    float y0 = renderer.rotationPointY + box.posY1, y1 = renderer.rotationPointY + box.posY2;
+                    // The outer cube is over everything inside: the farthest front of the inner boxes first.
+                    float z = m == 1 ? -Float.MAX_VALUE : renderer.rotationPointZ + box.posZ1;
+                    boxes.add(new float[] { x0, y0, x1, y1, z });
+                    uvs.add(frontUv(box));
+                    minX = Math.min(minX, x0);
+                    minY = Math.min(minY, y0);
+                    maxX = Math.max(maxX, x1);
+                    maxY = Math.max(maxY, y1);
+                }
+            }
+        }
+        if (boxes.isEmpty() || maxX <= minX || maxY <= minY) {
+            return null;
+        }
+        Part[] parts = new Part[boxes.size()];
+        for (int i = 0; i < parts.length; i++) {
+            float[] b = boxes.get(i);
+            parts[i] = new Part(
+                uvs.get(i),
+                (b[0] - minX) / (maxX - minX),
+                (b[1] - minY) / (maxY - minY),
+                (b[2] - minX) / (maxX - minX),
+                (b[3] - minY) / (maxY - minY),
+                b[4]);
+        }
+        // Back to front: the front is -Z, so larger Z is farther.
+        Arrays.sort(parts, (a, b) -> Float.compare(b.z, a.z));
+        return new Face(0, 0, 1, 1, maxX - minX, maxY - minY, parts);
     }
 
     /**
