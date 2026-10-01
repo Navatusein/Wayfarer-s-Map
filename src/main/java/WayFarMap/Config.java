@@ -87,6 +87,8 @@ public class Config {
     public static int playerMarkerColor = PLAYER_MARKER_COLOR;
     /** A dark line around the marker, so it shows on light ground too. */
     public static boolean playerMarkerOutline = true;
+    public static final int PLAYER_MARKER_OUTLINE_COLOR = 0x000000;
+    public static int playerMarkerOutlineColor = PLAYER_MARKER_OUTLINE_COLOR;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
 
@@ -506,6 +508,14 @@ public class Config {
             true,
             () -> playerMarkerOutline,
             v -> playerMarkerOutline = v);
+        parent("outline");
+        color(
+            c,
+            "outlineColor",
+            "Color of the player marker's outline, as #RRGGBB.",
+            PLAYER_MARKER_OUTLINE_COLOR,
+            () -> playerMarkerOutlineColor,
+            v -> playerMarkerOutlineColor = v);
 
         c = CATEGORY_ENTITIES;
         group("shown");

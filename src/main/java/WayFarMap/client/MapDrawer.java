@@ -298,12 +298,12 @@ public final class MapDrawer {
             size * Config.playerMarkerScale / 100f,
             Config.playerMarkerStyle,
             0xFF000000 | Config.playerMarkerColor,
-            Config.playerMarkerOutline);
+            Config.playerMarkerOutline ? 0xFF000000 | Config.playerMarkerOutlineColor : 0);
     }
 
-    /** Draws a player marker of the given look; yaw 180 points up. */
+    /** Draws a player marker of the given look; yaw 180 points up. An outline color of 0 draws none. */
     public static void drawPlayerMarker(double sx, double sy, float yaw, float size, int style, int color,
-        boolean outline) {
+        int outline) {
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -316,9 +316,10 @@ public final class MapDrawer {
 
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawing(GL11.GL_TRIANGLES);
-        if (outline) {
-            // The shape in black shifted all around, then in its color on top: an even dark line around any shape.
-            tessellator.setColorRGBA_I(0, 0xFF);
+        if (outline != 0) {
+            // The shape in the outline color shifted all around, then in its color on top: an even line around any
+            // shape.
+            tessellator.setColorRGBA_I(outline & 0xFFFFFF, (outline >>> 24) & 0xFF);
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dy = -1; dy <= 1; dy++) {
                     if (dx != 0 || dy != 0) {
