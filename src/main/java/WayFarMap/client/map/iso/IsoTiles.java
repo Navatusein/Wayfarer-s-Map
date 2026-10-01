@@ -43,8 +43,13 @@ import WayFarMap.client.MapDrawer;
  */
 final class IsoTiles {
 
-    /** Tiles kept in video memory (two textures each: day and night, 128 KB together). */
+    /** Tiles with pictures kept in video memory (two textures each: day and night, 128 KB together). */
     private static final int MAX_TILES = 800;
+    /**
+     * Tiles kept in all, most of them empty (nothing explored there: no textures, a few bytes): dropping those made
+     * them read from their files again and again.
+     */
+    private static final int MAX_ALL_TILES = 20_000;
     /**
      * Levels from this one on (8 pixels per block and less) are saved to disk, so a part of the map seen before opens
      * at once; finer ones are quick to draw and would be too many files.
@@ -53,8 +58,11 @@ final class IsoTiles {
     private static final int MAGIC = 0x57465432; // "WFT2"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
-    /** A queued tile that has been off screen this long is not drawn. */
-    private static final long UNWANTED_MS = 1500;
+    /**
+     * A queued tile that has been off screen this long is not drawn: zooming through the levels queues hundreds of
+     * tiles each, which kept the ones on screen waiting for seconds.
+     */
+    private static final long UNWANTED_MS = 400;
     private static final int PIXELS = IsoProjection.TILE_PIXELS;
 
     /** Which tile: dimension, view side, level and position on the projection plane. */
@@ -99,6 +107,8 @@ final class IsoTiles {
         /** Last time a chunk it shows changed. */
         volatile long dirtyAt;
         volatile long wantedAt;
+        /** Frame it was last on screen in. */
+        volatile long wantedFrame;
         boolean queued;
         long lastDrawn;
 
@@ -174,7 +184,7 @@ final class IsoTiles {
     private final Thread[] workers;
     private volatile boolean running = true;
     private IntBuffer uploadBuffer;
-    private long frame;
+    private volatile long frame;
     /** {@link Config#isoSmooth} the tiles in memory were drawn with. */
     private boolean smooth = Config.isoSmooth;
 
@@ -240,6 +250,7 @@ final class IsoTiles {
                     tiles.put(key, tile);
                 }
                 tile.wantedAt = now;
+                tile.wantedFrame = frame;
                 tile.lastDrawn = frame;
                 if ((!tile.ready || tile.stale()) && !tile.queued) {
                     double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
@@ -258,7 +269,7 @@ final class IsoTiles {
                     } else {
                         empty++;
                     }
-                } else if (drawFromCoarser(key, sx, sy, size, night)) {
+                } else if (drawFromCoarser(key, sx, sy, size, night) || drawFromFiner(key, sx, sy, size, night)) {
                     fromCoarser++;
                 } else {
                     holes++;
@@ -310,6 +321,31 @@ final class IsoTiles {
         return false;
     }
 
+    /**
+     * Until a tile is ready and no coarser one is (zoomed out), the four finer ones in its place that are: zooming
+     * out left nothing at all on screen until the coarser tiles were made. False if none of them is ready.
+     */
+    private boolean drawFromFiner(Key key, double sx, double sy, double size, float night) {
+        if (key.level == 0) {
+            return false;
+        }
+        boolean any = false;
+        double half = size / 2;
+        for (int i = 0; i < 4; i++) {
+            Key child = new Key(key.dimension, key.rotation, key.level - 1, key.tu * 2 + (i & 1), key.tv * 2 + (i >> 1));
+            Tile tile = tiles.get(child);
+            if (tile == null || !tile.ready) {
+                continue;
+            }
+            tile.lastDrawn = frame;
+            any = true;
+            if (!tile.empty) {
+                drawTile(tile, sx + (i & 1) * half, sy + (i >> 1) * half, half, 0, 0, 1, night);
+            }
+        }
+        return any;
+    }
+
     /** Draws (part of) a tile by day, and its night look over it as much as it is night. */
     private static void drawTile(Tile tile, double sx, double sy, double size, double u0, double v0, double part,
         float night) {
@@ -338,16 +374,18 @@ final class IsoTiles {
     /** Puts the tiles the renderers finished on the graphics card, a few per frame; returns how many it took. */
     private int uploadResults() {
         int n = 0;
-        for (; n < UPLOADS_PER_FRAME; n++) {
+        while (n < UPLOADS_PER_FRAME) {
             Result result = done.poll();
             if (result == null) {
                 return n;
             }
             Tile tile = result.tile;
             tile.queued = false;
+            // Skipped tiles cost nothing here: they used to take the uploads of a frame from the tiles on screen.
             if (result.skipped || tiles.get(tile.key) != tile) {
                 continue;
             }
+            n++;
             if (result.retry) {
                 // Drawn again soon; a good picture it had stays until then.
                 tile.dirtyAt = Math.max(tile.dirtyAt, result.renderedAt + 1);
@@ -404,20 +442,41 @@ final class IsoTiles {
         return texture;
     }
 
-    /** Frees the tiles not drawn lately while there are too many. */
+    /**
+     * Frees the tiles not drawn lately while too many have pictures (or too many are kept in all). Tiles waiting for
+     * a renderer stay: dropped, they were queued again as new ones and drawn twice at once.
+     */
     private void evict() {
-        if (tiles.size() <= MAX_TILES) {
+        int textured = 0;
+        for (Tile tile : tiles.values()) {
+            if (tile.texture != -1) {
+                textured++;
+            }
+        }
+        if (textured <= MAX_TILES && tiles.size() <= MAX_ALL_TILES) {
             return;
         }
         List<Tile> old = new ArrayList<>();
         for (Tile tile : tiles.values()) {
-            if (tile.lastDrawn < frame) {
+            if (tile.lastDrawn < frame && !tile.queued) {
                 old.add(tile);
             }
         }
         old.sort((a, b) -> Long.compare(a.lastDrawn, b.lastDrawn));
-        for (int i = 0; i < old.size() && tiles.size() > MAX_TILES * 3 / 4; i++) {
+        for (int i = 0; i < old.size(); i++) {
+            boolean texturesOver = textured > MAX_TILES * 3 / 4;
+            boolean countOver = tiles.size() > MAX_ALL_TILES * 3 / 4;
+            if (!texturesOver && !countOver) {
+                break;
+            }
             Tile tile = old.get(i);
+            if (tile.texture == -1 && !countOver) {
+                // Empty or not drawn yet: cheap to keep.
+                continue;
+            }
+            if (tile.texture != -1) {
+                textured--;
+            }
             deleteTexture(tile);
             tiles.remove(tile.key);
         }
@@ -543,7 +602,8 @@ final class IsoTiles {
                 continue;
             }
             Tile tile = job.tile;
-            if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS) {
+            // Off screen for a while and for a few frames (at a few frames a second the time alone would be).
+            if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS && frame - tile.wantedFrame > 2) {
                 // Scrolled or zoomed away before its turn.
                 done.add(new Result(tile, null, null, null, 0, true));
                 IsoLog.tileSkipped(tile.key);
@@ -756,7 +816,8 @@ final class IsoTiles {
         if (!parent.isDirectory() && !parent.mkdirs()) {
             return false;
         }
-        File tmp = new File(file.getPath() + ".tmp");
+        // Its own temporary file per thread, so two renderers saving the same tile don't write into one.
+        File tmp = new File(file.getPath() + "." + System.identityHashCode(Thread.currentThread()) + ".tmp");
         Deflater deflater = new Deflater(4);
         try (
             DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmp), 1 << 15))) {
