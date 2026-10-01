@@ -30,8 +30,8 @@ import WayFarMap.client.waypoint.WaypointManager;
 /**
  * Stats: how much disk the maps of all worlds take, and for this world, all its dimensions together or the one
  * picked, the flat (2D) and the 3D map apart, the waypoints, and what was found with the mods (GregTech ore veins,
- * underground fluids, Thaumcraft nodes), and the logs of the 2D and 3D maps. The sizes are counted again in the background each time the screen is
- * opened; until then the last count is shown, marked as being updated.
+ * underground fluids, Thaumcraft nodes), and the logs of the 2D and 3D maps. The sizes are counted again in the
+ * background each time the screen is opened; until then the last count is shown, marked as being updated.
  */
 public class GuiMapStats extends ScaledScreen {
 
