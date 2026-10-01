@@ -43,7 +43,7 @@ public final class ClaimsLayer {
     /** What a drag over the map does with the chunks it passes. */
     public static final int CLAIM = 0, LOAD = 1, CLAIM_AND_LOAD = 2, UNCLAIM = 3, UNLOAD = 4, UNLOAD_AND_UNCLAIM = 5;
 
-    /** Own claims are shown in these colors, whatever the team color is. */
+    /** Colors of the drag selection: claiming and loading. */
     private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
@@ -160,6 +160,12 @@ public final class ClaimsLayer {
         return a != null && b != null && a.team != null && b.team != null && a.team.uid == b.team.uid;
     }
 
+    /** Halfway to white, to stand out on the team color. */
+    private static int lighter(int rgb) {
+        int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        return (r + 255) / 2 << 16 | (g + 255) / 2 << 8 | (b + 255) / 2;
+    }
+
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
         try {
             return data.team.color.getColor()
@@ -170,8 +176,8 @@ public final class ClaimsLayer {
     }
 
     /**
-     * Draws the claims: own claims light blue, chunk loaded chunks green, other teams in their team color, with a
-     * border around each claimed area, and the chunks of the current drag selection.
+     * Draws the claims in their team's color (own ones too), with a border around each claimed area; chunk loaded
+     * chunks get an outline of their own, in a lighter shade of it. And the chunks of the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
      * @param selectionMode one of the action constants, for the selection color
@@ -203,12 +209,26 @@ public final class ClaimsLayer {
             }
             ClientClaimedChunks.ChunkData data = entry.getValue();
             boolean own = data.team != null && data.team.isMember;
-            // Own claims light blue, chunk loaded chunks green; other teams in their team color.
-            int color = own ? CLAIMED_COLOR : teamColor(data);
-            int fill = data.isLoaded() ? LOADED_COLOR : color;
+            int color = teamColor(data);
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            rect(sx, sy, cell, cell, fill, own || data.isLoaded() ? 0x78 : 0x50, x, y, width, height);
+            rect(sx, sy, cell, cell, color, own ? 0x70 : 0x50, x, y, width, height);
+            if (data.isLoaded()) {
+                // Chunk loaded: its own outline, inside the area's border, in a lighter shade of the team color.
+                double line = Math.max(pixel, border / 2);
+                hollowRect(
+                    sx + border,
+                    sy + border,
+                    cell - 2 * border,
+                    cell - 2 * border,
+                    line,
+                    lighter(color),
+                    0xF0,
+                    x,
+                    y,
+                    width,
+                    height);
+            }
             // Border only where the neighbour isn't the same team, so a claimed area has one outline.
             if (!sameTeam(data, get(pos.posX, pos.posZ - 1, dimension))) {
                 rect(sx, sy, cell, border, color, 0xE0, x, y, width, height);
