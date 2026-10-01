@@ -99,6 +99,11 @@ public class Config {
     /** Surface drawn with block colors or biome colors. */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     public static boolean chunkGrid = false;
+    /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
+    public static int gridLineWidth = 1;
+    public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
+    public static int gridChunkColor = GRID_CHUNK_COLOR;
+    public static int gridRegionColor = GRID_REGION_COLOR;
     /** The world map always opens at the player instead of where it was closed. */
     public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
@@ -304,6 +309,32 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
+        parent("chunkGrid");
+        integer(
+            c,
+            "gridLineWidth",
+            "Thickness of the grid's lines in screen pixels.",
+            1,
+            1,
+            8,
+            1,
+            () -> gridLineWidth,
+            v -> gridLineWidth = v);
+        color(
+            c,
+            "gridChunkColor",
+            "Color of the chunk borders of the grid, as #RRGGBB.",
+            GRID_CHUNK_COLOR,
+            () -> gridChunkColor,
+            v -> gridChunkColor = v);
+        color(
+            c,
+            "gridRegionColor",
+            "Color of the region borders (every 512 blocks) of the grid, as #RRGGBB.",
+            GRID_REGION_COLOR,
+            () -> gridRegionColor,
+            v -> gridRegionColor = v);
+        parent(null);
         bool(
             c,
             "followPlayer",

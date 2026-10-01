@@ -208,6 +208,10 @@ public final class MapDrawer {
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
         // jump behind the smoothly moving map.
         double pixel = 1.0 / ScaledScreen.currentFactor();
+        double thickness = pixel * Config.gridLineWidth;
+        // The colors of the settings, as see-through as the lines always were.
+        int chunkLine = (CHUNK_LINE & 0xFF000000) | Config.gridChunkColor;
+        int regionLine = (REGION_LINE & 0xFF000000) | Config.gridRegionColor;
 
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
@@ -220,9 +224,9 @@ public final class MapDrawer {
                 break;
             }
             if (sx >= x) {
-                int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
+                int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? regionLine : chunkLine;
                 double lx = Math.floor(sx / pixel) * pixel;
-                fillRect(tessellator, lx, y, lx + pixel, y + height, color);
+                fillRect(tessellator, lx, y, Math.min(lx + thickness, x + width), y + height, color);
             }
         }
         int firstZ = (int) Math.floor(top / step) * step;
@@ -232,9 +236,9 @@ public final class MapDrawer {
                 break;
             }
             if (sy >= y) {
-                int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
+                int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? regionLine : chunkLine;
                 double ly = Math.floor(sy / pixel) * pixel;
-                fillRect(tessellator, x, ly, x + width, ly + pixel, color);
+                fillRect(tessellator, x, ly, x + width, Math.min(ly + thickness, y + height), color);
             }
         }
         GL11.glEnable(GL11.GL_TEXTURE_2D);
