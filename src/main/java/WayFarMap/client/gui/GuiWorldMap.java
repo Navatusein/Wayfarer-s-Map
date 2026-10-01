@@ -73,7 +73,7 @@ public class GuiWorldMap extends ScaledScreen {
         ID_STATS = 19, ID_MODES = 20, ID_CLOSE = 21, ID_CLEAN = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
-        MENU_MODES = 5;
+        MENU_MODES = 5, MENU_CONFIRM = 6;
     private static final int EXPORT_MENU_WIDTH = 250;
     /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
     private static final double EXPORT_SECONDS_PER_TILE = 0.2;
@@ -1433,11 +1433,58 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint
                         .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension))));
+        // A quick mark: named by its coordinates, no icon, not saved, gone once the player gets there.
+        final int markY = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.temp_waypoint"), true, () -> {
+            Waypoint mark = new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension);
+            mark.temporary = true;
+            WaypointManager.INSTANCE.addWaypoint(mark);
+        }));
+        if (flat) {
+            final int rx = bx >> MapRegion.SHIFT, rz = bz >> MapRegion.SHIFT;
+            entries.add(
+                new MenuEntry(
+                    I18n.format("wayfarmap.gui.delete_region", rx, rz),
+                    true,
+                    () -> confirmDeleteRegion(dimension, rx, rz)));
+        }
+        showMenu(entries, MENU_MAP, mouseX, mouseY);
+    }
+
+    /** Opens a menu at the point, as wide as its longest entry. */
+    private void showMenu(List<MenuEntry> entries, int kind, int x, int y) {
+        int widest = MENU_WIDTH;
+        for (MenuEntry entry : entries) {
+            widest = Math.max(widest, fontRendererObj.getStringWidth(entry.label) + 14);
+        }
         menu = entries;
-        menuKind = MENU_MAP;
-        menuWidth = MENU_WIDTH;
-        menuX = Math.min(mouseX, width - MENU_WIDTH - 2);
-        menuY = Math.min(mouseY, height - entries.size() * MENU_ROW - 6);
+        menuKind = kind;
+        menuWidth = widest;
+        menuX = Math.max(2, Math.min(x, width - widest - 2));
+        menuY = Math.min(y, height - entries.size() * MENU_ROW - 6);
+    }
+
+    /** Asks before deleting a region of the flat map, in the same place as the menu was. */
+    private void confirmDeleteRegion(int dimension, int rx, int rz) {
+        List<MenuEntry> entries = new ArrayList<>();
+        int x0 = rx << MapRegion.SHIFT, z0 = rz << MapRegion.SHIFT;
+        entries.add(
+            new MenuEntry(
+                I18n.format(
+                    "wayfarmap.gui.delete_region_ask",
+                    x0,
+                    x0 + MapRegion.SIZE - 1,
+                    z0,
+                    z0 + MapRegion.SIZE - 1),
+                false,
+                () -> {}));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.delete_region_yes"),
+                true,
+                () -> MapManager.INSTANCE.deleteFlatRegion(dimension, rx, rz)));
+        entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
+        showMenu(entries, MENU_CONFIRM, menuX, menuY);
     }
 
     private void drawMenu(int mouseX, int mouseY) {

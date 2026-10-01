@@ -35,6 +35,11 @@ public class Waypoint {
     public boolean beam;
     /** Placed automatically where the player died; only the latest few are kept. */
     public boolean death;
+    /**
+     * A quick mark from the world map: named by its coordinates, without an icon, never saved, and gone once the
+     * player gets there (or leaves the world).
+     */
+    public transient boolean temporary;
 
     private transient ItemStack cachedIcon;
     private transient boolean iconResolved;
@@ -59,6 +64,7 @@ public class Waypoint {
         copy.enabled = enabled;
         copy.beam = beam;
         copy.death = death;
+        copy.temporary = temporary;
         return copy;
     }
 
@@ -76,6 +82,7 @@ public class Waypoint {
         enabled = other.enabled;
         beam = other.beam;
         death = other.death;
+        temporary = other.temporary;
         iconResolved = false;
     }
 

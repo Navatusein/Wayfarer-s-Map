@@ -491,6 +491,14 @@ public class MapRegion implements PixelSource {
         return parts.length() == 0 ? "-" : parts.toString();
     }
 
+    /** Deletes the region's files (image, extra, light, times) in the folder. */
+    public static void deleteFiles(File dimensionDir, int rx, int rz) {
+        File image = getFile(dimensionDir, rx, rz);
+        for (File file : new File[] { image, getExtraFile(image), getLightFile(image), getTimesFile(image) }) {
+            file.delete();
+        }
+    }
+
     private static File getExtraFile(File imageFile) {
         String path = imageFile.getPath();
         return new File(path.substring(0, path.length() - 4) + ".dat");

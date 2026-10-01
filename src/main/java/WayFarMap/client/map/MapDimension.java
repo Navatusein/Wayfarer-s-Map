@@ -377,6 +377,42 @@ public class MapDimension {
         return futures;
     }
 
+    /**
+     * Forgets a region and deletes its files (render thread). A save of it under way is waited for first, or it would
+     * write the region back; changes not saved yet are dropped with it.
+     */
+    public void deleteRegion(int rx, int rz) {
+        long key = key(rx, rz);
+        MapRegion region = regions.remove(key);
+        if (region != null) {
+            region.deleteTexture();
+            long until = System.currentTimeMillis() + 3000;
+            while (region.isSaving() && System.currentTimeMillis() < until) {
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    Thread.currentThread()
+                        .interrupt();
+                    break;
+                }
+            }
+        }
+        LodTile tile = lods.remove(key);
+        if (tile != null) {
+            tile.deleteTexture();
+        }
+        Future<MapRegion> read = loading.remove(key);
+        if (read != null) {
+            read.cancel(false);
+        }
+        Future<LodTile> lodRead = lodLoading.remove(key);
+        if (lodRead != null) {
+            lodRead.cancel(false);
+        }
+        MapRegion.deleteFiles(directory, rx, rz);
+        missing.add(key);
+    }
+
     /** Releases everything farther than {@code radius} regions from the given one (see {@link #retain}). */
     public void trim(int centerRx, int centerRz, int radius) {
         retain((rx, rz) -> Math.abs(rx - centerRx) <= radius && Math.abs(rz - centerRz) <= radius);

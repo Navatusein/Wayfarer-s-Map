@@ -638,6 +638,7 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
+        WaypointManager.INSTANCE.removeReached(world.provider.dimensionId, mc.thePlayer.posX, mc.thePlayer.posZ);
         // Time mapping chunks let go by the game since the last tick (they are let go while its packets are handled).
         long unloadsBefore = unloadNanos;
         unloadNanos = 0;
@@ -823,6 +824,36 @@ public class MapManager implements IResourceManagerReloadListener {
             || (Math.abs(rx - prx) <= KEEP_REGION_RADIUS && Math.abs(rz - prz) <= KEEP_REGION_RADIUS);
         for (MapDimension map : allMaps()) {
             map.retain(keep);
+        }
+    }
+
+    /**
+     * Deletes a region (512x512 blocks) of a dimension's flat map: surface, biomes and every cave layer, in memory and
+     * on disk. Chunks still loaded around the player are mapped again only once they change or load again. Render
+     * thread.
+     */
+    public void deleteFlatRegion(int dimensionId, int rx, int rz) {
+        if (worldDirectory == null || surface == null) {
+            return;
+        }
+        List<MapDimension> maps = new ArrayList<>();
+        if (dimensionId == surface.dimensionId) {
+            maps.add(surface);
+            maps.add(biomes);
+            maps.addAll(caveLayers.values());
+        } else {
+            maps.addAll(other(dimensionId).all());
+        }
+        for (MapDimension map : maps) {
+            map.deleteRegion(rx, rz);
+        }
+        // Cave layers not in memory have files too.
+        File caves = new File(new File(worldDirectory, "dim" + dimensionId), "caves");
+        File[] layers = caves.listFiles(File::isDirectory);
+        if (layers != null) {
+            for (File layer : layers) {
+                MapRegion.deleteFiles(layer, rx, rz);
+            }
         }
     }
 
