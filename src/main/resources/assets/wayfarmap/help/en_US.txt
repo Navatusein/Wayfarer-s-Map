@@ -17,6 +17,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bGear§r — settings
 - §bFlag§r — waypoint list
 - §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
+- §bBin§r — clean up: empty the logs folder, delete the 2D or 3D map of all dimensions of this world, or the 2D, 3D or whole map of one dimension (each button asks again). Waypoints are kept
 - §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
 - §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 

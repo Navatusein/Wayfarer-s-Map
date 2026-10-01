@@ -54,7 +54,7 @@ public class Config {
      * Buttons of the world map that can be hidden (lang {@code wayfarmap.option.map.button_<name>}); the settings
      * button and the dimension title always stay.
      */
-    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
+    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light", "caves",
         "biomes", "topo", "grid", "iso", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 

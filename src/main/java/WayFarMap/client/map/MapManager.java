@@ -826,6 +826,18 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
+    /**
+     * Deletes saved map data safely while in a world: the maps are saved and closed (with the logs), {@code delete}
+     * runs, and they are opened again on the next tick, from what is left on disk. Without closing, the regions in
+     * memory would be saved back over what was deleted. Render thread.
+     */
+    public void resetMaps(Runnable delete) {
+        MapExport.cancel();
+        close();
+        // Opened again by the next tick, as when a world is joined.
+        delete.run();
+    }
+
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
