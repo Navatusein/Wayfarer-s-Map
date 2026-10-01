@@ -25,6 +25,7 @@ public class Config {
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
     public static final String CATEGORY_LOGS = "logs";
+    public static final String CATEGORY_PLAYER_MARKER = "playerMarker";
     public static final String CATEGORY_COMMANDS = "commands";
     /**
      * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
@@ -38,6 +39,7 @@ public class Config {
             TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
+            CATEGORY_PLAYER_MARKER,
             CATEGORY_ENTITIES,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
@@ -52,13 +54,13 @@ public class Config {
      * Buttons of the world map that can be hidden (lang {@code wayfarmap.option.map.button_<name>}); the settings
      * button and the dimension title always stay.
      */
-    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
-        "biomes", "grid", "iso", "mobs", "team", "help" };
+    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light",
+        "caves", "modes", "grid", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
-    public static final int DISPLAY_BLOCKS = 0, DISPLAY_BIOMES = 1;
+    public static final int DISPLAY_BLOCKS = 0, DISPLAY_BIOMES = 1, DISPLAY_TOPO = 2;
 
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
@@ -70,6 +72,23 @@ public class Config {
     public static int minimapShape = SHAPE_SQUARE;
     /** Turn the minimap with the player, so the view direction is always up. */
     public static boolean minimapRotate = false;
+    /** N, E, S and W on the edge of the minimap. */
+    public static boolean minimapCompass = true;
+    /** Frame around the minimap, and the color of its line (RGB). */
+    public static boolean minimapFrame = true;
+    public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
+    public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
+    /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
+    public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
+        MARKER_CIRCLE = 4, MARKER_DOT = 5;
+    public static int playerMarkerStyle = MARKER_ARROW;
+    public static int playerMarkerScale = 100;
+    public static final int PLAYER_MARKER_COLOR = 0xFFFFFF;
+    public static int playerMarkerColor = PLAYER_MARKER_COLOR;
+    /** A dark line around the marker, so it shows on light ground too. */
+    public static boolean playerMarkerOutline = true;
+    public static final int PLAYER_MARKER_OUTLINE_COLOR = 0x000000;
+    public static int playerMarkerOutlineColor = PLAYER_MARKER_OUTLINE_COLOR;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
 
@@ -77,9 +96,19 @@ public class Config {
     public static int mapLightMode = LIGHT_AUTO;
     /** Cave view: {@link #CAVES_AUTO} switches to it while underground. */
     public static int caveMode = CAVES_AUTO;
-    /** Surface drawn with block colors or biome colors. */
+    /** Surface drawn with block colors, biome colors or colored by height (topography). */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
+    /** Contour lines on the topography, every so many blocks of height. */
+    public static boolean topoContours = true;
+    public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
+    /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
+    public static int gridLineWidth = 1;
+    public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
+    public static int gridChunkColor = GRID_CHUNK_COLOR;
+    public static int gridRegionColor = GRID_REGION_COLOR;
+    /** How opaque the grid's lines are, in percent. */
+    public static int gridChunkOpacity = 20, gridRegionOpacity = 45;
     /** The world map always opens at the player instead of where it was closed. */
     public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
@@ -192,6 +221,24 @@ public class Config {
             false,
             () -> minimapRotate,
             v -> minimapRotate = v);
+        group("look");
+        parent("enabled");
+        bool(
+            c,
+            "compass",
+            "Show N, E, S and W on the edge of the minimap.",
+            true,
+            () -> minimapCompass,
+            v -> minimapCompass = v);
+        bool(c, "frame", "Draw a frame around the minimap.", true, () -> minimapFrame, v -> minimapFrame = v);
+        parent("frame");
+        color(
+            c,
+            "frameColor",
+            "Color of the minimap frame, as #RRGGBB.",
+            MINIMAP_FRAME_COLOR,
+            () -> minimapFrameColor,
+            v -> minimapFrameColor = v);
         group("info");
         parent("enabled");
         bool(
@@ -247,11 +294,30 @@ public class Config {
         choice(
             c,
             "displayMode",
-            "Surface map colors: 0 = blocks, 1 = biomes.",
+            "Surface map colors: 0 = blocks, 1 = biomes, 2 = topography (colored by height).",
             DISPLAY_BLOCKS,
-            new String[] { "blocks", "biomes" },
+            new String[] { "blocks", "biomes", "topo" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
+        bool(
+            c,
+            "topoContours",
+            "Contour lines on the topography.",
+            true,
+            () -> topoContours,
+            v -> topoContours = v);
+        parent("topoContours");
+        integer(
+            c,
+            "topoContourInterval",
+            "Blocks of height between two contour lines of the topography.",
+            4,
+            2,
+            32,
+            2,
+            () -> topoContourInterval,
+            v -> topoContourInterval = v);
+        parent(null);
         choice(
             c,
             "caveMode",
@@ -267,6 +333,52 @@ public class Config {
             false,
             () -> chunkGrid,
             v -> chunkGrid = v);
+        parent("chunkGrid");
+        integer(
+            c,
+            "gridLineWidth",
+            "Thickness of the grid's lines in screen pixels.",
+            1,
+            1,
+            8,
+            1,
+            () -> gridLineWidth,
+            v -> gridLineWidth = v);
+        color(
+            c,
+            "gridChunkColor",
+            "Color of the chunk borders of the grid, as #RRGGBB.",
+            GRID_CHUNK_COLOR,
+            () -> gridChunkColor,
+            v -> gridChunkColor = v);
+        integer(
+            c,
+            "gridChunkOpacity",
+            "Opacity of the chunk borders of the grid, in percent.",
+            20,
+            5,
+            100,
+            5,
+            () -> gridChunkOpacity,
+            v -> gridChunkOpacity = v);
+        color(
+            c,
+            "gridRegionColor",
+            "Color of the region borders (every 512 blocks) of the grid, as #RRGGBB.",
+            GRID_REGION_COLOR,
+            () -> gridRegionColor,
+            v -> gridRegionColor = v);
+        integer(
+            c,
+            "gridRegionOpacity",
+            "Opacity of the region borders of the grid, in percent.",
+            45,
+            5,
+            100,
+            5,
+            () -> gridRegionOpacity,
+            v -> gridRegionOpacity = v);
+        parent(null);
         bool(
             c,
             "followPlayer",
@@ -435,6 +547,51 @@ public class Config {
             v -> shareMapWithTeam = v);
 
         tab(null);
+        c = CATEGORY_PLAYER_MARKER;
+        group("look");
+        parent(null);
+        choice(
+            c,
+            "style",
+            "Look of the player on the maps: 0 = arrow, 1 = triangle, 2 = chevron, 3 = kite, 4 = circle with a nose, "
+                + "5 = dot.",
+            MARKER_ARROW,
+            new String[] { "arrow", "triangle", "chevron", "kite", "circle", "dot" },
+            () -> playerMarkerStyle,
+            v -> playerMarkerStyle = v);
+        integer(
+            c,
+            "scale",
+            "Size of the player marker, in percent of the usual size.",
+            100,
+            50,
+            300,
+            10,
+            () -> playerMarkerScale,
+            v -> playerMarkerScale = v);
+        color(
+            c,
+            "color",
+            "Color of the player marker, as #RRGGBB.",
+            PLAYER_MARKER_COLOR,
+            () -> playerMarkerColor,
+            v -> playerMarkerColor = v);
+        bool(
+            c,
+            "outline",
+            "Dark outline around the player marker, so it shows on light ground too.",
+            true,
+            () -> playerMarkerOutline,
+            v -> playerMarkerOutline = v);
+        parent("outline");
+        color(
+            c,
+            "outlineColor",
+            "Color of the player marker's outline, as #RRGGBB.",
+            PLAYER_MARKER_OUTLINE_COLOR,
+            () -> playerMarkerOutlineColor,
+            v -> playerMarkerOutlineColor = v);
+
         c = CATEGORY_ENTITIES;
         group("shown");
         parent(null);
@@ -717,6 +874,28 @@ public class Config {
         return friendly ? MOBS_FRIENDLY : MOBS_NONE;
     }
 
+    /** Friendly mobs on the maps: animals and other living things (villagers, golems...) together. */
+    public static boolean friendlyMobsShown() {
+        return showPassiveMobs || showOtherEntities;
+    }
+
+    public static void toggleFriendlyMobs() {
+        boolean show = !friendlyMobsShown();
+        showPassiveMobs = show;
+        showOtherEntities = show;
+        save();
+    }
+
+    public static void toggleHostileMobs() {
+        showHostileMobs = !showHostileMobs;
+        save();
+    }
+
+    public static void toggleOtherPlayers() {
+        showOtherPlayers = !showOtherPlayers;
+        save();
+    }
+
     public static void setMobFilter(int filter) {
         showHostileMobs = filter == MOBS_ALL || filter == MOBS_HOSTILE;
         boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
@@ -766,8 +945,22 @@ public class Config {
         save();
     }
 
+    /** Biome view on or off; turning it on turns the topography off (one replaces the other). */
     public static void toggleBiomeView() {
         mapDisplayMode = mapDisplayMode == DISPLAY_BIOMES ? DISPLAY_BLOCKS : DISPLAY_BIOMES;
+        save();
+    }
+
+    /** The map's mode: flat or 3D, in block colors, biome colors or topography (only flat). */
+    public static void setMapMode(boolean iso, int display) {
+        isometric = iso;
+        mapDisplayMode = display;
+        save();
+    }
+
+    /** Topography on or off; turning it on turns the biome view off. */
+    public static void toggleTopoView() {
+        mapDisplayMode = mapDisplayMode == DISPLAY_TOPO ? DISPLAY_BLOCKS : DISPLAY_TOPO;
         save();
     }
 
@@ -949,6 +1142,57 @@ public class Config {
         }
     }
 
+    /** An RGB color, saved as {@code #RRGGBB}. */
+    public static class ColorOption extends Option {
+
+        public final int defaultValue;
+        private final IntSupplier getter;
+        private final IntConsumer setter;
+
+        ColorOption(String category, String key, String comment, int defaultValue, IntSupplier getter,
+            IntConsumer setter) {
+            super(category, key, comment);
+            this.defaultValue = defaultValue;
+            this.getter = getter;
+            this.setter = setter;
+        }
+
+        public int get() {
+            return getter.getAsInt();
+        }
+
+        public void set(int rgb) {
+            setter.accept(rgb & 0xFFFFFF);
+        }
+
+        /** 0x2A313B -> #2A313B. */
+        public static String hex(int rgb) {
+            return String.format("#%06X", rgb & 0xFFFFFF);
+        }
+
+        @Override
+        void load(Configuration configuration) {
+            String value = configuration.getString(key, category, hex(defaultValue), comment)
+                .trim();
+            try {
+                set(Integer.parseInt(value.startsWith("#") ? value.substring(1) : value, 16));
+            } catch (NumberFormatException e) {
+                set(defaultValue);
+            }
+        }
+
+        @Override
+        void save(Configuration configuration) {
+            configuration.get(category, key, hex(defaultValue), comment)
+                .set(hex(get()));
+        }
+
+        @Override
+        public void reset() {
+            set(defaultValue);
+        }
+    }
+
     /** Tab the options declared next are shown on; null for their category's own. */
     private static void tab(String tab) {
         currentTab = tab;
@@ -993,6 +1237,11 @@ public class Config {
     private static void choice(String category, String key, String comment, int def, String[] values,
         IntSupplier getter, IntConsumer setter) {
         add(new ChoiceOption(category, key, comment, def, values, getter, setter));
+    }
+
+    private static void color(String category, String key, String comment, int def, IntSupplier getter,
+        IntConsumer setter) {
+        add(new ColorOption(category, key, comment, def, getter, setter));
     }
 
     private static void decimal(String category, String key, String comment, double def, double min, double max,

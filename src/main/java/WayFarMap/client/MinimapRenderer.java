@@ -25,6 +25,7 @@ import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.client.map.Topography;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
@@ -62,7 +63,7 @@ public class MinimapRenderer {
             lines.add(blockX + ", " + MathHelper.floor_double(player.boundingBox.minY) + ", " + blockZ);
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
-        if (caveLayer >= 0 && Config.mapDisplayMode != Config.DISPLAY_BIOMES) {
+        if (caveLayer >= 0 && Config.mapDisplayMode == Config.DISPLAY_BLOCKS) {
             lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
@@ -84,13 +85,18 @@ public class MinimapRenderer {
         double centerX = x + half, centerY = y + half;
 
         GL11.glPushMatrix();
+        int frameColor = 0xFF000000 | Config.minimapFrameColor;
         if (round) {
-            fillCircle(centerX, centerY, half + 2, Theme.BORDER);
-            fillCircle(centerX, centerY, half + 1, Theme.PANEL);
+            if (Config.minimapFrame) {
+                fillCircle(centerX, centerY, half + 2, frameColor);
+                fillCircle(centerX, centerY, half + 1, Theme.PANEL);
+            }
             fillCircle(centerX, centerY, half, 0xFF0C0E11);
         } else {
-            Gui.drawRect(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
-            Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, Theme.BORDER);
+            if (Config.minimapFrame) {
+                Gui.drawRect(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
+                Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, frameColor);
+            }
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
         }
 
@@ -143,8 +149,10 @@ public class MinimapRenderer {
         if (Config.waypointsOnMinimap) {
             drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation);
         }
-        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f, 0xFFFFFFFF);
-        drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
+        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f);
+        if (Config.minimapCompass) {
+            drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
+        }
 
         int textY = y + size + 3;
         for (String line : lines) {
@@ -182,6 +190,9 @@ public class MinimapRenderer {
         MapDrawer.iconRotation = rotation;
         try {
             MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
+            if (Topography.isShown()) {
+                Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner);
+            }
             if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }

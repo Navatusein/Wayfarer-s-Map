@@ -154,5 +154,6 @@ public final class LodTile implements PixelSource {
             textureId = -1;
         }
         BiomeHighlight.forget(this);
+        Topography.forget(this);
     }
 }

@@ -43,8 +43,10 @@ public final class ClaimsLayer {
     /** What a drag over the map does with the chunks it passes. */
     public static final int CLAIM = 0, LOAD = 1, CLAIM_AND_LOAD = 2, UNCLAIM = 3, UNLOAD = 4, UNLOAD_AND_UNCLAIM = 5;
 
-    /** Own claims are shown in these colors, whatever the team color is. */
+    /** Colors of the drag selection: claiming and loading. */
     private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
+    /** Outline around chunk loaded areas. */
+    private static final int LOADED_OUTLINE = 0x000000;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
     /** The area asked from the server at once is capped, like the view of a normal map. */
@@ -160,6 +162,21 @@ public final class ClaimsLayer {
         return a != null && b != null && a.team != null && b.team != null && a.team.uid == b.team.uid;
     }
 
+    /** A claimed chunk that is chunk loaded (and not just unclaimed). */
+    private static boolean loaded(int chunkX, int chunkZ, int dimension) {
+        if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(chunkX, chunkZ))) {
+            return false;
+        }
+        ClientClaimedChunks.ChunkData data = get(chunkX, chunkZ, dimension);
+        return data != null && data.isLoaded();
+    }
+
+    /** The neighbour is chunk loaded by the same team: the loaded area goes on there, no outline between. */
+    private static boolean loaded(ClientClaimedChunks.ChunkData of, int chunkX, int chunkZ, int dimension) {
+        return loaded(chunkX, chunkZ, dimension) && sameTeam(of, get(chunkX, chunkZ, dimension));
+    }
+
+
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
         try {
             return data.team.color.getColor()
@@ -170,8 +187,9 @@ public final class ClaimsLayer {
     }
 
     /**
-     * Draws the claims: own claims light blue, chunk loaded chunks green, other teams in their team color, with a
-     * border around each claimed area, and the chunks of the current drag selection.
+     * Draws the claims in their team's color (own ones too), with a border around each claimed area, and one
+     * black outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks of
+     * the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
      * @param selectionMode one of the action constants, for the selection color
@@ -203,12 +221,10 @@ public final class ClaimsLayer {
             }
             ClientClaimedChunks.ChunkData data = entry.getValue();
             boolean own = data.team != null && data.team.isMember;
-            // Own claims light blue, chunk loaded chunks green; other teams in their team color.
-            int color = own ? CLAIMED_COLOR : teamColor(data);
-            int fill = data.isLoaded() ? LOADED_COLOR : color;
+            int color = teamColor(data);
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            rect(sx, sy, cell, cell, fill, own || data.isLoaded() ? 0x78 : 0x50, x, y, width, height);
+            rect(sx, sy, cell, cell, color, own ? 0x70 : 0x50, x, y, width, height);
             // Border only where the neighbour isn't the same team, so a claimed area has one outline.
             if (!sameTeam(data, get(pos.posX, pos.posZ - 1, dimension))) {
                 rect(sx, sy, cell, border, color, 0xE0, x, y, width, height);
@@ -221,6 +237,35 @@ public final class ClaimsLayer {
             }
             if (!sameTeam(data, get(pos.posX + 1, pos.posZ, dimension))) {
                 rect(sx + cell - border, sy, border, cell, color, 0xE0, x, y, width, height);
+            }
+        }
+        // Chunk loaded areas over the claims: an outline only where the neighbour isn't loaded.
+        for (Map.Entry<ChunkDimPos, ClientClaimedChunks.ChunkData> entry : NavigatorIntegration.CLAIMS.entrySet()) {
+            ChunkDimPos pos = entry.getKey();
+            if (pos.dim != dimension || !entry.getValue()
+                .isLoaded()
+                || !loaded(pos.posX, pos.posZ, dimension)
+                || pos.posX < minChunkX
+                || pos.posX > maxChunkX
+                || pos.posZ < minChunkZ
+                || pos.posZ > maxChunkZ) {
+                continue;
+            }
+            ClientClaimedChunks.ChunkData data = entry.getValue();
+            int outline = LOADED_OUTLINE;
+            double sx = x + (pos.posX * 16 - left) * scale;
+            double sy = y + (pos.posZ * 16 - top) * scale;
+            if (!loaded(data, pos.posX, pos.posZ - 1, dimension)) {
+                rect(sx, sy, cell, border, outline, 0xFF, x, y, width, height);
+            }
+            if (!loaded(data, pos.posX, pos.posZ + 1, dimension)) {
+                rect(sx, sy + cell - border, cell, border, outline, 0xFF, x, y, width, height);
+            }
+            if (!loaded(data, pos.posX - 1, pos.posZ, dimension)) {
+                rect(sx, sy, border, cell, outline, 0xFF, x, y, width, height);
+            }
+            if (!loaded(data, pos.posX + 1, pos.posZ, dimension)) {
+                rect(sx + cell - border, sy, border, cell, outline, 0xFF, x, y, width, height);
             }
         }
         if (selection != null && !selection.isEmpty()) {

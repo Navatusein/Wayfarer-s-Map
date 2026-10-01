@@ -105,6 +105,10 @@ public class MapManager implements IResourceManagerReloadListener {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
             return biomes;
         }
+        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+            // The topography is drawn from the surface's heights.
+            return surface;
+        }
         if (activeCaveLayer >= 0) {
             return getCaveLayer(activeCaveLayer);
         }
@@ -348,8 +352,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 map.retain((x, z) -> false);
             }
             viewed = null;
-            // Search overlays belong to the regions of the viewed maps.
+            // Search overlays and the topography belong to the regions of the viewed maps.
             BiomeHighlight.clear();
+            Topography.clear();
         }
     }
 
@@ -435,6 +440,9 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
             return viewed.biomes;
+        }
+        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+            return viewed.surface;
         }
         int layer = getViewCaveLayer();
         return layer >= 0 ? viewed.cave(layer) : viewed.surface;
@@ -818,6 +826,48 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
+    /**
+     * Deletes a region (512x512 blocks) of a dimension's flat map: surface, biomes and every cave layer, in memory and
+     * on disk. Chunks still loaded around the player are mapped again only once they change or load again. Render
+     * thread.
+     */
+    public void deleteFlatRegion(int dimensionId, int rx, int rz) {
+        if (worldDirectory == null || surface == null) {
+            return;
+        }
+        List<MapDimension> maps = new ArrayList<>();
+        if (dimensionId == surface.dimensionId) {
+            maps.add(surface);
+            maps.add(biomes);
+            maps.addAll(caveLayers.values());
+        } else {
+            maps.addAll(other(dimensionId).all());
+        }
+        for (MapDimension map : maps) {
+            map.deleteRegion(rx, rz);
+        }
+        // Cave layers not in memory have files too.
+        File caves = new File(new File(worldDirectory, "dim" + dimensionId), "caves");
+        File[] layers = caves.listFiles(File::isDirectory);
+        if (layers != null) {
+            for (File layer : layers) {
+                MapRegion.deleteFiles(layer, rx, rz);
+            }
+        }
+    }
+
+    /**
+     * Deletes saved map data safely while in a world: the maps are saved and closed (with the logs), {@code delete}
+     * runs, and they are opened again on the next tick, from what is left on disk. Without closing, the regions in
+     * memory would be saved back over what was deleted. Render thread.
+     */
+    public void resetMaps(Runnable delete) {
+        MapExport.cancel();
+        close();
+        // Opened again by the next tick, as when a world is joined.
+        delete.run();
+    }
+
     private void open(Minecraft mc, WorldClient world) {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
@@ -854,6 +904,7 @@ public class MapManager implements IResourceManagerReloadListener {
         IsoMap.INSTANCE.close();
         FlatLog.close();
         BiomeHighlight.clear();
+        Topography.clear();
         viewed = null;
         others.clear();
         surface = null;

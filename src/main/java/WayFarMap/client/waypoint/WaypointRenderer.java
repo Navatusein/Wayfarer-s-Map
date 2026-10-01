@@ -85,6 +85,9 @@ public class WaypointRenderer {
      *
      * @param label draw the name below the marker
      */
+    /** Laid over the marker of a disabled waypoint on the world map. */
+    private static final int DISABLED_VEIL = 0xB0181A1E;
+
     public static void drawMapMarker(Waypoint waypoint, double sx, double sy, float size, boolean label) {
         // Laid out on whole GUI pixels, then moved by the remainder: a GUI pixel is 2-4 screen pixels, and snapping
         // to it made markers jump instead of gliding while the map moves or turns.
@@ -110,6 +113,15 @@ public class WaypointRenderer {
             int inset = Math.max(1, half / 3);
             Gui.drawRect(x0 + inset - 1, y0 + inset - 1, x1 - inset + 1, y1 - inset + 1, 0xFF000000);
             Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | DEFAULT_COLOR);
+        }
+
+        if (!waypoint.enabled) {
+            // Disabled: faded under a dark veil, over the item icon too.
+            GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glDisable(GL11.GL_LIGHTING);
+            Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, DISABLED_VEIL);
+            GL11.glPopAttrib();
         }
 
         if (label) {
@@ -161,8 +173,12 @@ public class WaypointRenderer {
         GL11.glPushMatrix();
         GL11.glTranslatef(rect[0] + 2 * textScale, rect[1] + textScale, 0f);
         GL11.glScalef(textScale, textScale, 1f);
-        font.drawString(name, 0, 0, Theme.TEXT);
-        font.drawString(labelDistance(waypoint), font.getStringWidth(name), 0, Theme.TEXT_MUTED);
+        font.drawString(name, 0, 0, waypoint.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
+        font.drawString(
+            labelDistance(waypoint),
+            font.getStringWidth(name),
+            0,
+            waypoint.enabled ? Theme.TEXT_MUTED : Theme.TEXT_DISABLED);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }

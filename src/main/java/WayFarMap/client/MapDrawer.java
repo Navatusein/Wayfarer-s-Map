@@ -191,12 +191,10 @@ public final class MapDrawer {
         }
     }
 
-    private static final int CHUNK_LINE = 0x30FFFFFF;
-    private static final int REGION_LINE = 0x70FFFFFF;
-
     /**
      * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
-     * are left out when zoomed out so far that they would be closer than a few pixels.
+     * are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is
+     * drawn once: where lines cross, see-through lines drawn over each other made the crossings brighter.
      */
     public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,
         int height) {
@@ -208,11 +206,14 @@ public final class MapDrawer {
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
         // jump behind the smoothly moving map.
         double pixel = 1.0 / ScaledScreen.currentFactor();
+        // Thick lines never fill more than half the room between two of them.
+        double room = Math.max(1, Math.floor(step * scale / 2 / pixel)) * pixel;
+        double thickness = Math.min(pixel * Config.gridLineWidth, room);
+        int chunkLine = (Math.round(Config.gridChunkOpacity * 2.55f) << 24) | Config.gridChunkColor;
+        int regionLine = (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
 
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        Tessellator tessellator = Tessellator.instance;
+        // Lines as {from, to, region ? 1 : 0}, left to right and top to bottom.
+        List<double[]> columns = new ArrayList<>();
         int firstX = (int) Math.floor(left / step) * step;
         for (int bx = firstX;; bx += step) {
             double sx = x + (bx - left) * scale;
@@ -220,11 +221,13 @@ public final class MapDrawer {
                 break;
             }
             if (sx >= x) {
-                int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
                 double lx = Math.floor(sx / pixel) * pixel;
-                fillRect(tessellator, lx, y, lx + pixel, y + height, color);
+                columns.add(
+                    new double[] { lx, Math.min(lx + thickness, x + width),
+                        Math.floorMod(bx, MapRegion.SIZE) == 0 ? 1 : 0 });
             }
         }
+        List<double[]> rows = new ArrayList<>();
         int firstZ = (int) Math.floor(top / step) * step;
         for (int bz = firstZ;; bz += step) {
             double sy = y + (bz - top) * scale;
@@ -232,13 +235,54 @@ public final class MapDrawer {
                 break;
             }
             if (sy >= y) {
-                int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? REGION_LINE : CHUNK_LINE;
                 double ly = Math.floor(sy / pixel) * pixel;
-                fillRect(tessellator, x, ly, x + width, ly + pixel, color);
+                rows.add(
+                    new double[] { ly, Math.min(ly + thickness, y + height),
+                        Math.floorMod(bz, MapRegion.SIZE) == 0 ? 1 : 0 });
             }
         }
+
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        // Columns between the rows, rows between the columns, then the crossings: a region line wins there.
+        for (double[] column : columns) {
+            double from = y;
+            for (double[] row : rows) {
+                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? regionLine : chunkLine);
+                from = Math.max(from, row[1]);
+            }
+            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? regionLine : chunkLine);
+        }
+        for (double[] row : rows) {
+            double from = x;
+            for (double[] column : columns) {
+                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? regionLine : chunkLine);
+                from = Math.max(from, column[1]);
+            }
+            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? regionLine : chunkLine);
+            for (double[] column : columns) {
+                boolean region = row[2] > 0 || column[2] > 0;
+                addRect(tessellator, column[0], row[0], column[1], row[1], region ? regionLine : chunkLine);
+            }
+        }
+        tessellator.draw();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** A rectangle into quads being drawn; nothing if it is empty. */
+    private static void addRect(Tessellator tessellator, double x0, double y0, double x1, double y1, int color) {
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        tessellator.addVertex(x0, y1, 0);
+        tessellator.addVertex(x1, y1, 0);
+        tessellator.addVertex(x1, y0, 0);
+        tessellator.addVertex(x0, y0, 0);
     }
 
     /** Map color multiplier for night. */
@@ -286,8 +330,24 @@ public final class MapDrawer {
         return 1f - day;
     }
 
-    /** Draws an arrow at the given screen position pointing where the player looks. */
-    public static void drawPlayerArrow(double sx, double sy, float yaw, float size, int color) {
+    /**
+     * Draws the player's marker at the given screen position, pointing where the player looks, in the look, size and
+     * color of the settings; {@code size} is the marker's size at 100%.
+     */
+    public static void drawPlayerArrow(double sx, double sy, float yaw, float size) {
+        drawPlayerMarker(
+            sx,
+            sy,
+            yaw,
+            size * Config.playerMarkerScale / 100f,
+            Config.playerMarkerStyle,
+            0xFF000000 | Config.playerMarkerColor,
+            Config.playerMarkerOutline ? 0xFF000000 | Config.playerMarkerOutlineColor : 0);
+    }
+
+    /** Draws a player marker of the given look; yaw 180 points up. An outline color of 0 draws none. */
+    public static void drawPlayerMarker(double sx, double sy, float yaw, float size, int style, int color,
+        int outline) {
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -299,25 +359,81 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
         Tessellator tessellator = Tessellator.instance;
-        // Dark outline, then the colored arrow on top.
-        drawArrowShape(tessellator, size + 1.2f, 0xFF000000);
-        drawArrowShape(tessellator, size, color);
+        tessellator.startDrawing(GL11.GL_TRIANGLES);
+        if (outline != 0) {
+            // The shape in the outline color shifted all around, then in its color on top: an even line around any
+            // shape.
+            tessellator.setColorRGBA_I(outline & 0xFFFFFF, (outline >>> 24) & 0xFF);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx != 0 || dy != 0) {
+                        markerShape(tessellator, style, size, dx * 0.8, dy * 0.8);
+                    }
+                }
+            }
+        }
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        markerShape(tessellator, style, size, 0, 0);
+        tessellator.draw();
 
         GL11.glPopAttrib();
         GL11.glPopMatrix();
     }
 
-    private static void drawArrowShape(Tessellator tessellator, float size, int color) {
-        tessellator.startDrawing(GL11.GL_TRIANGLES);
-        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
-        // Two triangles forming an arrow head with a notch at the back.
-        tessellator.addVertex(0, -size, 0);
-        tessellator.addVertex(-size * 0.75f, size, 0);
-        tessellator.addVertex(0, size * 0.45f, 0);
-        tessellator.addVertex(0, -size, 0);
-        tessellator.addVertex(0, size * 0.45f, 0);
-        tessellator.addVertex(size * 0.75f, size, 0);
-        tessellator.draw();
+    private static final int MARKER_SEGMENTS = 24;
+
+    /** Triangles of a marker pointing up (-y), centered on (ox, oy). */
+    private static void markerShape(Tessellator t, int style, float s, double ox, double oy) {
+        switch (style) {
+            case Config.MARKER_TRIANGLE:
+                triangle(t, ox, oy, 0, -s, -s * 0.7, s * 0.8, s * 0.7, s * 0.8);
+                break;
+            case Config.MARKER_CHEVRON:
+                // An arrow with a deep notch: a thin V.
+                triangle(t, ox, oy, 0, -s, -s * 0.8, s * 0.85, 0, -s * 0.15);
+                triangle(t, ox, oy, 0, -s, 0, -s * 0.15, s * 0.8, s * 0.85);
+                break;
+            case Config.MARKER_KITE:
+                triangle(t, ox, oy, 0, -s, -s * 0.6, s * 0.3, 0, s * 0.8);
+                triangle(t, ox, oy, 0, -s, 0, s * 0.8, s * 0.6, s * 0.3);
+                break;
+            case Config.MARKER_CIRCLE:
+                // A disc with a nose showing the direction.
+                disc(t, ox, oy, s * 0.6);
+                triangle(t, ox, oy, 0, -s * 1.2, -s * 0.42, -s * 0.38, s * 0.42, -s * 0.38);
+                break;
+            case Config.MARKER_DOT:
+                disc(t, ox, oy, s * 0.6);
+                break;
+            default:
+                // Arrow head with a notch at the back.
+                triangle(t, ox, oy, 0, -s, -s * 0.75, s, 0, s * 0.45);
+                triangle(t, ox, oy, 0, -s, 0, s * 0.45, s * 0.75, s);
+                break;
+        }
+    }
+
+    private static void triangle(Tessellator t, double ox, double oy, double x0, double y0, double x1, double y1,
+        double x2, double y2) {
+        t.addVertex(ox + x0, oy + y0, 0);
+        t.addVertex(ox + x1, oy + y1, 0);
+        t.addVertex(ox + x2, oy + y2, 0);
+    }
+
+    private static void disc(Tessellator t, double ox, double oy, double radius) {
+        for (int i = 0; i < MARKER_SEGMENTS; i++) {
+            double a0 = 2 * Math.PI * i / MARKER_SEGMENTS, a1 = 2 * Math.PI * (i + 1) / MARKER_SEGMENTS;
+            triangle(
+                t,
+                ox,
+                oy,
+                0,
+                0,
+                Math.cos(a0) * radius,
+                Math.sin(a0) * radius,
+                Math.cos(a1) * radius,
+                Math.sin(a1) * radius);
+        }
     }
 
     /** Draws a filled square marker centered on the given position. */

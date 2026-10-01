@@ -10,8 +10,10 @@ import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.MapDrawer;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
@@ -27,7 +29,8 @@ public class GuiSettings extends ScaledScreen {
     /** How far options that depend on a switch are moved in under it. */
     private static final int INDENT = 10;
     private static final int CONTROL_WIDTH = 104;
-    private static final int ID_RESET = 100, ID_DONE = 101;
+    private static final int ID_RESET = 100, ID_DONE = 101, ID_RESET_ALL = 102, ID_RESET_TAB = 103,
+        ID_RESET_CANCEL = 104;
 
     /** Last opened category, kept while the game runs. */
     private static int selectedCategory;
@@ -39,6 +42,8 @@ public class GuiSettings extends ScaledScreen {
     private int contentLeft, contentTop, contentBottom;
     private int scroll;
     private Config.Option draggingSlider;
+    /** The reset button was pressed: it is replaced by "reset all", "reset this tab" and "cancel". */
+    private boolean confirmingReset;
 
     /** A line of the options list: a section title, or an option. */
     private static final class Row {
@@ -95,7 +100,50 @@ public class GuiSettings extends ScaledScreen {
                 18,
                 I18n.format("wayfarmap.settings.reset")));
         buttonList.add(new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
+        // Asked after the reset button: stacked over where it was.
+        FlatButton resetAll = new FlatButton(
+            ID_RESET_ALL,
+            left + 6,
+            bottom - 92,
+            SIDEBAR_WIDTH - 12,
+            18,
+            I18n.format("wayfarmap.settings.reset_all"));
+        resetAll.danger = true;
+        buttonList.add(resetAll);
+        FlatButton resetTab = new FlatButton(
+            ID_RESET_TAB,
+            left + 6,
+            bottom - 70,
+            SIDEBAR_WIDTH - 12,
+            18,
+            I18n.format("wayfarmap.settings.reset_tab"));
+        resetTab.danger = true;
+        buttonList.add(resetTab);
+        buttonList.add(
+            new FlatButton(
+                ID_RESET_CANCEL,
+                left + 6,
+                bottom - 48,
+                SIDEBAR_WIDTH - 12,
+                18,
+                I18n.format("gui.cancel")));
+        showResetButtons();
         clampScroll();
+    }
+
+    /**
+     * Either the reset button, or the three buttons asking what to reset. Applied when drawing, not right on the
+     * click: the click goes on to the buttons after the pressed one, and "cancel" sits where "reset" was.
+     */
+    private void showResetButtons() {
+        for (Object o : buttonList) {
+            GuiButton button = (GuiButton) o;
+            if (button.id == ID_RESET) {
+                button.visible = !confirmingReset;
+            } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
+                button.visible = confirmingReset;
+            }
+        }
     }
 
     private List<Config.Option> options() {
@@ -145,6 +193,7 @@ public class GuiSettings extends ScaledScreen {
         if (button.id < Config.CATEGORIES.size()) {
             selectedCategory = button.id;
             scroll = 0;
+            confirmingReset = false;
             for (Object o : buttonList) {
                 GuiButton other = (GuiButton) o;
                 if (other.id < Config.CATEGORIES.size()) {
@@ -152,9 +201,14 @@ public class GuiSettings extends ScaledScreen {
                 }
             }
         } else if (button.id == ID_RESET) {
-            for (Config.Option option : options()) {
-                option.reset();
+            confirmingReset = true;
+        } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
+            if (button.id != ID_RESET_CANCEL) {
+                for (Config.Option option : button.id == ID_RESET_ALL ? Config.OPTIONS : options()) {
+                    option.reset();
+                }
             }
+            confirmingReset = false;
         } else if (button.id == ID_DONE) {
             mc.displayGuiScreen(parent);
         }
@@ -171,7 +225,9 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        if (keyCode == Keyboard.KEY_ESCAPE) {
+        if (keyCode == Keyboard.KEY_ESCAPE && confirmingReset) {
+            confirmingReset = false;
+        } else if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(parent);
         }
     }
@@ -207,6 +263,11 @@ public class GuiSettings extends ScaledScreen {
                 boolean back = button == 1 || mouseX < controlX() + CONTROL_WIDTH / 2;
                 int count = choice.values.length;
                 choice.set((choice.get() + (back ? count - 1 : 1)) % count);
+            } else if (option instanceof Config.ColorOption) {
+                if (button == 0) {
+                    Config.ColorOption color = (Config.ColorOption) option;
+                    mc.displayGuiScreen(new GuiColorPicker(this, color.get(), color::set));
+                }
             } else if (button == 0) {
                 draggingSlider = option;
                 updateSlider(mouseX);
@@ -230,6 +291,7 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        showResetButtons();
         if (draggingSlider != null) {
             if (Mouse.isButtonDown(0)) {
                 updateSlider(mouseX);
@@ -289,6 +351,9 @@ public class GuiSettings extends ScaledScreen {
                 drawControl(option, controlX(), y + 3, mouseX, mouseY);
             }
         }
+        if (Config.CATEGORY_PLAYER_MARKER.equals(category)) {
+            drawMarkerPreview();
+        }
         if (maxScroll() > 0) {
             int track = contentBottom - contentTop;
             int bar = Math.max(12, track * track / (track + maxScroll()));
@@ -300,6 +365,29 @@ public class GuiSettings extends ScaledScreen {
         }
 
         super.drawScaled(mouseX, mouseY, partialTicks);
+    }
+
+    /** Under the marker's options: the marker as on the world map, on dark and on light ground. */
+    private void drawMarkerPreview() {
+        List<Row> rows = rows();
+        Row last = rows.get(rows.size() - 1);
+        int y = contentTop + last.y + last.height + 10 - scroll;
+        int boxHeight = 64, boxRight = right - 10;
+        if (y + 12 < contentTop || y + 12 + boxHeight > contentBottom) {
+            return;
+        }
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), contentLeft, y, Theme.ACCENT);
+        y += 12;
+        int middle = (contentLeft + boxRight) / 2;
+        Theme.fill(contentLeft, y, middle, y + boxHeight, 0xFF0C0E11);
+        Theme.fill(middle, y, boxRight, y + boxHeight, 0xFFC9D3B4);
+        Theme.outline(contentLeft, y, boxRight, y + boxHeight, Theme.BORDER);
+        // Turning slowly, so its direction shows. The world map's size (5 at 100%).
+        float yaw = (System.currentTimeMillis() % 8000L) * 360f / 8000f;
+        double cy = y + boxHeight / 2.0;
+        MapDrawer.drawPlayerArrow((contentLeft + middle) / 2.0, cy, yaw, 5f);
+        MapDrawer.drawPlayerArrow((middle + boxRight) / 2.0, cy, yaw, 5f);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
@@ -354,6 +442,19 @@ public class GuiSettings extends ScaledScreen {
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, value, CONTROL_WIDTH - 24),
                 x + CONTROL_WIDTH / 2,
+                y + (h - 8) / 2,
+                Theme.TEXT);
+        } else if (option instanceof Config.ColorOption) {
+            int rgb = ((Config.ColorOption) option).get();
+            Theme.fill(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.ACCENT : Theme.BORDER);
+            // A swatch of the color, then its code.
+            Theme.fill(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, 0xFF000000 | rgb);
+            Theme.outline(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, Theme.BORDER);
+            Theme.text(
+                fontRendererObj,
+                Config.ColorOption.hex(rgb),
+                x + 8 + 2 * (h - 6),
                 y + (h - 8) / 2,
                 Theme.TEXT);
         } else {
