@@ -39,7 +39,7 @@ Any button of the map except the §bgear§r and the dimension title can be hidde
 - §eWheel§r — zoom (towards the cursor)
 - §eSpace§r — back to the player
 - The map opens §fwhere you closed it§r — same zoom and dimension (with §bCrosshair§r on — always at you)
-- §eRight click§r on empty space — menu: §bTeleport here§r, §bNew waypoint§r, §bTemporary mark here§r (named by its coordinates, no icon, not saved, gone once you get there) and, on the 2D map, §bDelete region§r (the 512×512 blocks around it from the 2D map, after asking; loaded chunks come back when they change or load again)
+- §eRight click§r on empty space — menu: §bTeleport here§r, §bNew waypoint§r, §bQuick waypoint§r (a waypoint at once, named by its coordinates) and, on the 2D map, §bDelete region§r (the 512×512 blocks around it from the 2D map, after asking; loaded chunks come back when they change or load again)
 - §eRight click§r on a waypoint — opens its editor
 
 §fOther dimensions:§r click §b[0] Overworld ▾§r at the top — a list of every dimension saved in the map opens. Pick any to see its map without being there.

@@ -638,7 +638,6 @@ public class MapManager implements IResourceManagerReloadListener {
         }
 
         tick++;
-        WaypointManager.INSTANCE.removeReached(world.provider.dimensionId, mc.thePlayer.posX, mc.thePlayer.posZ);
         // Time mapping chunks let go by the game since the last tick (they are let go while its packets are handled).
         long unloadsBefore = unloadNanos;
         unloadNanos = 0;

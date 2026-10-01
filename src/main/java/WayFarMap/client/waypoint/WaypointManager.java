@@ -85,17 +85,8 @@ public class WaypointManager {
                 parent.mkdirs();
             }
             File tmp = new File(file.getPath() + ".tmp");
-            // Temporary marks are never saved.
-            Data saved = new Data();
-            saved.groups = data.groups;
-            saved.ungroupedVisible = data.ungroupedVisible;
-            for (Waypoint waypoint : data.waypoints) {
-                if (!waypoint.temporary) {
-                    saved.waypoints.add(waypoint);
-                }
-            }
             try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
-                GSON.toJson(saved, writer);
+                GSON.toJson(data, writer);
             }
             if (file.exists() && !file.delete()) {
                 WayFarMap.LOG.warn("Could not replace " + file);
@@ -204,20 +195,6 @@ public class WaypointManager {
             }
         }
         save();
-    }
-
-    /** How near (blocks, across) the player gets to a temporary mark for it to be gone. */
-    private static final int ARRIVED = 3;
-
-    /** A temporary mark the player got to is removed (every tick). */
-    public void removeReached(int dimension, double x, double z) {
-        boolean removed = data.waypoints.removeIf(
-            w -> w.temporary && w.dimension == dimension
-                && Math.abs(w.x + 0.5 - x) <= ARRIVED
-                && Math.abs(w.z + 0.5 - z) <= ARRIVED);
-        if (removed) {
-            save();
-        }
     }
 
     public void removeWaypoint(Waypoint waypoint) {

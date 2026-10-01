@@ -1433,18 +1433,19 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint
                         .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension))));
-        // A quick mark: named by its coordinates, no icon, not saved, gone once the player gets there.
+        // A waypoint at once, without its editor: named by its coordinates, no icon.
         final int markY = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
-        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.temp_waypoint"), true, () -> {
-            Waypoint mark = new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension);
-            mark.temporary = true;
-            WaypointManager.INSTANCE.addWaypoint(mark);
-        }));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.quick_waypoint"),
+                true,
+                () -> WaypointManager.INSTANCE
+                    .addWaypoint(new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension))));
         if (flat) {
             final int rx = bx >> MapRegion.SHIFT, rz = bz >> MapRegion.SHIFT;
             entries.add(
                 new MenuEntry(
-                    I18n.format("wayfarmap.gui.delete_region", rx, rz),
+                    I18n.format("wayfarmap.gui.delete_region"),
                     true,
                     () -> confirmDeleteRegion(dimension, rx, rz)));
         }
@@ -1467,17 +1468,6 @@ public class GuiWorldMap extends ScaledScreen {
     /** Asks before deleting a region of the flat map, in the same place as the menu was. */
     private void confirmDeleteRegion(int dimension, int rx, int rz) {
         List<MenuEntry> entries = new ArrayList<>();
-        int x0 = rx << MapRegion.SHIFT, z0 = rz << MapRegion.SHIFT;
-        entries.add(
-            new MenuEntry(
-                I18n.format(
-                    "wayfarmap.gui.delete_region_ask",
-                    x0,
-                    x0 + MapRegion.SIZE - 1,
-                    z0,
-                    z0 + MapRegion.SIZE - 1),
-                false,
-                () -> {}));
         entries.add(
             new MenuEntry(
                 I18n.format("wayfarmap.gui.delete_region_yes"),
