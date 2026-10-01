@@ -100,7 +100,7 @@ public class Config {
     public static int mapDisplayMode = DISPLAY_BLOCKS;
     /** Contour lines on the topography, every so many blocks of height. */
     public static boolean topoContours = true;
-    public static int topoContourInterval = 8;
+    public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
@@ -311,7 +311,7 @@ public class Config {
             c,
             "topoContourInterval",
             "Blocks of height between two contour lines of the topography.",
-            8,
+            4,
             2,
             32,
             2,

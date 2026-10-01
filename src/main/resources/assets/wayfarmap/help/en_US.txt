@@ -102,8 +102,8 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
 
 # Topography
-- §bRings§r on the right of the header — the surface colored by height, like a physical map: §9blue§r below sea level, then §agreen§r lowlands, §eyellow§r and §6brown§r hills, gray mountains and §fwhite§r peaks
-- Slopes are lightly shaded and §fcontour lines§r join places of equal height: close lines mean a steep slope, every fourth line is darker
+- §bRings§r on the right of the header — the surface by height, in JourneyMap's look: water in flat §9dark blue§r (lighter along the shore), land in flat bands from §2dark green§r at the shore through gray-green and slate to §dlavender§r and nearly §fwhite§r peaks
+- Dark brown §fcontour lines§r between the bands join places of equal height: close lines mean a steep slope
 - Biomes and topography replace each other: turning one on turns the other off. Works on the minimap too
 - The line step and the lines themselves — §bSettings → 2D map§r
 - Made from the heights of the explored surface; caves and the 3D map are not shown in this view

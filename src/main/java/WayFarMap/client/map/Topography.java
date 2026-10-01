@@ -15,21 +15,26 @@ import org.lwjgl.opengl.GL14;
 import WayFarMap.Config;
 
 /**
- * Topographic view: the surface colored by its height like a physical map (blues below sea level, then greens,
- * yellows, browns, grays and white on the peaks), lightly shaded by its slopes, with contour lines every few blocks.
- * Made from the heights the surface map keeps, as one texture per region drawn over it; rebuilt when the region or
- * the settings change.
+ * Topographic view in JourneyMap's look: water in flat dark blue (lighter along the shore), land in flat bands of
+ * height from dark green at the shore through gray-green and slate to lavender and nearly white peaks, with dark
+ * brown contour lines between the bands. Made from the heights the surface map keeps, as one texture per region
+ * drawn over it; rebuilt when the region or the settings change.
  */
 public final class Topography {
 
-    /** Height of the top block of the sea: water up to it is blue, land from one above. */
+    /** Height of the top block of the sea: up to it is water, land from one above. */
     private static final int SEA_LEVEL = 62;
-    /** {height of the top block, RGB}, under the sea and on land. */
-    private static final int[][] WATER = { { 0, 0x0B2545 }, { 40, 0x1D4E89 }, { SEA_LEVEL, 0x4F8FCF } };
-    private static final int[][] LAND = { { SEA_LEVEL + 1, 0x4E8F3A }, { 72, 0x7DAF4C }, { 85, 0xC9C65E },
-        { 100, 0xC99A4E }, { 120, 0x9C6A3E }, { 150, 0x8E837B }, { 185, 0xE6E6E6 }, { 255, 0xFFFFFF } };
-    /** How much darker contour lines are than the ground; every fourth line is a stronger one. */
-    private static final float CONTOUR = 0.62f, MAJOR_CONTOUR = 0.4f;
+    /** Water, and water along the shore (JourneyMap's colors). */
+    private static final int DEEP_WATER = 0x10108A, SHALLOW_WATER = 0x0707B8;
+    /** How far from land water counts as along the shore, in pixels. */
+    private static final int SHORE = 2;
+    /** Land from the shore up to {@link #TOP} and above, one color per band (JourneyMap's colors). */
+    private static final int[] LAND = { 0x25432A, 0x2B4D30, 0x33533B, 0x3B5944, 0x435F4F, 0x4B6459, 0x536A63,
+        0x5B706D, 0x637678, 0x6A7C82, 0x72818C, 0x7A8896, 0x828DA0, 0x8A92AA, 0x9198B4, 0x9DA5C4, 0xAAB2D3, 0xAAB9D3,
+        0xAAC1D3, 0xAACBD3, 0xBCD0D3, 0xD0D3D3 };
+    /** Height the last land color is reached at. */
+    private static final int TOP = 180;
+    private static final int CONTOUR_COLOR = 0x392410;
     /** Rebuilding a region's texture while it is being explored is throttled to this interval. */
     private static final long REBUILD_MS = 1000;
     /** Textures (re)built per frame, so turning the view on over many regions spreads over a few frames. */
@@ -44,16 +49,8 @@ public final class Topography {
     }
 
     private static final Map<PixelSource, Overlay> OVERLAYS = new WeakHashMap<>();
-    /** Color of each height, for the current palette. */
-    private static final int[] COLORS = new int[256];
     private static int buildsLeft;
     private static IntBuffer buffer;
-
-    static {
-        for (int y = 0; y < 256; y++) {
-            COLORS[y] = paletteColor(y <= SEA_LEVEL ? WATER : LAND, y);
-        }
-    }
 
     private Topography() {}
 
@@ -202,8 +199,6 @@ public final class Topography {
     /** Fills {@link #buffer} with the topography of the region; transparent where the height is unknown. */
     private static void build(PixelSource region) {
         int size = region.size();
-        // A pixel of a reduced copy covers several blocks: contour lines keep their spacing in blocks.
-        int blocks = MapRegion.SIZE / size;
         int interval = Math.max(1, Config.topoContourInterval);
         if (buffer == null) {
             buffer = BufferUtils.createIntBuffer(MapRegion.SIZE * MapRegion.SIZE);
@@ -212,37 +207,56 @@ public final class Topography {
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
                 int h = height(region, x, z);
+                int argb;
                 if (h < 0) {
-                    buffer.put(0);
-                    continue;
-                }
-                // Slopes facing north-west are lighter, those facing south-east darker, as lit from the north-west.
-                int north = height(region, x, z - 1), west = height(region, x - 1, z);
-                int rise = (north < 0 ? 0 : h - north) + (west < 0 ? 0 : h - west);
-                float shade = 1f + Math.max(-8, Math.min(8, rise / blocks)) * 0.03f;
-                if (Config.topoContours) {
-                    // A line where a neighbour is in a lower band: drawn once, on the upper side of the step.
-                    int band = Math.floorDiv(h, interval);
-                    int lower = Integer.MAX_VALUE;
-                    for (int[] d : NEIGHBOURS) {
-                        int other = height(region, x + d[0], z + d[1]);
-                        if (other >= 0 && Math.floorDiv(other, interval) < band) {
-                            lower = Math.min(lower, Math.floorDiv(other, interval));
+                    argb = 0;
+                } else if (h <= SEA_LEVEL) {
+                    argb = 0xFF000000 | (nearLand(region, x, z) ? SHALLOW_WATER : DEEP_WATER);
+                } else {
+                    int band = band(h, interval);
+                    argb = 0xFF000000 | landColor(band, interval);
+                    if (Config.topoContours) {
+                        // A line where a neighbour is in a lower band: drawn once, on the upper side of the step.
+                        for (int[] d : NEIGHBOURS) {
+                            int other = height(region, x + d[0], z + d[1]);
+                            if (other > SEA_LEVEL && band(other, interval) < band) {
+                                argb = 0xFF000000 | CONTOUR_COLOR;
+                                break;
+                            }
                         }
                     }
-                    if (lower != Integer.MAX_VALUE) {
-                        // A stronger line where the step crosses a multiple of four intervals.
-                        boolean major = Math.floorDiv(band, 4) != Math.floorDiv(lower, 4);
-                        shade *= major ? MAJOR_CONTOUR : CONTOUR;
-                    }
                 }
-                buffer.put(0xFF000000 | BlockColors.shade(COLORS[h], shade));
+                buffer.put(argb);
             }
         }
         buffer.flip();
     }
 
     private static final int[][] NEIGHBOURS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+
+    /** Band of a land height: 0 from just above the sea, one more every {@code interval} blocks. */
+    private static int band(int h, int interval) {
+        return (h - SEA_LEVEL - 1) / interval;
+    }
+
+    /** Flat color of a band: the palette at the band's middle height, so the step only changes how fine it is. */
+    private static int landColor(int band, int interval) {
+        double middle = band * interval + interval / 2.0;
+        int index = (int) Math.round(middle / (TOP - SEA_LEVEL - 1) * (LAND.length - 1));
+        return LAND[Math.max(0, Math.min(LAND.length - 1, index))];
+    }
+
+    /** Land within {@link #SHORE} pixels: the water there is along the shore. */
+    private static boolean nearLand(PixelSource region, int x, int z) {
+        for (int dz = -SHORE; dz <= SHORE; dz++) {
+            for (int dx = -SHORE; dx <= SHORE; dx++) {
+                if (height(region, x + dx, z + dz) > SEA_LEVEL) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     /** Height of the top block at the pixel, -1 if unknown or outside the region. */
     private static int height(PixelSource region, int x, int z) {
@@ -253,26 +267,5 @@ public final class Topography {
         // The surface keeps the height to stand on: one above the top block, 0 when unknown.
         int extra = region.getExtra(x, z);
         return extra == 0 ? -1 : extra - 1;
-    }
-
-    /** The palette's color at the height, between its two nearest stops. */
-    private static int paletteColor(int[][] stops, int y) {
-        if (y <= stops[0][0]) {
-            return stops[0][1];
-        }
-        for (int i = 1; i < stops.length; i++) {
-            if (y <= stops[i][0]) {
-                float t = (y - stops[i - 1][0]) / (float) (stops[i][0] - stops[i - 1][0]);
-                return mix(stops[i - 1][1], stops[i][1], t);
-            }
-        }
-        return stops[stops.length - 1][1];
-    }
-
-    private static int mix(int a, int b, float t) {
-        int r = Math.round(((a >> 16) & 0xFF) * (1 - t) + ((b >> 16) & 0xFF) * t);
-        int g = Math.round(((a >> 8) & 0xFF) * (1 - t) + ((b >> 8) & 0xFF) * t);
-        int bl = Math.round((a & 0xFF) * (1 - t) + (b & 0xFF) * t);
-        return r << 16 | g << 8 | bl;
     }
 }
