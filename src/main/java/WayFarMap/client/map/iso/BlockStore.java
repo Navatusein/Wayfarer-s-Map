@@ -300,6 +300,7 @@ public final class BlockStore {
         }
         IsoLog.decodedMisses.incrementAndGet();
         IsoLog.decodeNanos.addAndGet(System.nanoTime() - decodeStart);
+        IsoLog.tileDecoded(System.nanoTime() - decodeStart);
         synchronized (decoded) {
             // A newer version may have been put meanwhile; it replaced the key, so only fill an empty slot.
             if (!decoded.containsKey(key) && blobIsCurrent(region, index, blob)) {

@@ -208,13 +208,18 @@ public final class BlockLooks {
             requests[n++] = request;
             REQUESTS.add(request);
         }
-        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        long start = System.nanoTime();
+        long end = start + TimeUnit.SECONDS.toNanos(5);
         for (int i = 0; i < n; i++) {
             try {
                 requests[i].result.get(Math.max(1, end - System.nanoTime()), TimeUnit.NANOSECONDS);
             } catch (Exception e) {
+                IsoLog.looksWait(n, System.nanoTime() - start, false);
                 return false;
             }
+        }
+        if (n > 0) {
+            IsoLog.looksWait(n, System.nanoTime() - start, true);
         }
         return true;
     }

@@ -215,8 +215,9 @@ final class IsoTiles {
             smooth = Config.isoSmooth;
             invalidateAll();
         }
-        uploadResults();
+        int uploaded = uploadResults();
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
+        int onScreen = 0, ready = 0, empty = 0, fromCoarser = 0, holes = 0;
         int blocks = IsoProjection.tileBlocks(level);
         double left = centerU - width / 2.0 / scale, top = centerV - height / 2.0 / scale;
         int tu0 = (int) Math.floor(left / blocks), tv0 = (int) Math.floor(top / blocks);
@@ -249,21 +250,42 @@ final class IsoTiles {
                 double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
                 double sy = y + height / 2.0 + ((double) tv * blocks - centerV) * scale;
                 double size = blocks * scale;
+                onScreen++;
                 if (tile.ready) {
+                    ready++;
                     if (!tile.empty) {
                         drawTile(tile, sx, sy, size, 0, 0, 1, night);
+                    } else {
+                        empty++;
                     }
+                } else if (drawFromCoarser(key, sx, sy, size, night)) {
+                    fromCoarser++;
                 } else {
-                    drawFromCoarser(key, sx, sy, size, night);
+                    holes++;
                 }
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
         evict();
+        if (IsoLog.on()) {
+            IsoLog.view(
+                dimension.id,
+                rotation,
+                level,
+                onScreen,
+                ready,
+                empty,
+                fromCoarser,
+                holes,
+                queue.size(),
+                done.size(),
+                uploaded,
+                tiles.size());
+        }
     }
 
-    /** Until a tile is ready, the matching part of a coarser one that is. */
-    private void drawFromCoarser(Key key, double sx, double sy, double size, float night) {
+    /** Until a tile is ready, the matching part of a coarser one that is; false if none is. */
+    private boolean drawFromCoarser(Key key, double sx, double sy, double size, float night) {
         for (int up = 1; up <= 4 && key.level + up < IsoProjection.LEVELS; up++) {
             int shift = up;
             Key parent = new Key(
@@ -278,13 +300,14 @@ final class IsoTiles {
             }
             tile.lastDrawn = frame;
             if (tile.empty) {
-                return;
+                return true;
             }
             double part = 1.0 / (1 << shift);
             double u0 = Math.floorMod(key.tu, 1 << shift) * part, v0 = Math.floorMod(key.tv, 1 << shift) * part;
             drawTile(tile, sx, sy, size, u0, v0, part, night);
-            return;
+            return true;
         }
+        return false;
     }
 
     /** Draws (part of) a tile by day, and its night look over it as much as it is night. */
@@ -312,12 +335,13 @@ final class IsoTiles {
         tessellator.draw();
     }
 
-    /** Puts the tiles the renderers finished on the graphics card, a few per frame. */
-    private void uploadResults() {
-        for (int n = 0; n < UPLOADS_PER_FRAME; n++) {
+    /** Puts the tiles the renderers finished on the graphics card, a few per frame; returns how many it took. */
+    private int uploadResults() {
+        int n = 0;
+        for (; n < UPLOADS_PER_FRAME; n++) {
             Result result = done.poll();
             if (result == null) {
-                return;
+                return n;
             }
             Tile tile = result.tile;
             tile.queued = false;
@@ -342,6 +366,7 @@ final class IsoTiles {
             tile.texture = upload(tile.texture, result.pixels);
             tile.nightTexture = upload(tile.nightTexture, result.nightPixels);
         }
+        return n;
     }
 
     /** Puts the pixels into the texture (made if -1); returns the texture. */
@@ -526,6 +551,7 @@ final class IsoTiles {
             }
             try {
                 long start = System.nanoTime();
+                IsoLog.tileStart();
                 Result result = produce(job);
                 IsoLog.tileDone(
                     tile.key,
@@ -533,12 +559,15 @@ final class IsoTiles {
                     System.nanoTime() - start,
                     result.fromDisk ? "disk" : "trace",
                     result.retryWhy,
-                    result.pixels == null);
+                    result.pixels,
+                    result.nightPixels);
                 if (running) {
                     done.add(result);
                 }
             } catch (Throwable t) {
                 WayFarMap.LOG.warn("Could not draw a 3D map tile", t);
+                IsoLog.log("TILE_WARN FAILED rot" + tile.key.rotation + " L" + tile.key.level + " " + tile.key.tu + ","
+                    + tile.key.tv + " " + t);
                 done.add(new Result(tile, null, null, null, System.currentTimeMillis()));
             }
         }
@@ -550,15 +579,27 @@ final class IsoTiles {
         IsoMap.Dimension dimension = job.dimension;
         File file = key.level >= DISK_LEVEL ? tileFile(dimension, key) : null;
         long dirtyAt = tile.dirtyAt;
+        IsoLog.TileWork work = IsoLog.work();
         if (file != null && file.isFile()) {
+            long readStart = System.nanoTime();
             Result cached = readCached(tile, file, dimension, dirtyAt);
+            if (work != null) {
+                work.diskNanos = System.nanoTime() - readStart;
+                work.diskBytes = file.length();
+            }
             if (cached != null) {
                 cached.fromDisk = true;
                 return cached;
             }
+        } else if (work != null) {
+            work.disk = file == null ? "not-kept (level " + key.level + ")" : "none";
         }
         long start = System.currentTimeMillis();
-        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, map.palette());
+        FacePalette palette = map.palette();
+        if (work != null) {
+            work.noPalette = palette == null;
+        }
+        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, palette);
         BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
@@ -606,7 +647,14 @@ final class IsoTiles {
                 + (tracer.incomplete ? "sprites not readable yet" : "");
         }
         if (file != null && running && !result.retry) {
-            writeCached(file, result, tracer.minToward);
+            long saveStart = System.nanoTime();
+            boolean ok = writeCached(file, result, tracer.minToward);
+            if (work != null) {
+                work.saved = !ok ? "FAILED" : result.pixels == null ? "saved-empty" : "saved";
+                work.savedNanos = System.nanoTime() - saveStart;
+            }
+        } else if (work != null && file != null) {
+            work.saved = result.retry ? "not (drawn again)" : "not";
         }
         return result;
     }
@@ -646,15 +694,34 @@ final class IsoTiles {
 
     /** The tile from disk if nothing it shows changed since it was drawn, else null. */
     private Result readCached(Tile tile, File file, IsoMap.Dimension dimension, long dirtyAt) {
+        IsoLog.TileWork work = IsoLog.work();
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file), 1 << 15))) {
             if (in.readInt() != MAGIC) {
+                if (work != null) {
+                    work.disk = "bad-magic";
+                }
                 return null;
             }
             long renderedAt = in.readLong();
             double minToward = in.readDouble();
             boolean empty = in.readBoolean();
-            if (renderedAt < dirtyAt || newestChange(dimension, tile.key, minToward) > renderedAt) {
+            if (renderedAt < dirtyAt) {
+                if (work != null) {
+                    work.disk = "stale (changed while open " + (dirtyAt - renderedAt) / 1000 + "s after it was drawn)";
+                }
                 return null;
+            }
+            long newest = newestChange(dimension, tile.key, minToward);
+            if (newest > renderedAt) {
+                if (work != null) {
+                    work.disk = "stale (a chunk changed " + (newest - renderedAt) / 1000 + "s after it was drawn)";
+                }
+                return null;
+            }
+            if (work != null) {
+                work.disk = (empty ? "ok-empty" : "ok") + " (drawn "
+                    + (System.currentTimeMillis() - renderedAt) / 60000
+                    + " min ago)";
             }
             if (empty) {
                 return new Result(tile, null, null, null, renderedAt);
@@ -676,14 +743,18 @@ final class IsoTiles {
                 .get(hits);
             return new Result(tile, pixels, nightPixels, hits, renderedAt);
         } catch (IOException e) {
+            if (work != null) {
+                work.disk = "io-error " + e;
+            }
             return null;
         }
     }
 
-    private static void writeCached(File file, Result result, double minToward) {
+    /** Saves the tile to its file; false if it couldn't. */
+    private static boolean writeCached(File file, Result result, double minToward) {
         File parent = file.getParentFile();
         if (!parent.isDirectory() && !parent.mkdirs()) {
-            return;
+            return false;
         }
         File tmp = new File(file.getPath() + ".tmp");
         Deflater deflater = new Deflater(4);
@@ -709,13 +780,15 @@ final class IsoTiles {
             }
         } catch (IOException e) {
             WayFarMap.LOG.debug("Could not save a 3D map tile {}", file);
-            return;
+            return false;
         } finally {
             deflater.end();
         }
         if ((file.exists() && !file.delete()) || !tmp.renameTo(file)) {
             tmp.delete();
+            return false;
         }
+        return true;
     }
 
     /**

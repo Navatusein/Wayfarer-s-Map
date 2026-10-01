@@ -194,6 +194,7 @@ final class IsoTracer {
         cacheTops[slot] = top;
         currentData = data;
         currentTop = top;
+        IsoLog.tileChunk(data instanceof ChunkBlocks ? 0 : data == NOTHING ? 2 : 1);
     }
 
     /**

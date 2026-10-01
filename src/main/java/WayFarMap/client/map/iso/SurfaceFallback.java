@@ -156,12 +156,16 @@ final class SurfaceFallback {
                 return null;
             }
             MapRegion region;
+            File file = MapRegion.getFile(directory, entry.rx, entry.rz);
+            long start = System.nanoTime();
             try {
-                region = MapRegion.read(MapRegion.getFile(directory, entry.rx, entry.rz), entry.rx, entry.rz);
+                region = MapRegion.read(file, entry.rx, entry.rz);
             } catch (IOException | RuntimeException e) {
                 Arrays.fill(entry.explored, false);
+                IsoLog.fallbackRead(entry.rx, entry.rz, System.nanoTime() - start, file.length(), e.toString());
                 return null;
             }
+            IsoLog.fallbackRead(entry.rx, entry.rz, System.nanoTime() - start, file.length(), null);
             short[] tops = new short[1024];
             for (int cz = 0; cz < 32; cz++) {
                 for (int cx = 0; cx < 32; cx++) {

@@ -189,6 +189,16 @@ public final class IsoLog {
                 + "time finding them, setting up GL, drawing (CPU only), reading back (waits for the graphics card to "
                 + "finish drawing too), storing sprites. STALL: no client tick for a while. STATS every second while "
                 + "busy, SUMMARY every 5 minutes and at the end (with the kinds of blocks whose pictures cost most).");
+        line(
+            "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
+                + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
+                + "chunks=where the rays found blocks: store (3D blocks) / flat (pillars of the 2D map) / none, "
+                + "reads=region files read for it, waits=time waiting for block looks from the game, px=pixels: "
+                + "clear (nothing, the dark background shows) / black / dark, saved=what was written to its file) -> "
+                + "VIEW every second while the screen is not complete (onScreen, ready, empty, fromCoarser = a "
+                + "blurry parent shown, holes = nothing shown at all) -> VIEW_COMPLETE (how long the screen took). "
+                + "TILE_WARN marks what looks wrong (empty or black tiles saved, files that couldn't be read, slow "
+                + "tiles); FALLBACK_READ / LOOKS_WAIT are reads of 2D map regions and waits for block looks.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -214,6 +224,9 @@ public final class IsoLog {
         DONE_NAMES.clear();
         BLOCKS.clear();
         CHANGED_BY.clear();
+        TILE_COUNTS.clear();
+        VIEW_TIMES.clear();
+        viewKey = null;
     }
 
     private static void writeLines(BufferedWriter out) {
@@ -926,6 +939,16 @@ public final class IsoLog {
     }
 
     static void regionRead(int dimension, int rx, int rz, String what, long nanos, long bytes) {
+        TileWork w = TILE_WORK.get();
+        if (w != null) {
+            if (what.startsWith("header")) {
+                w.headerReads++;
+            } else {
+                w.blobReads++;
+            }
+            w.readNanos += nanos;
+            w.readBytes += bytes;
+        }
         log(
             "REGION_READ dim=" + dimension
                 + " r="
@@ -983,10 +1006,145 @@ public final class IsoLog {
         }
     }
 
-    static void tileDone(IsoTiles.Key key, long waitedNanos, long nanos, String source, String retry, boolean empty) {
+    /** What one tile renderer met while making a tile (its own thread). */
+    static final class TileWork {
+
+        /** What reading the tile's file gave: none, ok, ok-empty, stale (why), bad-magic, io-error. */
+        String disk = "-";
+        long diskNanos;
+        long diskBytes;
+        /** Chunks the rays entered: with 3D blocks, with only the flat map's pillars, with nothing. */
+        int storeChunks, flatChunks, noChunks;
+        /** Region files read for it: 3D block headers and blobs, flat map regions (and failures). */
+        int headerReads, blobReads, flatReads, flatFails;
+        long readNanos, readBytes;
+        int decoded;
+        long decodeNanos;
+        /** Waits for block looks from the render thread, their time, and how many gave up. */
+        int looksWaits, looksTimeouts;
+        long looksNanos;
+        boolean noPalette;
+        /** What was written to the tile's file. */
+        String saved = "-";
+        long savedNanos;
+    }
+
+    private static final ThreadLocal<TileWork> TILE_WORK = new ThreadLocal<>();
+    /** Tiles by what happened to them (source, reading the file, saving, warnings), for the summaries. */
+    private static final Map<String, AtomicLong> TILE_COUNTS = new ConcurrentHashMap<>();
+    /** How long the screen took to be complete, each time (ms). */
+    private static final List<Long> VIEW_TIMES = Collections.synchronizedList(new ArrayList<>());
+
+    private static void countTile(String what) {
+        TILE_COUNTS.computeIfAbsent(what, k -> new AtomicLong())
+            .incrementAndGet();
+    }
+
+    /** First word of a description: "stale (...)" -> "stale". */
+    private static String firstWord(String text) {
+        int space = text.indexOf(' ');
+        return space < 0 ? text : text.substring(0, space);
+    }
+
+    /** A warning about a tile: counted for the summaries and written. */
+    private static void warn(String kind, String text) {
+        countTile("warn " + kind);
+        line("TILE_WARN " + kind + " " + text);
+    }
+
+    /** A renderer starts a tile: what happens on this thread until {@link #tileDone} is counted for it. */
+    static void tileStart() {
+        TILE_WORK.set(on() ? new TileWork() : null);
+    }
+
+    /** What the tile renderer on this thread is counting, null if none (or the log is off). */
+    static TileWork work() {
+        return TILE_WORK.get();
+    }
+
+    /** The rays of a tile entered a chunk: 0 = 3D blocks, 1 = flat map pillars, 2 = nothing there. */
+    static void tileChunk(int kind) {
+        TileWork w = TILE_WORK.get();
+        if (w != null) {
+            if (kind == 0) {
+                w.storeChunks++;
+            } else if (kind == 1) {
+                w.flatChunks++;
+            } else {
+                w.noChunks++;
+            }
+        }
+    }
+
+    /** A chunk's blocks were unpacked for a tile. */
+    static void tileDecoded(long nanos) {
+        TileWork w = TILE_WORK.get();
+        if (w != null) {
+            w.decoded++;
+            w.decodeNanos += nanos;
+        }
+    }
+
+    /** A region of the flat map was read for the 3D map's pillars (any thread). */
+    static void fallbackRead(int rx, int rz, long nanos, long bytes, String failure) {
+        TileWork w = TILE_WORK.get();
+        if (w != null) {
+            w.flatReads++;
+            w.readNanos += nanos;
+            w.readBytes += bytes;
+            if (failure != null) {
+                w.flatFails++;
+            }
+        }
+        if (on()) {
+            if (failure != null) {
+                countTile("warn FALLBACK_READ failed");
+            }
+            line(
+                (failure != null ? "TILE_WARN " : "") + "FALLBACK_READ r="
+                    + rx
+                    + ","
+                    + rz
+                    + " ms="
+                    + ms(nanos)
+                    + " bytes="
+                    + bytes
+                    + (failure != null
+                        ? " FAILED (" + failure + "): its chunks count as not explored, tiles over it come out empty"
+                        : ""));
+        }
+    }
+
+    /** A renderer waited for the looks of a chunk's blocks; ok=false when it gave up after 5 s. */
+    static void looksWait(int asked, long nanos, boolean ok) {
+        TileWork w = TILE_WORK.get();
+        if (w != null) {
+            w.looksWaits++;
+            w.looksNanos += nanos;
+            if (!ok) {
+                w.looksTimeouts++;
+            }
+        }
+        if (on() && (!ok || nanos > 200_000_000L)) {
+            countTile(ok ? "looks slow wait" : "warn LOOKS_WAIT gave up");
+            line(
+                (ok ? "" : "TILE_WARN ") + "LOOKS_WAIT blocks="
+                    + asked
+                    + " ms="
+                    + ms(nanos)
+                    + (ok ? " (slow: the render thread works them out only while it draws frames)"
+                        : " GAVE UP: the tile is drawn with blocks missing and again later"));
+        }
+    }
+
+    static void tileDone(IsoTiles.Key key, long waitedNanos, long nanos, String source, String retry, int[] pixels,
+        int[] nightPixels) {
+        TileWork w = TILE_WORK.get();
+        TILE_WORK.remove();
         if (!on()) {
             return;
         }
+        boolean empty = pixels == null;
         tilesDrawn.incrementAndGet();
         tileNanos.addAndGet(nanos);
         if ("disk".equals(source)) {
@@ -995,16 +1153,257 @@ public final class IsoLog {
         if (retry != null) {
             tilesRetry.incrementAndGet();
         }
-        line(
-            "TILE_DONE " + tile(key)
-                + " src="
-                + source
-                + " waitedMs="
-                + ms(waitedNanos)
-                + " ms="
-                + ms(nanos)
-                + (retry != null ? " RETRY(" + retry + ", drawn again)" : "")
-                + (empty ? " empty" : ""));
+        int[] day = pixelStats(pixels), night = pixelStats(nightPixels);
+        int total = IsoProjection.TILE_PIXELS * IsoProjection.TILE_PIXELS;
+        StringBuilder b = new StringBuilder("TILE_DONE ").append(tile(key))
+            .append(" src=")
+            .append(source)
+            .append(" waitedMs=")
+            .append(ms(waitedNanos))
+            .append(" ms=")
+            .append(ms(nanos));
+        if (w != null) {
+            b.append(" disk=")
+                .append(w.disk);
+            if (w.diskNanos > 0) {
+                b.append(" diskMs=")
+                    .append(ms(w.diskNanos))
+                    .append(" diskBytes=")
+                    .append(w.diskBytes);
+            }
+            if (!"disk".equals(source)) {
+                b.append(" chunks[store=")
+                    .append(w.storeChunks)
+                    .append(" flat=")
+                    .append(w.flatChunks)
+                    .append(" none=")
+                    .append(w.noChunks)
+                    .append("] reads[headers=")
+                    .append(w.headerReads)
+                    .append(" blobs=")
+                    .append(w.blobReads)
+                    .append(" flat=")
+                    .append(w.flatReads)
+                    .append(w.flatFails > 0 ? " flatFailed=" + w.flatFails : "")
+                    .append(" ms=")
+                    .append(ms(w.readNanos))
+                    .append(" kb=")
+                    .append(w.readBytes >> 10)
+                    .append("] decoded=")
+                    .append(w.decoded)
+                    .append(" decodeMs=")
+                    .append(ms(w.decodeNanos))
+                    .append(" waits[looks=")
+                    .append(w.looksWaits)
+                    .append(" ms=")
+                    .append(ms(w.looksNanos))
+                    .append(w.looksTimeouts > 0 ? " gaveUp=" + w.looksTimeouts : "")
+                    .append("]")
+                    .append(w.noPalette ? " NO_PALETTE (block pictures not loaded: drawn from icons)" : "");
+            }
+            b.append(" saved=")
+                .append(w.saved);
+            if (w.savedNanos > 0) {
+                b.append(" saveMs=")
+                    .append(ms(w.savedNanos));
+            }
+        }
+        if (empty) {
+            b.append(" EMPTY");
+        } else {
+            b.append(" px[clear=")
+                .append(percent(day[0], total))
+                .append(" black=")
+                .append(percent(day[1], total))
+                .append(" dark=")
+                .append(percent(day[2], total))
+                .append(" avgLum=")
+                .append(day[3])
+                .append("] night[black=")
+                .append(percent(night[1], total))
+                .append(" avgLum=")
+                .append(night[3])
+                .append("]");
+        }
+        if (retry != null) {
+            b.append(" RETRY(")
+                .append(retry)
+                .append(", drawn again)");
+        }
+        line(b.toString());
+        countTile("src " + source + (empty ? " empty" : ""));
+        if (w != null) {
+            countTile("disk " + firstWord(w.disk));
+            countTile("saved " + firstWord(w.saved));
+            if (w.looksTimeouts > 0) {
+                countTile("looks gave up");
+            }
+        }
+        if (retry != null) {
+            countTile("retry");
+        }
+
+        // What looks wrong, on lines of their own so they are easy to find.
+        String where = tile(key) + " src=" + source;
+        if (w != null && empty && "saved-empty".equals(w.saved) && w.flatFails > 0) {
+            // Empty because a region couldn't be read, not because nothing was explored there.
+            warn(
+                "EMPTY_SAVED", where
+                    + ": "
+                    + w.flatFails
+                    + " flat map regions failed to read, so "
+                    + w.noChunks
+                    + " chunks counted as unexplored; the tile stays empty on disk until a chunk there changes");
+        }
+        if (w != null && !empty && w.flatFails > 0) {
+            warn("HOLES", where + ": " + w.flatFails + " flat map regions failed to read");
+        }
+        if (!empty && day[1] + day[2] > total / 2) {
+            warn(
+                "DARK", where
+                    + " black="
+                    + percent(day[1], total)
+                    + " dark="
+                    + percent(day[2], total)
+                    + " avgLum="
+                    + day[3]
+                    + (w != null && w.noPalette ? " (no block pictures)" : ""));
+        }
+        if (!empty && day[0] > total * 3 / 4 && w != null && w.storeChunks + w.flatChunks > 0) {
+            warn(
+                "MOSTLY_CLEAR", where
+                    + " clear="
+                    + percent(day[0], total)
+                    + " though the rays met "
+                    + (w.storeChunks + w.flatChunks)
+                    + " chunks with blocks");
+        }
+        if (w != null && (w.disk.startsWith("io-error") || w.disk.startsWith("bad-magic"))) {
+            warn("BAD_FILE", where + " disk=" + w.disk + " (drawn anew)");
+        }
+        if (nanos > 2_000_000_000L) {
+            warn("SLOW", where + " ms=" + ms(nanos) + (w == null ? "" : " readMs=" + ms(w.readNanos)
+                + " looksWaitMs=" + ms(w.looksNanos) + " decodeMs=" + ms(w.decodeNanos)));
+        }
+    }
+
+    /** {clear, black, dark, average brightness 0-255 of the not clear ones} of a tile's pixels. */
+    private static int[] pixelStats(int[] pixels) {
+        if (pixels == null) {
+            return new int[4];
+        }
+        int clear = 0, black = 0, dark = 0;
+        long lum = 0;
+        for (int c : pixels) {
+            if ((c >>> 24) == 0) {
+                clear++;
+                continue;
+            }
+            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;
+            int l = (r * 299 + g * 587 + bl * 114) / 1000;
+            lum += l;
+            if (Math.max(r, Math.max(g, bl)) < 12) {
+                black++;
+            } else if (l < 40) {
+                dark++;
+            }
+        }
+        int shown = pixels.length - clear;
+        return new int[] { clear, black, dark, shown == 0 ? 0 : (int) (lum / shown) };
+    }
+
+    private static String percent(int n, int total) {
+        return n * 100 / Math.max(1, total) + "%";
+    }
+
+    /** What the 3D view looked like this frame (render thread); written once a second while it isn't complete. */
+    private static String viewKey;
+    private static long viewSince, viewLastLine, viewLastDraw;
+    private static int viewUploads;
+
+    static void view(int dimension, int rotation, int level, int onScreen, int ready, int empty, int fromCoarser,
+        int holes, int queued, int results, int uploaded, int tilesInMemory) {
+        if (!on()) {
+            return;
+        }
+        long now = System.nanoTime();
+        String key = dimension + "/" + rotation + "/" + level;
+        viewUploads += uploaded;
+        if (!key.equals(viewKey) || now - viewLastDraw > 2_000_000_000L) {
+            // Opened again, zoomed to another level, turned or another dimension.
+            viewKey = key;
+            viewSince = now;
+            viewLastLine = 0;
+            viewUploads = uploaded;
+            line(
+                "VIEW_START dim=" + dimension
+                    + " rot="
+                    + rotation
+                    + " L"
+                    + level
+                    + " onScreen="
+                    + onScreen
+                    + " readyAlready="
+                    + ready
+                    + " tilesInMemory="
+                    + tilesInMemory);
+        }
+        viewLastDraw = now;
+        boolean complete = ready == onScreen;
+        if (complete) {
+            if (viewSince != 0) {
+                line(
+                    "VIEW_COMPLETE dim=" + dimension
+                        + " rot="
+                        + rotation
+                        + " L"
+                        + level
+                        + " after="
+                        + ms(now - viewSince)
+                        + "ms onScreen="
+                        + onScreen
+                        + " empty="
+                        + empty
+                        + (empty * 2 > onScreen ? " (more than half empty: dark background shows)" : ""));
+                VIEW_TIMES.add((now - viewSince) / 1_000_000L);
+                viewSince = 0;
+            }
+            return;
+        }
+        if (viewSince == 0) {
+            // Was complete, now some aren't (moved, or chunks changed): a new wait starts.
+            viewSince = now;
+        }
+        if (now - viewLastLine >= 1_000_000_000L) {
+            viewLastLine = now;
+            line(
+                "VIEW dim=" + dimension
+                    + " rot="
+                    + rotation
+                    + " L"
+                    + level
+                    + " waitingMs="
+                    + ms(now - viewSince)
+                    + " onScreen="
+                    + onScreen
+                    + " ready="
+                    + ready
+                    + " empty="
+                    + empty
+                    + " fromCoarser="
+                    + fromCoarser
+                    + " holes="
+                    + holes
+                    + " queued="
+                    + queued
+                    + " resultsWaitingUpload="
+                    + results
+                    + " uploaded="
+                    + viewUploads
+                    + " tilesInMemory="
+                    + tilesInMemory);
+            viewUploads = 0;
+        }
     }
 
     static void tileSkipped(IsoTiles.Key key) {
@@ -1178,6 +1577,7 @@ public final class IsoLog {
             names = new ArrayList<>(DONE_NAMES);
         }
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
+        tileSummary(title);
         blockSummary(title);
         changeSummary(title);
         BlockDiag.fallbackSummary(title);
@@ -1210,6 +1610,37 @@ public final class IsoLog {
                     + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** Tiles of the 3D view: what reading and saving them gave, warnings, and how long the screen took. */
+    private static void tileSummary(String title) {
+        List<Map.Entry<String, AtomicLong>> counts = new ArrayList<>(TILE_COUNTS.entrySet());
+        counts.sort(Map.Entry.comparingByKey());
+        StringBuilder b = new StringBuilder(title).append(" tiles:");
+        for (Map.Entry<String, AtomicLong> count : counts) {
+            b.append(" [")
+                .append(count.getKey())
+                .append("]=")
+                .append(count.getValue()
+                    .get());
+        }
+        line(b.toString());
+        List<Long> times;
+        synchronized (VIEW_TIMES) {
+            times = new ArrayList<>(VIEW_TIMES);
+        }
+        if (!times.isEmpty()) {
+            Collections.sort(times);
+            line(
+                title + " screen complete after (ms): n="
+                    + times.size()
+                    + " p50="
+                    + times.get(times.size() / 2)
+                    + " p90="
+                    + times.get(times.size() * 9 / 10)
+                    + " max="
+                    + times.get(times.size() - 1));
+        }
     }
 
     /** What made copies count as changed, and which kinds of blocks. */
