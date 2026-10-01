@@ -55,6 +55,7 @@ import WayFarMap.client.map.iso.IsoProjection;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
+import WayFarMap.client.waypoint.WaypointShare;
 
 /** Fullscreen world map: drag to pan, mouse wheel to zoom. */
 public class GuiWorldMap extends ScaledScreen {
@@ -73,7 +74,8 @@ public class GuiWorldMap extends ScaledScreen {
         ID_STATS = 19, ID_MODES = 20, ID_CLOSE = 21, ID_CLEAN = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
-        MENU_MODES = 5, MENU_CONFIRM = 6;
+        MENU_MODES = 5, MENU_CONFIRM = 6,
+        MENU_WAYPOINT = 7;
     private static final int EXPORT_MENU_WIDTH = 250;
     /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
     private static final double EXPORT_SECONDS_PER_TILE = 0.2;
@@ -1452,6 +1454,34 @@ public class GuiWorldMap extends ScaledScreen {
         showMenu(entries, MENU_MAP, mouseX, mouseY);
     }
 
+    /** Menu of a waypoint on the map: share it in chat, teleport to it, edit, remove or disable it. */
+    private void openWaypointMenu(Waypoint waypoint, int mouseX, int mouseY) {
+        List<MenuEntry> entries = new ArrayList<>();
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.share"), true, () -> WaypointShare.share(waypoint)));
+        // Teleporting needs /tp permission and the same dimension.
+        boolean canTeleport = Teleport.isAllowed() && mc.theWorld != null
+            && waypoint.dimension == mc.theWorld.provider.dimensionId;
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport"), canTeleport, () -> {
+            mc.displayGuiScreen(null);
+            Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
+        }));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.edit"),
+                true,
+                () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint))));
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.remove"),
+                true,
+                () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)));
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.disable"), true, () -> {
+            waypoint.enabled = false;
+            WaypointManager.INSTANCE.waypointChanged();
+        }));
+        showMenu(entries, MENU_WAYPOINT, mouseX, mouseY);
+    }
+
     /** Opens a menu at the point, as wide as its longest entry. */
     private void showMenu(List<MenuEntry> entries, int kind, int x, int y) {
         int widest = MENU_WIDTH;
@@ -1704,11 +1734,10 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         if (button == 1) {
-            // Right click on a waypoint edits it (teleport is in the editor); elsewhere a small menu to teleport
-            // there or create a waypoint.
+            // Right click on a waypoint: its menu (share, teleport, edit, remove, disable); elsewhere the map's menu.
             Waypoint hovered = waypointAt(mouseX, mouseY);
             if (hovered != null) {
-                mc.displayGuiScreen(GuiEditWaypoint.edit(this, hovered));
+                openWaypointMenu(hovered, mouseX, mouseY);
             } else {
                 openMenu(mouseX, mouseY);
             }
