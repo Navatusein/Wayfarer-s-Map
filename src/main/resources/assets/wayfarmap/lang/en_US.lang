@@ -150,6 +150,7 @@ wayfarmap.option.map.caveMode.off=Off
 wayfarmap.option.map.caveMode.on=On
 wayfarmap.gui.biomes=Biomes
 wayfarmap.gui.topo=Topography
+wayfarmap.gui.close=Close the map (Esc)
 wayfarmap.gui.teleport=Teleport
 wayfarmap.gui.show_on_map=Map
 wayfarmap.gui.teleport_here=Teleport here

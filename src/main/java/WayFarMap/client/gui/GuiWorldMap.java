@@ -70,7 +70,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5, ID_GRID = 6,
         ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17, ID_FOLLOW = 18,
-        ID_STATS = 19, ID_TOPO = 20;
+        ID_STATS = 19, ID_TOPO = 20, ID_CLOSE = 21;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -248,6 +248,9 @@ public class GuiWorldMap extends ScaledScreen {
         menu = null;
         dimensionList = null;
 
+        // Top right corner: closes the map, like Esc.
+        buttonList.add(new IconButton(ID_CLOSE, width - 24, 4, Icons.CLOSE, I18n.format("wayfarmap.gui.close")));
+
         // Bottom right: the help screen with every feature explained.
         helpButton = new IconButton(
             ID_HELP,
@@ -281,7 +284,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
     private void layoutRightButtons() {
-        int right = width - 34;
+        // Left of the zoom text, which is left of the close button.
+        int right = width - 58;
         for (IconButton button : rightButtons()) {
             if (!button.visible) {
                 continue;
@@ -668,6 +672,8 @@ public class GuiWorldMap extends ScaledScreen {
             mc.displayGuiScreen(new GuiSettings(this));
         } else if (button.id == ID_MOBS) {
             openMobsMenu();
+        } else if (button.id == ID_CLOSE) {
+            mc.displayGuiScreen(null);
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
         } else if (button.id == ID_LIGHT) {
@@ -874,7 +880,7 @@ public class GuiWorldMap extends ScaledScreen {
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
         Theme
-            .text(fontRendererObj, zoomText, width - 6 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
+            .text(fontRendererObj, zoomText, width - 30 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);

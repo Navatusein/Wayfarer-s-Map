@@ -150,6 +150,7 @@ wayfarmap.option.map.caveMode.off=Выкл
 wayfarmap.option.map.caveMode.on=Вкл
 wayfarmap.gui.biomes=Биомы
 wayfarmap.gui.topo=Топография
+wayfarmap.gui.close=Закрыть карту (Esc)
 wayfarmap.gui.teleport=Телепорт
 wayfarmap.gui.show_on_map=На карте
 wayfarmap.gui.teleport_here=Телепорт сюда

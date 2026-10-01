@@ -30,6 +30,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
 - §bTwo people§r — teammates online (shown while there are some)
+- §bCross§r at the right end — close the map (like §eEsc§r)
 - §b?§r bottom right — this help
 
 Any button of the map except the §bgear§r and the dimension title can be hidden: §bSettings → World map → Buttons on the map§r. The §finterface scale§r is there too.
