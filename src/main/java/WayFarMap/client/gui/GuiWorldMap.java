@@ -1475,8 +1475,10 @@ public class GuiWorldMap extends ScaledScreen {
                 I18n.format("wayfarmap.gui.remove"),
                 true,
                 () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)));
-        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.disable"), true, () -> {
-            waypoint.enabled = false;
+        // Disabled: gone from the world and the minimap, faded on this map.
+        String toggle = I18n.format(waypoint.enabled ? "wayfarmap.gui.disable" : "wayfarmap.gui.enable");
+        entries.add(new MenuEntry(toggle, true, () -> {
+            waypoint.enabled = !waypoint.enabled;
             WaypointManager.INSTANCE.waypointChanged();
         }));
         showMenu(entries, MENU_WAYPOINT, mouseX, mouseY);
@@ -1567,7 +1569,7 @@ public class GuiWorldMap extends ScaledScreen {
         float size = markerSize();
         Waypoint hovered = waypointAt(mouseX, mouseY);
         List<Waypoint> onScreen = new ArrayList<>();
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
             double[] at = waypointScreen(waypoint);
             double wx = at[0], wy = at[1];
             if (wx > -size && wy > -size && wx < width + size && wy < height + size && waypoint != hovered) {
@@ -1633,7 +1635,7 @@ public class GuiWorldMap extends ScaledScreen {
     private Waypoint waypointAt(int mouseX, int mouseY) {
         Waypoint best = null;
         double bestDistance = markerSize() / 2 + 2;
-        for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(viewDimension())) {
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
             double[] at = waypointScreen(waypoint);
             double wx = at[0], wy = at[1];
             double distance = Math.max(Math.abs(wx - mouseX), Math.abs(wy - mouseY));

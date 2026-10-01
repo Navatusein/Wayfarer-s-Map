@@ -18,6 +18,7 @@ wayfarmap.gui.edit_waypoint=Edit waypoint
 wayfarmap.gui.share=Share
 wayfarmap.gui.remove=Remove
 wayfarmap.gui.disable=Disable
+wayfarmap.gui.enable=Enable
 wayfarmap.gui.name=Name
 wayfarmap.gui.group=Group
 wayfarmap.gui.no_group=No group

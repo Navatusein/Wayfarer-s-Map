@@ -131,9 +131,11 @@ public class WaypointManager {
 
     /** Whether the waypoint should be drawn: it and its group are both enabled. */
     public boolean isVisible(Waypoint waypoint) {
-        if (!waypoint.enabled) {
-            return false;
-        }
+        return waypoint.enabled && isGroupVisible(waypoint);
+    }
+
+    /** Whether the waypoint's group (or the ungrouped ones) is shown. */
+    private boolean isGroupVisible(Waypoint waypoint) {
         if (waypoint.group == null) {
             return data.ungroupedVisible;
         }
@@ -146,6 +148,20 @@ public class WaypointManager {
         List<Waypoint> result = new ArrayList<>();
         for (Waypoint waypoint : data.waypoints) {
             if (waypoint.dimension == dimension && isVisible(waypoint)) {
+                result.add(waypoint);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Waypoints for the world map in the given dimension: disabled ones too (the map draws them faded, so they can
+     * be turned on again from it), but not those of hidden groups.
+     */
+    public List<Waypoint> getMapWaypoints(int dimension) {
+        List<Waypoint> result = new ArrayList<>();
+        for (Waypoint waypoint : data.waypoints) {
+            if (waypoint.dimension == dimension && isGroupVisible(waypoint)) {
                 result.add(waypoint);
             }
         }
