@@ -158,7 +158,7 @@ Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bCl
 - §eShift§r — unload
 - §eCtrl+Shift§r — §cremove everything§r (load and claim)
 
-Colors: every claim in its team's color, yours too (a bit brighter). Chunk loaded chunks are outlined in §cred§r, one outline around each loaded area.
+Colors: every claim in its team's color, yours too (a bit brighter). Chunk loaded chunks are outlined in a dark shade of their team's color, one outline around each loaded area.
 
 ! Claims are shown and changed §fonly in the dimension you stand in§r: the ServerUtilities server always uses the player's dimension. To claim in the Nether, go to the Nether.
 
