@@ -25,6 +25,7 @@ public class Config {
     public static final String CATEGORY_ENTITIES = "entities";
     public static final String CATEGORY_WAYPOINTS = "waypoints";
     public static final String CATEGORY_LOGS = "logs";
+    public static final String CATEGORY_CURSOR = "cursor";
     public static final String CATEGORY_COMMANDS = "commands";
     /**
      * Tabs of the settings screen splitting the world map's options (still saved under {@link #CATEGORY_MAP}, so
@@ -38,6 +39,7 @@ public class Config {
             TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
+            CATEGORY_CURSOR,
             CATEGORY_ENTITIES,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
@@ -76,6 +78,16 @@ public class Config {
     public static boolean minimapFrame = true;
     public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
     public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
+    /** Mouse cursor on the world map: the system one, or one of the shapes the map draws itself. */
+    public static final int CURSOR_SYSTEM = 0, CURSOR_ARROW = 1, CURSOR_CROSSHAIR = 2, CURSOR_PLUS = 3, CURSOR_DOT = 4,
+        CURSOR_CIRCLE = 5, CURSOR_TARGET = 6, CURSOR_SQUARE = 7;
+    public static int cursorStyle = CURSOR_SYSTEM;
+    /** Size of the drawn cursor in GUI pixels. */
+    public static int cursorSize = 14;
+    public static final int CURSOR_COLOR = 0xFFFFFF;
+    public static int cursorColor = CURSOR_COLOR;
+    /** A dark line around the drawn cursor, so it shows on light ground too. */
+    public static boolean cursorOutline = true;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
 
@@ -459,6 +471,28 @@ public class Config {
             v -> shareMapWithTeam = v);
 
         tab(null);
+        c = CATEGORY_CURSOR;
+        group("look");
+        parent(null);
+        choice(
+            c,
+            "style",
+            "Cursor on the world map: 0 = system, 1 = arrow, 2 = crosshair, 3 = plus, 4 = dot, 5 = circle, "
+                + "6 = target, 7 = square.",
+            CURSOR_SYSTEM,
+            new String[] { "system", "arrow", "crosshair", "plus", "dot", "circle", "target", "square" },
+            () -> cursorStyle,
+            v -> cursorStyle = v);
+        integer(c, "size", "Size of the cursor in GUI pixels.", 14, 6, 48, 2, () -> cursorSize, v -> cursorSize = v);
+        color(c, "color", "Color of the cursor, as #RRGGBB.", CURSOR_COLOR, () -> cursorColor, v -> cursorColor = v);
+        bool(
+            c,
+            "outline",
+            "Dark outline around the cursor, so it shows on light ground too.",
+            true,
+            () -> cursorOutline,
+            v -> cursorOutline = v);
+
         c = CATEGORY_ENTITIES;
         group("shown");
         parent(null);

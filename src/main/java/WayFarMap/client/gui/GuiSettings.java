@@ -349,6 +349,9 @@ public class GuiSettings extends ScaledScreen {
                 drawControl(option, controlX(), y + 3, mouseX, mouseY);
             }
         }
+        if (Config.CATEGORY_CURSOR.equals(category)) {
+            drawCursorPreview();
+        }
         if (maxScroll() > 0) {
             int track = contentBottom - contentTop;
             int bar = Math.max(12, track * track / (track + maxScroll()));
@@ -360,6 +363,34 @@ public class GuiSettings extends ScaledScreen {
         }
 
         super.drawScaled(mouseX, mouseY, partialTicks);
+    }
+
+    /** Under the cursor's options: the cursor as it will look, on dark and on light ground. */
+    private void drawCursorPreview() {
+        List<Row> rows = rows();
+        Row last = rows.get(rows.size() - 1);
+        int y = contentTop + last.y + last.height + 10 - scroll;
+        int boxHeight = 64, boxRight = right - 10;
+        if (y + 12 < contentTop || y + 12 + boxHeight > contentBottom) {
+            return;
+        }
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.cursor_preview"), contentLeft, y, Theme.ACCENT);
+        y += 12;
+        int middle = (contentLeft + boxRight) / 2;
+        Theme.fill(contentLeft, y, middle, y + boxHeight, 0xFF0C0E11);
+        Theme.fill(middle, y, boxRight, y + boxHeight, 0xFFC9D3B4);
+        Theme.outline(contentLeft, y, boxRight, y + boxHeight, Theme.BORDER);
+        if (!MapCursor.isCustom()) {
+            String note = I18n.format("wayfarmap.settings.cursor_system");
+            Theme.centered(fontRendererObj, note, (contentLeft + middle) / 2, y + boxHeight / 2 - 4, Theme.TEXT_MUTED);
+            return;
+        }
+        // The arrow is placed by its tip: moved so that it looks centered too.
+        boolean arrow = Config.cursorStyle == Config.CURSOR_ARROW;
+        double dx = arrow ? -Config.cursorSize * 0.3 : 0, dy = arrow ? -Config.cursorSize * 0.5 : 0;
+        double cy = y + boxHeight / 2.0 + dy;
+        MapCursor.draw((contentLeft + middle) / 2.0 + dx, cy);
+        MapCursor.draw((middle + boxRight) / 2.0 + dx, cy);
     }
 
     /**
