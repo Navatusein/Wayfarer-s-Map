@@ -104,6 +104,8 @@ public class Config {
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
     public static int gridChunkColor = GRID_CHUNK_COLOR;
     public static int gridRegionColor = GRID_REGION_COLOR;
+    /** How opaque the grid's lines are, in percent. */
+    public static int gridChunkOpacity = 20, gridRegionOpacity = 45;
     /** The world map always opens at the player instead of where it was closed. */
     public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
@@ -327,6 +329,16 @@ public class Config {
             GRID_CHUNK_COLOR,
             () -> gridChunkColor,
             v -> gridChunkColor = v);
+        integer(
+            c,
+            "gridChunkOpacity",
+            "Opacity of the chunk borders of the grid, in percent.",
+            20,
+            5,
+            100,
+            5,
+            () -> gridChunkOpacity,
+            v -> gridChunkOpacity = v);
         color(
             c,
             "gridRegionColor",
@@ -334,6 +346,16 @@ public class Config {
             GRID_REGION_COLOR,
             () -> gridRegionColor,
             v -> gridRegionColor = v);
+        integer(
+            c,
+            "gridRegionOpacity",
+            "Opacity of the region borders of the grid, in percent.",
+            45,
+            5,
+            100,
+            5,
+            () -> gridRegionOpacity,
+            v -> gridRegionOpacity = v);
         parent(null);
         bool(
             c,

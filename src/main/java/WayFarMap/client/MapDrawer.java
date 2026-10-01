@@ -191,12 +191,10 @@ public final class MapDrawer {
         }
     }
 
-    private static final int CHUNK_LINE = 0x30FFFFFF;
-    private static final int REGION_LINE = 0x70FFFFFF;
-
     /**
      * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
-     * are left out when zoomed out so far that they would be closer than a few pixels.
+     * are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is
+     * drawn once: where lines cross, see-through lines drawn over each other made the crossings brighter.
      */
     public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,
         int height) {
@@ -208,15 +206,14 @@ public final class MapDrawer {
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
         // jump behind the smoothly moving map.
         double pixel = 1.0 / ScaledScreen.currentFactor();
-        double thickness = pixel * Config.gridLineWidth;
-        // The colors of the settings, as see-through as the lines always were.
-        int chunkLine = (CHUNK_LINE & 0xFF000000) | Config.gridChunkColor;
-        int regionLine = (REGION_LINE & 0xFF000000) | Config.gridRegionColor;
+        // Thick lines never fill more than half the room between two of them.
+        double room = Math.max(1, Math.floor(step * scale / 2 / pixel)) * pixel;
+        double thickness = Math.min(pixel * Config.gridLineWidth, room);
+        int chunkLine = (Math.round(Config.gridChunkOpacity * 2.55f) << 24) | Config.gridChunkColor;
+        int regionLine = (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
 
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        Tessellator tessellator = Tessellator.instance;
+        // Lines as {from, to, region ? 1 : 0}, left to right and top to bottom.
+        List<double[]> columns = new ArrayList<>();
         int firstX = (int) Math.floor(left / step) * step;
         for (int bx = firstX;; bx += step) {
             double sx = x + (bx - left) * scale;
@@ -224,11 +221,13 @@ public final class MapDrawer {
                 break;
             }
             if (sx >= x) {
-                int color = Math.floorMod(bx, MapRegion.SIZE) == 0 ? regionLine : chunkLine;
                 double lx = Math.floor(sx / pixel) * pixel;
-                fillRect(tessellator, lx, y, Math.min(lx + thickness, x + width), y + height, color);
+                columns.add(
+                    new double[] { lx, Math.min(lx + thickness, x + width),
+                        Math.floorMod(bx, MapRegion.SIZE) == 0 ? 1 : 0 });
             }
         }
+        List<double[]> rows = new ArrayList<>();
         int firstZ = (int) Math.floor(top / step) * step;
         for (int bz = firstZ;; bz += step) {
             double sy = y + (bz - top) * scale;
@@ -236,13 +235,54 @@ public final class MapDrawer {
                 break;
             }
             if (sy >= y) {
-                int color = Math.floorMod(bz, MapRegion.SIZE) == 0 ? regionLine : chunkLine;
                 double ly = Math.floor(sy / pixel) * pixel;
-                fillRect(tessellator, x, ly, x + width, Math.min(ly + thickness, y + height), color);
+                rows.add(
+                    new double[] { ly, Math.min(ly + thickness, y + height),
+                        Math.floorMod(bz, MapRegion.SIZE) == 0 ? 1 : 0 });
             }
         }
+
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        // Columns between the rows, rows between the columns, then the crossings: a region line wins there.
+        for (double[] column : columns) {
+            double from = y;
+            for (double[] row : rows) {
+                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? regionLine : chunkLine);
+                from = Math.max(from, row[1]);
+            }
+            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? regionLine : chunkLine);
+        }
+        for (double[] row : rows) {
+            double from = x;
+            for (double[] column : columns) {
+                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? regionLine : chunkLine);
+                from = Math.max(from, column[1]);
+            }
+            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? regionLine : chunkLine);
+            for (double[] column : columns) {
+                boolean region = row[2] > 0 || column[2] > 0;
+                addRect(tessellator, column[0], row[0], column[1], row[1], region ? regionLine : chunkLine);
+            }
+        }
+        tessellator.draw();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** A rectangle into quads being drawn; nothing if it is empty. */
+    private static void addRect(Tessellator tessellator, double x0, double y0, double x1, double y1, int color) {
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        tessellator.addVertex(x0, y1, 0);
+        tessellator.addVertex(x1, y1, 0);
+        tessellator.addVertex(x1, y0, 0);
+        tessellator.addVertex(x0, y0, 0);
     }
 
     /** Map color multiplier for night. */
