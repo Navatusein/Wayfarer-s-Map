@@ -69,13 +69,12 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6,
-        ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18,
-        ID_STATS = 19, ID_MODES = 20, ID_CLOSE = 21, ID_CLEAN = 22;
+    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
+        ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
+        ID_CLOSE = 21, ID_CLEAN = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
-        MENU_MODES = 5, MENU_CONFIRM = 6,
-        MENU_WAYPOINT = 7;
+        MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
     private static final int EXPORT_MENU_WIDTH = 250;
     /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
     private static final double EXPORT_SECONDS_PER_TILE = 0.2;
@@ -473,8 +472,8 @@ public class GuiWorldMap extends ScaledScreen {
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.friendlyMobsShown(), Config::toggleFriendlyMobs));
         entries.add(addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs));
-        entries.add(
-            addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
+        entries
+            .add(addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
         menu = entries;
         menuKind = MENU_MOBS;
         menuWidth = MENU_WIDTH;
@@ -996,13 +995,12 @@ public class GuiWorldMap extends ScaledScreen {
         drawTitle(mouseX, mouseY, dimensionId, otherDimension);
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
-        Theme
-            .text(
-                fontRendererObj,
-                zoomText,
-                width - 30 - fontRendererObj.getStringWidth(zoomText),
-                8,
-                Theme.TEXT_MUTED);
+        Theme.text(
+            fontRendererObj,
+            zoomText,
+            width - 30 - fontRendererObj.getStringWidth(zoomText),
+            8,
+            Theme.TEXT_MUTED);
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);

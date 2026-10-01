@@ -299,13 +299,7 @@ public class Config {
             new String[] { "blocks", "biomes", "topo" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
-        bool(
-            c,
-            "topoContours",
-            "Contour lines on the topography.",
-            true,
-            () -> topoContours,
-            v -> topoContours = v);
+        bool(c, "topoContours", "Contour lines on the topography.", true, () -> topoContours, v -> topoContours = v);
         parent("topoContours");
         integer(
             c,

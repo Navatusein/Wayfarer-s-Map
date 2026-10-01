@@ -1248,8 +1248,8 @@ public final class IsoLog {
         if (w != null && empty && "saved-empty".equals(w.saved) && w.flatFails > 0) {
             // Empty because a region couldn't be read, not because nothing was explored there.
             warn(
-                "EMPTY_SAVED", where
-                    + ": "
+                "EMPTY_SAVED",
+                where + ": "
                     + w.flatFails
                     + " flat map regions failed to read, so "
                     + w.noChunks
@@ -1260,8 +1260,8 @@ public final class IsoLog {
         }
         if (!empty && day[1] + day[2] > total / 2) {
             warn(
-                "DARK", where
-                    + " black="
+                "DARK",
+                where + " black="
                     + percent(day[1], total)
                     + " dark="
                     + percent(day[2], total)
@@ -1271,8 +1271,8 @@ public final class IsoLog {
         }
         if (!empty && day[0] > total * 3 / 4 && w != null && w.storeChunks + w.flatChunks > 0) {
             warn(
-                "MOSTLY_CLEAR", where
-                    + " clear="
+                "MOSTLY_CLEAR",
+                where + " clear="
                     + percent(day[0], total)
                     + " though the rays met "
                     + (w.storeChunks + w.flatChunks)
@@ -1282,8 +1282,13 @@ public final class IsoLog {
             warn("BAD_FILE", where + " disk=" + w.disk + " (drawn anew)");
         }
         if (nanos > 2_000_000_000L) {
-            warn("SLOW", where + " ms=" + ms(nanos) + (w == null ? "" : " readMs=" + ms(w.readNanos)
-                + " looksWaitMs=" + ms(w.looksNanos) + " decodeMs=" + ms(w.decodeNanos)));
+            warn(
+                "SLOW",
+                where + " ms="
+                    + ms(nanos)
+                    + (w == null ? ""
+                        : " readMs=" + ms(
+                            w.readNanos) + " looksWaitMs=" + ms(w.looksNanos) + " decodeMs=" + ms(w.decodeNanos)));
         }
     }
 
@@ -1621,8 +1626,9 @@ public final class IsoLog {
             b.append(" [")
                 .append(count.getKey())
                 .append("]=")
-                .append(count.getValue()
-                    .get());
+                .append(
+                    count.getValue()
+                        .get());
         }
         line(b.toString());
         List<Long> times;

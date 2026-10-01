@@ -29,9 +29,9 @@ public final class Topography {
     /** How far from land water counts as along the shore, in pixels. */
     private static final int SHORE = 2;
     /** Land from the shore up to {@link #TOP} and above, one color per band (JourneyMap's colors). */
-    private static final int[] LAND = { 0x25432A, 0x2B4D30, 0x33533B, 0x3B5944, 0x435F4F, 0x4B6459, 0x536A63,
-        0x5B706D, 0x637678, 0x6A7C82, 0x72818C, 0x7A8896, 0x828DA0, 0x8A92AA, 0x9198B4, 0x9DA5C4, 0xAAB2D3, 0xAAB9D3,
-        0xAAC1D3, 0xAACBD3, 0xBCD0D3, 0xD0D3D3 };
+    private static final int[] LAND = { 0x25432A, 0x2B4D30, 0x33533B, 0x3B5944, 0x435F4F, 0x4B6459, 0x536A63, 0x5B706D,
+        0x637678, 0x6A7C82, 0x72818C, 0x7A8896, 0x828DA0, 0x8A92AA, 0x9198B4, 0x9DA5C4, 0xAAB2D3, 0xAAB9D3, 0xAAC1D3,
+        0xAACBD3, 0xBCD0D3, 0xD0D3D3 };
     /** Height the last land color is reached at. */
     private static final int TOP = 180;
     private static final int CONTOUR_COLOR = 0x392410;

@@ -120,13 +120,7 @@ public class GuiSettings extends ScaledScreen {
         resetTab.danger = true;
         buttonList.add(resetTab);
         buttonList.add(
-            new FlatButton(
-                ID_RESET_CANCEL,
-                left + 6,
-                bottom - 48,
-                SIDEBAR_WIDTH - 12,
-                18,
-                I18n.format("gui.cancel")));
+            new FlatButton(ID_RESET_CANCEL, left + 6, bottom - 48, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.cancel")));
         showResetButtons();
         clampScroll();
     }
@@ -451,12 +445,7 @@ public class GuiSettings extends ScaledScreen {
             // A swatch of the color, then its code.
             Theme.fill(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, 0xFF000000 | rgb);
             Theme.outline(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, Theme.BORDER);
-            Theme.text(
-                fontRendererObj,
-                Config.ColorOption.hex(rgb),
-                x + 8 + 2 * (h - 6),
-                y + (h - 8) / 2,
-                Theme.TEXT);
+            Theme.text(fontRendererObj, Config.ColorOption.hex(rgb), x + 8 + 2 * (h - 6), y + (h - 8) / 2, Theme.TEXT);
         } else {
             double t;
             String value;

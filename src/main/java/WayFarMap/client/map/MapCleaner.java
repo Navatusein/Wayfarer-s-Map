@@ -68,8 +68,9 @@ public final class MapCleaner {
 
     /** The {@code dim<id>} folders of a world, also of players' own maps of it. */
     public static File[] dimensions(File worldDirectory) {
-        File[] found = worldDirectory.listFiles(f -> f.isDirectory() && f.getName()
-            .matches("dim-?\\d+"));
+        File[] found = worldDirectory.listFiles(
+            f -> f.isDirectory() && f.getName()
+                .matches("dim-?\\d+"));
         return found == null ? new File[0] : found;
     }
 

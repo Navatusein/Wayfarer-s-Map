@@ -332,7 +332,12 @@ final class IsoTiles {
         boolean any = false;
         double half = size / 2;
         for (int i = 0; i < 4; i++) {
-            Key child = new Key(key.dimension, key.rotation, key.level - 1, key.tu * 2 + (i & 1), key.tv * 2 + (i >> 1));
+            Key child = new Key(
+                key.dimension,
+                key.rotation,
+                key.level - 1,
+                key.tu * 2 + (i & 1),
+                key.tv * 2 + (i >> 1));
             Tile tile = tiles.get(child);
             if (tile == null || !tile.ready) {
                 continue;
@@ -626,8 +631,16 @@ final class IsoTiles {
                 }
             } catch (Throwable t) {
                 WayFarMap.LOG.warn("Could not draw a 3D map tile", t);
-                IsoLog.log("TILE_WARN FAILED rot" + tile.key.rotation + " L" + tile.key.level + " " + tile.key.tu + ","
-                    + tile.key.tv + " " + t);
+                IsoLog.log(
+                    "TILE_WARN FAILED rot" + tile.key.rotation
+                        + " L"
+                        + tile.key.level
+                        + " "
+                        + tile.key.tu
+                        + ","
+                        + tile.key.tv
+                        + " "
+                        + t);
                 done.add(new Result(tile, null, null, null, System.currentTimeMillis()));
             }
         }

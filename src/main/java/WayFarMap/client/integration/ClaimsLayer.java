@@ -176,7 +176,6 @@ public final class ClaimsLayer {
         return loaded(chunkX, chunkZ, dimension) && sameTeam(of, get(chunkX, chunkZ, dimension));
     }
 
-
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
         try {
             return data.team.color.getColor()
@@ -188,7 +187,8 @@ public final class ClaimsLayer {
 
     /**
      * Draws the claims in their team's color (own ones too), with a border around each claimed area, and one
-     * black outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks of
+     * black outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks
+     * of
      * the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null

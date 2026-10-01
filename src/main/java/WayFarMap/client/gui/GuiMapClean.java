@@ -336,7 +336,11 @@ public class GuiMapClean extends ScaledScreen {
     private void row(String label, Long size, int y) {
         Theme.text(fontRendererObj, label, left + 14, y, Theme.TEXT);
         String value = size == null ? "-" : bytes(size);
-        Theme.text(fontRendererObj, value, right - 20 - BUTTON_WIDTH - fontRendererObj.getStringWidth(value), y,
+        Theme.text(
+            fontRendererObj,
+            value,
+            right - 20 - BUTTON_WIDTH - fontRendererObj.getStringWidth(value),
+            y,
             counting ? Theme.TEXT_DISABLED : Theme.ACCENT);
     }
 
