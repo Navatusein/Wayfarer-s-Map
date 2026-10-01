@@ -83,8 +83,6 @@ public class GuiWorldMap extends ScaledScreen {
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
     /** Lang key suffixes of {@link Config#mapLightMode} values. */
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
-    /** Lang key suffixes of {@link Config#getMobFilter()} values. */
-    private static final String[] MOB_FILTER_KEYS = { "all", "friendly", "hostile", "none" };
 
     /** How fast the zoom animation approaches the target zoom (higher is faster). */
     private static final double ZOOM_SPEED = 18.0;
@@ -454,23 +452,30 @@ public class GuiWorldMap extends ScaledScreen {
         }, on);
     }
 
-    private static String mobsButtonText(int filter) {
-        return I18n.format("wayfarmap.gui.mobs") + ": " + I18n.format("wayfarmap.gui.mobs." + MOB_FILTER_KEYS[filter]);
+    /** "Mobs: friendly, hostile, players", or that none are shown. */
+    private static String mobsButtonText() {
+        List<String> shown = new ArrayList<>();
+        if (Config.friendlyMobsShown()) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.friendly"));
+        }
+        if (Config.showHostileMobs) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.hostile"));
+        }
+        if (Config.showOtherPlayers) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.players"));
+        }
+        return I18n.format("wayfarmap.gui.mobs") + ": "
+            + (shown.isEmpty() ? I18n.format("wayfarmap.gui.mobs.none") : String.join(", ", shown));
     }
 
-    /** Menu under the "Mobs" button: show all mobs, only friendly, only hostile or none. */
+    /** Menu under the "Mobs" button: checkboxes for friendly mobs, hostile mobs and players; all off shows none. */
     private void openMobsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
-        int current = Config.getMobFilter();
-        for (int filter = 0; filter < MOB_FILTER_KEYS.length; filter++) {
-            final int value = filter;
-            String label = (filter == current ? "\u25CF " : "   ")
-                + I18n.format("wayfarmap.gui.mobs.menu." + MOB_FILTER_KEYS[filter]);
-            entries.add(new MenuEntry(label, true, () -> {
-                Config.setMobFilter(value);
-                updateLightButtons();
-            }));
-        }
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.friendlyMobsShown(), Config::toggleFriendlyMobs));
+        entries.add(addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
         menu = entries;
         menuKind = MENU_MOBS;
         menuWidth = MENU_WIDTH;
@@ -620,13 +625,12 @@ public class GuiWorldMap extends ScaledScreen {
         followButton.active = Config.mapFollowPlayer;
         isoButton.active = Config.isometric;
         layoutRightButtons();
-        // Mobs: highlighted while some are hidden, the dot tells which kind is left.
-        int mobFilter = Config.getMobFilter();
-        mobsButton.active = mobFilter != Config.MOBS_ALL;
-        mobsButton.dim = mobFilter == Config.MOBS_NONE;
-        mobsButton.badge = mobFilter == Config.MOBS_FRIENDLY ? Theme.SUCCESS
-            : mobFilter == Config.MOBS_HOSTILE ? Theme.DANGER : 0;
-        mobsButton.tooltip = mobsButtonText(mobFilter);
+        // Mobs: highlighted while some are hidden, dim when none are shown; the dot tells which kind of mob is left.
+        boolean friendly = Config.friendlyMobsShown(), hostile = Config.showHostileMobs;
+        mobsButton.active = !friendly || !hostile || !Config.showOtherPlayers;
+        mobsButton.dim = !friendly && !hostile && !Config.showOtherPlayers;
+        mobsButton.badge = friendly && !hostile ? Theme.SUCCESS : hostile && !friendly ? Theme.DANGER : 0;
+        mobsButton.tooltip = mobsButtonText();
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
                 || powerfailsShown()
@@ -885,7 +889,12 @@ public class GuiWorldMap extends ScaledScreen {
         double targetScale = Config.MAP_ZOOMS[zoomIndex];
         String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
         Theme
-            .text(fontRendererObj, zoomText, width - 30 - fontRendererObj.getStringWidth(zoomText), 8, Theme.TEXT_MUTED);
+            .text(
+                fontRendererObj,
+                zoomText,
+                width - 30 - fontRendererObj.getStringWidth(zoomText),
+                8,
+                Theme.TEXT_MUTED);
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
@@ -1446,6 +1455,8 @@ public class GuiWorldMap extends ScaledScreen {
                 if (entry.checked != null && menuKind == MENU_ADDONS) {
                     // Toggles keep the menu open, showing the new state.
                     openAddonsMenu();
+                } else if (entry.checked != null && menuKind == MENU_MOBS) {
+                    openMobsMenu();
                 } else if (entry.checked != null && menuKind == MENU_EXPORT) {
                     openExportMenu();
                 }

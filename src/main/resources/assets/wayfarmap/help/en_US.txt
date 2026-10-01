@@ -23,7 +23,7 @@ The top of the map has §ficons§r; hover one to see its name.
 
 §fRight:§r
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
-- §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
+- §bCreeper§r — mobs: checkboxes for §afriendly mobs§r, §chostile mobs§r and §fplayers§r (the menu stays open); all off shows none. A §agreen§r dot means friendly mobs only, §cred§r hostile only, a dim icon nothing shown
 - §bGrid§r — chunk grid
 - §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it. On the right of the 3D map the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
 - §bRings§r — topography: the map colored by height with contour lines (turns the biomes off)

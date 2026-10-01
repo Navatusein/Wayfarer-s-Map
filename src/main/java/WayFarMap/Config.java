@@ -54,8 +54,8 @@ public class Config {
      * Buttons of the world map that can be hidden (lang {@code wayfarmap.option.map.button_<name>}); the settings
      * button and the dimension title always stay.
      */
-    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light", "caves",
-        "biomes", "topo", "grid", "iso", "mobs", "team", "help" };
+    public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light",
+        "caves", "biomes", "topo", "grid", "iso", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
@@ -872,6 +872,28 @@ public class Config {
             return friendly ? MOBS_ALL : MOBS_HOSTILE;
         }
         return friendly ? MOBS_FRIENDLY : MOBS_NONE;
+    }
+
+    /** Friendly mobs on the maps: animals and other living things (villagers, golems...) together. */
+    public static boolean friendlyMobsShown() {
+        return showPassiveMobs || showOtherEntities;
+    }
+
+    public static void toggleFriendlyMobs() {
+        boolean show = !friendlyMobsShown();
+        showPassiveMobs = show;
+        showOtherEntities = show;
+        save();
+    }
+
+    public static void toggleHostileMobs() {
+        showHostileMobs = !showHostileMobs;
+        save();
+    }
+
+    public static void toggleOtherPlayers() {
+        showOtherPlayers = !showOtherPlayers;
+        save();
     }
 
     public static void setMobFilter(int filter) {
