@@ -45,6 +45,8 @@ public final class ClaimsLayer {
 
     /** Colors of the drag selection: claiming and loading. */
     private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
+    /** Outline around chunk loaded areas. */
+    private static final int LOADED_OUTLINE = 0xFE5051;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
     /** The area asked from the server at once is capped, like the view of a normal map. */
@@ -160,10 +162,13 @@ public final class ClaimsLayer {
         return a != null && b != null && a.team != null && b.team != null && a.team.uid == b.team.uid;
     }
 
-    /** Halfway to white, to stand out on the team color. */
-    private static int lighter(int rgb) {
-        int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
-        return (r + 255) / 2 << 16 | (g + 255) / 2 << 8 | (b + 255) / 2;
+    /** A claimed chunk that is chunk loaded (and not just unclaimed). */
+    private static boolean loaded(int chunkX, int chunkZ, int dimension) {
+        if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(chunkX, chunkZ))) {
+            return false;
+        }
+        ClientClaimedChunks.ChunkData data = get(chunkX, chunkZ, dimension);
+        return data != null && data.isLoaded();
     }
 
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
@@ -176,8 +181,9 @@ public final class ClaimsLayer {
     }
 
     /**
-     * Draws the claims in their team's color (own ones too), with a border around each claimed area; chunk loaded
-     * chunks get an outline of their own, in a lighter shade of it. And the chunks of the current drag selection.
+     * Draws the claims in their team's color (own ones too), with a border around each claimed area, and one red
+     * outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks of
+     * the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
      * @param selectionMode one of the action constants, for the selection color
@@ -213,22 +219,6 @@ public final class ClaimsLayer {
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
             rect(sx, sy, cell, cell, color, own ? 0x70 : 0x50, x, y, width, height);
-            if (data.isLoaded()) {
-                // Chunk loaded: its own outline, inside the area's border, in a lighter shade of the team color.
-                double line = Math.max(pixel, border / 2);
-                hollowRect(
-                    sx + border,
-                    sy + border,
-                    cell - 2 * border,
-                    cell - 2 * border,
-                    line,
-                    lighter(color),
-                    0xF0,
-                    x,
-                    y,
-                    width,
-                    height);
-            }
             // Border only where the neighbour isn't the same team, so a claimed area has one outline.
             if (!sameTeam(data, get(pos.posX, pos.posZ - 1, dimension))) {
                 rect(sx, sy, cell, border, color, 0xE0, x, y, width, height);
@@ -241,6 +231,33 @@ public final class ClaimsLayer {
             }
             if (!sameTeam(data, get(pos.posX + 1, pos.posZ, dimension))) {
                 rect(sx + cell - border, sy, border, cell, color, 0xE0, x, y, width, height);
+            }
+        }
+        // Chunk loaded areas over the claims: an outline only where the neighbour isn't loaded.
+        for (Map.Entry<ChunkDimPos, ClientClaimedChunks.ChunkData> entry : NavigatorIntegration.CLAIMS.entrySet()) {
+            ChunkDimPos pos = entry.getKey();
+            if (pos.dim != dimension || !entry.getValue()
+                .isLoaded()
+                || !loaded(pos.posX, pos.posZ, dimension)
+                || pos.posX < minChunkX
+                || pos.posX > maxChunkX
+                || pos.posZ < minChunkZ
+                || pos.posZ > maxChunkZ) {
+                continue;
+            }
+            double sx = x + (pos.posX * 16 - left) * scale;
+            double sy = y + (pos.posZ * 16 - top) * scale;
+            if (!loaded(pos.posX, pos.posZ - 1, dimension)) {
+                rect(sx, sy, cell, border, LOADED_OUTLINE, 0xFF, x, y, width, height);
+            }
+            if (!loaded(pos.posX, pos.posZ + 1, dimension)) {
+                rect(sx, sy + cell - border, cell, border, LOADED_OUTLINE, 0xFF, x, y, width, height);
+            }
+            if (!loaded(pos.posX - 1, pos.posZ, dimension)) {
+                rect(sx, sy, border, cell, LOADED_OUTLINE, 0xFF, x, y, width, height);
+            }
+            if (!loaded(pos.posX + 1, pos.posZ, dimension)) {
+                rect(sx + cell - border, sy, border, cell, LOADED_OUTLINE, 0xFF, x, y, width, height);
             }
         }
         if (selection != null && !selection.isEmpty()) {
