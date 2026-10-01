@@ -25,6 +25,7 @@ import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.client.map.Topography;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
@@ -62,7 +63,7 @@ public class MinimapRenderer {
             lines.add(blockX + ", " + MathHelper.floor_double(player.boundingBox.minY) + ", " + blockZ);
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
-        if (caveLayer >= 0 && Config.mapDisplayMode != Config.DISPLAY_BIOMES) {
+        if (caveLayer >= 0 && Config.mapDisplayMode == Config.DISPLAY_BLOCKS) {
             lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
@@ -189,6 +190,9 @@ public class MinimapRenderer {
         MapDrawer.iconRotation = rotation;
         try {
             MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
+            if (Topography.isShown()) {
+                Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner);
+            }
             if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }

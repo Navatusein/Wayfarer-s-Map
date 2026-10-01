@@ -46,6 +46,7 @@ import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
+import WayFarMap.client.map.Topography;
 import WayFarMap.client.map.export.MapExport;
 import WayFarMap.client.map.export.TilePyramid;
 import WayFarMap.client.map.iso.IsoExport;
@@ -69,7 +70,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5, ID_GRID = 6,
         ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17, ID_FOLLOW = 18,
-        ID_STATS = 19;
+        ID_STATS = 19, ID_TOPO = 20;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
     private static final int EXPORT_MENU_WIDTH = 250;
@@ -102,6 +103,7 @@ public class GuiWorldMap extends ScaledScreen {
     private IconButton lightButton;
     private IconButton caveButton;
     private IconButton biomeButton;
+    private IconButton topoButton;
     private IconButton gridButton;
     /** Open the map at the player every time, or where it was closed. */
     private IconButton followButton;
@@ -224,6 +226,7 @@ public class GuiWorldMap extends ScaledScreen {
         lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
         biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
+        topoButton = new IconButton(ID_TOPO, 0, 4, Icons.TOPO, I18n.format("wayfarmap.gui.topo"));
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
@@ -234,6 +237,7 @@ public class GuiWorldMap extends ScaledScreen {
         lightButton.visible = Config.isMapButtonShown("light");
         caveButton.visible = Config.isMapButtonShown("caves");
         biomeButton.visible = Config.isMapButtonShown("biomes");
+        topoButton.visible = Config.isMapButtonShown("topo");
         gridButton.visible = Config.isMapButtonShown("grid");
         isoButton.visible = Config.isMapButtonShown("iso");
         mobsButton.visible = Config.isMapButtonShown("mobs");
@@ -271,8 +275,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { followButton, lightButton, caveButton, biomeButton, gridButton, isoButton, mobsButton,
-            teamButton };
+        return new IconButton[] { followButton, lightButton, caveButton, topoButton, biomeButton, gridButton, isoButton,
+            mobsButton, teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -292,7 +296,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** True when the map is drawn in 3D: the surface (biome view and cave layers stay flat). */
     private boolean isoShown() {
-        return Config.isometric && !biomeViewShown() && MapManager.INSTANCE.getViewCaveLayer() < 0;
+        return Config.isometric && !columnViewShown() && MapManager.INSTANCE.getViewCaveLayer() < 0;
     }
 
     private static IsoProjection isoProjection() {
@@ -376,6 +380,11 @@ public class GuiWorldMap extends ScaledScreen {
 
     private boolean biomeViewShown() {
         return Config.mapDisplayMode == Config.DISPLAY_BIOMES;
+    }
+
+    /** Biomes or topography: drawn for whole columns from the surface, so without cave layers and not in 3D. */
+    private boolean columnViewShown() {
+        return biomeViewShown() || Topography.isShown();
     }
 
     private static boolean prospectingLayerShown() {
@@ -599,6 +608,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.badge = Config.caveMode == Config.CAVES_AUTO ? Theme.ACCENT : 0;
         caveButton.tooltip = caveButtonText();
         biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
+        topoButton.active = Config.mapDisplayMode == Config.DISPLAY_TOPO;
         gridButton.active = Config.chunkGrid;
         followButton.active = Config.mapFollowPlayer;
         isoButton.active = Config.isometric;
@@ -646,6 +656,11 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_BIOMES) {
             Config.toggleBiomeView();
             updateLightButtons();
+            applySearch();
+        } else if (button.id == ID_TOPO) {
+            Config.toggleTopoView();
+            updateLightButtons();
+            applySearch();
         } else if (button.id == ID_CAVES) {
             Config.cycleCaveMode();
             updateLightButtons();
@@ -813,6 +828,9 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX, int mouseY,
         float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        if (Topography.isShown()) {
+            Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        }
         boolean prospecting = Mods.isVisualProspectingLoaded();
         // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
         if (biomeViewShown() && BiomeHighlight.isActive()) {
@@ -868,7 +886,7 @@ public class GuiWorldMap extends ScaledScreen {
             cursorText += "  (?)";
         }
         // Biome view shows biomes of whole columns, so there is no cave layer to pick.
-        int caveLayer = biomeViewShown() ? -1 : MapManager.INSTANCE.getViewCaveLayer();
+        int caveLayer = columnViewShown() ? -1 : MapManager.INSTANCE.getViewCaveLayer();
         if (caveLayer >= 0) {
             cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
         }
@@ -1076,7 +1094,7 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     private boolean onCaveSlider(int mouseX, int mouseY) {
-        return MapManager.INSTANCE.getViewCaveLayer() >= 0 && !biomeViewShown()
+        return MapManager.INSTANCE.getViewCaveLayer() >= 0 && !columnViewShown()
             && Theme
                 .inside(mouseX, mouseY, sliderX() - 4, sliderAutoTop(), sliderX() + SLIDER_WIDTH + 4, sliderBottom());
     }

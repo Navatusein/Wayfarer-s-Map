@@ -25,7 +25,8 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bCreeper§r — mobs; a §agreen§r dot means friendly only, §cred§r hostile only, a dim icon all hidden
 - §bGrid§r — chunk grid
 - §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it. On the right of the 3D map the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
-- §bTree§r — biomes
+- §bRings§r — topography: the map colored by height with contour lines (turns the biomes off)
+- §bTree§r — biomes (turns the topography off)
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
 - §bTwo people§r — teammates online (shown while there are some)
@@ -99,6 +100,13 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - The §fsearch field§r shows up at the top in biome, ore or fluid view
 - Example: type §e"Ocean"§r — everything else turns §7gray§r and oceans get §6outlined§r
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
+
+# Topography
+- §bRings§r on the right of the header — the surface colored by height, like a physical map: §9blue§r below sea level, then §agreen§r lowlands, §eyellow§r and §6brown§r hills, gray mountains and §fwhite§r peaks
+- Slopes are lightly shaded and §fcontour lines§r join places of equal height: close lines mean a steep slope, every fourth line is darker
+- Biomes and topography replace each other: turning one on turns the other off. Works on the minimap too
+- The line step and the lines themselves — §bSettings → 2D map§r
+- Made from the heights of the explored surface; caves and the 3D map are not shown in this view
 
 # Map view
 - §bLighting§r (sun / moon) — one button, round and round: §fauto§r (the map §ffollows the time of day§r) → §falways day§r → §falways night§r; at night places lit by torches, lamps and lava glow

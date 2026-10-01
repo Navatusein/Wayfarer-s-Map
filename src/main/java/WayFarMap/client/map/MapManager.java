@@ -105,6 +105,10 @@ public class MapManager implements IResourceManagerReloadListener {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
             return biomes;
         }
+        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+            // The topography is drawn from the surface's heights.
+            return surface;
+        }
         if (activeCaveLayer >= 0) {
             return getCaveLayer(activeCaveLayer);
         }
@@ -348,8 +352,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 map.retain((x, z) -> false);
             }
             viewed = null;
-            // Search overlays belong to the regions of the viewed maps.
+            // Search overlays and the topography belong to the regions of the viewed maps.
             BiomeHighlight.clear();
+            Topography.clear();
         }
     }
 
@@ -435,6 +440,9 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
             return viewed.biomes;
+        }
+        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+            return viewed.surface;
         }
         int layer = getViewCaveLayer();
         return layer >= 0 ? viewed.cave(layer) : viewed.surface;
@@ -854,6 +862,7 @@ public class MapManager implements IResourceManagerReloadListener {
         IsoMap.INSTANCE.close();
         FlatLog.close();
         BiomeHighlight.clear();
+        Topography.clear();
         viewed = null;
         others.clear();
         surface = null;

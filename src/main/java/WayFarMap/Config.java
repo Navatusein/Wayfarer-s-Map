@@ -55,12 +55,12 @@ public class Config {
      * button and the dimension title always stay.
      */
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
-        "biomes", "grid", "iso", "mobs", "team", "help" };
+        "biomes", "topo", "grid", "iso", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
-    public static final int DISPLAY_BLOCKS = 0, DISPLAY_BIOMES = 1;
+    public static final int DISPLAY_BLOCKS = 0, DISPLAY_BIOMES = 1, DISPLAY_TOPO = 2;
 
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
@@ -96,8 +96,11 @@ public class Config {
     public static int mapLightMode = LIGHT_AUTO;
     /** Cave view: {@link #CAVES_AUTO} switches to it while underground. */
     public static int caveMode = CAVES_AUTO;
-    /** Surface drawn with block colors or biome colors. */
+    /** Surface drawn with block colors, biome colors or colored by height (topography). */
     public static int mapDisplayMode = DISPLAY_BLOCKS;
+    /** Contour lines on the topography, every so many blocks of height. */
+    public static boolean topoContours = true;
+    public static int topoContourInterval = 8;
     public static boolean chunkGrid = false;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
@@ -291,11 +294,30 @@ public class Config {
         choice(
             c,
             "displayMode",
-            "Surface map colors: 0 = blocks, 1 = biomes.",
+            "Surface map colors: 0 = blocks, 1 = biomes, 2 = topography (colored by height).",
             DISPLAY_BLOCKS,
-            new String[] { "blocks", "biomes" },
+            new String[] { "blocks", "biomes", "topo" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
+        bool(
+            c,
+            "topoContours",
+            "Contour lines on the topography.",
+            true,
+            () -> topoContours,
+            v -> topoContours = v);
+        parent("topoContours");
+        integer(
+            c,
+            "topoContourInterval",
+            "Blocks of height between two contour lines of the topography.",
+            8,
+            2,
+            32,
+            2,
+            () -> topoContourInterval,
+            v -> topoContourInterval = v);
+        parent(null);
         choice(
             c,
             "caveMode",
@@ -901,8 +923,15 @@ public class Config {
         save();
     }
 
+    /** Biome view on or off; turning it on turns the topography off (one replaces the other). */
     public static void toggleBiomeView() {
         mapDisplayMode = mapDisplayMode == DISPLAY_BIOMES ? DISPLAY_BLOCKS : DISPLAY_BIOMES;
+        save();
+    }
+
+    /** Topography on or off; turning it on turns the biome view off. */
+    public static void toggleTopoView() {
+        mapDisplayMode = mapDisplayMode == DISPLAY_TOPO ? DISPLAY_BLOCKS : DISPLAY_TOPO;
         save();
     }
 

@@ -362,6 +362,7 @@ public class MapRegion implements PixelSource {
             glowTextureId = -1;
         }
         BiomeHighlight.forget(this);
+        Topography.forget(this);
     }
 
     /** When the chunk (region-local chunk coordinates 0-31) was last mapped; 0 = never. */
