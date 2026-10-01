@@ -313,6 +313,7 @@ wayfarmap.stats.flat=2D map
 wayfarmap.stats.iso=3D map
 wayfarmap.stats.sprites=Block pictures (3D, all dimensions)
 wayfarmap.stats.total=Total
+wayfarmap.stats.logs=Logs (2D and 3D)
 wayfarmap.stats.updating=Updating
 wayfarmap.stats.updated=Updated at %s
 wayfarmap.stats.none=Nothing saved yet

@@ -30,7 +30,7 @@ import WayFarMap.client.waypoint.WaypointManager;
 /**
  * Stats: how much disk the maps of all worlds take, and for this world, all its dimensions together or the one
  * picked, the flat (2D) and the 3D map apart, the waypoints, and what was found with the mods (GregTech ore veins,
- * underground fluids, Thaumcraft nodes). The sizes are counted again in the background each time the screen is
+ * underground fluids, Thaumcraft nodes), and the logs of the 2D and 3D maps. The sizes are counted again in the background each time the screen is
  * opened; until then the last count is shown, marked as being updated.
  */
 public class GuiMapStats extends ScaledScreen {
@@ -40,7 +40,7 @@ public class GuiMapStats extends ScaledScreen {
     private static final int LIST_ROW = 14;
     private static final int ROW_HEIGHT = 12;
     /** Where the dimension picker is, from the top of the panel. */
-    private static final int PICKER_Y = 122;
+    private static final int PICKER_Y = 134;
 
     /** Sizes of one dimension's map, in bytes. */
     private static final class Row {
@@ -61,6 +61,8 @@ public class GuiMapStats extends ScaledScreen {
         /** All worlds: how many, and their {2D, 3D, other} sizes. */
         int worlds;
         final long[] all = new long[3];
+        /** The 2D and 3D maps' logs, {@code wayfarmap/logs}. */
+        long logs;
         long countedAt;
 
         Stats(File worldDirectory) {
@@ -207,6 +209,7 @@ public class GuiMapStats extends ScaledScreen {
                 addWorld(world, stats.all);
             }
         }
+        stats.logs = size(new File(root, "logs"));
         stats.countedAt = System.currentTimeMillis();
         return stats;
     }
@@ -471,11 +474,12 @@ public class GuiMapStats extends ScaledScreen {
         y = row(I18n.format("wayfarmap.stats.worlds"), stats == null ? unknown : number(stats.worlds), y, value);
         y = row(I18n.format("wayfarmap.stats.flat"), stats == null ? unknown : bytes(stats.all[0]), y, value);
         y = row(I18n.format("wayfarmap.stats.iso"), stats == null ? unknown : bytes(stats.all[1]), y, value);
-        row(
+        y = row(
             I18n.format("wayfarmap.stats.total"),
             stats == null ? unknown : bytes(stats.all[0] + stats.all[1] + stats.all[2]),
             y,
             value);
+        row(I18n.format("wayfarmap.stats.logs"), stats == null ? unknown : bytes(stats.logs), y, value);
 
         // This world: all its dimensions, or the one picked.
         y = top + PICKER_Y - 18;

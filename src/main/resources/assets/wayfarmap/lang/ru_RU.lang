@@ -313,6 +313,7 @@ wayfarmap.stats.flat=2D-карта
 wayfarmap.stats.iso=3D-карта
 wayfarmap.stats.sprites=Картинки блоков (3D, все измерения)
 wayfarmap.stats.total=Всего
+wayfarmap.stats.logs=Логи (2D и 3D)
 wayfarmap.stats.updating=Обновляется
 wayfarmap.stats.updated=Обновлено в %s
 wayfarmap.stats.none=Пока ничего не сохранено
