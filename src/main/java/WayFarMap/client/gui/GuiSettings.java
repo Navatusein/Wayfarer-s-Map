@@ -27,7 +27,8 @@ public class GuiSettings extends ScaledScreen {
     /** How far options that depend on a switch are moved in under it. */
     private static final int INDENT = 10;
     private static final int CONTROL_WIDTH = 104;
-    private static final int ID_RESET = 100, ID_DONE = 101;
+    private static final int ID_RESET = 100, ID_DONE = 101, ID_RESET_ALL = 102, ID_RESET_TAB = 103,
+        ID_RESET_CANCEL = 104;
 
     /** Last opened category, kept while the game runs. */
     private static int selectedCategory;
@@ -39,6 +40,8 @@ public class GuiSettings extends ScaledScreen {
     private int contentLeft, contentTop, contentBottom;
     private int scroll;
     private Config.Option draggingSlider;
+    /** The reset button was pressed: it is replaced by "reset all", "reset this tab" and "cancel". */
+    private boolean confirmingReset;
 
     /** A line of the options list: a section title, or an option. */
     private static final class Row {
@@ -95,7 +98,47 @@ public class GuiSettings extends ScaledScreen {
                 18,
                 I18n.format("wayfarmap.settings.reset")));
         buttonList.add(new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
+        // Asked after the reset button: stacked over where it was.
+        FlatButton resetAll = new FlatButton(
+            ID_RESET_ALL,
+            left + 6,
+            bottom - 92,
+            SIDEBAR_WIDTH - 12,
+            18,
+            I18n.format("wayfarmap.settings.reset_all"));
+        resetAll.danger = true;
+        buttonList.add(resetAll);
+        FlatButton resetTab = new FlatButton(
+            ID_RESET_TAB,
+            left + 6,
+            bottom - 70,
+            SIDEBAR_WIDTH - 12,
+            18,
+            I18n.format("wayfarmap.settings.reset_tab"));
+        resetTab.danger = true;
+        buttonList.add(resetTab);
+        buttonList.add(
+            new FlatButton(
+                ID_RESET_CANCEL,
+                left + 6,
+                bottom - 48,
+                SIDEBAR_WIDTH - 12,
+                18,
+                I18n.format("gui.cancel")));
+        showResetButtons();
         clampScroll();
+    }
+
+    /** Either the reset button, or the three buttons asking what to reset. */
+    private void showResetButtons() {
+        for (Object o : buttonList) {
+            GuiButton button = (GuiButton) o;
+            if (button.id == ID_RESET) {
+                button.visible = !confirmingReset;
+            } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
+                button.visible = confirmingReset;
+            }
+        }
     }
 
     private List<Config.Option> options() {
@@ -145,6 +188,8 @@ public class GuiSettings extends ScaledScreen {
         if (button.id < Config.CATEGORIES.size()) {
             selectedCategory = button.id;
             scroll = 0;
+            confirmingReset = false;
+            showResetButtons();
             for (Object o : buttonList) {
                 GuiButton other = (GuiButton) o;
                 if (other.id < Config.CATEGORIES.size()) {
@@ -152,9 +197,16 @@ public class GuiSettings extends ScaledScreen {
                 }
             }
         } else if (button.id == ID_RESET) {
-            for (Config.Option option : options()) {
-                option.reset();
+            confirmingReset = true;
+            showResetButtons();
+        } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
+            if (button.id != ID_RESET_CANCEL) {
+                for (Config.Option option : button.id == ID_RESET_ALL ? Config.OPTIONS : options()) {
+                    option.reset();
+                }
             }
+            confirmingReset = false;
+            showResetButtons();
         } else if (button.id == ID_DONE) {
             mc.displayGuiScreen(parent);
         }
@@ -171,7 +223,10 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        if (keyCode == Keyboard.KEY_ESCAPE) {
+        if (keyCode == Keyboard.KEY_ESCAPE && confirmingReset) {
+            confirmingReset = false;
+            showResetButtons();
+        } else if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(parent);
         }
     }
