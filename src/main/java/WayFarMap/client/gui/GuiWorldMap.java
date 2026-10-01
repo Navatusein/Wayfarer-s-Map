@@ -180,6 +180,7 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     public void initGui() {
         super.initGui();
+        checkWelcome();
         if (!initialized && mc.thePlayer != null) {
             // Only on first open, not when the window is resized: back where the map was closed (unless it follows
             // the player), or at the player.
@@ -799,8 +800,87 @@ public class GuiWorldMap extends ScaledScreen {
         return new double[] { centerX, ground > 0 ? ground : IsoProjection.REFERENCE_Y, centerZ };
     }
 
+    // ---------------------------------------------------------------- welcome window
+
+    /** Written once the welcome window is closed: it is never shown again. */
+    private static final String WELCOME_FILE = "welcome-shown";
+    private static final int WELCOME_WIDTH = 240, WELCOME_HEIGHT = 124;
+    /** The welcome window is open: the map takes no input until it is closed. */
+    private boolean welcome;
+
+    private File welcomeFile() {
+        return new File(new File(mc.mcDataDir, "wayfarmap"), WELCOME_FILE);
+    }
+
+    /** Opens the welcome window the first time the map is opened after installing the mod. */
+    private void checkWelcome() {
+        welcome = !welcomeFile().exists();
+    }
+
+    private void closeWelcome() {
+        welcome = false;
+        File file = welcomeFile();
+        try {
+            File parent = file.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
+            file.createNewFile();
+        } catch (IOException e) {
+            WayFarMap.LOG.warn("Could not write " + file, e);
+        }
+    }
+
+    private int welcomeLeft() {
+        return (width - WELCOME_WIDTH) / 2;
+    }
+
+    private int welcomeTop() {
+        return (height - WELCOME_HEIGHT) / 2;
+    }
+
+    /** The window's button: {x0, y0, x1, y1}. */
+    private int[] welcomeButton() {
+        int x0 = welcomeLeft() + WELCOME_WIDTH / 2 - 40, y0 = welcomeTop() + WELCOME_HEIGHT - 26;
+        return new int[] { x0, y0, x0 + 80, y0 + 18 };
+    }
+
+    /** The mod's name, what it is, and where its help is; the help button is outlined meanwhile. */
+    private void drawWelcome(int mouseX, int mouseY) {
+        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
+        if (helpButton != null && helpButton.visible) {
+            // Pulsing outline around the help button the text points to.
+            float pulse = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 250.0);
+            int alpha = 0x60 + (int) (0x9F * pulse);
+            int x0 = helpButton.xPosition - 2, y0 = helpButton.yPosition - 2;
+            int color = alpha << 24 | (Theme.ACCENT & 0xFFFFFF);
+            Theme.outline(x0, y0, x0 + helpButton.getWidth() + 4, y0 + 13 + 4, color);
+        }
+        int left = welcomeLeft(), top = welcomeTop();
+        Theme.panel(left, top, left + WELCOME_WIDTH, top + WELCOME_HEIGHT);
+        Theme.centered(fontRendererObj, "Wayfarer's Map", left + WELCOME_WIDTH / 2, top + 10, Theme.ACCENT);
+        Theme.fill(left + 10, top + 22, left + WELCOME_WIDTH - 10, top + 23, Theme.ACCENT_DIM);
+        String text = I18n.format("wayfarmap.welcome.text");
+        List<?> lines = fontRendererObj.listFormattedStringToWidth(text, WELCOME_WIDTH - 24);
+        for (int i = 0; i < lines.size(); i++) {
+            Theme.text(fontRendererObj, String.valueOf(lines.get(i)), left + 12, top + 30 + i * 10, Theme.TEXT);
+        }
+        int[] b = welcomeButton();
+        boolean hovered = Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3]);
+        Theme.fill(b[0], b[1], b[2], b[3], hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
+        Theme.outline(b[0], b[1], b[2], b[3], hovered ? Theme.ACCENT : Theme.BORDER);
+        Theme.centered(fontRendererObj, I18n.format("wayfarmap.welcome.ok"), (b[0] + b[2]) / 2, b[1] + 5, Theme.TEXT);
+    }
+
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        drawMap(mouseX, mouseY, partialTicks);
+        if (welcome) {
+            drawWelcome(mouseX, mouseY);
+        }
+    }
+
+    private void drawMap(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
 
         MapDimension dimension = MapManager.INSTANCE.getViewMap();
@@ -1680,7 +1760,7 @@ public class GuiWorldMap extends ScaledScreen {
     public void handleMouseInput() {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
-        if (wheel == 0) {
+        if (wheel == 0 || welcome) {
             return;
         }
         int newIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoomIndex + (wheel > 0 ? 1 : -1)));
@@ -1699,6 +1779,14 @@ public class GuiWorldMap extends ScaledScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (welcome) {
+            // Only its button closes it; the map waits.
+            int[] b = welcomeButton();
+            if (button == 0 && Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3])) {
+                closeWelcome();
+            }
+            return;
+        }
         if (clickDimensionList(mouseX, mouseY)) {
             return;
         }
@@ -1843,6 +1931,12 @@ public class GuiWorldMap extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (welcome) {
+            if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN) {
+                closeWelcome();
+            }
+            return;
+        }
         if (dimensionList != null && keyCode == Keyboard.KEY_ESCAPE) {
             dimensionList = null;
             return;
