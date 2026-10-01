@@ -68,11 +68,12 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int FOOTER_HEIGHT = 14;
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
-    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_BIOMES = 5, ID_GRID = 6,
-        ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_ISO = 15, ID_EXPORT = 17, ID_FOLLOW = 18,
-        ID_STATS = 19, ID_TOPO = 20, ID_CLOSE = 21, ID_CLEAN = 22;
+    private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6,
+        ID_HELP = 10, ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18,
+        ID_STATS = 19, ID_MODES = 20, ID_CLOSE = 21, ID_CLEAN = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4;
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
+        MENU_MODES = 5;
     private static final int EXPORT_MENU_WIDTH = 250;
     /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
     private static final double EXPORT_SECONDS_PER_TILE = 0.2;
@@ -100,14 +101,13 @@ public class GuiWorldMap extends ScaledScreen {
     /** Map lighting: auto, day or night, switched in turn. */
     private IconButton lightButton;
     private IconButton caveButton;
-    private IconButton biomeButton;
-    private IconButton topoButton;
+    /** The map's mode: 2D, 3D, topography or biomes, picked from a list. */
+    private IconButton modesButton;
     private IconButton gridButton;
     /** Open the map at the player every time, or where it was closed. */
     private IconButton followButton;
     private IconButton mobsButton;
     /** 3D (isometric) view on or off (turned with Q / E). */
-    private IconButton isoButton;
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
     /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
@@ -226,21 +226,17 @@ public class GuiWorldMap extends ScaledScreen {
 
         lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
-        biomeButton = new IconButton(ID_BIOMES, 0, 4, Icons.BIOMES, I18n.format("wayfarmap.gui.biomes"));
-        topoButton = new IconButton(ID_TOPO, 0, 4, Icons.TOPO, I18n.format("wayfarmap.gui.topo"));
+        modesButton = new IconButton(ID_MODES, 0, 4, Icons.FLAT, "");
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
-        isoButton = new IconButton(ID_ISO, 0, 4, Icons.ISO, I18n.format("wayfarmap.gui.iso"));
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
         teamButton.visible = teamShown();
         followButton.visible = Config.isMapButtonShown("follow");
         lightButton.visible = Config.isMapButtonShown("light");
         caveButton.visible = Config.isMapButtonShown("caves");
-        biomeButton.visible = Config.isMapButtonShown("biomes");
-        topoButton.visible = Config.isMapButtonShown("topo");
+        modesButton.visible = Config.isMapButtonShown("modes");
         gridButton.visible = Config.isMapButtonShown("grid");
-        isoButton.visible = Config.isMapButtonShown("iso");
         mobsButton.visible = Config.isMapButtonShown("mobs");
         for (IconButton button : rightButtons()) {
             buttonList.add(button);
@@ -279,8 +275,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { followButton, lightButton, caveButton, topoButton, biomeButton, gridButton, isoButton,
-            mobsButton, teamButton };
+        return new IconButton[] { followButton, lightButton, caveButton, modesButton, gridButton, mobsButton,
+            teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -619,11 +615,13 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.dim = Config.caveMode == Config.CAVES_OFF;
         caveButton.badge = Config.caveMode == Config.CAVES_AUTO ? Theme.ACCENT : 0;
         caveButton.tooltip = caveButtonText();
-        biomeButton.active = Config.mapDisplayMode == Config.DISPLAY_BIOMES;
-        topoButton.active = Config.mapDisplayMode == Config.DISPLAY_TOPO;
+        int mode = currentMode();
+        modesButton.icon = MODE_ICONS[mode];
+        modesButton.active = mode != MODE_FLAT;
+        modesButton.tooltip = I18n.format("wayfarmap.gui.modes") + ": "
+            + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
         gridButton.active = Config.chunkGrid;
         followButton.active = Config.mapFollowPlayer;
-        isoButton.active = Config.isometric;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; the dot tells which kind of mob is left.
         boolean friendly = Config.friendlyMobsShown(), hostile = Config.showHostileMobs;
@@ -662,18 +660,10 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
-        } else if (button.id == ID_ISO) {
-            toggleIso();
+        } else if (button.id == ID_MODES) {
+            openModesMenu();
         } else if (button.id == ID_EXPORT) {
             openExportMenu();
-        } else if (button.id == ID_BIOMES) {
-            Config.toggleBiomeView();
-            updateLightButtons();
-            applySearch();
-        } else if (button.id == ID_TOPO) {
-            Config.toggleTopoView();
-            updateLightButtons();
-            applySearch();
         } else if (button.id == ID_CAVES) {
             Config.cycleCaveMode();
             updateLightButtons();
@@ -738,12 +728,48 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** Switches between the flat map and the 3D view, keeping the same place in the middle. */
-    private void toggleIso() {
+    /** Modes of the map, in the order of the list: flat in block colors, 3D, topography, biomes. */
+    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_TOPO = 2, MODE_BIOMES = 3;
+    private static final String[] MODE_KEYS = { "flat", "iso", "topo", "biomes" };
+    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.TOPO, Icons.BIOMES };
+
+    private static int currentMode() {
+        if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
+            return MODE_BIOMES;
+        }
+        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+            return MODE_TOPO;
+        }
+        return Config.isometric ? MODE_ISO : MODE_FLAT;
+    }
+
+    /** Menu under the modes button: 2D map, 3D map, topography, biomes; the current one is marked. */
+    private void openModesMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        int current = currentMode();
+        for (int mode = 0; mode < MODE_KEYS.length; mode++) {
+            final int value = mode;
+            String label = (mode == current ? "\u25CF " : "   ")
+                + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
+            entries.add(new MenuEntry(label, true, () -> setMode(value)));
+        }
+        menu = entries;
+        menuKind = MENU_MODES;
+        menuWidth = MENU_WIDTH;
+        menuX = Math.max(2, Math.min(modesButton.xPosition, width - MENU_WIDTH - 2));
+        menuY = modesButton.yPosition + 18;
+    }
+
+    /** Switches the map's mode, keeping the point in the middle of the screen there (2D and 3D place it apart). */
+    private void setMode(int mode) {
         double[] middle = middlePoint();
-        Config.toggleIsometric();
+        int display = mode == MODE_TOPO ? Config.DISPLAY_TOPO
+            : mode == MODE_BIOMES ? Config.DISPLAY_BIOMES : Config.DISPLAY_BLOCKS;
+        Config.setMapMode(mode == MODE_ISO, display);
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
+        applySearch();
     }
 
     /** Turns the 3D view by quarters around the point in the middle of the screen. */

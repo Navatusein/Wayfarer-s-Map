@@ -25,9 +25,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
 - §bCreeper§r — mobs: checkboxes for §afriendly mobs§r, §chostile mobs§r and §fplayers§r (the menu stays open); all off shows none. A §agreen§r dot means friendly mobs only, §cred§r hostile only, a dim icon nothing shown
 - §bGrid§r — chunk grid
-- §bCube§r — 3D map (isometric, like Dynmap), next to it the §barrow§r turns it. On the right of the 3D map the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
-- §bRings§r — topography: the map colored by height with contour lines (turns the biomes off)
-- §bTree§r — biomes (turns the topography off)
+- §bModes§r — a list: §f2D map§r, §f3D map§r (isometric, like Dynmap), §fTopography§r (colored by height with contour lines) or §fBiomes§r; the icon shows the mode. In 3D §eQ§r / §eE§r turn the view, and on its right the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
 - §bTwo people§r — teammates online (shown while there are some)
@@ -104,7 +102,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
 
 # Topography
-- §bRings§r on the right of the header — the surface by height, in JourneyMap's look: water in flat §9dark blue§r (lighter along the shore), land in flat bands from §2dark green§r at the shore through gray-green and slate to §dlavender§r and nearly §fwhite§r peaks
+- §bModes → Topography§r — the surface by height, in JourneyMap's look: water in flat §9dark blue§r (lighter along the shore), land in flat bands from §2dark green§r at the shore through gray-green and slate to §dlavender§r and nearly §fwhite§r peaks
 - Dark brown §fcontour lines§r between the bands join places of equal height: close lines mean a steep slope
 - Biomes and topography replace each other: turning one on turns the other off. Works on the minimap too
 - The line step and the lines themselves — §bSettings → 2D map§r

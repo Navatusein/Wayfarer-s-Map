@@ -55,7 +55,7 @@ public class Config {
      * button and the dimension title always stay.
      */
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light",
-        "caves", "biomes", "topo", "grid", "iso", "mobs", "team", "help" };
+        "caves", "modes", "grid", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
@@ -948,6 +948,13 @@ public class Config {
     /** Biome view on or off; turning it on turns the topography off (one replaces the other). */
     public static void toggleBiomeView() {
         mapDisplayMode = mapDisplayMode == DISPLAY_BIOMES ? DISPLAY_BLOCKS : DISPLAY_BIOMES;
+        save();
+    }
+
+    /** The map's mode: flat or 3D, in block colors, biome colors or topography (only flat). */
+    public static void setMapMode(boolean iso, int display) {
+        isometric = iso;
+        mapDisplayMode = display;
         save();
     }
 
