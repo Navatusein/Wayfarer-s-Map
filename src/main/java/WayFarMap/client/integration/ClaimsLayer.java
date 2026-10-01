@@ -45,8 +45,8 @@ public final class ClaimsLayer {
 
     /** Colors of the drag selection: claiming and loading. */
     private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
-    /** How dark the outline around chunk loaded areas is next to the team color. */
-    private static final float LOADED_OUTLINE_SHADE = 0.5f;
+    /** Outline around chunk loaded areas. */
+    private static final int LOADED_OUTLINE = 0x000000;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
     /** The area asked from the server at once is capped, like the view of a normal map. */
@@ -176,13 +176,6 @@ public final class ClaimsLayer {
         return loaded(chunkX, chunkZ, dimension) && sameTeam(of, get(chunkX, chunkZ, dimension));
     }
 
-    /** A dark shade of a color, for the outline of loaded areas. */
-    private static int darker(int rgb) {
-        int r = (int) (((rgb >> 16) & 0xFF) * LOADED_OUTLINE_SHADE);
-        int g = (int) (((rgb >> 8) & 0xFF) * LOADED_OUTLINE_SHADE);
-        int b = (int) ((rgb & 0xFF) * LOADED_OUTLINE_SHADE);
-        return r << 16 | g << 8 | b;
-    }
 
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
         try {
@@ -195,8 +188,7 @@ public final class ClaimsLayer {
 
     /**
      * Draws the claims in their team's color (own ones too), with a border around each claimed area, and one
-     * outline in a dark shade of the team color around each area of chunk loaded chunks (none between loaded chunks
-     * side by side). And the chunks of
+     * black outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks of
      * the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
@@ -260,7 +252,7 @@ public final class ClaimsLayer {
                 continue;
             }
             ClientClaimedChunks.ChunkData data = entry.getValue();
-            int outline = darker(teamColor(data));
+            int outline = LOADED_OUTLINE;
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
             if (!loaded(data, pos.posX, pos.posZ - 1, dimension)) {
