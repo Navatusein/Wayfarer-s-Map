@@ -129,7 +129,10 @@ public class GuiSettings extends ScaledScreen {
         clampScroll();
     }
 
-    /** Either the reset button, or the three buttons asking what to reset. */
+    /**
+     * Either the reset button, or the three buttons asking what to reset. Applied when drawing, not right on the
+     * click: the click goes on to the buttons after the pressed one, and "cancel" sits where "reset" was.
+     */
     private void showResetButtons() {
         for (Object o : buttonList) {
             GuiButton button = (GuiButton) o;
@@ -189,7 +192,6 @@ public class GuiSettings extends ScaledScreen {
             selectedCategory = button.id;
             scroll = 0;
             confirmingReset = false;
-            showResetButtons();
             for (Object o : buttonList) {
                 GuiButton other = (GuiButton) o;
                 if (other.id < Config.CATEGORIES.size()) {
@@ -198,7 +200,6 @@ public class GuiSettings extends ScaledScreen {
             }
         } else if (button.id == ID_RESET) {
             confirmingReset = true;
-            showResetButtons();
         } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
             if (button.id != ID_RESET_CANCEL) {
                 for (Config.Option option : button.id == ID_RESET_ALL ? Config.OPTIONS : options()) {
@@ -206,7 +207,6 @@ public class GuiSettings extends ScaledScreen {
                 }
             }
             confirmingReset = false;
-            showResetButtons();
         } else if (button.id == ID_DONE) {
             mc.displayGuiScreen(parent);
         }
@@ -225,7 +225,6 @@ public class GuiSettings extends ScaledScreen {
     protected void keyTyped(char typedChar, int keyCode) {
         if (keyCode == Keyboard.KEY_ESCAPE && confirmingReset) {
             confirmingReset = false;
-            showResetButtons();
         } else if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(parent);
         }
@@ -290,6 +289,7 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        showResetButtons();
         if (draggingSlider != null) {
             if (Mouse.isButtonDown(0)) {
                 updateSlider(mouseX);
