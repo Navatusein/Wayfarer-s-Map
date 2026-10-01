@@ -207,6 +207,11 @@ public class GuiSettings extends ScaledScreen {
                 boolean back = button == 1 || mouseX < controlX() + CONTROL_WIDTH / 2;
                 int count = choice.values.length;
                 choice.set((choice.get() + (back ? count - 1 : 1)) % count);
+            } else if (option instanceof Config.ColorOption) {
+                if (button == 0) {
+                    Config.ColorOption color = (Config.ColorOption) option;
+                    mc.displayGuiScreen(new GuiColorPicker(this, color.get(), color::set));
+                }
             } else if (button == 0) {
                 draggingSlider = option;
                 updateSlider(mouseX);
@@ -354,6 +359,19 @@ public class GuiSettings extends ScaledScreen {
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, value, CONTROL_WIDTH - 24),
                 x + CONTROL_WIDTH / 2,
+                y + (h - 8) / 2,
+                Theme.TEXT);
+        } else if (option instanceof Config.ColorOption) {
+            int rgb = ((Config.ColorOption) option).get();
+            Theme.fill(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.ACCENT : Theme.BORDER);
+            // A swatch of the color, then its code.
+            Theme.fill(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, 0xFF000000 | rgb);
+            Theme.outline(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, Theme.BORDER);
+            Theme.text(
+                fontRendererObj,
+                Config.ColorOption.hex(rgb),
+                x + 8 + 2 * (h - 6),
                 y + (h - 8) / 2,
                 Theme.TEXT);
         } else {

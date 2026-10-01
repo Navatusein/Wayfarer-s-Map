@@ -70,6 +70,12 @@ public class Config {
     public static int minimapShape = SHAPE_SQUARE;
     /** Turn the minimap with the player, so the view direction is always up. */
     public static boolean minimapRotate = false;
+    /** N, E, S and W on the edge of the minimap. */
+    public static boolean minimapCompass = true;
+    /** Frame around the minimap, and the color of its line (RGB). */
+    public static boolean minimapFrame = true;
+    public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
+    public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
 
@@ -192,6 +198,24 @@ public class Config {
             false,
             () -> minimapRotate,
             v -> minimapRotate = v);
+        group("look");
+        parent("enabled");
+        bool(
+            c,
+            "compass",
+            "Show N, E, S and W on the edge of the minimap.",
+            true,
+            () -> minimapCompass,
+            v -> minimapCompass = v);
+        bool(c, "frame", "Draw a frame around the minimap.", true, () -> minimapFrame, v -> minimapFrame = v);
+        parent("frame");
+        color(
+            c,
+            "frameColor",
+            "Color of the minimap frame, as #RRGGBB.",
+            MINIMAP_FRAME_COLOR,
+            () -> minimapFrameColor,
+            v -> minimapFrameColor = v);
         group("info");
         parent("enabled");
         bool(
@@ -949,6 +973,57 @@ public class Config {
         }
     }
 
+    /** An RGB color, saved as {@code #RRGGBB}. */
+    public static class ColorOption extends Option {
+
+        public final int defaultValue;
+        private final IntSupplier getter;
+        private final IntConsumer setter;
+
+        ColorOption(String category, String key, String comment, int defaultValue, IntSupplier getter,
+            IntConsumer setter) {
+            super(category, key, comment);
+            this.defaultValue = defaultValue;
+            this.getter = getter;
+            this.setter = setter;
+        }
+
+        public int get() {
+            return getter.getAsInt();
+        }
+
+        public void set(int rgb) {
+            setter.accept(rgb & 0xFFFFFF);
+        }
+
+        /** 0x2A313B -> #2A313B. */
+        public static String hex(int rgb) {
+            return String.format("#%06X", rgb & 0xFFFFFF);
+        }
+
+        @Override
+        void load(Configuration configuration) {
+            String value = configuration.getString(key, category, hex(defaultValue), comment)
+                .trim();
+            try {
+                set(Integer.parseInt(value.startsWith("#") ? value.substring(1) : value, 16));
+            } catch (NumberFormatException e) {
+                set(defaultValue);
+            }
+        }
+
+        @Override
+        void save(Configuration configuration) {
+            configuration.get(category, key, hex(defaultValue), comment)
+                .set(hex(get()));
+        }
+
+        @Override
+        public void reset() {
+            set(defaultValue);
+        }
+    }
+
     /** Tab the options declared next are shown on; null for their category's own. */
     private static void tab(String tab) {
         currentTab = tab;
@@ -993,6 +1068,11 @@ public class Config {
     private static void choice(String category, String key, String comment, int def, String[] values,
         IntSupplier getter, IntConsumer setter) {
         add(new ChoiceOption(category, key, comment, def, values, getter, setter));
+    }
+
+    private static void color(String category, String key, String comment, int def, IntSupplier getter,
+        IntConsumer setter) {
+        add(new ColorOption(category, key, comment, def, getter, setter));
     }
 
     private static void decimal(String category, String key, String comment, double def, double min, double max,
