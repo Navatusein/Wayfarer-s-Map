@@ -1,6 +1,8 @@
 package WayFarMap.client.waypoint;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -22,6 +24,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -69,15 +72,76 @@ public class WaypointRenderer {
         GL11.glEnable(GL12.GL_RESCALE_NORMAL);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         RenderHelper.enableGUIStandardItemLighting();
-        try {
-            RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
-        } catch (Throwable ignored) {
-            // A broken modded item renderer must not crash the map.
-        }
+        renderItemSafely(RENDER_ITEM, mc, stack);
         RenderHelper.disableStandardItemLighting();
         GL11.glPopAttrib();
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Items whose renderer failed once ({@link #itemKey}): not drawn again, so they can't break the drawing. */
+    private static final Set<String> BROKEN_ITEMS = new HashSet<>();
+
+    private static String itemKey(ItemStack stack) {
+        return Item.getIdFromItem(stack.getItem()) + ":" + stack.getItemDamage();
+    }
+
+    /**
+     * Draws the item as in an inventory slot at 0,0, surviving modded renderers that fail or leave things behind: a
+     * renderer that throws halfway left the game's tessellator in the middle of a drawing, and every item after it
+     * then failed too (the icon picker went empty for good). Whatever happens, the tessellator is finished and the
+     * matrices and settings the renderer left pushed are taken off. False if the item can't be drawn.
+     */
+    public static boolean renderItemSafely(RenderItem renderItem, Minecraft mc, ItemStack stack) {
+        String key = itemKey(stack);
+        if (BROKEN_ITEMS.contains(key)) {
+            return false;
+        }
+        int matrixMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE);
+        int modelview = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
+        int projection = GL11.glGetInteger(GL11.GL_PROJECTION_STACK_DEPTH);
+        int attribs = GL11.glGetInteger(GL11.GL_ATTRIB_STACK_DEPTH);
+        boolean ok = true;
+        try {
+            renderItem.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
+        } catch (Throwable t) {
+            ok = false;
+            BROKEN_ITEMS.add(key);
+            WayFarMap.LOG.warn("Could not draw the icon of item " + key + "; it is left out", t);
+            finishTessellator();
+        }
+        // Also after a renderer that didn't fail but left something pushed.
+        restoreStack(GL11.GL_ATTRIB_STACK_DEPTH, attribs);
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        restoreStack(GL11.GL_PROJECTION_STACK_DEPTH, projection);
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        restoreStack(GL11.GL_MODELVIEW_STACK_DEPTH, modelview);
+        GL11.glMatrixMode(matrixMode);
+        return ok;
+    }
+
+    /** Pops what was pushed past {@code depth} (matrices of the current mode, or settings). */
+    private static void restoreStack(int depthQuery, int depth) {
+        for (int extra = GL11.glGetInteger(depthQuery) - depth; extra > 0; extra--) {
+            if (depthQuery == GL11.GL_ATTRIB_STACK_DEPTH) {
+                GL11.glPopAttrib();
+            } else {
+                GL11.glPopMatrix();
+            }
+        }
+    }
+
+    /** Ends a drawing a failed renderer left open, without showing what it had (nothing is written). */
+    private static void finishTessellator() {
+        GL11.glPushAttrib(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glColorMask(false, false, false, false);
+        GL11.glDepthMask(false);
+        try {
+            Tessellator.instance.draw();
+        } catch (Throwable ignored) {
+            // Wasn't drawing: nothing to finish.
+        }
+        GL11.glPopAttrib();
     }
 
     /**
