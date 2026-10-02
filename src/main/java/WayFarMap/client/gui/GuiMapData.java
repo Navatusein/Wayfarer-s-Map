@@ -23,6 +23,7 @@ import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.map.FlatLog;
 import WayFarMap.client.map.MapCleaner;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.Waypoint;
@@ -418,7 +419,11 @@ public class GuiMapData extends ScaledScreen {
         }
         File dimension = picked == null ? null : new File(worldDirectory, "dim" + picked);
         long[] freed = new long[1];
-        MapManager.INSTANCE.resetMaps(() -> {
+        String what = id == ID_LOGS ? "logs folder"
+            : (id == ID_DEL_2D ? "2D map" : id == ID_DEL_3D ? "3D map" : "2D and 3D map")
+                + (dimension == null ? " of every dimension" : " of " + dimension.getName())
+                + " (Map data screen)";
+        MapManager.INSTANCE.resetMaps(what, () -> {
             if (id == ID_LOGS) {
                 freed[0] = MapCleaner.clearLogs(logsDirectory);
                 return;
@@ -431,6 +436,7 @@ public class GuiMapData extends ScaledScreen {
                 freed[0] = (flat ? MapCleaner.delete2d(dimension) : 0) + (iso ? MapCleaner.delete3d(dimension) : 0);
             }
         });
+        FlatLog.note("CLEANED " + what + " freedKB=" + (freed[0] >> 10));
         status = I18n.format("wayfarmap.clean.done", bytes(freed[0]));
         startCount();
     }

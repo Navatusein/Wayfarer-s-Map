@@ -59,6 +59,11 @@ public final class FlatLog {
     private static final Map<Long, ArrivalCheck.Snapshot> ARRIVED = new ConcurrentHashMap<>();
     /** Chunks put off while their region is read: when first. */
     private static final Map<Long, Long> DEFERRED = new ConcurrentHashMap<>();
+    /**
+     * Lines for the next log file, written while no log was open (a cleaning closes the maps and the log, and
+     * deletes the files before the next one opens).
+     */
+    private static final List<String> PENDING = Collections.synchronizedList(new ArrayList<>());
     /** Regions asked to be read: when (per map folder and region). */
     private static final Map<String, Long> ASKED = new ConcurrentHashMap<>();
 
@@ -214,6 +219,12 @@ public final class FlatLog {
                 + "GONE_UNSEEN: loaded and let go before the scanner saw it. RELOADED: the server sent a mapped "
                 + "chunk again, mapped again as new. chunksNotYetSentInView: chunks within "
                 + "the view distance the server hasn't sent (yet).");
+        synchronized (PENDING) {
+            for (String pending : PENDING) {
+                line(pending + " (while no log was open, before this one)");
+            }
+            PENDING.clear();
+        }
         line(
             "LEGEND region files: READ and SAVE list each part of the region (png = the map picture, dat = heights, "
                 + "light = night glow, time = when each chunk was mapped) with its time and size on disk; png "
@@ -299,6 +310,15 @@ public final class FlatLog {
     public static void log(String text) {
         if (on()) {
             line(text);
+        }
+    }
+
+    /** A line written now, or at the start of the next log file if none is open (with the log on). */
+    public static void note(String text) {
+        if (on()) {
+            line(text);
+        } else if (Config.log2d && PENDING.size() < 50) {
+            PENDING.add(new SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new Date()) + " " + text);
         }
     }
 
@@ -531,6 +551,10 @@ public final class FlatLog {
         long now = System.nanoTime();
         Long seen = SEEN.remove(key(cx, cz));
         SETTLING.remove(key(cx, cz));
+        if (layer < 0) {
+            // Sent again by the server while it waited to be scanned: this scan maps the new one, which isn't lost.
+            LOADED.remove(key(cx, cz));
+        }
         String waited = "";
         if (seen != null && layer < 0) {
             long delay = now - seen;

@@ -940,10 +940,28 @@ public class MapManager implements IResourceManagerReloadListener {
      * memory would be saved back over what was deleted. Render thread.
      */
     public void resetMaps(Runnable delete) {
+        resetMaps("unnamed", delete);
+    }
+
+    /**
+     * @param what what is deleted, for the 2D map log: the cleaning happens while its log is closed, so it is written
+     *             at the start of the next one
+     */
+    public void resetMaps(String what, Runnable delete) {
+        File world = worldDirectory;
+        FlatLog.note("CLEAN_START " + what + " world=" + world + ": maps saved and closed, then the files deleted");
+        long start = System.nanoTime();
         MapExport.cancel();
         close();
+        long closed = System.nanoTime();
         // Opened again by the next tick, as when a world is joined.
         delete.run();
+        FlatLog.note(
+            "CLEAN_DONE " + what
+                + " closeMs="
+                + FlatLog.ms(closed - start)
+                + " deleteMs="
+                + FlatLog.ms(System.nanoTime() - closed));
     }
 
     private void open(Minecraft mc, WorldClient world) {
