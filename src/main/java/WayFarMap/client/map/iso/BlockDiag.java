@@ -453,10 +453,10 @@ final class BlockDiag {
                     continue;
                 }
                 int side = (int) Math.round(Math.sqrt(image.length));
-                int scale = cell / side;
                 for (int py = 0; py < cell; py++) {
                     for (int px = 0; px < cell; px++) {
-                        int pixel = image[(py / scale) * side + px / scale];
+                        // Larger ones (wide sprites) shrunk to fit.
+                        int pixel = image[(py * side / cell) * side + px * side / cell];
                         int alpha = pixel >>> 24;
                         int checker = ((px >> 3) + (py >> 3) & 1) == 0 ? 0xC0 : 0x80;
                         int r = ((pixel >> 16 & 0xFF) * alpha + checker * (255 - alpha)) / 255;

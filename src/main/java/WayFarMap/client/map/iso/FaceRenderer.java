@@ -172,6 +172,13 @@ final class FaceRenderer {
         BlockDiag.Shot shot;
         /** Sides (bits by {@link #OFFSETS}) hidden by a solid block next to it: left out of its sprites. */
         int covered;
+        /**
+         * Its model reaches far past its block (a banner two blocks tall, an obelisk): sprites four blocks wide around
+         * its center ({@link #WIDE_SPRITE_SIZE} pixels), not two.
+         */
+        boolean wide;
+        /** A tile entity farther away draws over its place (a stargate's base under its ring): kept by place. */
+        boolean overBig;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -189,12 +196,25 @@ final class FaceRenderer {
         int views() {
             return cube ? 6 : ChunkBlocks.VIEWS;
         }
+
+        /** Pixels per side of its pictures. */
+        int pixels() {
+            return cube ? FacePalette.FACE_SIZE : wide ? WIDE_SPRITE_SIZE : FacePalette.SPRITE_SIZE;
+        }
+
+        /** Kept by its place (what is drawn depends on more than the blocks around it). */
+        boolean byPlace() {
+            return tileEntity != null || overBig;
+        }
     }
+
+    /** Pixels per side of a sprite four blocks wide (see {@link Pending#wide}): as sharp as the usual ones. */
+    static final int WIDE_SPRITE_SIZE = 2 * FacePalette.SPRITE_SIZE;
 
     /** What {@link #inspect} found out about one block's pictures. */
     static final class Inspection {
 
-        boolean cube, ownRenderer, glassLike;
+        boolean cube, ownRenderer, glassLike, wide, overBig;
         int exposed, covered;
         long surroundings;
         /** Picture ids the fresh pictures got (as the map would store them). */
@@ -248,6 +268,11 @@ final class FaceRenderer {
                 ownRenderer);
             pending.lookKey = key;
             pending.why = "inspect";
+            if (!look.opaque) {
+                pending.wide = reachesFar(world, block, tileEntity, x, y, z);
+                pending.overBig = drawnOverByBig(world, pending);
+            }
+            prepareCovered(world, java.util.Collections.singletonList(pending), palette);
             // Made by the drawing itself for the usual way; the others are only compared.
             pending.shot = new BlockDiag.Shot();
             pending.shot.images = new int[pending.views()][];
@@ -263,23 +288,23 @@ final class FaceRenderer {
             if (v == 0) {
                 result.ids = pending.ids.clone();
                 result.covered = pending.covered;
+                result.wide = pending.wide;
+                result.overBig = pending.overBig;
             }
         }
-        if (tileEntity != null) {
-            for (TileEntity big : bigTileEntities(world)) {
-                Pending probe = new Pending(-1, x, y, z, block, tileEntity, 0, false, false);
-                if (big != tileEntity && drawsOver(big, probe)) {
-                    result.drawnOver.add(
-                        big.getClass()
-                            .getName() + " at "
-                            + big.xCoord
-                            + ","
-                            + big.yCoord
-                            + ","
-                            + big.zCoord
-                            + " renderBox="
-                            + big.getRenderBoundingBox());
-                }
+        for (TileEntity big : bigTileEntities(world)) {
+            Pending probe = new Pending(-1, x, y, z, block, tileEntity, 0, false, false);
+            if (big != tileEntity && drawsOver(big, probe)) {
+                result.drawnOver.add(
+                    big.getClass()
+                        .getName() + " at "
+                        + big.xCoord
+                        + ","
+                        + big.yCoord
+                        + ","
+                        + big.zCoord
+                        + " renderBox="
+                        + big.getRenderBoundingBox());
             }
         }
         return result;
@@ -424,14 +449,19 @@ final class FaceRenderer {
                 break;
             }
             // As many blocks as their pictures fit in the buffer.
+            // Wide sprites take four slots each: they go in batches of their own.
+            boolean wide = toDraw.get(from).wide;
+            int capacity = wide ? SLOTS / 4 : SLOTS;
             int to = from, slots = 0;
-            while (to < toDraw.size() && slots + toDraw.get(to)
-                .views() <= SLOTS) {
+            while (to < toDraw.size() && toDraw.get(to).wide == wide
+                && slots + toDraw.get(to)
+                    .views() <= capacity) {
                 slots += toDraw.get(to++)
                     .views();
             }
             List<Pending> batch = toDraw.subList(from, to);
             from = to;
+            prepareCovered(world, batch, palette);
             draw(world, batch, palette);
             if (IsoLog.on()) {
                 tryVariants(world, batch, palette);
@@ -448,7 +478,7 @@ final class FaceRenderer {
                     // Not taken (no room for new pictures now): taken again next time, not remembered as none.
                     continue;
                 }
-                if (pending.tileEntity != null) {
+                if (pending.byPlace()) {
                     // Kept until its surroundings change (or the player asks for new pictures): taking them again
                     // after a while gave the same pictures five times out of six, and kept big bases from ever
                     // being finished.
@@ -620,8 +650,12 @@ final class FaceRenderer {
             pending.lookKey = key;
             pending.why = why;
             pending.unsure = !aroundLoaded(around, lx, lz);
+            if (!look.opaque) {
+                pending.wide = reachesFar(world, block, tileEntity, x, y, z);
+                pending.overBig = drawnOverByBig(world, pending);
+            }
             found.add(pending);
-            if (tileEntity != null) {
+            if (pending.byPlace()) {
                 tileEntities++;
                 Cached cached = BY_PLACE.get(place(x, y, z));
                 if (cached != null && cached.surroundings == surroundings) {
@@ -870,6 +904,8 @@ final class FaceRenderer {
             setupNanos += drawStart - setupStart;
 
             boolean diagnose = IsoLog.on() || inspecting;
+            // A batch is all wide sprites or none (see addFaces).
+            int cell = !batch.isEmpty() && batch.get(0).wide ? 2 * SLOT : SLOT, perRow = SIZE / cell;
             int slot = 0;
             for (Pending pending : batch) {
                 if (variant == 0) {
@@ -879,10 +915,9 @@ final class FaceRenderer {
                     }
                 }
                 long blockStart = System.nanoTime();
-                pending.covered = pending.cube ? 0 : covered(world, pending);
                 for (int view = 0; view < pending.views(); view++, slot++) {
-                    int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
-                    GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, pixels, pixels);
+                    int pixels = pending.pixels();
+                    GL11.glViewport((slot % perRow) * cell, (slot / perRow) * cell, pixels, pixels);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
                     GL11.glLoadIdentity();
                     if (pending.cube) {
@@ -891,8 +926,10 @@ final class FaceRenderer {
                         GL11.glMatrixMode(GL11.GL_MODELVIEW);
                         loadSideView(view);
                     } else {
-                        // Two blocks of the projection plane around the block's center, like the tracer reads it.
-                        GL11.glOrtho(-1, 1, -1, 1, -2, 2);
+                        // Two blocks of the projection plane around the block's center (four if wide), like the
+                        // tracer reads it.
+                        double extent = pending.wide ? 2 : 1;
+                        GL11.glOrtho(-extent, extent, -extent, extent, -2 * extent, 2 * extent);
                         GL11.glMatrixMode(GL11.GL_MODELVIEW);
                         loadView(IsoProjection.of(view));
                     }
@@ -947,7 +984,7 @@ final class FaceRenderer {
                 GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
             }
             // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
-            int usedRows = Math.min(SIZE, (slotsUsed(batch) + PER_ROW - 1) / PER_ROW * SLOT);
+            int usedRows = Math.min(SIZE, (slotsUsed(batch) + perRow - 1) / perRow * cell);
             readBuffer.clear();
             GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
             if (readPixels == null) {
@@ -960,11 +997,12 @@ final class FaceRenderer {
             slot = 0;
             int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
             int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
+            int[] wideImage = cell > SLOT ? new int[WIDE_SPRITE_SIZE * WIDE_SPRITE_SIZE] : null;
             for (Pending pending : batch) {
-                int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
-                int[] image = pending.cube ? faceImage : spriteImage;
+                int pixels = pending.pixels();
+                int[] image = pending.cube ? faceImage : pending.wide ? wideImage : spriteImage;
                 for (int view = 0; view < pending.views(); view++, slot++) {
-                    int sx = (slot % PER_ROW) * SLOT, sy = (slot / PER_ROW) * SLOT;
+                    int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                     float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
                         : 1f;
@@ -1157,8 +1195,38 @@ final class FaceRenderer {
     }
 
     /**
-     * The sides of a block hidden by the blocks next to them: a solid cube, or a block filling its cell whose side
-     * toward it is drawn without holes (the next block of a Nuclear Control panel; not frames or glass).
+     * Per kind of block (with its tile entity's class): whether its sprite fills its block's whole outline, so it
+     * hides the side of a block next to it. Learned from a picture of it (see {@link #prepareCovered}): the size the
+     * game says a block has is no help (a hopper, a GregTech pipe, a Thaumcraft cap all say a whole block).
+     */
+    private static final Map<Long, Boolean> WHOLE_CUBE = new HashMap<>();
+    /** The way pictures of neighbours are taken to learn {@link #WHOLE_CUBE}: as usual, not stored. */
+    private static final int PROBE = VARIANTS.length;
+
+    private static long wholeKey(int key, TileEntity tileEntity) {
+        return (long) key << 32 | (tileEntity == null ? 0
+            : tileEntity.getClass()
+                .getName()
+                .hashCode() & 0xFFFFFFFFL);
+    }
+
+    /**
+     * Whether a block next to another may hide that one's side: a block filling its cell, drawn without holes on the
+     * side toward it (not glass or frames); whether it does is learned from its picture.
+     */
+    private static boolean mayHide(BlockLooks.Look look, int side) {
+        if (!look.fullCube || look.translucent) {
+            return false;
+        }
+        // Its side toward this block: down <-> up, north <-> south, west <-> east.
+        BlockLooks.Texture texture = look.textures[side ^ 1];
+        return texture != null && texture.solid();
+    }
+
+    /**
+     * The sides of a block hidden by the blocks next to them: a solid cube, or a block whose sprite fills its whole
+     * outline (the next block of a Nuclear Control panel, a machine next to a machine). Neighbours not known yet hide
+     * nothing.
      */
     private static int covered(World world, Pending pending) {
         int covered = 0;
@@ -1170,16 +1238,135 @@ final class FaceRenderer {
             }
             BlockLooks.Look look = BlockLooks.get(key);
             boolean hides = look.opaque;
-            if (!hides && look.fullCube && !look.translucent) {
-                // Its side toward this block: down <-> up, north <-> south, west <-> east.
-                BlockLooks.Texture texture = look.textures[side ^ 1];
-                hides = texture != null && texture.solid();
+            if (!hides && mayHide(look, side)) {
+                Boolean whole = WHOLE_CUBE.get(wholeKey(key, world.getTileEntity(nx, ny, nz)));
+                hides = whole != null && whole;
             }
             if (hides) {
                 covered |= 1 << side;
             }
         }
         return covered;
+    }
+
+    /**
+     * Sets the sides of the blocks of a batch hidden by their neighbours, first taking a picture of each kind of
+     * neighbour that may hide one and isn't known yet (render thread, before the batch is drawn).
+     */
+    private static void prepareCovered(World world, List<Pending> batch, FacePalette palette) {
+        Map<Long, Pending> probes = new LinkedHashMap<>();
+        for (Pending pending : batch) {
+            if (pending.cube) {
+                continue;
+            }
+            for (int side = 0; side < 6; side++) {
+                int nx = pending.x + OFFSETS[side][0], ny = pending.y + OFFSETS[side][1],
+                    nz = pending.z + OFFSETS[side][2];
+                int key = blockAt(world, nx, ny, nz);
+                if (ChunkBlocks.blockId(key) == 0) {
+                    continue;
+                }
+                BlockLooks.Look look = BlockLooks.get(key);
+                if (look.opaque || !mayHide(look, side)) {
+                    continue;
+                }
+                TileEntity tileEntity = world.getTileEntity(nx, ny, nz);
+                long whole = wholeKey(key, tileEntity);
+                if (WHOLE_CUBE.containsKey(whole) || probes.containsKey(whole)) {
+                    continue;
+                }
+                boolean ownRenderer;
+                try {
+                    ownRenderer = tileEntity != null
+                        && TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity);
+                } catch (RuntimeException e) {
+                    ownRenderer = false;
+                }
+                Pending probe = new Pending(-1, nx, ny, nz, world.getBlock(nx, ny, nz), tileEntity, 0, false,
+                    ownRenderer);
+                probe.lookKey = key;
+                probe.why = "probe";
+                probes.put(whole, probe);
+            }
+        }
+        if (!probes.isEmpty() && available()) {
+            List<Long> keys = new ArrayList<>(probes.keySet());
+            List<Pending> list = new ArrayList<>(probes.values());
+            int per = SLOTS / ChunkBlocks.VIEWS;
+            for (int from = 0; from < list.size(); from += per) {
+                List<Pending> part = list.subList(from, Math.min(list.size(), from + per));
+                for (Pending probe : part) {
+                    probe.shot = new BlockDiag.Shot();
+                    probe.shot.images = new int[probe.views()][];
+                }
+                variant = PROBE;
+                try {
+                    draw(world, part, palette);
+                } finally {
+                    variant = 0;
+                }
+                for (int i = 0; i < part.size(); i++) {
+                    int[][] images = part.get(i).shot.images;
+                    boolean whole = images[0] != null && fillsOutline(images[0], FacePalette.SPRITE_SIZE);
+                    WHOLE_CUBE.put(keys.get(from + i), whole);
+                }
+            }
+        }
+        for (Pending pending : batch) {
+            pending.covered = pending.cube ? 0 : covered(world, pending);
+        }
+    }
+
+    /** Whether a sprite from the first view side is drawn solid all over its block's outline (but its very edge). */
+    private static boolean fillsOutline(int[] image, int size) {
+        double[] outline = IsoTracer.outline(IsoProjection.of(0));
+        // Three pixels in from the edge: the edge's pixels are drawn or not by where it crosses them.
+        double margin = -3.0 * 2 / size;
+        for (int py = 0; py < size; py++) {
+            double v = (py + 0.5) / size * 2 - 1;
+            for (int px = 0; px < size; px++) {
+                double u = (px + 0.5) / size * 2 - 1;
+                if (IsoTracer.within(outline, u, v, margin) && (image[py * size + px] >>> 24) < 128) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether a block's model reaches above or below its block by more than a little (its bounds, or the box its tile
+     * entity says it draws in): a banner two blocks tall, an obelisk. Such blocks get wide sprites.
+     */
+    private static boolean reachesFar(World world, Block block, TileEntity tileEntity, int x, int y, int z) {
+        double m = OWN_MODEL_MARGIN;
+        try {
+            block.setBlockBoundsBasedOnState(world, x, y, z);
+            if (block.getBlockBoundsMinY() < -m || block.getBlockBoundsMaxY() > 1 + m) {
+                return true;
+            }
+        } catch (RuntimeException ignored) {}
+        if (tileEntity == null || tileEntity instanceof TileEntityChest || tileEntity instanceof TileEntityEnderChest) {
+            return false;
+        }
+        try {
+            AxisAlignedBB box = tileEntity.getRenderBoundingBox();
+            return box != null && box != TileEntity.INFINITE_EXTENT_AABB
+                && box.maxY - box.minY <= BIG_MAX_SIZE
+                && (box.minY < y - m || box.maxY > y + 1 + m);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** Whether a tile entity farther away draws over a block's place (see {@link #bigTileEntities}). */
+    private static boolean drawnOverByBig(World world, Pending pending) {
+        for (TileEntity big : bigTileEntities(world)) {
+            if (big != pending.tileEntity && drawsOver(big, pending)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Keeps what is on the positive side of a plane: a * x + b * y + c * z + d >= 0 (world coordinates). */
@@ -1260,7 +1447,7 @@ final class FaceRenderer {
                 // Tile entity renderers as before (their models may wind either way).
                 GL11.glDisable(GL11.GL_CULL_FACE);
             }
-            if (pending.tileEntity != null) {
+            if (pending.byPlace()) {
                 if (variant == 3) {
                     RenderHelper.enableStandardItemLighting();
                 }
@@ -1335,7 +1522,8 @@ final class FaceRenderer {
      * farther (a stargate's base under a block of its ring) that draw in the render pass.
      */
     private static void drawTileEntities(Pending pending, int pass) {
-        World world = pending.tileEntity.getWorldObj();
+        World world = pending.tileEntity != null ? pending.tileEntity.getWorldObj()
+            : Minecraft.getMinecraft().theWorld;
         List<TileEntity> big = world == null ? new ArrayList<>() : bigTileEntities(world);
         for (int n = -1; n < 4 + big.size(); n++) {
             TileEntity tileEntity;

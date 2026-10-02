@@ -452,7 +452,7 @@ final class IsoTracer {
     }
 
     /** The corners of a block's cell seen from the view, around its center, in turn (its convex outline). */
-    private static double[] outline(IsoProjection p) {
+    static double[] outline(IsoProjection p) {
         double[][] points = new double[8][];
         for (int i = 0; i < 8; i++) {
             double x = (i & 1) - 0.5, y = (i >> 1 & 1) - 0.5, z = (i >> 2 & 1) - 0.5;
@@ -487,7 +487,11 @@ final class IsoTracer {
 
     /** Whether a point (around a block's center) is within the block's outline, grown by the margin. */
     private boolean withinCell(double u, double v, double margin) {
-        double[] o = outline;
+        return within(outline, u, v, margin);
+    }
+
+    /** Whether a point is within an outline ({@link #outline}), grown by the margin (shrunk if negative). */
+    static boolean within(double[] o, double u, double v, double margin) {
         int n = o.length / 2;
         for (int i = 0; i < n; i++) {
             double ax = o[i * 2], ay = o[i * 2 + 1];
@@ -542,6 +546,14 @@ final class IsoTracer {
         return cells;
     }
 
+    /**
+     * Blocks of the projection plane a sprite covers on each side of its block's center: 1, or 2 for the wide
+     * sprites of models reaching far (as sharp, twice the pixels).
+     */
+    private static double extent(FacePalette.Sprite sprite) {
+        return (double) sprite.size / FacePalette.SPRITE_SIZE;
+    }
+
     /** Whether a sprite has drawn pixels outside its block's outline for this view; null if it can't be read yet. */
     private Boolean reachesOut(int id, int rotation) {
         long key = (long) palette.generation << 34 | (long) id << 2 | rotation;
@@ -555,10 +567,12 @@ final class IsoTracer {
         }
         boolean out = false;
         int grid = 64;
+        double extent = extent(sprite);
         for (int j = 0; j < grid && !out; j++) {
             for (int i = 0; i < grid; i++) {
                 double su = (i + 0.5) / grid, sv = (j + 0.5) / grid;
-                if ((sprite.texel(su, sv, 0) >>> 24) >= 128 && !withinCell(su * 2 - 1, sv * 2 - 1, OUTLINE_MARGIN)) {
+                if ((sprite.texel(su, sv, 0) >>> 24) >= 128
+                    && !withinCell((su * 2 - 1) * extent, (sv * 2 - 1) * extent, OUTLINE_MARGIN)) {
                     out = true;
                     break;
                 }
@@ -580,7 +594,8 @@ final class IsoTracer {
         int lx = x & 15, lz = z & 15;
         for (int cell : reaching) {
             int oy = blocks.yMin + (cell >> 8), olx = cell & 15, olz = cell >> 4 & 15;
-            if (Math.abs(olx - lx) > 1 || Math.abs(olz - lz) > 1 || Math.abs(oy - y) > 1) {
+            // Wide sprites (models two blocks tall) reach two blocks.
+            if (Math.abs(olx - lx) > 2 || Math.abs(olz - lz) > 2 || Math.abs(oy - y) > 2) {
                 continue;
             }
             int ox = (x & ~15) + olx, oz = (z & ~15) + olz;
@@ -632,8 +647,9 @@ final class IsoTracer {
             incomplete |= palette.has(id);
             return SPRITE_NONE;
         }
-        double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
-        double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
+        double extent = extent(sprite);
+        double su = ((rayU - projection.u(x + 0.5, z + 0.5)) / extent + 1) / 2;
+        double sv = ((rayV - projection.v(x + 0.5, y + 0.5, z + 0.5)) / extent + 1) / 2;
         int exact = sprite.texel(su, sv, 0);
         int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
@@ -664,7 +680,10 @@ final class IsoTracer {
                     sv = near[i + 1];
                     if (debug != null) {
                         debug(
-                            String.format(Locale.ROOT, "    empty there: the pixel next to it stands in, argb=%08x", texel));
+                            String.format(
+                                Locale.ROOT,
+                                "    empty there: the pixel next to it stands in, argb=%08x",
+                                texel));
                     }
                 }
             }

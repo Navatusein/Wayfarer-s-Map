@@ -183,7 +183,9 @@ public final class BlockInspect {
 
     private static void around(StringBuilder r, World world, int x, int y, int z) {
         int covered = FaceRenderer.coveredSides(world, x, y, z);
-        r.append("\n== AROUND (sides hidden by a neighbour are left out of its sprites)\n");
+        r.append(
+            "\n== AROUND (sides hidden by a neighbour are left out of its sprites: a solid cube, or a block whose own"
+                + " picture filled its whole outline; read before the pictures below were taken)\n");
         int[][] offsets = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 }, { 1, 0, 0 } };
         for (int side = 0; side < 6; side++) {
             int nx = x + offsets[side][0], ny = y + offsets[side][1], nz = z + offsets[side][2];
@@ -301,6 +303,11 @@ public final class BlockInspect {
             .append(inspection.ownRenderer)
             .append(" glassLike=")
             .append(inspection.glassLike)
+            .append(" wide=")
+            .append(inspection.wide)
+            .append(inspection.wide ? " (model reaches far: sprites 4 blocks wide, 256 px)" : "")
+            .append(" drawnOverByFartherTileEntity=")
+            .append(inspection.overBig)
             .append(" sides left out (hidden by neighbours)=")
             .append(sides(inspection.covered))
             .append(" surroundings=")
