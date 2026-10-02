@@ -526,11 +526,50 @@ public final class ChunkLoadServer {
         }
     }
 
+    /** What each online player was last told about loading from the map, by player (a new login is told again). */
+    private final Map<UUID, Object[]> toldAllowed = new HashMap<>();
+    private int allowedCheckTicks;
+
+    /**
+     * Tells players whether they may load chunks from the world map, when they come and when it changes (checked
+     * every few seconds: operators can be made or unmade while playing).
+     */
+    private void tellAllowed() {
+        if (++allowedCheckTicks < 100 && !toldAllowedPending) {
+            return;
+        }
+        allowedCheckTicks = 0;
+        toldAllowedPending = false;
+        java.util.Set<UUID> online = new java.util.HashSet<>();
+        for (Object o : MinecraftServer.getServer()
+            .getConfigurationManager().playerEntityList) {
+            EntityPlayerMP player = (EntityPlayerMP) o;
+            online.add(player.getUniqueID());
+            boolean allowed = player.canCommandSenderUseCommand(2, "wf");
+            Object[] told = toldAllowed.get(player.getUniqueID());
+            if (told == null || told[0] != player || (Boolean) told[1] != allowed) {
+                toldAllowed.put(player.getUniqueID(), new Object[] { player, allowed });
+                ShareNetwork.sendTo(new ShareNetwork.LoadAllowed(allowed), player);
+            }
+        }
+        toldAllowed.keySet()
+            .retainAll(online);
+    }
+
+    /** A player just joined: told on the next tick instead of within the next few seconds. */
+    private boolean toldAllowedPending;
+
+    @SubscribeEvent
+    public void onPlayerLogin(cpw.mods.fml.common.gameevent.PlayerEvent.PlayerLoggedInEvent event) {
+        toldAllowedPending = true;
+    }
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
+        tellAllowed();
         if (jobs.isEmpty() && inbox.isEmpty()) {
             return;
         }
@@ -966,6 +1005,7 @@ public final class ChunkLoadServer {
         save();
         jobs.clear();
         inbox.clear();
+        toldAllowed.clear();
     }
 
     private void save() {

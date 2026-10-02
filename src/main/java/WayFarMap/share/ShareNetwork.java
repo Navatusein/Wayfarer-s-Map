@@ -55,6 +55,7 @@ public final class ShareNetwork {
         channel.registerMessage(LoadChunksToServer.class, LoadChunks.class, 8, Side.SERVER);
         channel.registerMessage(SavedRequestToServer.class, SavedRequest.class, 9, Side.SERVER);
         channel.registerMessage(SavedChunksToClient.class, SavedChunks.class, 10, Side.CLIENT);
+        channel.registerMessage(LoadAllowedToClient.class, LoadAllowed.class, 11, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -436,6 +437,28 @@ public final class ShareNetwork {
         }
     }
 
+    /** Whether the player may load chunks from the world map (an operator, like the commands). */
+    public static final class LoadAllowed implements IMessage {
+
+        public boolean allowed;
+
+        public LoadAllowed() {}
+
+        public LoadAllowed(boolean allowed) {
+            this.allowed = allowed;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            allowed = buf.readBoolean();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(allowed);
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
 
     public static final class LoadBatchToClient implements IMessageHandler<LoadBatch, IMessage> {
@@ -478,6 +501,15 @@ public final class ShareNetwork {
 
         @Override
         public IMessage onMessage(SavedChunks message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
+            return null;
+        }
+    }
+
+    public static final class LoadAllowedToClient implements IMessageHandler<LoadAllowed, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadAllowed message, MessageContext context) {
             WayFarMap.proxy.receiveChunkLoad(message);
             return null;
         }

@@ -33,6 +33,8 @@ public final class ChunkLoadClient {
     private static final long WAIT_MS = 30_000;
 
     private final Queue<IMessage> inbox = new ConcurrentLinkedQueue<>();
+    /** Whether the last tick was in a world (leaving it resets what the server allowed). */
+    private boolean wasInWorld;
     private ShareNetwork.LoadBatch batch;
     private long batchSince;
     /** Next inner chunk of the batch to map (row by row), and whether its flat map is done. */
@@ -86,17 +88,26 @@ public final class ChunkLoadClient {
         Minecraft mc = Minecraft.getMinecraft();
         WorldClient world = mc.theWorld;
         if (world == null || mc.thePlayer == null) {
-            inbox.clear();
+            if (wasInWorld) {
+                // Out of the world: the next server says again whether loading from the map is allowed.
+                wasInWorld = false;
+                ChunkLoadView.setAllowed(false);
+            }
+            // That word may come while joining, before the world is there: it is kept.
+            inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed));
             batch = null;
             total = 0;
             return;
         }
+        wasInWorld = true;
         IMessage message;
         while ((message = inbox.poll()) != null) {
             if (message instanceof ShareNetwork.LoadBatch) {
                 start((ShareNetwork.LoadBatch) message);
             } else if (message instanceof ShareNetwork.SavedChunks) {
                 ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
+            } else if (message instanceof ShareNetwork.LoadAllowed) {
+                ChunkLoadView.setAllowed(((ShareNetwork.LoadAllowed) message).allowed);
             }
         }
         ShareNetwork.LoadBatch b = batch;

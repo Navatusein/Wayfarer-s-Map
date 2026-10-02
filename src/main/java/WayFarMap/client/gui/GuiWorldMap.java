@@ -782,6 +782,10 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         int current = currentMode();
         for (int mode = 0; mode < MODE_KEYS.length; mode++) {
+            if ((mode == MODE_CHUNKLOAD || mode == MODE_REGIONLOAD) && !ChunkLoadView.isAllowed()) {
+                // Loading from the map is for operators: the modes aren't offered to others.
+                continue;
+            }
             final int value = mode;
             String label = (mode == current ? "\u25CF " : "   ")
                 + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
@@ -2007,6 +2011,12 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** The chunk loading view: the flat map of the player's own dimension. */
     private boolean chunkloadShown() {
+        if ((chunkloadView || regionloadView) && !ChunkLoadView.isAllowed()) {
+            // No longer allowed (or another server): back to the flat map.
+            chunkloadView = false;
+            regionloadView = false;
+            MapManager.INSTANCE.setSurfaceView(false);
+        }
         // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
         return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
     }

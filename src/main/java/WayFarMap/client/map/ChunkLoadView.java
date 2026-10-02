@@ -50,6 +50,17 @@ public final class ChunkLoadView {
     /** Regions asked about again after this long; not asked again sooner while no answer came. */
     private static final long SAVED_REFRESH_MS = 30_000, ASK_AGAIN_MS = 5000;
     private static long lastAsk;
+    /** Whether the server lets the player load chunks from the map (it says so; servers without the mod never do). */
+    private static boolean allowed;
+
+    public static boolean isAllowed() {
+        return allowed;
+    }
+
+    public static void setAllowed(boolean value) {
+        allowed = value;
+    }
+
     /** Whether the view being drawn is the region loading one. */
     private static boolean regionsMode;
 
