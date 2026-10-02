@@ -34,6 +34,8 @@ final class IsoTracer {
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
+    /** The largest place on a side's texture short of its far edge. */
+    private static final double EDGE = Math.nextDown(1.0);
     /** How much of what is below the water's surface veils: the rest is the water body (see absorb). */
     private static final float WATER_SURFACE = 0.4f;
     /** Per block of water the ray passes, the share of light that becomes water color. */
@@ -818,6 +820,10 @@ final class IsoTracer {
                 texV = 1 - py;
                 break;
         }
+        // Rays meeting a side right at its edge land a hair outside it (rounding); pictures of sides have nothing
+        // there, and the side was drawn from its plain icon along every edge: thin light lines between blocks.
+        texU = texU < 0 ? 0 : texU >= 1 ? EDGE : texU;
+        texV = texV < 0 ? 0 : texV >= 1 ? EDGE : texV;
         if (look.shape == BlockLooks.SHAPE_LIQUID && look.translucent) {
             // The water's surface: its average color, a thin veil over what is below (see absorb).
             int color = tinted(look, blocks, lx, lz, side, look.textures[side].texel(0, 0, 4), texU, texV);
