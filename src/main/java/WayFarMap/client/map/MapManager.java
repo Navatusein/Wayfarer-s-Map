@@ -713,6 +713,12 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
+    /** Scans the loaded chunks again, after a setting that changes how they are drawn. */
+    public void rescanLoaded() {
+        surfaceTracker.reset();
+        caveTracker.reset();
+    }
+
     private void updateCaveMode(WorldClient world, EntityPlayer player) {
         if (tick % 10 == 0) {
             underground = isUnderground(world, player);

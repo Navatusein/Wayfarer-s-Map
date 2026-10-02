@@ -1,11 +1,14 @@
 package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockBush;
+import net.minecraft.block.BlockFlower;
 import net.minecraft.block.material.Material;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraftforge.common.IShearable;
 
 import WayFarMap.Config;
 
@@ -198,9 +201,17 @@ public final class ChunkScanner {
             || material != Material.plants && material != Material.vine && material != Material.circuits) {
             return -1;
         }
+        if (!Config.showPlants && isGrassOrFlower(above)) {
+            return -1;
+        }
         int x = chunk.xPosition * 16 + lx;
         int z = chunk.zPosition * 16 + lz;
         return BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
+    }
+
+    /** Tall grass, ferns, dead bushes and flowers (also double ones), not crops, saplings or mushrooms. */
+    private static boolean isGrassOrFlower(Block block) {
+        return block instanceof BlockBush && (block instanceof BlockFlower || block instanceof IShearable);
     }
 
     /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */
