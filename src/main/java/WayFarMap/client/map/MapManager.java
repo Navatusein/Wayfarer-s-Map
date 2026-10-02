@@ -1448,15 +1448,17 @@ public class MapManager implements IResourceManagerReloadListener {
             int pcz = MathHelper.floor_double(player.posZ) >> 4;
             int radius = mc.gameSettings.renderDistanceChunks + 1;
 
-            // Forget chunks well out of range (past where the game lets them go); they get rescanned when the
-            // player comes back.
+            // Forget chunks well out of range that the game has let go; they get rescanned when the player comes
+            // back. Flying fast, the game keeps chunks well past this range for a while: forgotten while still
+            // loaded, each was mapped again as "never scanned" when let go (over a hundred in one tick).
             Iterator<Long> it = lastScanTick.keySet()
                 .iterator();
             while (it.hasNext()) {
                 long key = it.next();
                 int cx = (int) (key >> 32);
                 int cz = (int) key;
-                if (Math.abs(cx - pcx) > radius + 4 || Math.abs(cz - pcz) > radius + 4) {
+                if ((Math.abs(cx - pcx) > radius + 4 || Math.abs(cz - pcz) > radius + 4)
+                    && !ChunkScanner.isChunkReady(world, cx, cz)) {
                     it.remove();
                 }
             }

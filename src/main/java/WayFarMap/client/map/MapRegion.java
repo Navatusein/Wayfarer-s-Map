@@ -1,6 +1,11 @@
 package WayFarMap.client.map;
 
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.awt.image.DataBufferInt;
+import java.awt.image.PixelInterleavedSampleModel;
+import java.awt.image.Raster;
+import java.awt.image.SampleModel;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
@@ -661,7 +666,10 @@ public class MapRegion implements PixelSource {
     private static void writeImage(File file, int[] data, IoTrace trace) throws IOException {
         long start = System.nanoTime();
         BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
-        image.setRGB(0, 0, SIZE, SIZE, data, 0, SIZE);
+        // Straight into the image's own pixels: setRGB goes through the color model pixel by pixel.
+        int[] target = ((DataBufferInt) image.getRaster()
+            .getDataBuffer()).getData();
+        System.arraycopy(data, 0, target, 0, SIZE * SIZE);
         trace.pixelCopyNanos = System.nanoTime() - start;
         File parent = file.getParentFile();
         if (parent != null && !parent.isDirectory()) {
@@ -683,7 +691,7 @@ public class MapRegion implements PixelSource {
             System.nanoTime() - start,
             written,
             "encodeMs=" + FlatLog.ms(trace.pngNanos)
-                + " setRgbMs="
+                + " copyMs="
                 + FlatLog.ms(trace.pixelCopyNanos)
                 + " "
                 + ratio(SIZE * SIZE * 4L, written));
@@ -705,7 +713,10 @@ public class MapRegion implements PixelSource {
         }
         MapRegion region = new MapRegion(rx, rz);
         long copyStart = System.nanoTime();
-        image.getRGB(0, 0, SIZE, SIZE, region.pixels, 0, SIZE);
+        boolean fast = copyPixels(image, region.pixels);
+        if (!fast) {
+            image.getRGB(0, 0, SIZE, SIZE, region.pixels, 0, SIZE);
+        }
         trace.pixelCopyNanos = System.nanoTime() - copyStart;
         // A type other than INT_ARGB makes getRGB convert every pixel: slow, worth knowing.
         trace.part(
@@ -713,7 +724,7 @@ public class MapRegion implements PixelSource {
             System.nanoTime() - start,
             file.length(),
             "decodeMs=" + FlatLog.ms(trace.pngNanos)
-                + " getRgbMs="
+                + (fast ? " copyMs=" : " getRgbMs=")
                 + FlatLog.ms(trace.pixelCopyNanos)
                 + " imageType="
                 + imageType(image.getType()));
@@ -762,6 +773,56 @@ public class MapRegion implements PixelSource {
             trace.content = region.contentSummary();
         }
         return region;
+    }
+
+    /**
+     * Copies a decoded region picture into ARGB pixels straight from its raster, for the layouts PNG decoding gives
+     * (INT_ARGB, and 4BYTE_ABGR for pictures with alpha). False for any other layout: getRGB is used then, which goes
+     * through the color model pixel by pixel and took longer than decoding the PNG.
+     */
+    private static boolean copyPixels(BufferedImage image, int[] pixels) {
+        Raster raster = image.getRaster();
+        if (raster.getMinX() != 0 || raster.getMinY() != 0
+            || raster.getSampleModelTranslateX() != 0
+            || raster.getSampleModelTranslateY() != 0) {
+            return false;
+        }
+        if (image.getType() == BufferedImage.TYPE_INT_ARGB && raster.getDataBuffer() instanceof DataBufferInt) {
+            DataBufferInt buffer = (DataBufferInt) raster.getDataBuffer();
+            if (buffer.getNumBanks() != 1 || buffer.getOffset() != 0 || buffer.getSize() < SIZE * SIZE) {
+                return false;
+            }
+            System.arraycopy(buffer.getData(), 0, pixels, 0, SIZE * SIZE);
+            return true;
+        }
+        if (image.getType() != BufferedImage.TYPE_4BYTE_ABGR || !(raster.getDataBuffer() instanceof DataBufferByte)) {
+            return false;
+        }
+        SampleModel model = raster.getSampleModel();
+        if (!(model instanceof PixelInterleavedSampleModel)) {
+            return false;
+        }
+        PixelInterleavedSampleModel interleaved = (PixelInterleavedSampleModel) model;
+        int[] offsets = interleaved.getBandOffsets();
+        DataBufferByte buffer = (DataBufferByte) raster.getDataBuffer();
+        if (interleaved.getPixelStride() != 4 || interleaved.getScanlineStride() != SIZE * 4
+            || offsets.length != 4
+            || buffer.getNumBanks() != 1
+            || buffer.getOffset() != 0) {
+            return false;
+        }
+        // Bands are R, G, B, A at these byte offsets in each pixel.
+        int r = offsets[0], g = offsets[1], b = offsets[2], a = offsets[3];
+        byte[] data = buffer.getData();
+        if (data.length < SIZE * SIZE * 4) {
+            return false;
+        }
+        for (int i = 0, p = 0; i < SIZE * SIZE; i++, p += 4) {
+            pixels[i] = (data[p + a] & 0xFF) << 24 | (data[p + r] & 0xFF) << 16
+                | (data[p + g] & 0xFF) << 8
+                | data[p + b] & 0xFF;
+        }
+        return true;
     }
 
     /** A gzip part of the region (heights or light), null if missing or unreadable (the rest is still fine). */
