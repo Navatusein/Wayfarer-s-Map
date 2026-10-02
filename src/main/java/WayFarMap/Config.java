@@ -116,6 +116,8 @@ public class Config {
     public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
+    /** On the 3D map the player is drawn as its 3D model instead of the arrow. */
+    public static boolean isoPlayerModel = true;
     /** Side the 3D view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
     public static final int ISO_QUALITY_MAX = 3;
     public static int isoRotation = 0;
@@ -422,6 +424,13 @@ public class Config {
         tab(TAB_MAP_3D);
         group("iso");
         parent(null);
+        bool(
+            c,
+            "isoPlayerModel",
+            "Show the player as its 3D model (skin, armor, walking) on the 3D map instead of the arrow.",
+            true,
+            () -> isoPlayerModel,
+            v -> isoPlayerModel = v);
         bool(
             c,
             "isometric",

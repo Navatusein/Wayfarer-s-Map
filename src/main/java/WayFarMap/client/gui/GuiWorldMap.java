@@ -27,6 +27,7 @@ import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
+import WayFarMap.client.PlayerModelDrawer;
 import WayFarMap.client.TeamMates;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
@@ -953,13 +954,19 @@ public class GuiWorldMap extends ScaledScreen {
             && playerScreenY <= height) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
-            if (iso) {
+            boolean model = iso && Config.isoPlayerModel
+                && PlayerModelDrawer
+                    .draw(mc.thePlayer, playerScreenX, playerScreenY, scale, isoProjection(), partialTicks);
+            // Drawn as the player itself, or else as the arrow.
+            if (!model && iso) {
                 // Where one block ahead of the player lands on the screen gives the arrow's direction.
                 double r = Math.toRadians(yaw);
                 double[] ahead = toScreen(px - Math.sin(r), py, pz + Math.cos(r));
                 yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
             }
-            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f);
+            if (!model) {
+                MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f);
+            }
         }
         drawOverlay(mouseX, mouseY, partialTicks, dimension, dimensionId, otherDimension, iso);
     }
