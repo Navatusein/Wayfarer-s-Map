@@ -55,7 +55,7 @@ final class IsoTiles {
      * at once; finer ones are quick to draw and would be too many files.
      */
     private static final int DISK_LEVEL = 3;
-    private static final int MAGIC = 0x57465436; // "WFT6"
+    private static final int MAGIC = 0x57465437; // "WFT7"
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
     /**
@@ -103,6 +103,8 @@ final class IsoTiles {
         boolean ready;
         /** Height and side of what each pixel shows, for finding the block under the mouse. */
         short[] hits;
+        /** Height where each pixel stops being see-through ({@link #solidCode}), for hiding mobs behind it. */
+        short[] solid;
         long renderedAt;
         /** Last time a chunk it shows changed. */
         volatile long dirtyAt;
@@ -149,6 +151,7 @@ final class IsoTiles {
         final int[] pixels;
         final int[] nightPixels;
         final short[] hits;
+        short[] solid;
         final long renderedAt;
         /** Not drawn (no longer on screen): the tile is only free to be queued again. */
         final boolean skipped;
@@ -400,6 +403,7 @@ final class IsoTiles {
             }
             tile.renderedAt = result.renderedAt;
             tile.hits = result.hits;
+            tile.solid = result.solid;
             tile.empty = result.pixels == null;
             tile.ready = true;
             if (tile.empty) {
@@ -682,6 +686,7 @@ final class IsoTiles {
         int[] pixels = new int[PIXELS * PIXELS];
         int[] nightPixels = new int[PIXELS * PIXELS];
         short[] hits = new short[PIXELS * PIXELS];
+        short[] solid = new short[PIXELS * PIXELS];
         boolean any = false;
         // Zoomed far out several blocks share a pixel: four rays per pixel keep it from looking noisy.
         boolean supersample = pixelsPerBlock < 1 && Config.isoSmooth;
@@ -695,6 +700,7 @@ final class IsoTiles {
                 int color = tracer.trace(u, v);
                 int nightColor = tracer.nightColor;
                 hits[py * PIXELS + px] = hitCode(tracer);
+                solid[py * PIXELS + px] = solidCode(tracer.solidY);
                 if (supersample) {
                     day[0] = color;
                     night[0] = nightColor;
@@ -711,6 +717,7 @@ final class IsoTiles {
             }
         }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
+        result.solid = any ? solid : null;
         BlockDiag.tracerFallbacks(tracer.fallbacks);
         boolean looksMissed = BlockLooks.takeMissed();
         result.retry = looksMissed | tracer.incomplete;
@@ -738,6 +745,59 @@ final class IsoTiles {
         }
         int y = (int) Math.round(Math.max(0, Math.min(255.9, tracer.hitY)) * 32);
         return (short) ((tracer.hitSide + 1) << 13 | Math.min(0x1FFF, y));
+    }
+
+    /** A height where a pixel stops being see-through, in 1/32 block, plus 1; 0 for none. */
+    private static short solidCode(double y) {
+        if (Double.isNaN(y)) {
+            return 0;
+        }
+        return (short) (1 + Math.round(Math.max(0, Math.min(255.9, y)) * 32));
+    }
+
+    /**
+     * How far toward the viewer (see {@link IsoProjection#toward}) the map stops being see-through at each point of a
+     * grid on the projection plane: {@code NaN} where no tile is drawn yet, negative infinity where nothing solid is
+     * seen. The points are (u0 + i * step, v0 + j * step), row by row into {@code out}.
+     */
+    void solidToward(int dimension, int rotation, double scale, int factor, double u0, double v0, double step,
+        int columns, int rows, float[] out) {
+        int finest = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
+        Tile last = null;
+        Key lastKey = null;
+        for (int j = 0; j < rows; j++) {
+            double v = v0 + j * step;
+            for (int i = 0; i < columns; i++) {
+                double u = u0 + i * step;
+                float toward = Float.NaN;
+                for (int level = finest; level < IsoProjection.LEVELS; level++) {
+                    int blocks = IsoProjection.tileBlocks(level);
+                    int tu = (int) Math.floor(u / blocks), tv = (int) Math.floor(v / blocks);
+                    Tile tile;
+                    if (lastKey != null && lastKey.level == level && lastKey.tu == tu && lastKey.tv == tv) {
+                        tile = last;
+                    } else {
+                        lastKey = new Key(dimension, rotation, level, tu, tv);
+                        tile = last = tiles.get(lastKey);
+                    }
+                    if (tile == null || !tile.ready) {
+                        continue;
+                    }
+                    if (tile.empty || tile.solid == null) {
+                        toward = Float.NEGATIVE_INFINITY;
+                        break;
+                    }
+                    double pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
+                    int px = Math.min(PIXELS - 1, (int) ((u - (double) tu * blocks) * pixelsPerBlock));
+                    int py = Math.min(PIXELS - 1, (int) ((v - (double) tv * blocks) * pixelsPerBlock));
+                    int code = tile.solid[py * PIXELS + px] & 0xFFFF;
+                    toward = code == 0 ? Float.NEGATIVE_INFINITY
+                        : (float) ((v + (code - 1) / 32.0 * IsoProjection.COS) / IsoProjection.SIN);
+                    break;
+                }
+                out[j * columns + i] = toward;
+            }
+        }
     }
 
     /** Average of colors with straight alpha, weighted by alpha. */
@@ -799,13 +859,14 @@ final class IsoTiles {
             if (empty) {
                 return new Result(tile, null, null, null, renderedAt);
             }
-            byte[] raw = new byte[PIXELS * PIXELS * 10];
+            byte[] raw = new byte[PIXELS * PIXELS * 12];
             DataInputStream data = new DataInputStream(new InflaterInputStream(in, new Inflater(), 1 << 15));
             data.readFully(raw);
             ByteBuffer buffer = ByteBuffer.wrap(raw);
             int[] pixels = new int[PIXELS * PIXELS];
             int[] nightPixels = new int[PIXELS * PIXELS];
             short[] hits = new short[PIXELS * PIXELS];
+            short[] solid = new short[PIXELS * PIXELS];
             buffer.asIntBuffer()
                 .get(pixels);
             buffer.position(pixels.length * 4);
@@ -814,7 +875,12 @@ final class IsoTiles {
             buffer.position(pixels.length * 8);
             buffer.asShortBuffer()
                 .get(hits);
-            return new Result(tile, pixels, nightPixels, hits, renderedAt);
+            buffer.position(pixels.length * 10);
+            buffer.asShortBuffer()
+                .get(solid);
+            Result result = new Result(tile, pixels, nightPixels, hits, renderedAt);
+            result.solid = solid;
+            return result;
         } catch (IOException e) {
             if (work != null) {
                 work.disk = "io-error " + e;
@@ -839,7 +905,7 @@ final class IsoTiles {
             out.writeDouble(minToward);
             out.writeBoolean(result.pixels == null);
             if (result.pixels != null) {
-                ByteBuffer buffer = ByteBuffer.allocate(PIXELS * PIXELS * 10);
+                ByteBuffer buffer = ByteBuffer.allocate(PIXELS * PIXELS * 12);
                 buffer.asIntBuffer()
                     .put(result.pixels);
                 buffer.position(result.pixels.length * 4);
@@ -848,6 +914,9 @@ final class IsoTiles {
                 buffer.position(result.pixels.length * 8);
                 buffer.asShortBuffer()
                     .put(result.hits);
+                buffer.position(result.pixels.length * 10);
+                buffer.asShortBuffer()
+                    .put(result.solid);
                 DeflaterOutputStream compressed = new DeflaterOutputStream(out, deflater, 1 << 15);
                 compressed.write(buffer.array());
                 compressed.finish();

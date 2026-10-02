@@ -91,6 +91,13 @@ final class IsoTracer {
     /** Height of the first surface hit and its side (-1 if none). */
     double hitY;
     int hitSide;
+    /**
+     * Height where the ray stopped seeing through (most of the light taken by what it passed), NaN if it never did:
+     * models of mobs are hidden behind it, not behind glass or shallow water.
+     */
+    double solidY;
+    /** Where along the ray the surface being added was met. */
+    private double lastHitT;
     /** The color seen at night (the day color is returned by trace), ARGB. */
     int nightColor;
     /** Lowest "toward the viewer" distance any ray got to, for knowing which chunks a tile depends on. */
@@ -220,6 +227,8 @@ final class IsoTracer {
         nightR = nightG = nightB = 0;
         transmit = 1;
         hitSide = -1;
+        solidY = Double.NaN;
+        lastHitT = 0;
 
         int stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
         double deltaX = 1 / Math.abs(dx), deltaY = 1 / Math.abs(dy), deltaZ = 1 / Math.abs(dz);
@@ -1054,6 +1063,7 @@ final class IsoTracer {
     }
 
     private void hit(int side, double hitT) {
+        lastHitT = hitT;
         if (hitSide < 0) {
             hitSide = side;
             hitY = oy + projection.rayY * hitT;
@@ -1086,6 +1096,9 @@ final class IsoTracer {
         nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
         nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
         transmit *= 1 - alpha;
+        if (transmit < 0.5 && Double.isNaN(solidY)) {
+            solidY = oy + projection.rayY * lastHitT;
+        }
     }
 
     /** The brighter sky light and the brighter block light of two packed lights. */
