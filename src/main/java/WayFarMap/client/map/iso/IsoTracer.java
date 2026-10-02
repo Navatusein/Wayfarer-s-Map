@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-
 /**
  * Draws tiles of the 3D map by following, for every pixel, the line of sight into the world block by block (like
  * Dynmap's HD renderer) until it meets something solid. Faces show the pixel of the block's texture where they are
