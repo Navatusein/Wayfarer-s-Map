@@ -1112,52 +1112,44 @@ public class GuiWorldMap extends ScaledScreen {
                 + I18n.format(regionloadView ? "wayfarmap.gui.regionload_hint" : "wayfarmap.gui.chunkload_hint")
                 + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
         }
-        Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
         // An area being loaded with /wf chunkload: how far it got, and the time left.
         String loadStatus = ChunkLoadClient.INSTANCE.statusText();
+        // On the right, by the help button: what is going on, or a note on the view.
+        String right = null;
+        int rightColor = Theme.TEXT_MUTED;
         if (exportStatus != null) {
-            Theme.text(
-                fontRendererObj,
-                exportStatus,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(exportStatus),
-                height - 10,
-                Theme.ACCENT);
+            right = exportStatus;
+            rightColor = Theme.ACCENT;
         } else if (loadStatus != null) {
-            Theme.text(
-                fontRendererObj,
-                loadStatus,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(loadStatus),
-                height - 10,
-                Theme.ACCENT);
+            right = loadStatus;
+            rightColor = Theme.ACCENT;
         } else if (iso) {
-            String note = I18n.format("wayfarmap.gui.iso_hint");
-            Theme.text(
-                fontRendererObj,
-                note,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
-                height - 10,
-                Theme.TEXT_MUTED);
+            right = I18n.format("wayfarmap.gui.iso_hint");
         } else if (claimsShown() && !chunkloadShown()) {
-            String counts = ClaimsLayer.countsText();
-            Theme.text(
-                fontRendererObj,
-                counts,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(counts),
-                height - 10,
-                Theme.TEXT_MUTED);
+            right = ClaimsLayer.countsText();
         } else if (Config.showClaims && Mods.isClaimsAvailable() && otherDimension) {
             // ServerUtilities takes the dimension of every claim change from the player, so claims can only be
             // shown and changed in the dimension the player is in.
-            String note = I18n.format("wayfarmap.claims.other_dimension");
-            Theme.text(
-                fontRendererObj,
-                note,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
-                height - 10,
-                Theme.DANGER);
+            right = I18n.format("wayfarmap.claims.other_dimension");
+            rightColor = Theme.DANGER;
         }
+        int rightEdge = helpButton.xPosition - 8;
+        int rightX = rightEdge;
+        if (right != null && !right.isEmpty()) {
+            // Never more than half the footer, so the left text keeps room too.
+            right = Theme.ellipsize(fontRendererObj, right, width / 2);
+            rightX = rightEdge - fontRendererObj.getStringWidth(right);
+            Theme.text(fontRendererObj, right, rightX, height - 10, rightColor);
+        }
+        // The left text takes the room left, cut short with an ellipsis rather than running into the right one.
+        Theme.text(
+            fontRendererObj,
+            Theme.ellipsize(fontRendererObj, cursorText, Math.max(20, rightX - 12 - 6)),
+            6,
+            height - 10,
+            Theme.TEXT);
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScaled(mouseX, mouseY, partialTicks);
