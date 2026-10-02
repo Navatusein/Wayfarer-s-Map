@@ -63,38 +63,48 @@ public final class ChunkScanner {
         int baseZ = (cz * 16) & (MapRegion.SIZE - 1);
         MapRegion biomeRegion = biomeMap == null ? null
             : biomeMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
+        // The surface is also drawn without grass and flowers, into its own map.
+        MapDimension plantlessMap = caveLayer < 0 ? dimension.plantless() : null;
+        MapRegion plantlessRegion = plantlessMap == null ? null
+            : plantlessMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
 
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
                 int y = heights[lx + 2][lz + 2];
                 int northHeight = heights[lx + 2][lz + 1];
-                int argb = 0;
+                int argb = 0, plantlessArgb = 0;
                 // Light relief for the biome map: a step up from the north is lighter, a step down darker.
                 float biomeRelief = 1f;
                 if (y != NO_BLOCK && northHeight != NO_BLOCK) {
                     biomeRelief = 1.0f + Math.max(-4, Math.min(4, y - northHeight)) * 0.03f;
                 }
                 if (y != NO_BLOCK) {
-                    int rgb = columnColor(world, chunk, lx, y, lz);
-                    rgb = detailedColor(world, chunk, heights, lx, y, lz, rgb);
+                    int blockRgb = columnColor(world, chunk, lx, y, lz);
+                    int rgb = detailedColor(world, chunk, heights, lx, y, lz, blockRgb, true);
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
                         rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
                     }
                     argb = 0xFF000000 | rgb;
+                    if (plantlessRegion != null) {
+                        plantlessArgb = 0xFF000000 | detailedColor(world, chunk, heights, lx, y, lz, blockRgb, false);
+                    }
                 }
+                int height = y == NO_BLOCK ? 0 : Math.min(255, y + 1);
                 if (caveLayer < 0) {
                     // The surface also remembers the height to stand on, for teleporting.
-                    region.setPixel(baseX + lx, baseZ + lz, argb, y == NO_BLOCK ? 0 : Math.min(255, y + 1));
+                    region.setPixel(baseX + lx, baseZ + lz, argb, height);
                 } else {
                     region.setPixel(baseX + lx, baseZ + lz, argb);
                 }
                 // Torches and other lights: the map glows there at night (under glass, those lighting the floor).
-                region.setLight(
-                    baseX + lx,
-                    baseZ + lz,
-                    y == NO_BLOCK ? 0 : blockLight(chunk, lx, seenThroughGlass(chunk, lx, y, lz), lz));
+                int light = y == NO_BLOCK ? 0 : blockLight(chunk, lx, seenThroughGlass(chunk, lx, y, lz), lz);
+                region.setLight(baseX + lx, baseZ + lz, light);
+                if (plantlessRegion != null) {
+                    plantlessRegion.setPixel(baseX + lx, baseZ + lz, plantlessArgb, height);
+                    plantlessRegion.setLight(baseX + lx, baseZ + lz, light);
+                }
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
                     int biomeArgb = biome == null ? 0 : 0xFF000000 | BlockColors.shade(biomeColor(biome), biomeRelief);
@@ -130,9 +140,12 @@ public final class ChunkScanner {
      * The JourneyMap look of a column: a plant, crop, rail or redstone on the block is drawn instead of
      * it (without a bevel, like JourneyMap without plant shadows); otherwise the block is beveled by its slope to the
      * north-west, with shadows turning a little blue.
+     *
+     * @param plants false to leave out grass and flowers (the block under them is drawn)
      */
-    private static int detailedColor(World world, Chunk chunk, int[][] heights, int lx, int y, int lz, int rgb) {
-        int plant = plantColor(world, chunk, lx, y, lz);
+    private static int detailedColor(World world, Chunk chunk, int[][] heights, int lx, int y, int lz, int rgb,
+        boolean plants) {
+        int plant = plantColor(world, chunk, lx, y, lz, plants);
         if (plant >= 0) {
             return BlockColors.shade(plant, DAYLIGHT);
         }
@@ -185,10 +198,11 @@ public final class ChunkScanner {
     }
 
     /**
-     * Color of a plant, crop, sapling, rail, redstone or torch standing on the block, or -1 if there is none.
+     * Color of a plant, crop, sapling, rail, redstone or torch standing on the block, or -1 if there is none (or it
+     * is grass or a flower and those are left out).
      * JourneyMap draws these instead of the block below them.
      */
-    private static int plantColor(World world, Chunk chunk, int lx, int y, int lz) {
+    private static int plantColor(World world, Chunk chunk, int lx, int y, int lz, boolean grassAndFlowers) {
         if (y >= 255) {
             return -1;
         }
@@ -198,9 +212,21 @@ public final class ChunkScanner {
             || material != Material.plants && material != Material.vine && material != Material.circuits) {
             return -1;
         }
+        if (!grassAndFlowers && isPlant(material)) {
+            return -1;
+        }
         int x = chunk.xPosition * 16 + lx;
         int z = chunk.zPosition * 16 + lz;
         return BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
+    }
+
+    /**
+     * Left out of the map without plants: anything of the plants' materials. Flowers, double plants, sugar cane,
+     * crops, saplings and mushrooms are {@link Material#plants}; tall grass, ferns and dead bushes are
+     * {@link Material#vine} in this version (it has no separate reed material).
+     */
+    private static boolean isPlant(Material material) {
+        return material == Material.plants || material == Material.vine;
     }
 
     /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */

@@ -84,7 +84,7 @@ public class GuiSettings extends ScaledScreen {
             FlatButton button = new FlatButton(
                 i,
                 left + 6,
-                top + 26 + i * 22,
+                top + 26 + i * 20,
                 SIDEBAR_WIDTH - 12,
                 18,
                 I18n.format("wayfarmap.settings." + Config.CATEGORIES.get(i)));

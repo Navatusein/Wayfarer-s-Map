@@ -230,8 +230,11 @@ final class ItemSprites {
             GL11.glEnable(GL12.GL_RESCALE_NORMAL);
             GL11.glColor4f(1f, 1f, 1f, 1f);
             RenderHelper.enableGUIStandardItemLighting();
-            RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
+            boolean rendered = WaypointRenderer.renderItemSafely(RENDER_ITEM, mc, stack);
             RenderHelper.disableStandardItemLighting();
+            if (!rendered) {
+                return null;
+            }
 
             readBuffer.clear();
             GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);

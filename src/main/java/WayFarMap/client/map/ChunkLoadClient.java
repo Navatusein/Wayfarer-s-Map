@@ -33,6 +33,8 @@ public final class ChunkLoadClient {
     private static final long WAIT_MS = 30_000;
 
     private final Queue<IMessage> inbox = new ConcurrentLinkedQueue<>();
+    /** Whether the last tick was in a world (leaving it resets what the server allowed). */
+    private boolean wasInWorld;
     private ShareNetwork.LoadBatch batch;
     private long batchSince;
     /** Next inner chunk of the batch to map (row by row), and whether its flat map is done. */
@@ -86,15 +88,26 @@ public final class ChunkLoadClient {
         Minecraft mc = Minecraft.getMinecraft();
         WorldClient world = mc.theWorld;
         if (world == null || mc.thePlayer == null) {
-            inbox.clear();
+            if (wasInWorld) {
+                // Out of the world: the next server says again whether loading from the map is allowed.
+                wasInWorld = false;
+                ChunkLoadView.setAllowed(false);
+            }
+            // That word may come while joining, before the world is there: it is kept.
+            inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed));
             batch = null;
             total = 0;
             return;
         }
+        wasInWorld = true;
         IMessage message;
         while ((message = inbox.poll()) != null) {
             if (message instanceof ShareNetwork.LoadBatch) {
                 start((ShareNetwork.LoadBatch) message);
+            } else if (message instanceof ShareNetwork.SavedChunks) {
+                ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
+            } else if (message instanceof ShareNetwork.LoadAllowed) {
+                ChunkLoadView.setAllowed(((ShareNetwork.LoadAllowed) message).allowed);
             }
         }
         ShareNetwork.LoadBatch b = batch;
@@ -124,6 +137,11 @@ public final class ChunkLoadClient {
         int width = b.innerX1 - b.innerX0 + 1, count = width * (b.innerZ1 - b.innerZ0 + 1);
         while (at < count) {
             int cx = b.innerX0 + at % width, cz = b.innerZ0 + at / width;
+            if (b.picked != null && (b.picked[at >> 6] & 1L << (at & 63)) == 0) {
+                // Only loaded for a picked chunk next to it: not put on the map.
+                at++;
+                continue;
+            }
             // The client's chunk provider says every chunk exists: one not received is empty.
             Chunk chunk = ChunkScanner.isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
             if (chunk == null) {
@@ -154,14 +172,29 @@ public final class ChunkLoadClient {
                     return;
                 }
             }
+            if (chunk != null) {
+                // On the flat map, and on the 3D map too if it was loaded for it: no longer waiting.
+                ChunkLoadView.mapped(b.dimension, cx, cz);
+            }
             at++;
             scanned = false;
-            done = b.doneBefore + at;
+            done = b.doneBefore + (b.picked == null ? at : pickedBefore(b, at));
             if (b.with3d && System.nanoTime() >= end) {
                 return;
             }
         }
         finish(world, b, mc);
+    }
+
+    /** Picked chunks among the batch's first {@code n} inner chunks (the progress of a picked chunks job). */
+    private static int pickedBefore(ShareNetwork.LoadBatch b, int n) {
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if ((b.picked[i >> 6] & 1L << (i & 63)) != 0) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void start(ShareNetwork.LoadBatch b) {
@@ -255,7 +288,9 @@ public final class ChunkLoadClient {
         } finally {
             lettingGo = false;
         }
-        done = b.doneBefore + (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        long innerCount = (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        // Picked chunks: only those count (the others were loaded for them, not mapped).
+        done = b.doneBefore + (b.picked == null ? innerCount : pickedBefore(b, (int) innerCount));
         if (done >= total && finishedAt == 0) {
             finishedAt = System.currentTimeMillis();
         }

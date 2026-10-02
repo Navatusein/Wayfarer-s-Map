@@ -32,6 +32,8 @@ public class Config {
      * nothing set before is lost).
      */
     public static final String TAB_MAP = CATEGORY_MAP, TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
+    /** Tab of the mobs' options (saved under {@link #CATEGORY_ENTITIES}, where they were before). */
+    public static final String TAB_MOBS = "mobs";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
         Arrays.asList(
@@ -41,6 +43,7 @@ public class Config {
             TAB_MAP_3D,
             CATEGORY_PLAYER_MARKER,
             CATEGORY_ENTITIES,
+            TAB_MOBS,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
             CATEGORY_LOGS));
@@ -113,6 +116,8 @@ public class Config {
     public static boolean mapFollowPlayer = false;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
+    /** On the 3D map the player is drawn as its 3D model instead of the arrow. */
+    public static boolean isoPlayerModel = true;
     /** Side the 3D view looks from: 0 = south-east, 1 = north-east, 2 = north-west, 3 = south-west. */
     public static final int ISO_QUALITY_MAX = 3;
     public static int isoRotation = 0;
@@ -122,8 +127,6 @@ public class Config {
     public static boolean isoSmooth = true;
     /** Milliseconds per game tick spent copying chunks' blocks for the 3D map. */
     public static int isoCaptureMs = 5;
-    /** How far under a roof the 3D map looks for the floor, in blocks (0 = the roof counts as solid ground). */
-    public static int isoOverhangDepth = 16;
     /** Keep the blocks of explored chunks, which the 3D map is drawn from. */
     public static boolean record3d = false;
     /**
@@ -154,13 +157,27 @@ public class Config {
     public static boolean useTextureColors = true;
     /** Clear glass shows what is under it, lightly tinted with the glass color. */
     public static boolean seeThroughGlass = true;
+    /** Grass and flowers drawn on the flat map (off: the block under them shows, the "2D map without plants"). */
+    public static boolean showPlants = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
 
     public static boolean showOtherPlayers = true;
+    /** Hostile mobs (red). */
     public static boolean showHostileMobs = true;
+    /** Neutral mobs: animals and the like (grey). */
     public static boolean showPassiveMobs = true;
+    /** Friendly mobs: villagers, traders, golems (green). */
     public static boolean showOtherEntities = true;
+    /** Tamed mobs (blue). */
+    public static boolean showPets = true;
+    /** Width of the colored frame around mob icons, in GUI pixels. */
+    public static int mobFrameWidth = 1;
+    /** A small arrow at the mob's icon pointing where it looks. */
+    public static boolean mobFacing = true;
+    /** Names of pets (given with a name tag) under their icon. */
+    public static boolean petNames = true;
+
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
     public static int entityVerticalRange = 32;
@@ -394,9 +411,24 @@ public class Config {
             true,
             () -> seeThroughGlass,
             v -> seeThroughGlass = v);
+        bool(
+            c,
+            "showPlants",
+            "Draw grass and flowers on the 2D map. If false, the block under them is shown (the \"2D map without "
+                + "plants\" mode). Areas mapped before it was kept show them until they are mapped again.",
+            true,
+            () -> showPlants,
+            v -> showPlants = v);
         tab(TAB_MAP_3D);
         group("iso");
         parent(null);
+        bool(
+            c,
+            "isoPlayerModel",
+            "Show the player as its 3D model (skin, armor, walking) on the 3D map instead of the arrow.",
+            true,
+            () -> isoPlayerModel,
+            v -> isoPlayerModel = v);
         bool(
             c,
             "isometric",
@@ -453,18 +485,6 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
-        integer(
-            c,
-            "isoOverhangDepth",
-            "How many blocks under a roof or an overhang the 3D map keeps, so the space under it is not drawn as "
-                + "solid stone when seen from the side. 0 = off. More takes more memory. Applies as chunks are copied "
-                + "again.",
-            16,
-            0,
-            64,
-            4,
-            () -> isoOverhangDepth,
-            v -> isoOverhangDepth = v);
         tab(TAB_MAP_2D);
         group("layers");
         parent(null);
@@ -596,25 +616,35 @@ public class Config {
             true,
             () -> showOtherPlayers,
             v -> showOtherPlayers = v);
+        // The mobs' own tab; still saved under the entities, where they were before.
+        tab(TAB_MOBS);
+        group("shown");
         bool(
             c,
             "showHostileMobs",
-            "Show hostile mobs on the maps.",
+            "Show hostile mobs on the maps (red frame).",
             true,
             () -> showHostileMobs,
             v -> showHostileMobs = v);
-        bool(c, "showPassiveMobs", "Show animals on the maps.", true, () -> showPassiveMobs, v -> showPassiveMobs = v);
+        bool(
+            c,
+            "showPassiveMobs",
+            "Show neutral mobs: cows, sheep and other animals (grey frame).",
+            true,
+            () -> showPassiveMobs,
+            v -> showPassiveMobs = v);
         bool(
             c,
             "showOtherEntities",
-            "Show other living entities (villagers, golems...) on the maps.",
+            "Show friendly mobs: villagers, traders, golems (green frame).",
             true,
             () -> showOtherEntities,
             v -> showOtherEntities = v);
+        bool(c, "showPets", "Show tamed mobs (blue frame).", true, () -> showPets, v -> showPets = v);
         integer(
             c,
             "verticalRange",
-            "Only show mobs at most this many blocks above or below you.",
+            "Only show mobs at most this many blocks above or below you; those below fade out the lower they are.",
             32,
             4,
             256,
@@ -641,6 +671,31 @@ public class Config {
             4,
             () -> entityIconLimit,
             v -> entityIconLimit = v);
+        integer(
+            c,
+            "frameWidth",
+            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels.",
+            1,
+            1,
+            3,
+            1,
+            () -> mobFrameWidth,
+            v -> mobFrameWidth = v);
+        bool(
+            c,
+            "facing",
+            "A small arrow at each mob's icon pointing where it looks.",
+            true,
+            () -> mobFacing,
+            v -> mobFacing = v);
+        bool(
+            c,
+            "petNames",
+            "Names of pets (given with a name tag) under their icon.",
+            true,
+            () -> petNames,
+            v -> petNames = v);
+        tab(null);
 
         c = CATEGORY_WAYPOINTS;
         group("where");
@@ -856,27 +911,28 @@ public class Config {
         save();
     }
 
-    /** Mob filter of the world map's "Mobs" button: which of hostile and friendly mobs are shown. */
-    public static final int MOBS_ALL = 0, MOBS_FRIENDLY = 1, MOBS_HOSTILE = 2, MOBS_NONE = 3;
-
-    /** Current mob filter; "friendly" is animals and other living entities (villagers, golems...). */
-    public static int getMobFilter() {
-        boolean friendly = showPassiveMobs || showOtherEntities;
-        if (showHostileMobs) {
-            return friendly ? MOBS_ALL : MOBS_HOSTILE;
-        }
-        return friendly ? MOBS_FRIENDLY : MOBS_NONE;
+    /** Whether every kind of mob and other players are shown (the "Mobs" button is not highlighted then). */
+    public static boolean allMobsShown() {
+        return showHostileMobs && showPassiveMobs && showOtherEntities && showPets && showOtherPlayers;
     }
 
-    /** Friendly mobs on the maps: animals and other living things (villagers, golems...) together. */
-    public static boolean friendlyMobsShown() {
-        return showPassiveMobs || showOtherEntities;
+    /** Whether nothing at all is shown: no kind of mob, no other players. */
+    public static boolean noMobsShown() {
+        return !showHostileMobs && !showPassiveMobs && !showOtherEntities && !showPets && !showOtherPlayers;
+    }
+
+    public static void toggleNeutralMobs() {
+        showPassiveMobs = !showPassiveMobs;
+        save();
     }
 
     public static void toggleFriendlyMobs() {
-        boolean show = !friendlyMobsShown();
-        showPassiveMobs = show;
-        showOtherEntities = show;
+        showOtherEntities = !showOtherEntities;
+        save();
+    }
+
+    public static void togglePets() {
+        showPets = !showPets;
         save();
     }
 
@@ -887,14 +943,6 @@ public class Config {
 
     public static void toggleOtherPlayers() {
         showOtherPlayers = !showOtherPlayers;
-        save();
-    }
-
-    public static void setMobFilter(int filter) {
-        showHostileMobs = filter == MOBS_ALL || filter == MOBS_HOSTILE;
-        boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
-        showPassiveMobs = friendly;
-        showOtherEntities = friendly;
         save();
     }
 
@@ -916,6 +964,11 @@ public class Config {
 
     public static void rotateIso(int quarters) {
         isoRotation = Math.floorMod(isoRotation + quarters, 4);
+        save();
+    }
+
+    public static void setShowPlants(boolean show) {
+        showPlants = show;
         save();
     }
 

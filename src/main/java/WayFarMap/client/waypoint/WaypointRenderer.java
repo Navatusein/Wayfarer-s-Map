@@ -1,10 +1,14 @@
 package WayFarMap.client.waypoint;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
@@ -22,12 +26,14 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.registry.GameData;
 
 /** Draws waypoints on the maps and in the world. */
 public class WaypointRenderer {
@@ -62,22 +68,108 @@ public class WaypointRenderer {
     public static void drawItemDirect(ItemStack stack, double centerX, double centerY, float size) {
         Minecraft mc = Minecraft.getMinecraft();
         GL11.glPushMatrix();
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
         GL11.glTranslated(centerX - size / 2.0, centerY - size / 2.0, 0);
         GL11.glScalef(size / 16f, size / 16f, 1f);
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glEnable(GL12.GL_RESCALE_NORMAL);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         RenderHelper.enableGUIStandardItemLighting();
-        try {
-            RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
-        } catch (Throwable ignored) {
-            // A broken modded item renderer must not crash the map.
-        }
+        renderItemSafely(RENDER_ITEM, mc, stack);
         RenderHelper.disableStandardItemLighting();
         GL11.glPopAttrib();
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Items never drawn: their renderer fails and leaves the game's drawing broken (GregTech's volumetric flasks). Left
+     * out of the icon picker too.
+     */
+    private static final Set<String> UNDRAWABLE_ITEMS = new HashSet<>(
+        Arrays.asList(
+            "gregtech:gt.Volumetric_Flask",
+            "miscutils:gt.Volumetric_Flask_8k",
+            "miscutils:gt.Volumetric_Flask_32k",
+            "miscutils:gt.Volumetric_Flask_Infinite"));
+
+    /** Whether the item's icon is never drawn (see {@link #UNDRAWABLE_ITEMS}). */
+    public static boolean isUndrawable(ItemStack stack) {
+        Object name = GameData.getItemRegistry()
+            .getNameForObject(stack.getItem());
+        return name != null && UNDRAWABLE_ITEMS.contains(name.toString());
+    }
+
+    /** Items whose renderer failed once ({@link #itemKey}): not drawn again, so they can't break the drawing. */
+    private static final Set<String> BROKEN_ITEMS = new HashSet<>();
+
+    private static String itemKey(ItemStack stack) {
+        return Item.getIdFromItem(stack.getItem()) + ":" + stack.getItemDamage();
+    }
+
+    /**
+     * Draws the item as in an inventory slot at 0,0, surviving modded renderers that fail or leave things behind: a
+     * renderer that throws halfway left the game's tessellator in the middle of a drawing, and every item after it
+     * then failed too (the icon picker went empty for good). Whatever happens, the tessellator is finished and the
+     * matrices the renderer left pushed are taken off. False if the item can't be drawn.
+     *
+     * After a failure, the settings such renderers change on the way (GregTech's flask: the depth test, left so that
+     * the world and the screens drew nothing anymore) are set back to the game's usual ones with plain GL calls,
+     * which mods caching the GL state (Angelica in GTNH) see too.
+     */
+    public static boolean renderItemSafely(RenderItem renderItem, Minecraft mc, ItemStack stack) {
+        String key = itemKey(stack);
+        if (BROKEN_ITEMS.contains(key) || isUndrawable(stack)) {
+            return false;
+        }
+        int modelview = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
+        float zLevel = renderItem.zLevel;
+        boolean ok = true;
+        try {
+            renderItem.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
+        } catch (Throwable t) {
+            ok = false;
+            BROKEN_ITEMS.add(key);
+            WayFarMap.LOG.warn("Could not draw the icon of item " + key + "; it is left out", t);
+            finishTessellator();
+            // Matrices it pushed and never took off (the game's item code pushes one around it); items are drawn in
+            // the model-view mode.
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            for (int extra = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH) - modelview; extra > 0; extra--) {
+                GL11.glPopMatrix();
+            }
+            resetGuiState();
+            // The game raises it before drawing and lowers it after, which a failure skips.
+            renderItem.zLevel = zLevel;
+        }
+        return ok;
+    }
+
+    /** The game's usual settings for drawing screens, after a renderer that failed halfway changed some. */
+    private static void resetGuiState() {
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GL11.glDepthFunc(GL11.GL_LEQUAL);
+        GL11.glDepthMask(true);
+        GL11.glColorMask(true, true, true, true);
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Ends a drawing a failed renderer left open, without showing what it had: drawn shrunk to nothing (only the
+     * matrix changes, put back right after).
+     */
+    private static void finishTessellator() {
+        GL11.glPushMatrix();
+        GL11.glScalef(0f, 0f, 0f);
+        try {
+            Tessellator.instance.draw();
+        } catch (Throwable ignored) {
+            // Wasn't drawing: nothing to finish.
+        } finally {
+            GL11.glPopMatrix();
+        }
     }
 
     /**

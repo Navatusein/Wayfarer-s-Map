@@ -25,6 +25,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.TeamMates;
@@ -42,6 +43,7 @@ import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
+import WayFarMap.client.map.ChunkLoadView;
 import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -180,6 +182,7 @@ public class GuiWorldMap extends ScaledScreen {
     public void initGui() {
         super.initGui();
         checkWelcome();
+        updateSurfaceView();
         if (!initialized && mc.thePlayer != null) {
             // Only on first open, not when the window is resized: back where the map was closed (unless it follows
             // the player), or at the player.
@@ -450,11 +453,17 @@ public class GuiWorldMap extends ScaledScreen {
         }, on);
     }
 
-    /** "Mobs: friendly, hostile, players", or that none are shown. */
+    /** "Mobs: neutral, friendly, pets, hostile, players", or that none are shown. */
     private static String mobsButtonText() {
         List<String> shown = new ArrayList<>();
-        if (Config.friendlyMobsShown()) {
+        if (Config.showPassiveMobs) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.neutral"));
+        }
+        if (Config.showOtherEntities) {
             shown.add(I18n.format("wayfarmap.gui.mobs.friendly"));
+        }
+        if (Config.showPets) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.pets"));
         }
         if (Config.showHostileMobs) {
             shown.add(I18n.format("wayfarmap.gui.mobs.hostile"));
@@ -466,11 +475,13 @@ public class GuiWorldMap extends ScaledScreen {
             + (shown.isEmpty() ? I18n.format("wayfarmap.gui.mobs.none") : String.join(", ", shown));
     }
 
-    /** Menu under the "Mobs" button: checkboxes for friendly mobs, hostile mobs and players; all off shows none. */
+    /** Menu under the "Mobs" button: a checkbox for each kind of mob and for players; all off shows none. */
     private void openMobsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
-        entries.add(
-            addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.friendlyMobsShown(), Config::toggleFriendlyMobs));
+        entries.add(addonToggle("wayfarmap.gui.mobs.menu.neutral", Config.showPassiveMobs, Config::toggleNeutralMobs));
+        entries
+            .add(addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs));
+        entries.add(addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets));
         entries.add(addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs));
         entries
             .add(addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
@@ -625,11 +636,13 @@ public class GuiWorldMap extends ScaledScreen {
         gridButton.active = Config.chunkGrid;
         followButton.active = Config.mapFollowPlayer;
         layoutRightButtons();
-        // Mobs: highlighted while some are hidden, dim when none are shown; the dot tells which kind of mob is left.
-        boolean friendly = Config.friendlyMobsShown(), hostile = Config.showHostileMobs;
-        mobsButton.active = !friendly || !hostile || !Config.showOtherPlayers;
-        mobsButton.dim = !friendly && !hostile && !Config.showOtherPlayers;
-        mobsButton.badge = friendly && !hostile ? Theme.SUCCESS : hostile && !friendly ? Theme.DANGER : 0;
+        // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
+        // peaceful mobs are left.
+        boolean peaceful = Config.showPassiveMobs || Config.showOtherEntities || Config.showPets;
+        boolean hostile = Config.showHostileMobs;
+        mobsButton.active = !Config.allMobsShown();
+        mobsButton.dim = Config.noMobsShown();
+        mobsButton.badge = peaceful && !hostile ? Theme.SUCCESS : hostile && !peaceful ? Theme.DANGER : 0;
         mobsButton.tooltip = mobsButtonText();
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
@@ -730,10 +743,19 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** Switches between the flat map and the 3D view, keeping the same place in the middle. */
-    /** Modes of the map, in the order of the list: flat in block colors, 3D, topography, biomes. */
-    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_TOPO = 2, MODE_BIOMES = 3;
-    private static final String[] MODE_KEYS = { "flat", "iso", "topo", "biomes" };
-    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.TOPO, Icons.BIOMES };
+    /**
+     * Modes of the map, in the order of the list: flat in block colors, 3D, flat without grass and flowers,
+     * topography, biomes.
+     */
+    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
+        MODE_CHUNKLOAD = 5, MODE_REGIONLOAD = 6;
+    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload", "regionload" };
+    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
+        Icons.CHUNKLOAD, Icons.REGIONLOAD };
+    /** The chunk loading view: the flat map with the chunks on it and those picked to be loaded. */
+    private static boolean chunkloadView;
+    /** Its region loading variant: also the chunks saved in the world, loaded from it as they are. */
+    private static boolean regionloadView;
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -742,14 +764,27 @@ public class GuiWorldMap extends ScaledScreen {
         if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
             return MODE_TOPO;
         }
-        return Config.isometric ? MODE_ISO : MODE_FLAT;
+        if (Config.isometric) {
+            return MODE_ISO;
+        }
+        if (regionloadView) {
+            return MODE_REGIONLOAD;
+        }
+        return chunkloadView ? MODE_CHUNKLOAD : Config.showPlants ? MODE_FLAT : MODE_BARE;
     }
 
-    /** Menu under the modes button: 2D map, 3D map, topography, biomes; the current one is marked. */
+    /**
+     * Menu under the modes button: 2D map, 3D map, 2D map without plants, topography, biomes; the current one is
+     * marked.
+     */
     private void openModesMenu() {
         List<MenuEntry> entries = new ArrayList<>();
         int current = currentMode();
         for (int mode = 0; mode < MODE_KEYS.length; mode++) {
+            if ((mode == MODE_CHUNKLOAD || mode == MODE_REGIONLOAD) && !ChunkLoadView.isAllowed()) {
+                // Loading from the map is for operators: the modes aren't offered to others.
+                continue;
+            }
             final int value = mode;
             String label = (mode == current ? "\u25CF " : "   ")
                 + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
@@ -768,6 +803,11 @@ public class GuiWorldMap extends ScaledScreen {
         int display = mode == MODE_TOPO ? Config.DISPLAY_TOPO
             : mode == MODE_BIOMES ? Config.DISPLAY_BIOMES : Config.DISPLAY_BLOCKS;
         Config.setMapMode(mode == MODE_ISO, display);
+        // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
+        Config.setShowPlants(mode != MODE_BARE);
+        chunkloadView = mode == MODE_CHUNKLOAD;
+        regionloadView = mode == MODE_REGIONLOAD;
+        updateSurfaceView();
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
@@ -903,7 +943,7 @@ public class GuiWorldMap extends ScaledScreen {
         boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         boolean iso = isoShown();
         if (iso) {
-            // 3D: the terrain only; the add-on layers, the grid and mobs are drawn on the flat map.
+            // 3D: the terrain; the mobs and the player come below. The add-on layers and the grid are flat only.
             IsoMap.INSTANCE.draw(
                 dimensionId,
                 Config.isoRotation,
@@ -919,9 +959,23 @@ public class GuiWorldMap extends ScaledScreen {
             drawFlatLayers(dimension, dimensionId, otherDimension, mouseX, mouseY, partialTicks);
         }
         // Teammates always, also in another dimension being looked at.
-        MapDrawer.drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
-
-        drawWaypoints(mouseX, mouseY);
+        if (!chunkloadShown()) {
+            // In 3D the teammates the client has nearby are drawn as their model with the mobs, not as a head.
+            MapDrawer.drawTeammates(
+                mc,
+                dimensionId,
+                this::toScreen,
+                scale,
+                0,
+                0,
+                width,
+                height,
+                partialTicks,
+                8f,
+                true,
+                iso && !otherDimension && IsoEntityDrawer.drawsPlayers());
+            drawWaypoints(mouseX, mouseY);
+        }
 
         double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
         double py = mc.thePlayer.prevPosY + (mc.thePlayer.posY - mc.thePlayer.prevPosY) * partialTicks
@@ -929,19 +983,35 @@ public class GuiWorldMap extends ScaledScreen {
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
         double[] playerScreen = toScreen(px, py, pz);
         double playerScreenX = playerScreen[0], playerScreenY = playerScreen[1];
-        if (!otherDimension && playerScreenX >= 0
+        boolean playerOnScreen = !otherDimension && playerScreenX >= 0
             && playerScreenY >= 0
             && playerScreenX <= width
-            && playerScreenY <= height) {
+            && playerScreenY <= height;
+        // 3D: the mobs in sight and the player as their 3D models (mobs of the player's own dimension only).
+        boolean model = iso && !otherDimension
+            && IsoEntityDrawer.draw(
+                mc,
+                this::toScreen,
+                scale,
+                isoProjection(),
+                width,
+                height,
+                partialTicks,
+                true,
+                playerOnScreen && Config.isoPlayerModel);
+        if (playerOnScreen) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
-            if (iso) {
+            // Drawn as the player itself, or else as the arrow.
+            if (!model && iso) {
                 // Where one block ahead of the player lands on the screen gives the arrow's direction.
                 double r = Math.toRadians(yaw);
                 double[] ahead = toScreen(px - Math.sin(r), py, pz + Math.cos(r));
                 yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - playerScreenX), ahead[1] - playerScreenY));
             }
-            MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f);
+            if (!model) {
+                MapDrawer.drawPlayerArrow(playerScreenX, playerScreenY, yaw, 5f);
+            }
         }
         drawOverlay(mouseX, mouseY, partialTicks, dimension, dimensionId, otherDimension, iso);
     }
@@ -950,6 +1020,24 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX, int mouseY,
         float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        if (chunkloadShown()) {
+            // Only the map and its chunks: no layers, grid or mobs.
+            updatePick(mouseX, mouseY);
+            ChunkLoadView.draw(
+                MapManager.INSTANCE.getViewMap(),
+                dimensionId,
+                centerX,
+                centerZ,
+                scale,
+                0,
+                0,
+                width,
+                height,
+                pickSelection,
+                pickRemove,
+                regionloadView);
+            return;
+        }
         if (Topography.isShown()) {
             Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height);
         }
@@ -1030,54 +1118,53 @@ public class GuiWorldMap extends ScaledScreen {
                 + hoveredWaypoint.y
                 + ", "
                 + hoveredWaypoint.z
-                + ")";
+                + ")  |  "
+                + I18n.format("wayfarmap.gui.waypoint_hint");
         }
-        Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
+        if (chunkloadShown()) {
+            int queued = ChunkLoadView.pendingCount(dimensionId);
+            cursorText += "  |  "
+                + I18n.format(regionloadView ? "wayfarmap.gui.regionload_hint" : "wayfarmap.gui.chunkload_hint")
+                + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
+        }
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
         // An area being loaded with /wf chunkload: how far it got, and the time left.
         String loadStatus = ChunkLoadClient.INSTANCE.statusText();
+        // On the right, by the help button: what is going on, or a note on the view.
+        String right = null;
+        int rightColor = Theme.TEXT_MUTED;
         if (exportStatus != null) {
-            Theme.text(
-                fontRendererObj,
-                exportStatus,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(exportStatus),
-                height - 10,
-                Theme.ACCENT);
+            right = exportStatus;
+            rightColor = Theme.ACCENT;
         } else if (loadStatus != null) {
-            Theme.text(
-                fontRendererObj,
-                loadStatus,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(loadStatus),
-                height - 10,
-                Theme.ACCENT);
+            right = loadStatus;
+            rightColor = Theme.ACCENT;
         } else if (iso) {
-            String note = I18n.format("wayfarmap.gui.iso_hint");
-            Theme.text(
-                fontRendererObj,
-                note,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
-                height - 10,
-                Theme.TEXT_MUTED);
-        } else if (claimsShown()) {
-            String counts = ClaimsLayer.countsText();
-            Theme.text(
-                fontRendererObj,
-                counts,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(counts),
-                height - 10,
-                Theme.TEXT_MUTED);
+            right = I18n.format("wayfarmap.gui.iso_hint");
+        } else if (claimsShown() && !chunkloadShown()) {
+            right = ClaimsLayer.countsText();
         } else if (Config.showClaims && Mods.isClaimsAvailable() && otherDimension) {
             // ServerUtilities takes the dimension of every claim change from the player, so claims can only be
             // shown and changed in the dimension the player is in.
-            String note = I18n.format("wayfarmap.claims.other_dimension");
-            Theme.text(
-                fontRendererObj,
-                note,
-                helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
-                height - 10,
-                Theme.DANGER);
+            right = I18n.format("wayfarmap.claims.other_dimension");
+            rightColor = Theme.DANGER;
         }
+        int rightEdge = helpButton.xPosition - 8;
+        int rightX = rightEdge;
+        if (right != null && !right.isEmpty()) {
+            // Never more than half the footer, so the left text keeps room too.
+            right = Theme.ellipsize(fontRendererObj, right, width / 2);
+            rightX = rightEdge - fontRendererObj.getStringWidth(right);
+            Theme.text(fontRendererObj, right, rightX, height - 10, rightColor);
+        }
+        // The left text takes the room left, cut short with an ellipsis rather than running into the right one.
+        Theme.text(
+            fontRendererObj,
+            Theme.ellipsize(fontRendererObj, cursorText, Math.max(20, rightX - 12 - 6)),
+            6,
+            height - 10,
+            Theme.TEXT);
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScaled(mouseX, mouseY, partialTicks);
@@ -1111,22 +1198,25 @@ public class GuiWorldMap extends ScaledScreen {
             drawMenu(mouseX, mouseY);
         } else if (hoveredIcon != null && !hoveredIcon.tooltip.isEmpty()) {
             drawHoveringText(Collections.singletonList(hoveredIcon.tooltip), mouseX, mouseY, fontRendererObj);
-        } else if (!iso && mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
-            // Power failures are drawn on top, so their tooltip comes first.
-            List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
-            if (tooltip == null && nodesShown()) {
-                tooltip = ThaumcraftNodes.getHoveredTooltip();
+        } else if (!iso && !chunkloadShown()
+            && mouseY > HEADER_HEIGHT
+            && mouseY < height - FOOTER_HEIGHT
+            && claimButton < 0) {
+                // Power failures are drawn on top, so their tooltip comes first.
+                List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
+                if (tooltip == null && nodesShown()) {
+                    tooltip = ThaumcraftNodes.getHoveredTooltip();
+                }
+                if (tooltip == null && prospecting && Config.showOreVeins) {
+                    tooltip = ProspectingLayer.getHoveredTooltip();
+                }
+                if (tooltip == null && claimsShown()) {
+                    tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
+                }
+                if (tooltip != null) {
+                    drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
+                }
             }
-            if (tooltip == null && prospecting && Config.showOreVeins) {
-                tooltip = ProspectingLayer.getHoveredTooltip();
-            }
-            if (tooltip == null && claimsShown()) {
-                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
-            }
-            if (tooltip != null) {
-                drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
-            }
-        }
     }
 
     private int headerLeftEnd() {
@@ -1450,7 +1540,7 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
         // The 3D view has no layers to point at.
-        boolean flat = !isoShown();
+        boolean flat = !isoShown() && !chunkloadShown();
         final Object vein = flat && Mods.isVisualProspectingLoaded() && Config.showOreVeins
             ? ProspectingLayer.getHoveredVein()
             : null;
@@ -1643,9 +1733,58 @@ public class GuiWorldMap extends ScaledScreen {
         return (float) Math.max(MIN_MARKER_SIZE, Math.min(MARKER_SIZE, MARKER_SIZE * Math.pow(scale, 0.4)));
     }
 
+    /** Waypoint under the mouse last frame, and how far its hover effect has grown (0 to 1). */
+    private Waypoint hoverEffectWaypoint;
+    private float hoverEffect;
+    private long hoverEffectNanos;
+    /** How much bigger a hovered waypoint is drawn. */
+    private static final float HOVER_GROWTH = 0.3f;
+    /** Time for the hover effect to grow in, in seconds. */
+    private static final float HOVER_SECONDS = 0.12f;
+    /** Time of one pulse of the frame around a hovered waypoint, in milliseconds. */
+    private static final long HOVER_PULSE_MS = 1200;
+
+    /** Grows the hover effect while the same waypoint stays under the mouse; starts over on another one. */
+    private float updateHoverEffect(Waypoint hovered) {
+        long now = System.nanoTime();
+        float seconds = hoverEffectNanos == 0 ? 0f : Math.min(0.1f, (now - hoverEffectNanos) / 1.0e9f);
+        hoverEffectNanos = now;
+        if (hovered != hoverEffectWaypoint) {
+            hoverEffectWaypoint = hovered;
+            hoverEffect = 0f;
+        } else if (hovered != null) {
+            hoverEffect = Math.min(1f, hoverEffect + seconds / HOVER_SECONDS);
+        }
+        // Eased, so it pops out and settles.
+        float t = hoverEffect;
+        return 1f - (1f - t) * (1f - t);
+    }
+
+    /**
+     * Frame around the hovered waypoint, in its color, pulsing gently: shows it can be clicked (right click: its
+     * menu). Drawn under the marker.
+     */
+    private static void drawHoverFrame(Waypoint waypoint, double sx, double sy, float size, float effect) {
+        long cx = Math.round(sx), cy = Math.round(sy);
+        GL11.glPushMatrix();
+        GL11.glTranslated(sx - cx, sy - cy, 0);
+        double pulse = 0.5 + 0.5 * Math.sin(System.currentTimeMillis() % HOVER_PULSE_MS * 2 * Math.PI / HOVER_PULSE_MS);
+        int rgb = waypoint.outlineColor != null ? waypoint.outlineColor & 0xFFFFFF : Theme.ACCENT & 0xFFFFFF;
+        int half = Math.round(size / 2f) + 3 + Math.round(effect * (float) pulse);
+        int x0 = (int) cx - half, y0 = (int) cy - half, x1 = (int) cx + half, y1 = (int) cy + half;
+        // A soft glow inside, a bright frame, and a dark line around it so it shows on any ground.
+        int glow = (int) (effect * (40 + 40 * pulse));
+        Theme.fill(x0, y0, x1, y1, glow << 24 | rgb);
+        Theme.outline(x0 - 1, y0 - 1, x1 + 1, y1 + 1, (int) (effect * 160) << 24);
+        Theme.outline(x0, y0, x1, y1, (int) (effect * (170 + 85 * pulse)) << 24 | rgb);
+        GL11.glPopMatrix();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
     private void drawWaypoints(int mouseX, int mouseY) {
         float size = markerSize();
         Waypoint hovered = waypointAt(mouseX, mouseY);
+        float effect = updateHoverEffect(hovered);
         List<Waypoint> onScreen = new ArrayList<>();
         for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
             double[] at = waypointScreen(waypoint);
@@ -1660,7 +1799,14 @@ public class GuiWorldMap extends ScaledScreen {
         }
 
         for (Waypoint waypoint : onScreen) {
-            WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+            if (waypoint == hovered) {
+                // Hovered: a pulsing frame, and the marker a little bigger.
+                float hoveredSize = size * (1f + HOVER_GROWTH * effect);
+                drawHoverFrame(waypoint, screenX(waypoint), screenY(waypoint), hoveredSize, effect);
+                WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), hoveredSize, false);
+            } else {
+                WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+            }
         }
 
         // Labels shrink with the markers when zooming out and stop growing at normal size when zooming in.
@@ -1670,7 +1816,10 @@ public class GuiWorldMap extends ScaledScreen {
         List<int[]> rects = new ArrayList<>();
         for (int i = onScreen.size() - 1; i >= 0; i--) {
             Waypoint waypoint = onScreen.get(i);
-            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, textScale);
+            // The hovered one's label moves down out of the way of its bigger marker and frame.
+            float labelSize = waypoint == hovered ? size * (1f + HOVER_GROWTH * effect) + 8 * effect : size;
+            int[] rect = WaypointRenderer
+                .getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), labelSize, textScale);
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
                 continue;
             }
@@ -1711,6 +1860,10 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     private Waypoint waypointAt(int mouseX, int mouseY) {
+        if (chunkloadShown()) {
+            // The chunk loading view shows no waypoints.
+            return null;
+        }
         Waypoint best = null;
         double bestDistance = markerSize() / 2 + 2;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
@@ -1805,7 +1958,13 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
-        if (!isoShown() && claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
+        if (chunkloadShown() && (button == 0 || button == 1) && startPick(mouseX, mouseY, button)) {
+            return;
+        }
+        if (!isoShown() && !chunkloadShown()
+            && claimsShown()
+            && (button == 0 || button == 1)
+            && startClaimPaint(mouseX, mouseY, button)) {
             return;
         }
         if (button == 0 && isoShown() && qualityAt(mouseX, mouseY) >= 0) {
@@ -1847,6 +2006,84 @@ public class GuiWorldMap extends ScaledScreen {
         if (button == claimButton) {
             finishClaimPaint();
         }
+        if (button == pickButton) {
+            finishPick();
+        }
+    }
+
+    // ---------------------------------------------------------------- chunk loading view
+
+    /** Chunks picked by the drag going on (Ctrl held) in the chunk loading view. */
+    private final Set<Long> pickSelection = new LinkedHashSet<>();
+    private int pickButton = -1;
+    /** Right button: the picked chunks are taken off the queue. */
+    private boolean pickRemove;
+    private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
+
+    /**
+     * The 3D view and the chunk and region loading views always show the surface, as with the cave mode off: the
+     * cave mode is for the flat map only.
+     */
+    private static void updateSurfaceView() {
+        MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView || regionloadView);
+    }
+
+    /** The chunk loading view: the flat map of the player's own dimension. */
+    private boolean chunkloadShown() {
+        if ((chunkloadView || regionloadView) && !ChunkLoadView.isAllowed()) {
+            // No longer allowed (or another server): back to the flat map.
+            chunkloadView = false;
+            regionloadView = false;
+            updateSurfaceView();
+        }
+        // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
+        return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
+    }
+
+    /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
+    private boolean startPick(int mouseX, int mouseY, int button) {
+        if (!Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) && !Keyboard.isKeyDown(Keyboard.KEY_RCONTROL)) {
+            return false;
+        }
+        pickButton = button;
+        pickRemove = button == 1;
+        pickStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        pickStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        pickEndX = Integer.MIN_VALUE;
+        updatePickRectangle(pickStartX, pickStartZ);
+        return true;
+    }
+
+    private void updatePick(int mouseX, int mouseY) {
+        if (pickButton < 0) {
+            return;
+        }
+        if (!Mouse.isButtonDown(pickButton)) {
+            finishPick();
+            return;
+        }
+        updatePickRectangle(
+            MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4,
+            MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4);
+    }
+
+    private void updatePickRectangle(int endX, int endZ) {
+        if (endX == pickEndX && endZ == pickEndZ) {
+            return;
+        }
+        pickEndX = endX;
+        pickEndZ = endZ;
+        pickSelection.clear();
+        pickSelection.addAll(ChunkLoadView.rectangle(pickStartX, pickStartZ, endX, endZ));
+    }
+
+    private void finishPick() {
+        if (pickButton < 0) {
+            return;
+        }
+        pickButton = -1;
+        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView);
+        pickSelection.clear();
     }
 
     // ---------------------------------------------------------------- claims painting
@@ -1984,6 +2221,7 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     public void onGuiClosed() {
         super.onGuiClosed();
+        MapManager.INSTANCE.setSurfaceView(false);
         Keyboard.enableRepeatEvents(false);
         // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
         if (Mods.isVisualProspectingLoaded()) {

@@ -3,18 +3,22 @@ package WayFarMap.client.map.iso;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockDoublePlant;
 import net.minecraft.block.material.Material;
+import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
-
-import WayFarMap.Config;
 
 /** Copies the blocks of a loaded chunk that the 3D map can see (render thread; the rest is done in the background). */
 final class BlockCapture {
 
     /** How much deeper than its own floor a chunk is stored for a neighbour's lower ground. */
     private static final int MAX_EXTRA_DEPTH = 32;
+    /**
+     * Blocks under a roof or an overhang looked through for the floor under it (rooms, caves under the surface).
+     * Open space going on past it is under something hanging in the air: its ground is found however far down.
+     */
+    private static final int OVERHANG_DEPTH = 16;
 
     private BlockCapture() {}
 
@@ -68,21 +72,65 @@ final class BlockCapture {
 
     /**
      * The floor of a column whose first block from the top that hides what is below is at {@code y}: under a roof
-     * (with open space below it) the floor under that space, down to {@link Config#isoOverhangDepth} blocks, several
+     * (with open space below it) the floor under that space, down to {@link #OVERHANG_DEPTH} blocks, several
      * storeys if there are; {@code y} itself for solid ground. Seen from the side under an overhang, the space would
-     * otherwise be drawn as solid ground.
+     * otherwise be drawn as solid ground. Open space going on past that depth is under something hanging in the air:
+     * then the floor is the ground under it, however far down. So is open space lit by the sky under a solid part of
+     * any thickness (a floating island).
      */
     private static int underOverhang(Chunk chunk, int x, int z, int y) {
         int floor = y;
+        // A few times at most: islands or platforms over one another.
+        for (int level = 0; level < 8; level++) {
+            floor = roomFloor(chunk, x, z, floor);
+            // Under the solid part, the first open cell. Lit by the sky, it is open space seen from outside: the solid
+            // part hangs over it (a floating island, a thick platform), and the ground is further down. A cave in the
+            // ground gets no sky light.
+            int yy = floor - 1;
+            while (yy >= 0 && hidesBelow(chunk.getBlock(x, yy, z))) {
+                yy--;
+            }
+            if (yy < 0 || chunk.getSavedLightValue(EnumSkyBlock.Sky, x, yy, z) == 0) {
+                return floor;
+            }
+            while (yy >= 0 && !hidesBelow(chunk.getBlock(x, yy, z))) {
+                yy--;
+            }
+            if (yy < 0) {
+                return 0;
+            }
+            floor = yy;
+        }
+        return floor;
+    }
+
+    /**
+     * The floor under a roof at {@code y}: under open space within {@link #OVERHANG_DEPTH} blocks, the floor of it;
+     * open space going on past that, the ground under it however far down; else {@code y} itself.
+     */
+    private static int roomFloor(Chunk chunk, int x, int z, int y) {
+        int floor = y;
         boolean open = false;
-        int depth = Math.max(0, Config.isoOverhangDepth);
-        for (int yy = y - 1; yy >= 0 && yy >= y - depth; yy--) {
+        int depth = OVERHANG_DEPTH;
+        int yy = y - 1;
+        for (; yy >= 0 && yy >= y - depth; yy--) {
             if (!hidesBelow(chunk.getBlock(x, yy, z))) {
                 open = true;
             } else if (open) {
                 floor = yy;
                 open = false;
             }
+        }
+        if (open) {
+            // Still in open space at the limit: not a cave under the ground but something hanging over empty space
+            // (a platform or a building high in the air). The ground is under that space, however far down: kept
+            // down to it, or the space under it would be drawn as solid stone from the side.
+            for (; yy >= 0; yy--) {
+                if (hidesBelow(chunk.getBlock(x, yy, z))) {
+                    return yy;
+                }
+            }
+            return 0;
         }
         return floor;
     }

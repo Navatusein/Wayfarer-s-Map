@@ -23,6 +23,8 @@ public final class FlatExport implements TilePyramid.Source {
     private static final int CACHED_REGIONS = 8;
 
     private final File directory;
+    /** Read where {@link #directory} has no file of a region (the surface, for the map without plants), or null. */
+    private final File fallbackDirectory;
     private final int scale;
     private final Map<Long, int[]> regions = new LinkedHashMap<Long, int[]>(16, 0.75f, true) {
 
@@ -41,6 +43,7 @@ public final class FlatExport implements TilePyramid.Source {
      */
     public FlatExport(MapDimension map, int scale) {
         this.directory = map.getDirectory();
+        this.fallbackDirectory = map.getFallbackDirectory();
         this.scale = Math.max(1, Math.min(16, Integer.highestOneBit(Math.max(1, scale))));
     }
 
@@ -67,9 +70,17 @@ public final class FlatExport implements TilePyramid.Source {
     @Override
     public Set<Long> tiles() {
         Set<Long> tiles = new HashSet<>();
-        String[] names = directory.list();
+        addTiles(tiles, directory);
+        if (fallbackDirectory != null) {
+            addTiles(tiles, fallbackDirectory);
+        }
+        return tiles;
+    }
+
+    private void addTiles(Set<Long> tiles, File folder) {
+        String[] names = folder.list();
         if (names == null) {
-            return tiles;
+            return;
         }
         for (String name : names) {
             Matcher m = REGION.matcher(name);
@@ -83,7 +94,6 @@ public final class FlatExport implements TilePyramid.Source {
                 }
             }
         }
-        return tiles;
     }
 
     @Override
@@ -121,7 +131,11 @@ public final class FlatExport implements TilePyramid.Source {
                 return cached;
             }
         }
-        int[] pixels = MapRegion.read(MapRegion.getFile(directory, rx, rz), rx, rz)
+        File file = MapRegion.getFile(directory, rx, rz);
+        if (fallbackDirectory != null && !file.isFile()) {
+            file = MapRegion.getFile(fallbackDirectory, rx, rz);
+        }
+        int[] pixels = MapRegion.read(file, rx, rz)
             .pixelArray();
         synchronized (regions) {
             regions.put(key, pixels);

@@ -52,6 +52,10 @@ public final class ShareNetwork {
         channel.registerMessage(TeammatesToClient.class, Teammates.class, 5, Side.CLIENT);
         channel.registerMessage(LoadBatchToClient.class, LoadBatch.class, 6, Side.CLIENT);
         channel.registerMessage(LoadDoneToServer.class, LoadDone.class, 7, Side.SERVER);
+        channel.registerMessage(LoadChunksToServer.class, LoadChunks.class, 8, Side.SERVER);
+        channel.registerMessage(SavedRequestToServer.class, SavedRequest.class, 9, Side.SERVER);
+        channel.registerMessage(SavedChunksToClient.class, SavedChunks.class, 10, Side.CLIENT);
+        channel.registerMessage(LoadAllowedToClient.class, LoadAllowed.class, 11, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -231,6 +235,12 @@ public final class ShareNetwork {
          */
         public int sent, reloaded, missing;
         public int serverMs, workMs;
+        /**
+         * For chunks picked on the world map: which inner chunks to map (bit (z - innerZ0) * width + x - innerX0);
+         * null maps them all. The others are only there for their neighbours (loaded so the picked ones get
+         * finished), not to be put on the map.
+         */
+        public long[] picked;
 
         @Override
         public void fromBytes(ByteBuf buf) {
@@ -254,6 +264,13 @@ public final class ShareNetwork {
             missing = buf.readInt();
             serverMs = buf.readInt();
             workMs = buf.readInt();
+            int words = buf.readInt();
+            if (words > 0) {
+                picked = new long[Math.min(words, 1024)];
+                for (int i = 0; i < picked.length; i++) {
+                    picked[i] = buf.readLong();
+                }
+            }
         }
 
         @Override
@@ -278,6 +295,12 @@ public final class ShareNetwork {
             buf.writeInt(missing);
             buf.writeInt(serverMs);
             buf.writeInt(workMs);
+            buf.writeInt(picked == null ? 0 : picked.length);
+            if (picked != null) {
+                for (long word : picked) {
+                    buf.writeLong(word);
+                }
+            }
         }
     }
 
@@ -306,6 +329,136 @@ public final class ShareNetwork {
         }
     }
 
+    /**
+     * Chunks picked on the world map's chunk loading view: to load (generating those not made yet) and map, or to
+     * take off the queue again.
+     */
+    public static final class LoadChunks implements IMessage {
+
+        /** Chunks per message: client packets are limited to 32 KB. */
+        public static final int MAX = 3000;
+
+        public boolean remove;
+        /** Loaded for the 3D map too (the player records its blocks). */
+        public boolean with3d;
+        /** Only from the world's saved chunks (the region loading view): nothing is generated. */
+        public boolean savedOnly;
+        public long[] chunks = new long[0];
+
+        public LoadChunks() {}
+
+        public LoadChunks(boolean remove, boolean with3d, boolean savedOnly, long[] chunks) {
+            this.remove = remove;
+            this.with3d = with3d;
+            this.savedOnly = savedOnly;
+            this.chunks = chunks;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            remove = buf.readBoolean();
+            with3d = buf.readBoolean();
+            savedOnly = buf.readBoolean();
+            int count = Math.min(MAX, buf.readInt());
+            chunks = new long[count];
+            for (int i = 0; i < count; i++) {
+                chunks[i] = buf.readLong();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(remove);
+            buf.writeBoolean(with3d);
+            buf.writeBoolean(savedOnly);
+            buf.writeInt(chunks.length);
+            for (long chunk : chunks) {
+                buf.writeLong(chunk);
+            }
+        }
+    }
+
+    /** The region loading view asks which chunks of these regions (x, z pairs) are saved in the world. */
+    public static final class SavedRequest implements IMessage {
+
+        /** Regions per message. */
+        public static final int MAX = 64;
+
+        public int[] regions = new int[0];
+
+        public SavedRequest() {}
+
+        public SavedRequest(int[] regions) {
+            this.regions = regions;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int count = Math.min(MAX, buf.readInt());
+            regions = new int[count * 2];
+            for (int i = 0; i < regions.length; i++) {
+                regions[i] = buf.readInt();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(regions.length / 2);
+            for (int value : regions) {
+                buf.writeInt(value);
+            }
+        }
+    }
+
+    /** Which chunks of a region are saved in the world (or loaded): bit lz * 32 + lx. */
+    public static final class SavedChunks implements IMessage {
+
+        public int dimension, regionX, regionZ;
+        public long[] bits = new long[16];
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            dimension = buf.readInt();
+            regionX = buf.readInt();
+            regionZ = buf.readInt();
+            for (int i = 0; i < 16; i++) {
+                bits[i] = buf.readLong();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(dimension);
+            buf.writeInt(regionX);
+            buf.writeInt(regionZ);
+            for (int i = 0; i < 16; i++) {
+                buf.writeLong(bits[i]);
+            }
+        }
+    }
+
+    /** Whether the player may load chunks from the world map (an operator, like the commands). */
+    public static final class LoadAllowed implements IMessage {
+
+        public boolean allowed;
+
+        public LoadAllowed() {}
+
+        public LoadAllowed(boolean allowed) {
+            this.allowed = allowed;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            allowed = buf.readBoolean();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(allowed);
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
 
     public static final class LoadBatchToClient implements IMessageHandler<LoadBatch, IMessage> {
@@ -322,6 +475,42 @@ public final class ShareNetwork {
         @Override
         public IMessage onMessage(LoadDone message, MessageContext context) {
             ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class LoadChunksToServer implements IMessageHandler<LoadChunks, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadChunks message, MessageContext context) {
+            ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class SavedRequestToServer implements IMessageHandler<SavedRequest, IMessage> {
+
+        @Override
+        public IMessage onMessage(SavedRequest message, MessageContext context) {
+            ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class SavedChunksToClient implements IMessageHandler<SavedChunks, IMessage> {
+
+        @Override
+        public IMessage onMessage(SavedChunks message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
+            return null;
+        }
+    }
+
+    public static final class LoadAllowedToClient implements IMessageHandler<LoadAllowed, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadAllowed message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
             return null;
         }
     }

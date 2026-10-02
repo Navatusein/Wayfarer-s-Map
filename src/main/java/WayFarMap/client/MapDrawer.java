@@ -1,16 +1,26 @@
 package WayFarMap.client;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.IEntityOwnable;
+import net.minecraft.entity.IMerchant;
+import net.minecraft.entity.INpc;
+import net.minecraft.entity.monster.EntityGolem;
 import net.minecraft.entity.monster.IMob;
-import net.minecraft.entity.passive.IAnimals;
+import net.minecraft.entity.passive.EntityHorse;
+import net.minecraft.entity.passive.EntityTameable;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.opengl.GL11;
@@ -318,9 +328,10 @@ public final class MapDrawer {
             day = 1f;
         } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
             day = 0f;
-        } else
-            if (mc.theWorld == null || mc.theWorld.provider.hasNoSky || MapManager.INSTANCE.getActiveCaveLayer() >= 0) {
-                // No sunlight underground: caves look the same at any time of day.
+        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
+            || MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
+                // No sunlight underground: caves look the same at any time of day (the surface shown whatever the
+                // cave mode follows the sun even with the player underground).
                 day = 1f;
             } else {
                 // Sun brightness goes from about 0.2 at midnight to 1.0 at noon.
@@ -351,98 +362,50 @@ public final class MapDrawer {
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
+        // The soft edge of the texture would be cut off by the alpha test.
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
         GL11.glTranslated(sx, sy, 0);
         // Yaw 180 faces north, which is "up" on the map.
         GL11.glRotatef(yaw + 180f, 0f, 0f, 1f);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        // Opacity comes from the vertex color: the texture is the same at any opacity.
+        PlayerMarkerTexture.bind(style, color, outline == 0 ? 0 : outline | 0xFF000000);
 
+        double half = size * PlayerMarkerTexture.EXTENT;
         Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawing(GL11.GL_TRIANGLES);
-        if (outline != 0) {
-            // The shape in the outline color shifted all around, then in its color on top: an even line around any
-            // shape.
-            tessellator.setColorRGBA_I(outline & 0xFFFFFF, (outline >>> 24) & 0xFF);
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (dx != 0 || dy != 0) {
-                        markerShape(tessellator, style, size, dx * 0.8, dy * 0.8);
-                    }
-                }
-            }
-        }
-        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
-        markerShape(tessellator, style, size, 0, 0);
+        tessellator.startDrawingQuads();
+        tessellator.setColorRGBA_I(0xFFFFFF, (color >>> 24) & 0xFF);
+        tessellator.addVertexWithUV(-half, half, 0, 0, 1);
+        tessellator.addVertexWithUV(half, half, 0, 1, 1);
+        tessellator.addVertexWithUV(half, -half, 0, 1, 0);
+        tessellator.addVertexWithUV(-half, -half, 0, 0, 0);
         tessellator.draw();
 
         GL11.glPopAttrib();
         GL11.glPopMatrix();
-    }
-
-    private static final int MARKER_SEGMENTS = 24;
-
-    /** Triangles of a marker pointing up (-y), centered on (ox, oy). */
-    private static void markerShape(Tessellator t, int style, float s, double ox, double oy) {
-        switch (style) {
-            case Config.MARKER_TRIANGLE:
-                triangle(t, ox, oy, 0, -s, -s * 0.7, s * 0.8, s * 0.7, s * 0.8);
-                break;
-            case Config.MARKER_CHEVRON:
-                // An arrow with a deep notch: a thin V.
-                triangle(t, ox, oy, 0, -s, -s * 0.8, s * 0.85, 0, -s * 0.15);
-                triangle(t, ox, oy, 0, -s, 0, -s * 0.15, s * 0.8, s * 0.85);
-                break;
-            case Config.MARKER_KITE:
-                triangle(t, ox, oy, 0, -s, -s * 0.6, s * 0.3, 0, s * 0.8);
-                triangle(t, ox, oy, 0, -s, 0, s * 0.8, s * 0.6, s * 0.3);
-                break;
-            case Config.MARKER_CIRCLE:
-                // A disc with a nose showing the direction.
-                disc(t, ox, oy, s * 0.6);
-                triangle(t, ox, oy, 0, -s * 1.2, -s * 0.42, -s * 0.38, s * 0.42, -s * 0.38);
-                break;
-            case Config.MARKER_DOT:
-                disc(t, ox, oy, s * 0.6);
-                break;
-            default:
-                // Arrow head with a notch at the back.
-                triangle(t, ox, oy, 0, -s, -s * 0.75, s, 0, s * 0.45);
-                triangle(t, ox, oy, 0, -s, 0, s * 0.45, s * 0.75, s);
-                break;
-        }
-    }
-
-    private static void triangle(Tessellator t, double ox, double oy, double x0, double y0, double x1, double y1,
-        double x2, double y2) {
-        t.addVertex(ox + x0, oy + y0, 0);
-        t.addVertex(ox + x1, oy + y1, 0);
-        t.addVertex(ox + x2, oy + y2, 0);
-    }
-
-    private static void disc(Tessellator t, double ox, double oy, double radius) {
-        for (int i = 0; i < MARKER_SEGMENTS; i++) {
-            double a0 = 2 * Math.PI * i / MARKER_SEGMENTS, a1 = 2 * Math.PI * (i + 1) / MARKER_SEGMENTS;
-            triangle(
-                t,
-                ox,
-                oy,
-                0,
-                0,
-                Math.cos(a0) * radius,
-                Math.sin(a0) * radius,
-                Math.cos(a1) * radius,
-                Math.sin(a1) * radius);
-        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Draws a filled square marker centered on the given position. */
     public static void drawDot(double sx, double sy, float radius, int color) {
+        drawDot(sx, sy, radius, color, 1f);
+    }
+
+    /** Same, with its dark border at the given opacity too. */
+    private static void drawDot(double sx, double sy, float radius, int color, float alpha) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         Tessellator tessellator = Tessellator.instance;
-        fillRect(tessellator, sx - radius - 1, sy - radius - 1, sx + radius + 1, sy + radius + 1, 0xFF000000);
+        fillRect(
+            tessellator,
+            sx - radius - 1,
+            sy - radius - 1,
+            sx + radius + 1,
+            sy + radius + 1,
+            withAlpha(0xFF000000, alpha));
         fillRect(tessellator, sx - radius, sy - radius, sx + radius, sy + radius, color);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
     }
@@ -457,12 +420,17 @@ public final class MapDrawer {
         tessellator.draw();
     }
 
+    /** Frame colors of the kinds of mobs. */
     private static final int HOSTILE_COLOR = 0xFFFF4040;
-    private static final int PASSIVE_COLOR = 0xFF60E060;
-    private static final int OTHER_COLOR = 0xFFFFE040;
+    private static final int NEUTRAL_COLOR = 0xFFA8ADB4;
+    private static final int FRIENDLY_COLOR = 0xFF50D050;
+    private static final int PET_COLOR = 0xFF4C9AFF;
+    /** Mobs this many blocks below the player are drawn in full; lower ones fade out down to the height range. */
+    private static final double FADE_START = 2;
 
     /**
-     * Draws mobs (colored dots) and other players (their face) that are within the rectangle.
+     * Draws mobs (their face in a frame colored by their kind, or a dot) and other players (their face) that are
+     * within the rectangle.
      *
      * @param playerSize size of player heads in GUI pixels
      * @param showNames  draw player names under their heads
@@ -486,7 +454,8 @@ public final class MapDrawer {
             }
             if (entity.isInvisible() || entity.isDead
                 || Math.abs(entity.posY - playerY) > Config.entityVerticalRange
-                || entityColor(entity) == 0) {
+                || entityColor(entity) == 0
+                || heightAlpha(entity, playerY) <= 0f) {
                 continue;
             }
             double sx = x + width / 2.0 + (entity.posX - centerX) * scale;
@@ -505,6 +474,7 @@ public final class MapDrawer {
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
         float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor);
         playerSize = Math.max(4f, playerSize * zoomFactor);
+        FontRenderer font = mc.fontRenderer;
         for (int i = 0; i < mobs.size(); i++) {
             EntityLivingBase entity = mobs.get(i);
             double ex = entity.prevPosX + (entity.posX - entity.prevPosX) * partialTicks;
@@ -512,21 +482,29 @@ public final class MapDrawer {
             double sx = x + width / 2.0 + (ex - centerX) * scale;
             double sy = y + height / 2.0 + (ez - centerZ) * scale;
             int color = entityColor(entity);
+            float alpha = heightAlpha(entity, playerY);
             float half = iconSize / 2f;
             if (i >= firstIcon && sx >= x + half
                 && sy >= y + half
                 && sx <= x + width - half
                 && sy <= y + height - half) {
+                if (Config.mobFacing) {
+                    // On the map itself (turning with the minimap), under the icon.
+                    drawFacing(entity, sx, sy, half, color, alpha, partialTicks);
+                }
                 pushUpright(sx, sy);
-                drawEntityIcon(entity, sx, sy, iconSize, color);
+                drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
+                String name = petName(entity);
+                if (name != null) {
+                    drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, playerSize / 10f, alpha);
+                }
                 GL11.glPopMatrix();
             } else {
-                drawDot(sx, sy, 1f, color);
+                drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
             }
         }
 
         // Players on top of mobs.
-        FontRenderer font = mc.fontRenderer;
         float half = playerSize / 2f;
         for (EntityPlayer other : players) {
             double px = other.prevPosX + (other.posX - other.prevPosX) * partialTicks;
@@ -556,32 +534,157 @@ public final class MapDrawer {
         return dx * dx + dz * dz;
     }
 
-    /** Marker color by kind of mob, or 0 if that kind is hidden. */
-    private static int entityColor(EntityLivingBase entity) {
+    /**
+     * Opacity of a mob by its height: in full down to a little below the player, then fading out the lower it is, gone
+     * at the height range. Climbing up, the mobs below fade away smoothly.
+     */
+    private static float heightAlpha(EntityLivingBase entity, double playerY) {
+        double below = playerY - entity.posY - FADE_START;
+        if (below <= 0) {
+            return 1f;
+        }
+        double range = Math.max(1, Config.entityVerticalRange - FADE_START);
+        double t = Math.min(1, below / range);
+        // Eased: fades slowly at first, then quicker.
+        return (float) (1 - t * t * (3 - 2 * t));
+    }
+
+    private static int withAlpha(int color, float alpha) {
+        return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
+    }
+
+    /** Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), neutral. */
+    static int entityColor(EntityLivingBase entity) {
+        if (isPet(entity)) {
+            return Config.showPets ? PET_COLOR : 0;
+        }
         if (entity instanceof IMob) {
             return Config.showHostileMobs ? HOSTILE_COLOR : 0;
         }
-        if (entity instanceof IAnimals) {
-            return Config.showPassiveMobs ? PASSIVE_COLOR : 0;
+        if (isFriendly(entity)) {
+            return Config.showOtherEntities ? FRIENDLY_COLOR : 0;
         }
-        return Config.showOtherEntities ? OTHER_COLOR : 0;
+        return Config.showPassiveMobs ? NEUTRAL_COLOR : 0;
+    }
+
+    /** A tamed mob: a tamed wolf or cat, a tamed horse, or a modded mob with an owner. */
+    private static boolean isPet(EntityLivingBase entity) {
+        if (entity instanceof EntityTameable) {
+            return ((EntityTameable) entity).isTamed();
+        }
+        if (entity instanceof EntityHorse) {
+            return ((EntityHorse) entity).isTame();
+        }
+        return entity instanceof IEntityOwnable && ((IEntityOwnable) entity).getOwner() != null;
+    }
+
+    /** Whether each kind of mob is friendly, by class (the name test is slow to repeat every frame). */
+    private static final Map<Class<?>, Boolean> FRIENDLY = new HashMap<>();
+
+    /**
+     * Villagers, traders and helpers: villagers and modded people (NPCs, merchants), golems, and modded traders such
+     * as hobgoblins, found by their class name.
+     */
+    private static boolean isFriendly(EntityLivingBase entity) {
+        if (entity instanceof INpc || entity instanceof IMerchant || entity instanceof EntityGolem) {
+            return true;
+        }
+        Class<?> type = entity.getClass();
+        Boolean friendly = FRIENDLY.get(type);
+        if (friendly == null) {
+            String name = type.getSimpleName()
+                .toLowerCase(Locale.ROOT);
+            friendly = name.contains("villager") || name.contains("trader")
+                || name.contains("merchant")
+                || name.contains("npc")
+                || name.contains("goblin");
+            FRIENDLY.put(type, friendly);
+        }
+        return friendly;
+    }
+
+    /** Name given to a pet with a name tag, or null (not a pet, no name, or pet names are off). */
+    private static String petName(EntityLivingBase entity) {
+        if (!Config.petNames || !(entity instanceof EntityLiving) || !isPet(entity)) {
+            return null;
+        }
+        EntityLiving living = (EntityLiving) entity;
+        return living.hasCustomNameTag() ? living.getCustomNameTag() : null;
+    }
+
+    /** Small name centered under an icon, at {@code textScale} of the normal text size. */
+    private static void drawSmallName(FontRenderer font, String name, double sx, double top, float textScale,
+        float alpha) {
+        GL11.glPushMatrix();
+        GL11.glTranslated(sx, top, 0);
+        GL11.glScalef(textScale, textScale, 1f);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        // The font treats an alpha under 4 as opaque.
+        int a = Math.max(8, Math.round(alpha * 255));
+        font.drawStringWithShadow(name, -font.getStringWidth(name) / 2, 0, a << 24 | 0xFFFFFF);
+        GL11.glPopMatrix();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
-     * Draws the mob as a flat icon: its face on a small tile framed in the color of its kind (hostile, passive, other).
-     * Falls back to a dot when the mob's face can't be found.
+     * A small arrow just outside the mob's icon on the side it looks to, in its frame color: drawn smooth (like the
+     * player's marker) and under the icon, so it seems to come out of it.
      */
-    private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color) {
+    private static void drawFacing(EntityLivingBase entity, double sx, double sy, float half, int color, float alpha,
+        float partialTicks) {
+        float yaw = entity.prevRotationYawHead
+            + MathHelper.wrapAngleTo180_float(entity.rotationYawHead - entity.prevRotationYawHead) * partialTicks;
+        double rad = Math.toRadians(yaw);
+        float arrow = Math.max(1.6f, half * 0.45f);
+        double distance = half + Config.mobFrameWidth + arrow * 0.55;
+        // Yaw 0 looks south (+z, down on the map), 90 west (-x).
+        double ax = sx - Math.sin(rad) * distance, ay = sy + Math.cos(rad) * distance;
+        drawPlayerMarker(
+            ax,
+            ay,
+            yaw,
+            arrow,
+            Config.MARKER_TRIANGLE,
+            withAlpha(color, alpha),
+            withAlpha(0xFF000000, alpha));
+    }
+
+    /**
+     * Draws the mob as a flat icon: its face on a small tile framed in the color of its kind (pet, hostile, friendly,
+     * neutral). Falls back to a dot when the mob's face can't be found.
+     */
+    private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color,
+        float alpha) {
         double half = size / 2.0;
+        int frame = Math.max(1, Config.mobFrameWidth);
         Tessellator tessellator = Tessellator.instance;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        fillRect(tessellator, sx - half - 1, sy - half - 1, sx + half + 1, sy + half + 1, color);
-        fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, 0xFF101418);
+        if (frame > 1) {
+            // A dark line around a wide frame, so it shows on its own color.
+            fillRect(
+                tessellator,
+                sx - half - frame - 0.5,
+                sy - half - frame - 0.5,
+                sx + half + frame + 0.5,
+                sy + half + frame + 0.5,
+                withAlpha(0xA0000000, alpha));
+        }
+        fillRect(
+            tessellator,
+            sx - half - frame,
+            sy - half - frame,
+            sx + half + frame,
+            sy + half + frame,
+            withAlpha(color, alpha));
+        fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, withAlpha(0xFF101418, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
-        if (!EntityIcons.drawFace(entity, sx, sy, size - 1f)) {
-            drawDot(sx, sy, 1f, color);
+        // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
+        // one side.
+        if (!EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
+            drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
@@ -631,6 +734,26 @@ public final class MapDrawer {
     /** Like the other drawTeammates, with any projection (the 3D map's). */
     public static void drawTeammates(Minecraft mc, int dimension, Projection projection, double scale, int x, int y,
         int width, int height, float partialTicks, float playerSize, boolean showNames) {
+        drawTeammates(
+            mc,
+            dimension,
+            projection,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            partialTicks,
+            playerSize,
+            showNames,
+            false);
+    }
+
+    /**
+     * @param skipLoaded leave out teammates the client has nearby (the 3D map draws them as their model)
+     */
+    public static void drawTeammates(Minecraft mc, int dimension, Projection projection, double scale, int x, int y,
+        int width, int height, float partialTicks, float playerSize, boolean showNames, boolean skipLoaded) {
         List<TeamMates.Mate> mates = TeamMates.INSTANCE.all();
         if (mates.isEmpty()) {
             return;
@@ -641,6 +764,11 @@ public final class MapDrawer {
         FontRenderer font = mc.fontRenderer;
         for (TeamMates.Mate mate : mates) {
             if (mate.dimension != dimension) {
+                continue;
+            }
+            if (skipLoaded && mc.theWorld != null
+                && mc.theWorld.provider.dimensionId == dimension
+                && mc.theWorld.func_152378_a(mate.id) != null) { // getPlayerEntityByUUID
                 continue;
             }
             double[] position = TeamMates.INSTANCE.position(mate, partialTicks);
