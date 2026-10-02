@@ -293,7 +293,8 @@ public final class IsoEntityDrawer {
     }
 
     /**
-     * Turns off the game's light map (the light of blocks and sky at a place) for the next model. Left on by the world's
+     * Turns off the game's light map (the light of blocks and sky at a place) for the next model. Left on by the
+     * world's
      * drawing or by renderers that light parts themselves (spider and enderman eyes, which also leave the previous
      * mob's darkness set), it drew a mob standing in the shade or at night all black.
      */

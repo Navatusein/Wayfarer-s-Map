@@ -122,8 +122,8 @@ final class PlayerMarkerTexture {
      * from the point as {@code DISC / NOSE = cos 60}.
      */
     private static final double NOSE = 1.2;
-    private static final double[] DROP = { 0, -NOSE, DISC * Math.sin(Math.PI / 3), -DISC * Math.cos(Math.PI / 3), 0,
-        0, -DISC * Math.sin(Math.PI / 3), -DISC * Math.cos(Math.PI / 3) };
+    private static final double[] DROP = { 0, -NOSE, DISC * Math.sin(Math.PI / 3), -DISC * Math.cos(Math.PI / 3), 0, 0,
+        -DISC * Math.sin(Math.PI / 3), -DISC * Math.cos(Math.PI / 3) };
 
     /** Signed distance from the point to the marker's shape, negative inside. */
     private static double distance(int style, double x, double y) {

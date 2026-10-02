@@ -9,7 +9,6 @@ import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 
-
 /** Copies the blocks of a loaded chunk that the 3D map can see (render thread; the rest is done in the background). */
 final class BlockCapture {
 

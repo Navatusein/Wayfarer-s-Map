@@ -197,7 +197,7 @@ public final class ChunkLoadClient {
         return count;
     }
 
-        private void start(ShareNetwork.LoadBatch b) {
+    private void start(ShareNetwork.LoadBatch b) {
         if (total <= 0 || b.doneBefore < done - 64 || b.total != total || b.with3d != with3d) {
             // A new area (or one taken up again): the time left is worked out from here.
             startedAt = System.currentTimeMillis();
