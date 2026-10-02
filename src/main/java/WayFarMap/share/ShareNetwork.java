@@ -336,18 +336,22 @@ public final class ShareNetwork {
         public static final int MAX = 3000;
 
         public boolean remove;
+        /** Loaded for the 3D map too (the player records its blocks). */
+        public boolean with3d;
         public long[] chunks = new long[0];
 
         public LoadChunks() {}
 
-        public LoadChunks(boolean remove, long[] chunks) {
+        public LoadChunks(boolean remove, boolean with3d, long[] chunks) {
             this.remove = remove;
+            this.with3d = with3d;
             this.chunks = chunks;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             remove = buf.readBoolean();
+            with3d = buf.readBoolean();
             int count = Math.min(MAX, buf.readInt());
             chunks = new long[count];
             for (int i = 0; i < count; i++) {
@@ -358,6 +362,7 @@ public final class ShareNetwork {
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeBoolean(remove);
+            buf.writeBoolean(with3d);
             buf.writeInt(chunks.length);
             for (long chunk : chunks) {
                 buf.writeLong(chunk);

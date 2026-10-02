@@ -151,7 +151,6 @@ public final class ChunkLoadClient {
                 }
                 mappedCount++;
                 scanned = true;
-                ChunkLoadView.mapped(b.dimension, cx, cz);
             }
             if (chunk != null && b.with3d && Config.record3d) {
                 // The 3D map's own time per tick; a chunk with many pictures takes several ticks.
@@ -159,6 +158,10 @@ public final class ChunkLoadClient {
                 if (!IsoMap.INSTANCE.captureForLoad(world, chunk, deadline)) {
                     return;
                 }
+            }
+            if (chunk != null) {
+                // On the flat map, and on the 3D map too if it was loaded for it: no longer waiting.
+                ChunkLoadView.mapped(b.dimension, cx, cz);
             }
             at++;
             scanned = false;

@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.Tessellator;
 
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.Config;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.share.ShareNetwork;
 
@@ -30,6 +31,12 @@ public final class ChunkLoadView {
     public static final int MAX_SIDE = 128;
     /** Below this many GUI pixels a chunk, only the picked chunks are drawn (the map has too many). */
     private static final double MIN_CELL = 3;
+
+    /**
+     * Picked chunks loaded for the 3D map too (blocks recorded): red until the loading has both, not as soon as the
+     * flat map has them.
+     */
+    private static final Set<Long> WITH_3D = new java.util.HashSet<>();
 
     /** Picked chunks of each dimension, with when they were sent: red until mapped after that. */
     private static final Map<Integer, Map<Long, Long>> PENDING_CHUNKS = new HashMap<>();
@@ -60,8 +67,14 @@ public final class ChunkLoadView {
         for (long chunk : chunks) {
             if (remove) {
                 pending.remove(chunk);
+                WITH_3D.remove(chunk);
             } else {
                 pending.put(chunk, now);
+                if (Config.record3d) {
+                    WITH_3D.add(chunk);
+                } else {
+                    WITH_3D.remove(chunk);
+                }
             }
         }
         long[] all = new long[chunks.size()];
@@ -71,7 +84,7 @@ public final class ChunkLoadView {
         }
         for (int from = 0; from < all.length; from += ShareNetwork.LoadChunks.MAX) {
             long[] part = Arrays.copyOfRange(all, from, Math.min(all.length, from + ShareNetwork.LoadChunks.MAX));
-            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, part));
+            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, Config.record3d, part));
         }
     }
 
@@ -250,7 +263,7 @@ public final class ChunkLoadView {
         if (!pending.isEmpty()) {
             Long picked = pending.get(pack(chunkX, chunkZ));
             if (picked != null) {
-                if (time > picked) {
+                if (time > picked && !WITH_3D.contains(pack(chunkX, chunkZ))) {
                     pending.remove(pack(chunkX, chunkZ));
                 } else {
                     return PENDING;
@@ -264,12 +277,17 @@ public final class ChunkLoadView {
         return state == PENDING ? PENDING_FILL : MAPPED_FILL;
     }
 
-    /** A chunk was mapped by the loading: it is done even if it looks the same as before (its time stays then). */
+    /**
+     * A chunk was mapped by the loading (on the 3D map too when it was loaded for it): it is done, even if it looks the
+     * same as before (its time stays then).
+     */
     public static void mapped(int dimension, int chunkX, int chunkZ) {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
-        if (pending != null) {
-            pending.remove(pack(chunkX, chunkZ));
+        if (pending != null && pending.remove(pack(chunkX, chunkZ)) != null) {
+            // The far view shows it green at once.
+            REGION_STATES.clear();
         }
+        WITH_3D.remove(pack(chunkX, chunkZ));
     }
 
     /** Picked chunks still waiting, for the footer. */

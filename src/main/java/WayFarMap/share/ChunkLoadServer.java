@@ -555,6 +555,8 @@ public final class ChunkLoadServer {
             }
             return;
         }
+        // For the 3D map too if these chunks or those still waiting were asked for it.
+        boolean with3d = message.with3d || old != null && old.selected != null && old.with3d;
         int cx = (int) Math.floor(player.posX) >> 4, cz = (int) Math.floor(player.posZ) >> 4;
         int radius = 1;
         for (long chunk : chunks) {
@@ -566,7 +568,7 @@ public final class ChunkLoadServer {
             cx,
             cz,
             radius,
-            false,
+            with3d,
             (int) (System.nanoTime() & 0x7FFFFFFF),
             System.currentTimeMillis(),
             Config.chunkloadBatch,
