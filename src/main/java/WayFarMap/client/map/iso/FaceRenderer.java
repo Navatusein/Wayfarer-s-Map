@@ -349,7 +349,7 @@ final class FaceRenderer {
      * back faces culled for the tile entity too, 3 with the game's item lighting for the tile entity). Not stored.
      */
     private static int variant;
-    static final String[] VARIANTS = { "usual", "noClip", "cullBackFaces", "itemLighting" };
+    static final String[] VARIANTS = { "usual", "noClip", "cullBackFaces", "noItemLighting" };
     /** While {@link #inspect} takes pictures: they are kept whole for its report, not logged. */
     private static boolean inspecting;
     private static boolean cullLogged;
@@ -1448,15 +1448,9 @@ final class FaceRenderer {
                 GL11.glDisable(GL11.GL_CULL_FACE);
             }
             if (pending.byPlace()) {
-                if (variant == 3) {
-                    RenderHelper.enableStandardItemLighting();
-                }
                 for (int pass = 0; pass < 2; pass++) {
                     RenderPass.setEntity(pass);
                     drawTileEntities(pending, pass);
-                }
-                if (variant == 3) {
-                    RenderHelper.disableStandardItemLighting();
                 }
             }
         } finally {
@@ -1559,6 +1553,13 @@ final class FaceRenderer {
                         clip(5, 0, -1, 0, pending.y + 1 + CLIP_MARGIN);
                     }
                 }
+                // Lit as the game lights tile entities in the world (it turns on the item lights before them):
+                // renderers lighting their models themselves (SGCraft's) came out nearly black without. The light
+                // map at full: the tracer adds the light of the place.
+                if (variant != 3) {
+                    RenderHelper.enableStandardItemLighting();
+                }
+                OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);
                 if (pending.shot != null) {
@@ -1571,6 +1572,10 @@ final class FaceRenderer {
                         .getSimpleName() + ", pass " + pass + ": " + BlockDiag.error(e);
                 }
             }
+            RenderHelper.disableStandardItemLighting();
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glDisable(GL11.GL_LIGHTING);
         }

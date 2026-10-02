@@ -30,7 +30,7 @@ import WayFarMap.WayFarMap;
  */
 final class FacePalette {
 
-    private static final int MAGIC = 0x57465038; // "WFP8"
+    private static final int MAGIC = 0x57465039; // "WFP9"
     /** Bytes before the first sprite: magic, resource packs, generation. */
     private static final int HEADER = 12;
     /** Pixels per side of a picture of a cube's side. */

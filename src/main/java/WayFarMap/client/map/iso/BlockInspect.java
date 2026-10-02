@@ -367,7 +367,8 @@ public final class BlockInspect {
         }
         r.append(
             "(PNG: top row the pictures over a checkerboard, bottom row their alpha; usual = what the map uses, the"
-                + " others only to compare: noClip = not cut to its column, cullBackFaces, itemLighting)\n");
+                + " others only to compare: noClip = not cut to its column, cullBackFaces, noItemLighting = tile"
+                + " entities without the game's item lights)\n");
     }
 
     // ---------------------------------------------------------------- rays
