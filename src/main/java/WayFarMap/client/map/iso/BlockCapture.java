@@ -3,6 +3,7 @@ package WayFarMap.client.map.iso;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockDoublePlant;
 import net.minecraft.block.material.Material;
+import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
@@ -75,9 +76,40 @@ final class BlockCapture {
      * (with open space below it) the floor under that space, down to {@link #OVERHANG_DEPTH} blocks, several
      * storeys if there are; {@code y} itself for solid ground. Seen from the side under an overhang, the space would
      * otherwise be drawn as solid ground. Open space going on past that depth is under something hanging in the air:
-     * then the floor is the ground under it, however far down.
+     * then the floor is the ground under it, however far down. So is open space lit by the sky under a solid part of
+     * any thickness (a floating island).
      */
     private static int underOverhang(Chunk chunk, int x, int z, int y) {
+        int floor = y;
+        // A few times at most: islands or platforms over one another.
+        for (int level = 0; level < 8; level++) {
+            floor = roomFloor(chunk, x, z, floor);
+            // Under the solid part, the first open cell. Lit by the sky, it is open space seen from outside: the solid
+            // part hangs over it (a floating island, a thick platform), and the ground is further down. A cave in the
+            // ground gets no sky light.
+            int yy = floor - 1;
+            while (yy >= 0 && hidesBelow(chunk.getBlock(x, yy, z))) {
+                yy--;
+            }
+            if (yy < 0 || chunk.getSavedLightValue(EnumSkyBlock.Sky, x, yy, z) == 0) {
+                return floor;
+            }
+            while (yy >= 0 && !hidesBelow(chunk.getBlock(x, yy, z))) {
+                yy--;
+            }
+            if (yy < 0) {
+                return 0;
+            }
+            floor = yy;
+        }
+        return floor;
+    }
+
+    /**
+     * The floor under a roof at {@code y}: under open space within {@link #OVERHANG_DEPTH} blocks, the floor of it;
+     * open space going on past that, the ground under it however far down; else {@code y} itself.
+     */
+    private static int roomFloor(Chunk chunk, int x, int z, int y) {
         int floor = y;
         boolean open = false;
         int depth = OVERHANG_DEPTH;
