@@ -92,8 +92,8 @@ final class IsoTracer {
     double hitY;
     int hitSide;
     /**
-     * Height where the ray stopped seeing through (most of the light taken by what it passed), NaN if it never did:
-     * models of mobs are hidden behind it, not behind glass or shallow water.
+     * Height where the ray stopped seeing through (met a surface drawn whole, or nearly all the light was taken by
+     * what it passed), NaN if it never did: models of mobs are hidden behind it, not behind glass or shallow water.
      */
     double solidY;
     /** Where along the ray the surface being added was met. */
@@ -1096,7 +1096,9 @@ final class IsoTracer {
         nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
         nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
         transmit *= 1 - alpha;
-        if (transmit < 0.5 && Double.isNaN(solidY)) {
+        // A surface drawn whole, or so much see-through stuff that little gets past (deep water): one layer of
+        // tinted glass (GregTech's, a good half opaque by its texture) still shows what is behind it.
+        if (Double.isNaN(solidY) && (alpha >= 0.99f || transmit < 0.1)) {
             solidY = oy + projection.rayY * lastHitT;
         }
     }
