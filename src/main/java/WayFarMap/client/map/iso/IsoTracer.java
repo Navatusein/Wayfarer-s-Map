@@ -34,6 +34,11 @@ final class IsoTracer {
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
+    /**
+     * How far (in blocks) a sprite's pixels may stick out of its block's outline and still be the block's own (two
+     * pixels of a sprite): only what reaches farther counts as a part of a model past its cell.
+     */
+    private static final double OUTLINE_MARGIN = 0.03;
     /** The largest place on a side's texture short of its far edge. */
     private static final double EDGE = Math.nextDown(1.0);
     /** How much of what is below the water's surface veils: the rest is the water body (see absorb). */
@@ -521,7 +526,7 @@ final class IsoTracer {
         for (int j = 0; j < grid && !out; j++) {
             for (int i = 0; i < grid; i++) {
                 double su = (i + 0.5) / grid, sv = (j + 0.5) / grid;
-                if ((sprite.texel(su, sv, 0) >>> 24) >= 128 && !withinCell(su * 2 - 1, sv * 2 - 1, 0.03)) {
+                if ((sprite.texel(su, sv, 0) >>> 24) >= 128 && !withinCell(su * 2 - 1, sv * 2 - 1, OUTLINE_MARGIN)) {
                     out = true;
                     break;
                 }
@@ -549,8 +554,10 @@ final class IsoTracer {
             int ox = (x & ~15) + olx, oz = (z & ~15) + olz;
             double du = rayU - projection.u(ox + 0.5, oz + 0.5);
             double dv = rayV - projection.v(ox + 0.5, oy + 0.5, oz + 0.5);
-            if (withinCell(du, dv, 0)) {
-                // That part is drawn by rays through the model's own cell.
+            if (withinCell(du, dv, OUTLINE_MARGIN)) {
+                // That part is drawn by rays through the model's own cell. With a margin: the sprite's pixels on
+                // its outline stick out a little, and drew the edges of blocks (the top of a panel below) as dotted
+                // lines over the block in front.
                 continue;
             }
             int id = blocks.pictureId(cell, projection.rotation);
