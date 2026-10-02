@@ -52,6 +52,7 @@ public final class ShareNetwork {
         channel.registerMessage(TeammatesToClient.class, Teammates.class, 5, Side.CLIENT);
         channel.registerMessage(LoadBatchToClient.class, LoadBatch.class, 6, Side.CLIENT);
         channel.registerMessage(LoadDoneToServer.class, LoadDone.class, 7, Side.SERVER);
+        channel.registerMessage(LoadChunksToServer.class, LoadChunks.class, 8, Side.SERVER);
     }
 
     public static void sendToServer(IMessage message) {
@@ -306,6 +307,45 @@ public final class ShareNetwork {
         }
     }
 
+    /**
+     * Chunks picked on the world map's chunk loading view: to load (generating those not made yet) and map, or to
+     * take off the queue again.
+     */
+    public static final class LoadChunks implements IMessage {
+
+        /** Chunks per message: client packets are limited to 32 KB. */
+        public static final int MAX = 3000;
+
+        public boolean remove;
+        public long[] chunks = new long[0];
+
+        public LoadChunks() {}
+
+        public LoadChunks(boolean remove, long[] chunks) {
+            this.remove = remove;
+            this.chunks = chunks;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            remove = buf.readBoolean();
+            int count = Math.min(MAX, buf.readInt());
+            chunks = new long[count];
+            for (int i = 0; i < count; i++) {
+                chunks[i] = buf.readLong();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(remove);
+            buf.writeInt(chunks.length);
+            for (long chunk : chunks) {
+                buf.writeLong(chunk);
+            }
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
 
     public static final class LoadBatchToClient implements IMessageHandler<LoadBatch, IMessage> {
@@ -321,6 +361,15 @@ public final class ShareNetwork {
 
         @Override
         public IMessage onMessage(LoadDone message, MessageContext context) {
+            ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class LoadChunksToServer implements IMessageHandler<LoadChunks, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadChunks message, MessageContext context) {
             ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
             return null;
         }

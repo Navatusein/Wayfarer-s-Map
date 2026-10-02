@@ -43,6 +43,7 @@ import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
+import WayFarMap.client.map.ChunkLoadView;
 import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -745,9 +746,13 @@ public class GuiWorldMap extends ScaledScreen {
      * Modes of the map, in the order of the list: flat in block colors, 3D, flat without grass and flowers,
      * topography, biomes.
      */
-    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4;
-    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes" };
-    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES };
+    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
+        MODE_CHUNKLOAD = 5;
+    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
+    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
+        Icons.GRID };
+    /** The chunk loading view: the flat map with the chunks on it and those picked to be loaded. */
+    private static boolean chunkloadView;
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -756,7 +761,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
             return MODE_TOPO;
         }
-        return Config.isometric ? MODE_ISO : Config.showPlants ? MODE_FLAT : MODE_BARE;
+        if (Config.isometric) {
+            return MODE_ISO;
+        }
+        return chunkloadView ? MODE_CHUNKLOAD : Config.showPlants ? MODE_FLAT : MODE_BARE;
     }
 
     /**
@@ -787,6 +795,7 @@ public class GuiWorldMap extends ScaledScreen {
         Config.setMapMode(mode == MODE_ISO, display);
         // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
         Config.setShowPlants(mode != MODE_BARE);
+        chunkloadView = mode == MODE_CHUNKLOAD;
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
@@ -998,6 +1007,21 @@ public class GuiWorldMap extends ScaledScreen {
         if (Config.chunkGrid) {
             MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
+        if (chunkloadShown()) {
+            updatePick(mouseX, mouseY);
+            ChunkLoadView.draw(
+                MapManager.INSTANCE.getViewMap(),
+                dimensionId,
+                centerX,
+                centerZ,
+                scale,
+                0,
+                0,
+                width,
+                height,
+                pickSelection,
+                pickRemove);
+        }
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
             ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
@@ -1067,6 +1091,11 @@ public class GuiWorldMap extends ScaledScreen {
                 + hoveredWaypoint.z
                 + ")  |  "
                 + I18n.format("wayfarmap.gui.waypoint_hint");
+        }
+        if (chunkloadShown()) {
+            int queued = ChunkLoadView.pendingCount(dimensionId);
+            cursorText += "  |  " + I18n.format("wayfarmap.gui.chunkload_hint")
+                + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String exportStatus = MapExport.statusText();
@@ -1900,6 +1929,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
+        if (chunkloadShown() && (button == 0 || button == 1) && startPick(mouseX, mouseY, button)) {
+            return;
+        }
         if (!isoShown() && claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
             return;
         }
@@ -1942,6 +1974,71 @@ public class GuiWorldMap extends ScaledScreen {
         if (button == claimButton) {
             finishClaimPaint();
         }
+        if (button == pickButton) {
+            finishPick();
+        }
+    }
+
+    // ---------------------------------------------------------------- chunk loading view
+
+    /** Chunks picked by the drag going on (Ctrl held) in the chunk loading view. */
+    private final Set<Long> pickSelection = new LinkedHashSet<>();
+    private int pickButton = -1;
+    /** Right button: the picked chunks are taken off the queue. */
+    private boolean pickRemove;
+    private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
+
+    /** The chunk loading view: the flat map of the player's own dimension. */
+    private boolean chunkloadShown() {
+        return chunkloadView && !isoShown()
+            && !MapManager.INSTANCE.isViewingOtherDimension()
+            && MapManager.INSTANCE.getViewCaveLayer() < 0;
+    }
+
+    /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
+    private boolean startPick(int mouseX, int mouseY, int button) {
+        if (!Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) && !Keyboard.isKeyDown(Keyboard.KEY_RCONTROL)) {
+            return false;
+        }
+        pickButton = button;
+        pickRemove = button == 1;
+        pickStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
+        pickStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
+        pickEndX = Integer.MIN_VALUE;
+        updatePickRectangle(pickStartX, pickStartZ);
+        return true;
+    }
+
+    private void updatePick(int mouseX, int mouseY) {
+        if (pickButton < 0) {
+            return;
+        }
+        if (!Mouse.isButtonDown(pickButton)) {
+            finishPick();
+            return;
+        }
+        updatePickRectangle(
+            MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4,
+            MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4);
+    }
+
+    private void updatePickRectangle(int endX, int endZ) {
+        if (endX == pickEndX && endZ == pickEndZ) {
+            return;
+        }
+        pickEndX = endX;
+        pickEndZ = endZ;
+        pickSelection.clear();
+        pickSelection.addAll(ChunkLoadView.rectangle(pickStartX, pickStartZ, endX, endZ));
+    }
+
+    private void finishPick() {
+        if (pickButton < 0) {
+            return;
+        }
+        pickButton = -1;
+        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove);
+        pickSelection.clear();
     }
 
     // ---------------------------------------------------------------- claims painting

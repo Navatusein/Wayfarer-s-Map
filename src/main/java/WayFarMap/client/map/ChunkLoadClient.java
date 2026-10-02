@@ -146,6 +146,7 @@ public final class ChunkLoadClient {
                 }
                 mappedCount++;
                 scanned = true;
+                ChunkLoadView.mapped(b.dimension, cx, cz);
             }
             if (chunk != null && b.with3d && Config.record3d) {
                 // The 3D map's own time per tick; a chunk with many pictures takes several ticks.

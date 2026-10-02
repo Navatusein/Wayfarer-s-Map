@@ -90,9 +90,19 @@ public final class ChunkLoadServer {
         long batchStarted, workNanos;
         /** {@link #savedOnly}: which region files are there, by region key (looked at once each). */
         final Map<Long, Boolean> regionFiles = new HashMap<>();
+        /**
+         * Chunks picked on the world map ({@link #pack}), or null: then only they are mapped, and loaded with the
+         * ring of chunks around them that the game needs to finish them (trees, ores).
+         */
+        java.util.Set<Long> selected;
 
         Job(UUID player, int dimension, int centerX, int centerZ, int radius, boolean with3d, int id, long started,
             int batch, boolean savedOnly, boolean full) {
+            this(player, dimension, centerX, centerZ, radius, with3d, id, started, batch, savedOnly, full, null);
+        }
+
+        Job(UUID player, int dimension, int centerX, int centerZ, int radius, boolean with3d, int id, long started,
+            int batch, boolean savedOnly, boolean full, java.util.Set<Long> selected) {
             this.player = player;
             this.dimension = dimension;
             this.centerX = centerX;
@@ -104,7 +114,10 @@ public final class ChunkLoadServer {
             this.id = id;
             this.started = started;
             this.batch = Math.max(2, batch);
-            if (!full) {
+            this.selected = selected;
+            if (selected != null) {
+                selectionOrder();
+            } else if (!full) {
                 this.order = spiral((radius + this.batch - 1) / this.batch, radius, this.batch);
                 long side = 2L * radius + 1;
                 this.total = side * side;
@@ -127,6 +140,11 @@ public final class ChunkLoadServer {
          */
         void regionOrder(WorldServer world) {
             java.util.Set<Long> cells = new java.util.HashSet<>();
+            regionCells(world, cells);
+            orderCells(cells);
+        }
+
+        private void regionCells(WorldServer world, java.util.Set<Long> cells) {
             for (int[] region : regionFiles(world)) {
                 int x0 = region[0] * 32, z0 = region[1] * 32;
                 int i0 = Math.floorDiv(x0 - centerX + batch / 2, batch);
@@ -139,6 +157,47 @@ public final class ChunkLoadServer {
                     }
                 }
             }
+        }
+
+        /** A picked chunks job's batches: those holding a picked chunk, nearest first. */
+        void selectionOrder() {
+            java.util.Set<Long> cells = new java.util.HashSet<>();
+            for (long chunk : selected) {
+                int i = Math.floorDiv(unpackX(chunk) - centerX + batch / 2, batch);
+                int j = Math.floorDiv(unpackZ(chunk) - centerZ + batch / 2, batch);
+                cells.add(((long) i << 32) | (j & 0xFFFFFFFFL));
+            }
+            orderCells(cells);
+            total = selected.size();
+        }
+
+        /** Whether the chunk or one around it is picked (a picked chunks job loads only those). */
+        boolean nearSelected(int x, int z) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (selected.contains(pack(x + dx, z + dz))) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /** Picked chunks in the batch. */
+        int selectedIn(int[] inner) {
+            int count = 0;
+            for (int x = inner[0]; x <= inner[2]; x++) {
+                for (int z = inner[1]; z <= inner[3]; z++) {
+                    if (selected.contains(pack(x, z))) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        /** The batches from {@code cells}, nearest to the center first; the total is their chunks. */
+        private void orderCells(java.util.Set<Long> cells) {
             List<int[]> list = new ArrayList<>();
             for (long cell : cells) {
                 list.add(new int[] { (int) (cell >> 32), (int) cell });
@@ -160,6 +219,18 @@ public final class ChunkLoadServer {
         int batches() {
             return order.length / 2;
         }
+    }
+
+    static long pack(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    static int unpackX(long packed) {
+        return (int) (packed >> 32);
+    }
+
+    static int unpackZ(long packed) {
+        return (int) packed;
     }
 
     private final Map<UUID, Job> jobs = new HashMap<>();
@@ -404,14 +475,28 @@ public final class ChunkLoadServer {
         inbox.add(new Object[] { player.getUniqueID(), message });
     }
 
+    /** From the network thread: chunks picked on the player's world map. */
+    void receive(EntityPlayerMP player, ShareNetwork.LoadChunks message) {
+        inbox.add(new Object[] { player.getUniqueID(), message });
+    }
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || jobs.isEmpty()) {
-            inbox.clear();
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        if (jobs.isEmpty() && inbox.isEmpty()) {
             return;
         }
         Object[] next;
         while ((next = inbox.poll()) != null) {
+            if (next[1] instanceof ShareNetwork.LoadChunks) {
+                EntityPlayerMP player = online((UUID) next[0]);
+                if (player != null) {
+                    pick(player, (ShareNetwork.LoadChunks) next[1]);
+                }
+                continue;
+            }
             Job job = jobs.get(next[0]);
             ShareNetwork.LoadDone done = (ShareNetwork.LoadDone) next[1];
             if (job != null && job.waiting && done.job == job.id && done.index == job.index) {
@@ -424,6 +509,75 @@ public final class ChunkLoadServer {
                 break;
             }
             work(job, end);
+        }
+    }
+
+    /**
+     * Chunks picked on the world map: added to (or taken off) the player's picked chunks job, which goes on with
+     * what it hasn't done yet. Operators only, like the command.
+     */
+    private void pick(EntityPlayerMP player, ShareNetwork.LoadChunks message) {
+        if (!player.canCommandSenderUseCommand(2, "wf")) {
+            player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.not_allowed"));
+            return;
+        }
+        java.util.Set<Long> chunks = new java.util.LinkedHashSet<>();
+        Job old = jobs.get(player.getUniqueID());
+        if (old != null && old.selected != null && old.dimension == player.dimension && old.order != null) {
+            // What the old job hasn't mapped yet: the batch being done and those after it.
+            for (int n = old.index; n < old.batches(); n++) {
+                int[] inner = old.inner(n);
+                for (int x = inner[0]; x <= inner[2]; x++) {
+                    for (int z = inner[1]; z <= inner[3]; z++) {
+                        if (old.selected.contains(pack(x, z))) {
+                            chunks.add(pack(x, z));
+                        }
+                    }
+                }
+            }
+        }
+        for (long chunk : message.chunks) {
+            if (message.remove) {
+                chunks.remove(chunk);
+            } else {
+                chunks.add(chunk);
+            }
+        }
+        if (old != null) {
+            jobs.remove(old.player);
+            release(old, old.previousOuter, null);
+            release(old, old.loading, null);
+        }
+        if (chunks.isEmpty()) {
+            save();
+            if (old != null && old.selected != null) {
+                player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.picked_none"));
+            }
+            return;
+        }
+        int cx = (int) Math.floor(player.posX) >> 4, cz = (int) Math.floor(player.posZ) >> 4;
+        int radius = 1;
+        for (long chunk : chunks) {
+            radius = Math.max(radius, Math.max(Math.abs(unpackX(chunk) - cx), Math.abs(unpackZ(chunk) - cz)));
+        }
+        Job job = new Job(
+            player.getUniqueID(),
+            player.dimension,
+            cx,
+            cz,
+            radius,
+            false,
+            (int) (System.nanoTime() & 0x7FFFFFFF),
+            System.currentTimeMillis(),
+            Config.chunkloadBatch,
+            false,
+            false,
+            chunks);
+        jobs.put(job.player, job);
+        save();
+        if (!message.remove) {
+            player.addChatMessage(
+                new ChatComponentTranslation("wayfarmap.chunkload.picked", message.chunks.length, chunks.size()));
         }
     }
 
@@ -501,8 +655,8 @@ public final class ChunkLoadServer {
         int width = outer[2] - outer[0] + 1, count = width * (outer[3] - outer[1] + 1);
         while (job.loadingAt < count && System.nanoTime() < end) {
             int x = outer[0] + job.loadingAt % width, z = outer[1] + job.loadingAt / width;
-            if (job.savedOnly && !isSaved(job, world, x, z)) {
-                // Never saved: nothing to map there, and nothing is generated.
+            if (job.savedOnly && !isSaved(job, world, x, z) || job.selected != null && !job.nearSelected(x, z)) {
+                // Never saved (nothing to map there, nothing is generated), or not near a picked chunk.
                 job.loadingAt++;
                 continue;
             }
@@ -529,7 +683,7 @@ public final class ChunkLoadServer {
         long reloadStart = System.nanoTime();
         for (int z = outer[1]; z <= outer[3]; z++) {
             for (int x = outer[0]; x <= outer[2]; x++) {
-                if (job.savedOnly && !isSaved(job, world, x, z)) {
+                if (job.savedOnly && !isSaved(job, world, x, z) || job.selected != null && !job.nearSelected(x, z)) {
                     continue;
                 }
                 if (!world.theChunkProviderServer.chunkExists(x, z)) {
@@ -550,8 +704,8 @@ public final class ChunkLoadServer {
             }
         }
         job.workNanos += System.nanoTime() - reloadStart;
-        if (job.savedOnly && chunks.isEmpty()) {
-            // Nothing saved in the whole batch: on to the next one without asking the player's map.
+        if ((job.savedOnly || job.selected != null) && chunks.isEmpty()) {
+            // Nothing (saved, or picked) in the whole batch: on to the next one without asking the player's map.
             batchDone(job);
             return;
         }
@@ -612,7 +766,8 @@ public final class ChunkLoadServer {
     private void batchDone(Job job) {
         job.waiting = false;
         int[] inner = job.inner(job.index);
-        job.done += (long) (inner[2] - inner[0] + 1) * (inner[3] - inner[1] + 1);
+        job.done += job.selected != null ? job.selectedIn(inner)
+            : (long) (inner[2] - inner[0] + 1) * (inner[3] - inner[1] + 1);
         // The batch before is let go (this one stays: the next one needs its ring).
         release(job, job.previousOuter, job.loading);
         job.previousOuter = job.loading;
@@ -728,7 +883,8 @@ public final class ChunkLoadServer {
                     tag.getLong("started"),
                     tag.hasKey("batch") ? tag.getInteger("batch") : DEFAULT_BATCH,
                     tag.getBoolean("savedOnly"),
-                    tag.getBoolean("full"));
+                    tag.getBoolean("full"),
+                    picked(tag.getIntArray("picked")));
                 job.index = tag.getInteger("index");
                 job.done = tag.getLong("done");
                 if (job.full || job.index < job.batches()) {
@@ -767,6 +923,15 @@ public final class ChunkLoadServer {
             tag.setInteger("batch", job.batch);
             tag.setBoolean("savedOnly", job.savedOnly);
             tag.setBoolean("full", job.full);
+            if (job.selected != null) {
+                int[] picked = new int[job.selected.size() * 2];
+                int n = 0;
+                for (long chunk : job.selected) {
+                    picked[n++] = unpackX(chunk);
+                    picked[n++] = unpackZ(chunk);
+                }
+                tag.setIntArray("picked", picked);
+            }
             tag.setInteger("index", job.index);
             tag.setLong("done", job.done);
             list.appendTag(tag);
@@ -782,6 +947,18 @@ public final class ChunkLoadServer {
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not save " + file, e);
         }
+    }
+
+    /** The picked chunks saved with a job, or null for a job of the commands. */
+    private static java.util.Set<Long> picked(int[] saved) {
+        if (saved == null || saved.length < 2) {
+            return null;
+        }
+        java.util.Set<Long> chunks = new java.util.LinkedHashSet<>();
+        for (int n = 0; n + 1 < saved.length; n += 2) {
+            chunks.add(pack(saved[n], saved[n + 1]));
+        }
+        return chunks;
     }
 
     private static File file() {

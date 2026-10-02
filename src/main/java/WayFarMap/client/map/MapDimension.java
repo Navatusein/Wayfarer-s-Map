@@ -112,6 +112,25 @@ public class MapDimension {
         return tile == null ? 0 : tile.getPixel(lx / LodTile.FACTOR, lz / LodTile.FACTOR);
     }
 
+    /**
+     * Whether the chunk is on the map, from what is in memory: when it was mapped (0 = never) from the full region;
+     * else 1 if the reduced copy shows it and 0 if not; 0 if the region has no file; -1 if nothing is in memory.
+     */
+    public long chunkTimeInMemory(int chunkX, int chunkZ) {
+        long key = key(chunkX >> 5, chunkZ >> 5);
+        int lx = chunkX & 31, lz = chunkZ & 31;
+        MapRegion region = regions.get(key);
+        if (region != null) {
+            return region.getChunkTime(lx, lz);
+        }
+        LodTile tile = lods.get(key);
+        if (tile != null) {
+            // The middle of the chunk in the reduced copy (4 pixels a chunk).
+            return (tile.getPixel(lx * 4 + 2, lz * 4 + 2) >>> 24) != 0 ? 1 : 0;
+        }
+        return missing.contains(key) ? 0 : -1;
+    }
+
     /** Like {@link #peekPixel}, for the extra byte (height or biome); 0 if unknown. */
     public int peekExtra(int x, int z) {
         long key = key(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
