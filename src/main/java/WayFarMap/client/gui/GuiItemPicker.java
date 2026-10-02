@@ -65,7 +65,7 @@ public class GuiItemPicker extends ScaledScreen {
                 subItems.add(new ItemStack(item));
             }
             for (ItemStack stack : subItems) {
-                if (stack == null || stack.getItem() == null) {
+                if (stack == null || stack.getItem() == null || WaypointRenderer.isUndrawable(stack)) {
                     continue;
                 }
                 String name;

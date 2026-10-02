@@ -1,5 +1,6 @@
 package WayFarMap.client.waypoint;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +33,7 @@ import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.registry.GameData;
 
 /** Draws waypoints on the maps and in the world. */
 public class WaypointRenderer {
@@ -80,6 +82,24 @@ public class WaypointRenderer {
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
+    /**
+     * Items never drawn: their renderer fails and leaves the game's drawing broken (GregTech's volumetric flasks). Left
+     * out of the icon picker too.
+     */
+    private static final Set<String> UNDRAWABLE_ITEMS = new HashSet<>(
+        Arrays.asList(
+            "gregtech:gt.Volumetric_Flask",
+            "miscutils:gt.Volumetric_Flask_8k",
+            "miscutils:gt.Volumetric_Flask_32k",
+            "miscutils:gt.Volumetric_Flask_Infinite"));
+
+    /** Whether the item's icon is never drawn (see {@link #UNDRAWABLE_ITEMS}). */
+    public static boolean isUndrawable(ItemStack stack) {
+        Object name = GameData.getItemRegistry()
+            .getNameForObject(stack.getItem());
+        return name != null && UNDRAWABLE_ITEMS.contains(name.toString());
+    }
+
     /** Items whose renderer failed once ({@link #itemKey}): not drawn again, so they can't break the drawing. */
     private static final Set<String> BROKEN_ITEMS = new HashSet<>();
 
@@ -99,7 +119,7 @@ public class WaypointRenderer {
      */
     public static boolean renderItemSafely(RenderItem renderItem, Minecraft mc, ItemStack stack) {
         String key = itemKey(stack);
-        if (BROKEN_ITEMS.contains(key)) {
+        if (BROKEN_ITEMS.contains(key) || isUndrawable(stack)) {
             return false;
         }
         int modelview = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
