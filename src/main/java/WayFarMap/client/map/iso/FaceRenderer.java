@@ -1195,11 +1195,14 @@ final class FaceRenderer {
      * its alpha it was a hole on the map (a gap in the rim of SGCraft's DHD). See-through ones keep their alpha.
      * Renderers that blend set their own blending, which then keeps theirs.
      */
+    /** OpenGL 1.4's blend factor of the constant alpha (LWJGL 2 keeps it in ARB_imaging only). */
+    private static final int GL_CONSTANT_ALPHA = 0x8003;
+
     private static void drawnPixelsWhole(boolean whole) {
         if (whole && GLContext.getCapabilities().OpenGL14) {
             GL11.glEnable(GL11.GL_BLEND);
             GL14.glBlendColor(0f, 0f, 0f, 1f);
-            GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ZERO, GL14.GL_CONSTANT_ALPHA, GL11.GL_ZERO);
+            GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ZERO, GL_CONSTANT_ALPHA, GL11.GL_ZERO);
         } else {
             GL11.glDisable(GL11.GL_BLEND);
         }
