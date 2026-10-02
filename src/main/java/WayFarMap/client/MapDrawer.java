@@ -680,7 +680,9 @@ public final class MapDrawer {
             withAlpha(color, alpha));
         fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, withAlpha(0xFF101418, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
-        if (!EntityIcons.drawFace(entity, sx, sy, size - 1f, alpha)) {
+        // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
+        // one side.
+        if (!EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
             drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
