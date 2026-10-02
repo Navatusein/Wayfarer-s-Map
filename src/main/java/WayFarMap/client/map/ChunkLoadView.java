@@ -20,10 +20,15 @@ import WayFarMap.share.ShareNetwork;
  * map has them (then they turn green and join the rest), each area with one border around it like claims. Chunks
  * are picked by dragging with Ctrl; the server loads them (generating those not made yet) through
  * {@code /wf chunkload}'s batches.
+ * <p>
+ * Its region loading variant also shows in grey the chunks saved in the world (its region files) that the map
+ * doesn't have, as the server tells; only those can be picked, and they are loaded from the world as they are,
+ * nothing generated ({@code /wf regionload}'s way).
  */
 public final class ChunkLoadView {
 
-    private static final int NONE = 0, MAPPED = 1, PENDING = 2;
+    private static final int NONE = 0, MAPPED = 1, PENDING = 2, SAVED = 3;
+    private static final int SAVED_FILL = 0x8B949E, SAVED_BORDER = 0x6E7681;
     private static final int MAPPED_FILL = 0x3FB950, MAPPED_BORDER = 0x2EA043;
     private static final int PENDING_FILL = 0xE5534B, PENDING_BORDER = 0xFF5050;
     private static final int FILL_ALPHA = 80, PENDING_ALPHA = 120, BORDER_ALPHA = 230;
@@ -37,6 +42,16 @@ public final class ChunkLoadView {
      * flat map has them.
      */
     private static final Set<Long> WITH_3D = new java.util.HashSet<>();
+
+    /** Region loading view: which chunks of each region are saved in the world, by dimension and region key. */
+    private static final Map<Integer, Map<Long, long[]>> SAVED_CHUNKS = new HashMap<>();
+    /** When each region was last asked about (by dimension and region key). */
+    private static final Map<Integer, Map<Long, Long>> ASKED = new HashMap<>();
+    /** Regions asked about again after this long; not asked again sooner while no answer came. */
+    private static final long SAVED_REFRESH_MS = 30_000, ASK_AGAIN_MS = 5000;
+    private static long lastAsk;
+    /** Whether the view being drawn is the region loading one. */
+    private static boolean regionsMode;
 
     /** Picked chunks of each dimension, with when they were sent: red until mapped after that. */
     private static final Map<Integer, Map<Long, Long>> PENDING_CHUNKS = new HashMap<>();
@@ -55,8 +70,21 @@ public final class ChunkLoadView {
         return (int) packed;
     }
 
-    /** Sends the picked chunks to the server to be loaded (or taken off the queue) and marks them. */
-    public static void pick(int dimension, Set<Long> chunks, boolean remove) {
+    /**
+     * Sends the picked chunks to the server to be loaded (or taken off the queue) and marks them.
+     *
+     * @param regions from the region loading view: only chunks saved in the world are taken, loaded as they are
+     */
+    public static void pick(int dimension, Set<Long> chunks, boolean remove, boolean regions) {
+        if (regions && !remove) {
+            Set<Long> saved = new java.util.LinkedHashSet<>();
+            for (long chunk : chunks) {
+                if (isSaved(dimension, unpackX(chunk), unpackZ(chunk))) {
+                    saved.add(chunk);
+                }
+            }
+            chunks = saved;
+        }
         if (chunks.isEmpty()) {
             return;
         }
@@ -84,7 +112,7 @@ public final class ChunkLoadView {
         }
         for (int from = 0; from < all.length; from += ShareNetwork.LoadChunks.MAX) {
             long[] part = Arrays.copyOfRange(all, from, Math.min(all.length, from + ShareNetwork.LoadChunks.MAX));
-            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, Config.record3d, part));
+            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, Config.record3d, regions, part));
         }
     }
 
@@ -93,9 +121,14 @@ public final class ChunkLoadView {
      *
      * @param selection chunks of the drag going on, or null
      * @param removing  the drag takes chunks off the queue
+     * @param regions   the region loading view (saved chunks in grey)
      */
     public static void draw(MapDimension surface, int dimension, double centerX, double centerZ, double scale, int x,
-        int y, int width, int height, Set<Long> selection, boolean removing) {
+        int y, int width, int height, Set<Long> selection, boolean removing, boolean regions) {
+        if (regions != regionsMode) {
+            regionsMode = regions;
+            REGION_STATES.clear();
+        }
         double left = centerX - width / 2.0 / scale, top = centerZ - height / 2.0 / scale;
         int minX = (int) Math.floor(left) >> 4, maxX = (int) Math.floor(left + width / scale) >> 4;
         int minZ = (int) Math.floor(top) >> 4, maxZ = (int) Math.floor(top + height / scale) >> 4;
@@ -103,6 +136,9 @@ public final class ChunkLoadView {
         double pixel = 1.0 / ScaledScreen.currentFactor();
         double border = Math.max(pixel, Math.min(3, cell / 12));
         Map<Long, Long> pending = PENDING_CHUNKS.computeIfAbsent(dimension, d -> new HashMap<>());
+        if (regions) {
+            askSaved(dimension, minX >> 5, maxX >> 5, minZ >> 5, maxZ >> 5);
+        }
 
         begin();
         if (cell >= MIN_CELL && surface != null) {
@@ -111,7 +147,7 @@ public final class ChunkLoadView {
             int[] state = new int[w * h];
             for (int j = 0; j < h; j++) {
                 for (int i = 0; i < w; i++) {
-                    state[j * w + i] = state(surface, pending, minX - 1 + i, minZ - 1 + j);
+                    state[j * w + i] = state(surface, pending, dimension, minX - 1 + i, minZ - 1 + j);
                 }
             }
             // Fill: runs of the same state along each row, as one rectangle.
@@ -138,7 +174,7 @@ public final class ChunkLoadView {
                     if (s == NONE) {
                         continue;
                     }
-                    int color = s == PENDING ? PENDING_BORDER : MAPPED_BORDER;
+                    int color = s == PENDING ? PENDING_BORDER : s == SAVED ? SAVED_BORDER : MAPPED_BORDER;
                     double sx = x + ((minX - 1 + i) * 16 - left) * scale;
                     double sy = y + ((minZ - 1 + j) * 16 - top) * scale;
                     if (state[(j - 1) * w + i] != s) {
@@ -196,7 +232,7 @@ public final class ChunkLoadView {
                             double sy = y + ((rz * 32 + lz) * 16 - top) * scale;
                             // At least a pixel, so far out the areas still show.
                             rect(sx, sy, Math.max(pixel, cell * (lx - start)), Math.max(pixel, cell),
-                                st == PENDING ? PENDING_BORDER : MAPPED_FILL,
+                                st == PENDING ? PENDING_BORDER : fill(st),
                                 st == PENDING ? BORDER_ALPHA : FILL_ALPHA + 40, x, y, width, height);
                         }
                     }
@@ -231,7 +267,12 @@ public final class ChunkLoadView {
         if (kept != null && now - (Long) kept[0] < REGION_REFRESH_MS && kept[2] == surface) {
             return (byte[]) kept[1];
         }
-        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz)) {
+        boolean anySaved = false;
+        if (regionsMode) {
+            Map<Long, long[]> savedRegions = SAVED_CHUNKS.get(dimension);
+            anySaved = savedRegions != null && savedRegions.containsKey(regionKey(rx, rz));
+        }
+        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz) && !anySaved) {
             // Nothing of it on the map in memory, nothing picked: no need to look at its 1024 chunks.
             REGION_STATES.put(key, new Object[] { now, EMPTY, surface });
             return EMPTY;
@@ -239,7 +280,7 @@ public final class ChunkLoadView {
         byte[] states = new byte[32 * 32];
         for (int lz = 0; lz < 32; lz++) {
             for (int lx = 0; lx < 32; lx++) {
-                states[lz * 32 + lx] = (byte) state(surface, pending, rx * 32 + lx, rz * 32 + lz);
+                states[lz * 32 + lx] = (byte) state(surface, pending, dimension, rx * 32 + lx, rz * 32 + lz);
             }
         }
         REGION_STATES.put(key, new Object[] { now, states, surface });
@@ -258,7 +299,7 @@ public final class ChunkLoadView {
     }
 
         /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
-    private static int state(MapDimension surface, Map<Long, Long> pending, int chunkX, int chunkZ) {
+    private static int state(MapDimension surface, Map<Long, Long> pending, int dimension, int chunkX, int chunkZ) {
         long time = surface.chunkTimeInMemory(chunkX, chunkZ);
         if (!pending.isEmpty()) {
             Long picked = pending.get(pack(chunkX, chunkZ));
@@ -270,11 +311,77 @@ public final class ChunkLoadView {
                 }
             }
         }
-        return time > 0 ? MAPPED : NONE;
+        if (time > 0) {
+            return MAPPED;
+        }
+        return regionsMode && isSaved(dimension, chunkX, chunkZ) ? SAVED : NONE;
     }
 
     private static int fill(int state) {
-        return state == PENDING ? PENDING_FILL : MAPPED_FILL;
+        return state == PENDING ? PENDING_FILL : state == SAVED ? SAVED_FILL : MAPPED_FILL;
+    }
+
+    /** Whether the server said the chunk is saved in the world (region loading view); false if not known yet. */
+    private static boolean isSaved(int dimension, int chunkX, int chunkZ) {
+        Map<Long, long[]> regions = SAVED_CHUNKS.get(dimension);
+        long[] bits = regions == null ? null : regions.get(regionKey(chunkX >> 5, chunkZ >> 5));
+        if (bits == null) {
+            return false;
+        }
+        int bit = (chunkZ & 31) * 32 + (chunkX & 31);
+        return (bits[bit >> 6] & 1L << (bit & 63)) != 0;
+    }
+
+    private static long regionKey(int rx, int rz) {
+        return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+    }
+
+    /**
+     * Asks the server which chunks of the regions on screen are saved: those never asked or not answered for a while,
+     * nearest to the middle first, a message at most every quarter second.
+     */
+    private static void askSaved(int dimension, int minRx, int maxRx, int minRz, int maxRz) {
+        long now = System.currentTimeMillis();
+        if (now - lastAsk < 250) {
+            return;
+        }
+        Map<Long, long[]> known = SAVED_CHUNKS.computeIfAbsent(dimension, d -> new HashMap<>());
+        Map<Long, Long> asked = ASKED.computeIfAbsent(dimension, d -> new HashMap<>());
+        List<int[]> wanted = new ArrayList<>();
+        for (int rz = minRz; rz <= maxRz; rz++) {
+            for (int rx = minRx; rx <= maxRx; rx++) {
+                long key = regionKey(rx, rz);
+                Long when = asked.get(key);
+                long again = known.containsKey(key) ? SAVED_REFRESH_MS : ASK_AGAIN_MS;
+                if (when == null || now - when >= again) {
+                    wanted.add(new int[] { rx, rz });
+                }
+            }
+        }
+        if (wanted.isEmpty()) {
+            return;
+        }
+        final int midX = (minRx + maxRx) / 2, midZ = (minRz + maxRz) / 2;
+        wanted.sort(
+            (a, b) -> Integer.compare(
+                Math.abs(a[0] - midX) + Math.abs(a[1] - midZ),
+                Math.abs(b[0] - midX) + Math.abs(b[1] - midZ)));
+        int count = Math.min(wanted.size(), ShareNetwork.SavedRequest.MAX);
+        int[] regions = new int[count * 2];
+        for (int n = 0; n < count; n++) {
+            regions[n * 2] = wanted.get(n)[0];
+            regions[n * 2 + 1] = wanted.get(n)[1];
+            asked.put(regionKey(wanted.get(n)[0], wanted.get(n)[1]), now);
+        }
+        lastAsk = now;
+        ShareNetwork.sendToServer(new ShareNetwork.SavedRequest(regions));
+    }
+
+    /** The server's answer: which chunks of a region are saved in the world. */
+    public static void saved(ShareNetwork.SavedChunks message) {
+        SAVED_CHUNKS.computeIfAbsent(message.dimension, d -> new HashMap<>())
+            .put(regionKey(message.regionX, message.regionZ), message.bits);
+        REGION_STATES.clear();
     }
 
     /**

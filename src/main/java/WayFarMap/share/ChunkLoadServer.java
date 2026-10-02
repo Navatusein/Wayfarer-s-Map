@@ -480,6 +480,52 @@ public final class ChunkLoadServer {
         inbox.add(new Object[] { player.getUniqueID(), message });
     }
 
+    /** From the network thread: the region loading view asks which chunks are saved. */
+    void receive(EntityPlayerMP player, ShareNetwork.SavedRequest message) {
+        inbox.add(new Object[] { player.getUniqueID(), message });
+    }
+
+    /** Answers which chunks of the regions are saved in the player's dimension (operators only). */
+    private void answerSaved(EntityPlayerMP player, ShareNetwork.SavedRequest message) {
+        if (!player.canCommandSenderUseCommand(2, "wf")) {
+            return;
+        }
+        WorldServer world = DimensionManager.getWorld(player.dimension);
+        if (world == null) {
+            return;
+        }
+        File folder = world.getChunkSaveLocation();
+        for (int n = 0; n + 1 < message.regions.length; n += 2) {
+            int rx = message.regions[n], rz = message.regions[n + 1];
+            ShareNetwork.SavedChunks answer = new ShareNetwork.SavedChunks();
+            answer.dimension = player.dimension;
+            answer.regionX = rx;
+            answer.regionZ = rz;
+            File file = new File(new File(folder, "region"), "r." + rx + "." + rz + ".mca");
+            // Region files that aren't there are not made (the region cache would create them).
+            net.minecraft.world.chunk.storage.RegionFile region = file.isFile() && file.length() > 0
+                ? RegionFileCache.createOrLoadRegionFile(folder, rx * 32, rz * 32)
+                : null;
+            for (int lz = 0; lz < 32; lz++) {
+                for (int lx = 0; lx < 32; lx++) {
+                    boolean saved = world.theChunkProviderServer.chunkExists(rx * 32 + lx, rz * 32 + lz);
+                    if (!saved && region != null) {
+                        try {
+                            saved = region.isChunkSaved(lx, lz);
+                        } catch (RuntimeException e) {
+                            saved = false;
+                        }
+                    }
+                    if (saved) {
+                        int bit = lz * 32 + lx;
+                        answer.bits[bit >> 6] |= 1L << (bit & 63);
+                    }
+                }
+            }
+            ShareNetwork.sendTo(answer, player);
+        }
+    }
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
@@ -490,6 +536,13 @@ public final class ChunkLoadServer {
         }
         Object[] next;
         while ((next = inbox.poll()) != null) {
+            if (next[1] instanceof ShareNetwork.SavedRequest) {
+                EntityPlayerMP player = online((UUID) next[0]);
+                if (player != null) {
+                    answerSaved(player, (ShareNetwork.SavedRequest) next[1]);
+                }
+                continue;
+            }
             if (next[1] instanceof ShareNetwork.LoadChunks) {
                 EntityPlayerMP player = online((UUID) next[0]);
                 if (player != null) {
@@ -557,6 +610,8 @@ public final class ChunkLoadServer {
         }
         // For the 3D map too if these chunks or those still waiting were asked for it.
         boolean with3d = message.with3d || old != null && old.selected != null && old.with3d;
+        // Nothing generated if these picks and those still waiting are all from the world's saved chunks.
+        boolean savedOnly = message.savedOnly && (old == null || old.selected == null || old.savedOnly);
         int cx = (int) Math.floor(player.posX) >> 4, cz = (int) Math.floor(player.posZ) >> 4;
         int radius = 1;
         for (long chunk : chunks) {
@@ -572,7 +627,7 @@ public final class ChunkLoadServer {
             (int) (System.nanoTime() & 0x7FFFFFFF),
             System.currentTimeMillis(),
             Config.chunkloadBatch,
-            false,
+            savedOnly,
             false,
             chunks);
         jobs.put(job.player, job);

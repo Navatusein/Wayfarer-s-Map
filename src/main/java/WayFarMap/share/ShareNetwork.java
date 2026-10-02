@@ -53,6 +53,8 @@ public final class ShareNetwork {
         channel.registerMessage(LoadBatchToClient.class, LoadBatch.class, 6, Side.CLIENT);
         channel.registerMessage(LoadDoneToServer.class, LoadDone.class, 7, Side.SERVER);
         channel.registerMessage(LoadChunksToServer.class, LoadChunks.class, 8, Side.SERVER);
+        channel.registerMessage(SavedRequestToServer.class, SavedRequest.class, 9, Side.SERVER);
+        channel.registerMessage(SavedChunksToClient.class, SavedChunks.class, 10, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -338,13 +340,16 @@ public final class ShareNetwork {
         public boolean remove;
         /** Loaded for the 3D map too (the player records its blocks). */
         public boolean with3d;
+        /** Only from the world's saved chunks (the region loading view): nothing is generated. */
+        public boolean savedOnly;
         public long[] chunks = new long[0];
 
         public LoadChunks() {}
 
-        public LoadChunks(boolean remove, boolean with3d, long[] chunks) {
+        public LoadChunks(boolean remove, boolean with3d, boolean savedOnly, long[] chunks) {
             this.remove = remove;
             this.with3d = with3d;
+            this.savedOnly = savedOnly;
             this.chunks = chunks;
         }
 
@@ -352,6 +357,7 @@ public final class ShareNetwork {
         public void fromBytes(ByteBuf buf) {
             remove = buf.readBoolean();
             with3d = buf.readBoolean();
+            savedOnly = buf.readBoolean();
             int count = Math.min(MAX, buf.readInt());
             chunks = new long[count];
             for (int i = 0; i < count; i++) {
@@ -363,9 +369,69 @@ public final class ShareNetwork {
         public void toBytes(ByteBuf buf) {
             buf.writeBoolean(remove);
             buf.writeBoolean(with3d);
+            buf.writeBoolean(savedOnly);
             buf.writeInt(chunks.length);
             for (long chunk : chunks) {
                 buf.writeLong(chunk);
+            }
+        }
+    }
+
+    /** The region loading view asks which chunks of these regions (x, z pairs) are saved in the world. */
+    public static final class SavedRequest implements IMessage {
+
+        /** Regions per message. */
+        public static final int MAX = 64;
+
+        public int[] regions = new int[0];
+
+        public SavedRequest() {}
+
+        public SavedRequest(int[] regions) {
+            this.regions = regions;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int count = Math.min(MAX, buf.readInt());
+            regions = new int[count * 2];
+            for (int i = 0; i < regions.length; i++) {
+                regions[i] = buf.readInt();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(regions.length / 2);
+            for (int value : regions) {
+                buf.writeInt(value);
+            }
+        }
+    }
+
+    /** Which chunks of a region are saved in the world (or loaded): bit lz * 32 + lx. */
+    public static final class SavedChunks implements IMessage {
+
+        public int dimension, regionX, regionZ;
+        public long[] bits = new long[16];
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            dimension = buf.readInt();
+            regionX = buf.readInt();
+            regionZ = buf.readInt();
+            for (int i = 0; i < 16; i++) {
+                bits[i] = buf.readLong();
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(dimension);
+            buf.writeInt(regionX);
+            buf.writeInt(regionZ);
+            for (int i = 0; i < 16; i++) {
+                buf.writeLong(bits[i]);
             }
         }
     }
@@ -395,6 +461,24 @@ public final class ShareNetwork {
         @Override
         public IMessage onMessage(LoadChunks message, MessageContext context) {
             ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class SavedRequestToServer implements IMessageHandler<SavedRequest, IMessage> {
+
+        @Override
+        public IMessage onMessage(SavedRequest message, MessageContext context) {
+            ChunkLoadServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            return null;
+        }
+    }
+
+    public static final class SavedChunksToClient implements IMessageHandler<SavedChunks, IMessage> {
+
+        @Override
+        public IMessage onMessage(SavedChunks message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
             return null;
         }
     }

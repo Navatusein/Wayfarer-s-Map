@@ -95,6 +95,8 @@ public final class ChunkLoadClient {
         while ((message = inbox.poll()) != null) {
             if (message instanceof ShareNetwork.LoadBatch) {
                 start((ShareNetwork.LoadBatch) message);
+            } else if (message instanceof ShareNetwork.SavedChunks) {
+                ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
             }
         }
         ShareNetwork.LoadBatch b = batch;

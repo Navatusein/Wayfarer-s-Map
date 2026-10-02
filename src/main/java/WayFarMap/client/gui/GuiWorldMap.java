@@ -183,7 +183,7 @@ public class GuiWorldMap extends ScaledScreen {
         super.initGui();
         checkWelcome();
         // The chunk loading view always shows the surface, whatever the cave mode.
-        MapManager.INSTANCE.setSurfaceView(chunkloadView);
+        MapManager.INSTANCE.setSurfaceView(chunkloadView || regionloadView);
         if (!initialized && mc.thePlayer != null) {
             // Only on first open, not when the window is resized: back where the map was closed (unless it follows
             // the player), or at the player.
@@ -749,12 +749,14 @@ public class GuiWorldMap extends ScaledScreen {
      * topography, biomes.
      */
     private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
-        MODE_CHUNKLOAD = 5;
-    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
+        MODE_CHUNKLOAD = 5, MODE_REGIONLOAD = 6;
+    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload", "regionload" };
     private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
-        Icons.CHUNKLOAD };
+        Icons.CHUNKLOAD, Icons.REGIONLOAD };
     /** The chunk loading view: the flat map with the chunks on it and those picked to be loaded. */
     private static boolean chunkloadView;
+    /** Its region loading variant: also the chunks saved in the world, loaded from it as they are. */
+    private static boolean regionloadView;
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -765,6 +767,9 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Config.isometric) {
             return MODE_ISO;
+        }
+        if (regionloadView) {
+            return MODE_REGIONLOAD;
         }
         return chunkloadView ? MODE_CHUNKLOAD : Config.showPlants ? MODE_FLAT : MODE_BARE;
     }
@@ -798,7 +803,8 @@ public class GuiWorldMap extends ScaledScreen {
         // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
         Config.setShowPlants(mode != MODE_BARE);
         chunkloadView = mode == MODE_CHUNKLOAD;
-        MapManager.INSTANCE.setSurfaceView(chunkloadView);
+        regionloadView = mode == MODE_REGIONLOAD;
+        MapManager.INSTANCE.setSurfaceView(chunkloadView || regionloadView);
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
@@ -1013,7 +1019,8 @@ public class GuiWorldMap extends ScaledScreen {
                 width,
                 height,
                 pickSelection,
-                pickRemove);
+                pickRemove,
+                regionloadView);
             return;
         }
         if (Topography.isShown()) {
@@ -1101,7 +1108,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (chunkloadShown()) {
             int queued = ChunkLoadView.pendingCount(dimensionId);
-            cursorText += "  |  " + I18n.format("wayfarmap.gui.chunkload_hint")
+            cursorText += "  |  "
+                + I18n.format(regionloadView ? "wayfarmap.gui.regionload_hint" : "wayfarmap.gui.chunkload_hint")
                 + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
@@ -2008,7 +2016,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** The chunk loading view: the flat map of the player's own dimension. */
     private boolean chunkloadShown() {
         // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
-        return chunkloadView && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
+        return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
     /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
@@ -2053,7 +2061,7 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         pickButton = -1;
-        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove);
+        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView);
         pickSelection.clear();
     }
 
