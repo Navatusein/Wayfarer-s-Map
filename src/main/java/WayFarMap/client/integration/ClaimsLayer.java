@@ -176,6 +176,15 @@ public final class ClaimsLayer {
     private static final int BORDER_COLOR = 0x505050, LOADED_BORDER_COLOR = 0xFF5050, BORDER_ALPHA = 230;
     /** Dashed diagonal lines over chunk loaded chunks. */
     private static final int DASH_COLOR = 0x000000, DASH_ALPHA = 90;
+    /** Brightness of the fill of claimed chunks that aren't chunk loaded. */
+    private static final float CLAIMED_SHADE = 0.78f;
+
+    private static int darker(int rgb, float factor) {
+        int r = (int) (((rgb >> 16) & 0xFF) * factor), g = (int) (((rgb >> 8) & 0xFF) * factor);
+        int b = (int) ((rgb & 0xFF) * factor);
+        return r << 16 | g << 8 | b;
+    }
+
     /** Selection being dragged: a light veil (ServerUtilities' own), outlined in the action's color here. */
     private static final int SELECTION_ALPHA = 33;
 
@@ -229,7 +238,13 @@ public final class ClaimsLayer {
             shown.add(pos);
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            rect(sx, sy, cell, cell, teamColor(entry.getValue()), FILL_ALPHA, x, y, width, height);
+            int fill = teamColor(entry.getValue());
+            if (!entry.getValue()
+                .isLoaded()) {
+                // Only claimed: a little darker than the chunk loaded ones, so those stand out.
+                fill = darker(fill, CLAIMED_SHADE);
+            }
+            rect(sx, sy, cell, cell, fill, FILL_ALPHA, x, y, width, height);
         }
         for (ChunkDimPos pos : shown) {
             ClientClaimedChunks.ChunkData data = get(pos.posX, pos.posZ, dimension);
