@@ -336,7 +336,7 @@ final class IsoTracer {
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
                         spriteMet = false;
                         int drawn = spriteId == 0 ? SPRITE_NONE
-                            : sprite(spriteId, look, x, y, z, side, t, lightHere, sameRun);
+                            : sprite(spriteId, look, x, y, z, side, t, lightHere, sameRun, true);
                         if (spriteMet && look.translucent) {
                             spriteRun = key;
                         }
@@ -560,7 +560,7 @@ final class IsoTracer {
             int blockCell = blocks.cells[cell];
             BlockLooks.Look look = BlockLooks.get(ChunkBlocks.lookKey(blockCell));
             int light = brighter(light(blockCell), previousLight);
-            if (sprite(id, look, ox, oy, oz, side, t, light, false) == SPRITE_STOP) {
+            if (sprite(id, look, ox, oy, oz, side, t, light, false, false) == SPRITE_STOP) {
                 return SPRITE_STOP;
             }
         }
@@ -584,7 +584,7 @@ final class IsoTracer {
      *         from its icons instead)
      */
     private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere,
-        boolean sameRun) {
+        boolean sameRun, boolean ownCell) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
             if (id == FacePalette.EMPTY) {
@@ -599,6 +599,11 @@ final class IsoTracer {
         int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
         if (exactAlpha < minAlpha) {
+            if (!ownCell) {
+                // Only the parts of a model reaching past its cell: a pixel next to the block's own outline would
+                // draw its edge (the top of a block below) over the block in front.
+                return SPRITE_PASS;
+            }
             // The edge of a side lies between pixels of the sprite, at a different place in each block's sprite:
             // where neither of two blocks next to each other has the pixel drawn, a line showed through the wall
             // (glass, connected tile entities). A pixel drawn right next to it stands in.
