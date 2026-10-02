@@ -1,5 +1,6 @@
 package WayFarMap.client;
 
+import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -16,8 +17,10 @@ import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.util.MathHelper;
+import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
@@ -124,6 +127,9 @@ public final class IsoEntityDrawer {
         items.sort((a, b) -> Double.compare(a.depth, b.depth));
 
         boolean playerDrawn = false;
+        // Night as the map shows it (the time of day, or the day/night buttons): the models get darker with it.
+        float night = MapDrawer.nightAmount(mc);
+        float[] tint = MapDrawer.lightTint(mc);
         RenderManager manager = RenderManager.instance;
         float viewY = manager.playerViewY, viewX = manager.playerViewX;
         boolean depthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
@@ -137,7 +143,7 @@ public final class IsoEntityDrawer {
             for (Item item : items) {
                 // Each model only hides itself (its own back parts): the order above does the rest.
                 GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
-                boolean drawn = drawModel(item, azimuth, partialTicks);
+                boolean drawn = drawModel(item, azimuth, partialTicks, light(mc.theWorld, item.entity, night, tint));
                 if (item.entity == mc.thePlayer) {
                     playerDrawn = drawn;
                     playerFailed |= !drawn;
@@ -176,7 +182,7 @@ public final class IsoEntityDrawer {
     }
 
     /** Draws one model standing with its feet on its screen point; false if its renderer failed. */
-    private static boolean drawModel(Item item, double azimuth, float partialTicks) {
+    private static boolean drawModel(Item item, double azimuth, float partialTicks, float[] light) {
         EntityLivingBase entity = item.entity;
         GL11.glPushMatrix();
         try {
@@ -190,6 +196,7 @@ public final class IsoEntityDrawer {
             // Lit from above, fixed in the world like the map's light; never by the light where the mob really is.
             fullBright();
             RenderHelper.enableStandardItemLighting();
+            dimLights(light);
             GL11.glEnable(GL12.GL_RESCALE_NORMAL);
             // The game draws the player that far below its position.
             GL11.glTranslatef(0f, entity.yOffset, 0f);
@@ -218,6 +225,53 @@ public final class IsoEntityDrawer {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Warm light of torches and lamps, as on the 3D map at night. */
+    private static final float[] WARM = { 1.05f, 0.88f, 0.62f };
+    /** The game's own light of the inventory models (RenderHelper): of each lamp, and all around. */
+    private static final float LAMP = 0.6f, AMBIENT = 0.4f;
+    private static final FloatBuffer LIGHT_BUFFER = BufferUtils.createFloatBuffer(4);
+
+    /**
+     * Light of a model as the 3D map lights the place: full by day; by night the map's moonlight tint, warmed by the
+     * torches and lamps lighting the block the mob stands in.
+     */
+    private static float[] light(World world, EntityLivingBase entity, float night, float[] tint) {
+        if (night <= 0.01f) {
+            return new float[] { 1f, 1f, 1f };
+        }
+        int x = MathHelper.floor_double(entity.posX), z = MathHelper.floor_double(entity.posZ);
+        int y = Math.max(0, Math.min(255, MathHelper.floor_double(entity.boundingBox.minY + 0.5)));
+        int level = Math.max(0, Math.min(15, world.getSavedLightValue(EnumSkyBlock.Block, x, y, z)));
+        float lamps = world.provider.lightBrightnessTable[level];
+        float[] light = new float[3];
+        for (int i = 0; i < 3; i++) {
+            light[i] = Math.min(1f, tint[i] + night * WARM[i] * lamps * 0.8f);
+        }
+        return light;
+    }
+
+    /** Scales the game's model lights (set up by RenderHelper just before) by the light of the place. */
+    private static void dimLights(float[] light) {
+        if (light[0] >= 1f && light[1] >= 1f && light[2] >= 1f) {
+            return;
+        }
+        lightColor(LAMP, light);
+        GL11.glLight(GL11.GL_LIGHT0, GL11.GL_DIFFUSE, LIGHT_BUFFER);
+        lightColor(LAMP, light);
+        GL11.glLight(GL11.GL_LIGHT1, GL11.GL_DIFFUSE, LIGHT_BUFFER);
+        lightColor(AMBIENT, light);
+        GL11.glLightModel(GL11.GL_LIGHT_MODEL_AMBIENT, LIGHT_BUFFER);
+    }
+
+    private static void lightColor(float strength, float[] light) {
+        LIGHT_BUFFER.clear();
+        LIGHT_BUFFER.put(strength * light[0])
+            .put(strength * light[1])
+            .put(strength * light[2])
+            .put(1f);
+        LIGHT_BUFFER.flip();
     }
 
     /** Whether the map's viewer sees the mob (checked again every few ticks). */
