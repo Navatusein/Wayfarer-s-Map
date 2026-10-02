@@ -21,6 +21,9 @@ import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.tileentity.TileEntityChest;
+import net.minecraft.tileentity.TileEntityEnderChest;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.IIcon;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
@@ -1175,16 +1178,79 @@ final class FaceRenderer {
         }
     }
 
-    /** The block's tile entity and those next to it (a double chest's other half) that draw in the render pass. */
+    /**
+     * Tile entities whose renderer draws far past their block, by the box they tell the game to draw them in (a
+     * stargate's whole ring, drawn by its base: the ring's blocks draw nothing). Found again at most once a second.
+     */
+    private static List<TileEntity> bigTileEntities = new ArrayList<>();
+    private static World bigWorld;
+    private static long bigFoundAt;
+    /** Largest size of such a box that is believed (some say "everywhere"). */
+    private static final double BIG_MAX_SIZE = 32;
+
+    private static List<TileEntity> bigTileEntities(World world) {
+        long now = System.currentTimeMillis();
+        if (world == bigWorld && now - bigFoundAt < 1000) {
+            return bigTileEntities;
+        }
+        bigWorld = world;
+        bigFoundAt = now;
+        List<TileEntity> found = new ArrayList<>();
+        for (Object o : world.loadedTileEntityList) {
+            if (!(o instanceof TileEntity) || o instanceof TileEntityChest || o instanceof TileEntityEnderChest) {
+                // Chests say a box a block larger all around for their lids; their other half is drawn anyway.
+                continue;
+            }
+            TileEntity tileEntity = (TileEntity) o;
+            try {
+                if (tileEntity.isInvalid() || !TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity)) {
+                    continue;
+                }
+                AxisAlignedBB box = tileEntity.getRenderBoundingBox();
+                if (box == null || box == TileEntity.INFINITE_EXTENT_AABB
+                    || box.maxX - box.minX > BIG_MAX_SIZE
+                    || box.maxY - box.minY > BIG_MAX_SIZE
+                    || box.maxZ - box.minZ > BIG_MAX_SIZE) {
+                    continue;
+                }
+                int x = tileEntity.xCoord, y = tileEntity.yCoord, z = tileEntity.zCoord;
+                double m = OWN_MODEL_MARGIN;
+                if (box.minX < x - m || box.maxX > x + 1 + m
+                    || box.minY < y - m
+                    || box.maxY > y + 1 + m
+                    || box.minZ < z - m
+                    || box.maxZ > z + 1 + m) {
+                    found.add(tileEntity);
+                }
+            } catch (RuntimeException ignored) {}
+        }
+        bigTileEntities = found;
+        return found;
+    }
+
+    /**
+     * The block's tile entity, those next to it (a double chest's other half) and those drawing over its place from
+     * farther (a stargate's base under a block of its ring) that draw in the render pass.
+     */
     private static void drawTileEntities(Pending pending, int pass) {
         World world = pending.tileEntity.getWorldObj();
-        for (int n = -1; n < 4; n++) {
-            TileEntity tileEntity = n < 0 ? pending.tileEntity
-                : world == null ? null
+        List<TileEntity> big = world == null ? new ArrayList<>() : bigTileEntities(world);
+        for (int n = -1; n < 4 + big.size(); n++) {
+            TileEntity tileEntity;
+            if (n < 0) {
+                tileEntity = pending.tileEntity;
+            } else if (n < 4) {
+                tileEntity = world == null ? null
                     : world.getTileEntity(
                         pending.x + (n == 0 ? -1 : n == 1 ? 1 : 0),
                         pending.y,
                         pending.z + (n == 2 ? -1 : n == 3 ? 1 : 0));
+            } else {
+                tileEntity = big.get(n - 4);
+                if (!drawsOver(tileEntity, pending)) {
+                    continue;
+                }
+            }
             if (tileEntity == null || !TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity)) {
                 continue;
             }
@@ -1196,6 +1262,12 @@ final class FaceRenderer {
                     // Its own model with room around; one next to it (a double chest's other half) only in this
                     // column. Not cut at its hidden sides: what they draw (a panel's text) reaches past them.
                     clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN, false);
+                    if (n >= 4) {
+                        // Of a model drawn from farther, only what is in this block's place: the blocks above and
+                        // below take their own part.
+                        clip(4, 0, 1, 0, -(pending.y - CLIP_MARGIN));
+                        clip(5, 0, -1, 0, pending.y + 1 + CLIP_MARGIN);
+                    }
                 }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);
@@ -1211,6 +1283,28 @@ final class FaceRenderer {
             }
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glDisable(GL11.GL_LIGHTING);
+        }
+    }
+
+    /**
+     * Whether a tile entity drawing past its block draws over this block's place, and isn't drawn for it already
+     * (its own, or one next to it).
+     */
+    private static boolean drawsOver(TileEntity tileEntity, Pending pending) {
+        int dx = tileEntity.xCoord - pending.x, dy = tileEntity.yCoord - pending.y, dz = tileEntity.zCoord - pending.z;
+        if (dy == 0 && Math.abs(dx) + Math.abs(dz) <= 1) {
+            return false;
+        }
+        try {
+            AxisAlignedBB box = tileEntity.getRenderBoundingBox();
+            return box != null && box.maxX > pending.x
+                && box.minX < pending.x + 1
+                && box.maxY > pending.y
+                && box.minY < pending.y + 1
+                && box.maxZ > pending.z
+                && box.minZ < pending.z + 1;
+        } catch (RuntimeException e) {
+            return false;
         }
     }
 
