@@ -745,8 +745,15 @@ public class MapManager implements IResourceManagerReloadListener {
         long now = System.currentTimeMillis();
         if (now - lastAutosave >= Config.autosaveIntervalSeconds * 1000L) {
             lastAutosave = now;
+            long start = System.nanoTime();
+            int queued = 0, maps = 0;
             for (MapDimension map : allMaps()) {
-                map.save(saveExecutor);
+                queued += map.save(saveExecutor)
+                    .size();
+                maps++;
+            }
+            if (FlatLog.on()) {
+                logSaveAll("AUTOSAVE", maps, queued, System.nanoTime() - start);
             }
             IsoMap.INSTANCE.save();
             if (!(mc.currentScreen instanceof GuiWorldMap)) {
@@ -945,9 +952,12 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     private void close() {
+        long start = System.nanoTime();
         List<Future<?>> pending = new ArrayList<>();
+        int maps = 0;
         for (MapDimension map : allMaps()) {
             pending.addAll(map.save(saveExecutor));
+            maps++;
         }
         // Wait so the data is on disk even if the game exits right after leaving the world.
         for (Future<?> future : pending) {
@@ -956,6 +966,9 @@ public class MapManager implements IResourceManagerReloadListener {
             } catch (Exception e) {
                 WayFarMap.LOG.warn("Error while saving the map", e);
             }
+        }
+        if (FlatLog.on()) {
+            logSaveAll("CLOSE_SAVE", maps, pending.size(), System.nanoTime() - start);
         }
         for (MapDimension map : allMaps()) {
             map.deleteTextures();
@@ -979,6 +992,16 @@ public class MapManager implements IResourceManagerReloadListener {
         surfaceTracker.reset();
         caveTracker.reset();
         tick = 0;
+    }
+
+    /** For the log: a round of saves of every map, with what is in memory and still changed after it. */
+    private void logSaveAll(String why, int maps, int queued, long nanos) {
+        int inMemory = 0, dirty = 0;
+        for (MapDimension map : allMaps()) {
+            inMemory += map.regionCount();
+            dirty += map.dirtyCount();
+        }
+        FlatLog.saveAll(why, maps, queued, dirty, nanos, inMemory);
     }
 
     private static String getWorldFolder(Minecraft mc) {

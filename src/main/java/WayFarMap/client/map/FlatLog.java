@@ -68,10 +68,14 @@ public final class FlatLog {
         "region save (writing)", "region save (copying, render thread)", "texture upload", "reduced copy built",
         "frame of the world map (flat)", "scan queue built", "put off->scanned (region read)",
         "map tick (render thread, 2D+3D)", "game hitch (gap between ticks)", "seen->settled (quiet+neighbours)",
-        "seen->settled (timeout)", "chunk loaded->seen by the scanner" };
+        "seen->settled (timeout)", "chunk loaded->seen by the scanner", "region read: PNG decode",
+        "region save: PNG encode", "region read: waiting for a loader thread", "region save: waiting for the saver",
+        "region changes unsaved (changed->copied)", "autosave round (render thread)",
+        "leaving: saving everything (waited)" };
     static final int SEEN_TO_SCANNED = 0, SCAN = 1, READ = 2, ASKED_TO_PICKED = 3, BLOCKING_READ = 4, SAVE_WRITE = 5,
         SAVE_COPY = 6, UPLOAD = 7, LOD_BUILD = 8, FRAME = 9, QUEUE_BUILD = 10, DEFER_TO_SCAN = 11, MAP_TICK = 12,
-        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15, LOAD_TO_SEEN = 16;
+        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15, LOAD_TO_SEEN = 16, PNG_DECODE = 17, PNG_ENCODE = 18,
+        READ_QUEUE = 19, SAVE_QUEUE = 20, UNSAVED = 21, AUTOSAVE = 22, CLOSE_SAVE = 23;
     @SuppressWarnings("unchecked")
     private static final List<Long>[] SAMPLES = new List[SAMPLE_NAMES.length];
     static {
@@ -94,13 +98,17 @@ public final class FlatLog {
         sharedWaiting = new AtomicLong(), scansNoPixels = new AtomicLong(), scansSameSurface = new AtomicLong(),
         marksNoise = new AtomicLong(), marksReal = new AtomicLong(), settleTimeouts = new AtomicLong(),
         settleTimeoutsEdge = new AtomicLong(), hitches = new AtomicLong(), hitchNanos = new AtomicLong(),
-        mapTickNanos = new AtomicLong(), mapTickMaxNanos = new AtomicLong();
+        mapTickNanos = new AtomicLong(), mapTickMaxNanos = new AtomicLong(), readProblems = new AtomicLong(),
+        saveProblems = new AtomicLong();
     /** All of them, to start a new file from zero (saves of the world left would count in the next one). */
     private static final AtomicLong[] COUNTERS = { scans, scanNanos, scansDeferred, unloadScans, readsAsked, readsDone,
         readNanos, readBytes, blockingReads, blockingNanos, regionsMade, lodBuilt, lodNanos, saves, saveNanos,
         saveBytes, uploads, uploadNanos, uploadPixels, texturesMade, frames, frameNanos, frameMaxNanos, drawn,
         notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting, scansNoPixels, scansSameSurface, marksNoise,
-        marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos, mapTickMaxNanos };
+        marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos, mapTickMaxNanos, readProblems,
+        saveProblems };
+    /** Problems with region files since the log started, per kind (READ_WARN, SAVE_FAILED...), for the summaries. */
+    private static final Map<String, AtomicLong> PROBLEMS = new ConcurrentHashMap<>();
     private static long lastStats, lastSummary;
     private static final AtomicLong mapTickCount = new AtomicLong();
 
@@ -151,6 +159,7 @@ public final class FlatLog {
         }
         SEEN.clear();
         ASKED.clear();
+        PROBLEMS.clear();
         SETTLING.clear();
         SCANNED_SIGNATURE.clear();
         DEFERRED.clear();
@@ -204,6 +213,17 @@ public final class FlatLog {
                 + "ice, tree added after; whether snow and ice predicted from the biome's temperature were right). "
                 + "GONE_UNSEEN: loaded and let go before the scanner saw it. chunksNotYetSentInView: chunks within "
                 + "the view distance the server hasn't sent (yet).");
+        line(
+            "LEGEND region files: READ and SAVE list each part of the region (png = the map picture, dat = heights, "
+                + "light = night glow, time = when each chunk was mapped) with its time and size on disk; png "
+                + "shows the PNG decode / encode and the pixel copy apart (imageType other than INT_ARGB makes the "
+                + "copy slow), ratio = size on disk against the raw data; moves = files put in place atomically or "
+                + "in two steps; content = chunks explored, with times, from teammates, heights and light kept. "
+                + "READ: for = what asked for it, queuedMs = waiting for a loader thread, loaderBacklog = reads "
+                + "queued or running; PARTIAL = read with a part lost. SAVE: queuedMs = waiting for the saver, "
+                + "saverBacklogWhenQueued, unsavedForMs = how long its changes waited for this save. Problems get "
+                + "lines of their own: READ_WARN / READ_FAILED / SAVE_WARN / SAVE_FAILED, counted in the SUMMARY. "
+                + "AUTOSAVE / CLOSE_SAVE: a round of saves of every map, and saving all when the world is left.");
     }
 
     /** The world was left: the summary, then the file is closed. */
@@ -259,7 +279,12 @@ public final class FlatLog {
             + text;
         boolean summaryLine = text.startsWith("STATS") || text.startsWith("SUMMARY")
             || text.startsWith("END")
-            || text.startsWith("DRAW");
+            || text.startsWith("DRAW")
+            || text.startsWith("READ_WARN")
+            || text.startsWith("READ_FAILED")
+            || text.startsWith("SAVE_WARN")
+            || text.startsWith("SAVE_FAILED")
+            || text.startsWith("CLOSE_SAVE");
         if (written.addAndGet(line.length() + 1) > MAX_BYTES && !summaryLine) {
             if (!detailsStopped) {
                 detailsStopped = true;
@@ -773,6 +798,78 @@ public final class FlatLog {
         }
     }
 
+    /** PNG decode (read) or encode (save) of a region, for the summaries. */
+    static void png(boolean encode, long nanos) {
+        if (on() && nanos > 0) {
+            sample(encode ? PNG_ENCODE : PNG_DECODE, nanos);
+        }
+    }
+
+    /** A region read waited this long for a loader thread. */
+    static void readQueued(long nanos) {
+        if (on()) {
+            sample(READ_QUEUE, nanos);
+        }
+    }
+
+    /** A region save waited this long for the saver thread. */
+    static void saveQueued(long nanos) {
+        if (on()) {
+            sample(SAVE_QUEUE, nanos);
+        }
+    }
+
+    /** A region's changes waited this long before being copied for saving. */
+    static void unsavedFor(long millis) {
+        if (on() && millis > 0) {
+            sample(UNSAVED, millis * 1_000_000L);
+        }
+    }
+
+    /**
+     * Something wrong with a region's files, on a line of its own so it is easy to find: READ_WARN (a part lost),
+     * READ_FAILED, SAVE_WARN, SAVE_FAILED.
+     */
+    static void problem(String kind, String map, int rx, int rz, String text) {
+        if (!on()) {
+            return;
+        }
+        (kind.startsWith("READ") ? readProblems : saveProblems).incrementAndGet();
+        PROBLEMS.computeIfAbsent(kind, k -> new AtomicLong())
+            .incrementAndGet();
+        line(kind + " " + region(map, rx, rz) + " " + text);
+    }
+
+    /**
+     * A round of saves of every map (autosave) or saving all as the world is left.
+     *
+     * @param nanos      time on the render thread (autosave: copying the regions; leaving: waiting for them too)
+     * @param regions    regions queued for saving
+     * @param dirtyLeft  regions with changes not queued (being written already)
+     */
+    public static void saveAll(String why, int maps, int regions, int dirtyLeft, long nanos, int inMemory) {
+        if (!on()) {
+            return;
+        }
+        sample(why.equals("CLOSE_SAVE") ? CLOSE_SAVE : AUTOSAVE, nanos);
+        line(
+            why + " maps="
+                + maps
+                + " regionsQueued="
+                + regions
+                + " regionsInMemory="
+                + inMemory
+                + (dirtyLeft > 0 ? " stillChanged=" + dirtyLeft : "")
+                + " ms="
+                + ms(nanos)
+                + " heapUsedMB="
+                + ((Runtime.getRuntime()
+                    .totalMemory()
+                    - Runtime.getRuntime()
+                        .freeMemory())
+                    >> 20));
+    }
+
     static void retained(String map, int freed, int keptUnsaved, int textures, int lods, int cancelled, int inMemory) {
         if (on() && freed + textures + lods + cancelled > 0) {
             line(
@@ -1013,6 +1110,10 @@ public final class FlatLog {
                     + ms(saveNanos.getAndSet(0))
                     + " saveKB="
                     + (saveBytes.getAndSet(0) >> 10)
+                    + " readProblems="
+                    + readProblems.getAndSet(0)
+                    + " saveProblems="
+                    + saveProblems.getAndSet(0)
                     + " texturesMade="
                     + texturesMade.getAndSet(0)
                     + " uploads="
@@ -1082,5 +1183,16 @@ public final class FlatLog {
                 + DEFERRED.size()
                 + ", chunks loaded and not seen yet: "
                 + LOADED.size());
+        if (!PROBLEMS.isEmpty()) {
+            StringBuilder problems = new StringBuilder(title + "   region file problems since the start:");
+            for (Map.Entry<String, AtomicLong> entry : PROBLEMS.entrySet()) {
+                problems.append(' ')
+                    .append(entry.getKey())
+                    .append('=')
+                    .append(entry.getValue()
+                        .get());
+            }
+            line(problems.toString());
+        }
     }
 }
