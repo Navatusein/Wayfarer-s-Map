@@ -1038,7 +1038,8 @@ public class GuiWorldMap extends ScaledScreen {
                 + hoveredWaypoint.y
                 + ", "
                 + hoveredWaypoint.z
-                + ")";
+                + ")  |  "
+                + I18n.format("wayfarmap.gui.waypoint_hint");
         }
         Theme.text(fontRendererObj, cursorText, 6, height - 10, Theme.TEXT);
         String exportStatus = MapExport.statusText();
@@ -1651,9 +1652,58 @@ public class GuiWorldMap extends ScaledScreen {
         return (float) Math.max(MIN_MARKER_SIZE, Math.min(MARKER_SIZE, MARKER_SIZE * Math.pow(scale, 0.4)));
     }
 
+    /** Waypoint under the mouse last frame, and how far its hover effect has grown (0 to 1). */
+    private Waypoint hoverEffectWaypoint;
+    private float hoverEffect;
+    private long hoverEffectNanos;
+    /** How much bigger a hovered waypoint is drawn. */
+    private static final float HOVER_GROWTH = 0.3f;
+    /** Time for the hover effect to grow in, in seconds. */
+    private static final float HOVER_SECONDS = 0.12f;
+    /** Time of one pulse of the frame around a hovered waypoint, in milliseconds. */
+    private static final long HOVER_PULSE_MS = 1200;
+
+    /** Grows the hover effect while the same waypoint stays under the mouse; starts over on another one. */
+    private float updateHoverEffect(Waypoint hovered) {
+        long now = System.nanoTime();
+        float seconds = hoverEffectNanos == 0 ? 0f : Math.min(0.1f, (now - hoverEffectNanos) / 1.0e9f);
+        hoverEffectNanos = now;
+        if (hovered != hoverEffectWaypoint) {
+            hoverEffectWaypoint = hovered;
+            hoverEffect = 0f;
+        } else if (hovered != null) {
+            hoverEffect = Math.min(1f, hoverEffect + seconds / HOVER_SECONDS);
+        }
+        // Eased, so it pops out and settles.
+        float t = hoverEffect;
+        return 1f - (1f - t) * (1f - t);
+    }
+
+    /**
+     * Frame around the hovered waypoint, in its color, pulsing gently: shows it can be clicked (right click: its
+     * menu). Drawn under the marker.
+     */
+    private static void drawHoverFrame(Waypoint waypoint, double sx, double sy, float size, float effect) {
+        long cx = Math.round(sx), cy = Math.round(sy);
+        GL11.glPushMatrix();
+        GL11.glTranslated(sx - cx, sy - cy, 0);
+        double pulse = 0.5 + 0.5 * Math.sin(System.currentTimeMillis() % HOVER_PULSE_MS * 2 * Math.PI / HOVER_PULSE_MS);
+        int rgb = waypoint.outlineColor != null ? waypoint.outlineColor & 0xFFFFFF : Theme.ACCENT & 0xFFFFFF;
+        int half = Math.round(size / 2f) + 3 + Math.round(effect * (float) pulse);
+        int x0 = (int) cx - half, y0 = (int) cy - half, x1 = (int) cx + half, y1 = (int) cy + half;
+        // A soft glow inside, a bright frame, and a dark line around it so it shows on any ground.
+        int glow = (int) (effect * (40 + 40 * pulse));
+        Theme.fill(x0, y0, x1, y1, glow << 24 | rgb);
+        Theme.outline(x0 - 1, y0 - 1, x1 + 1, y1 + 1, (int) (effect * 160) << 24);
+        Theme.outline(x0, y0, x1, y1, (int) (effect * (170 + 85 * pulse)) << 24 | rgb);
+        GL11.glPopMatrix();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
     private void drawWaypoints(int mouseX, int mouseY) {
         float size = markerSize();
         Waypoint hovered = waypointAt(mouseX, mouseY);
+        float effect = updateHoverEffect(hovered);
         List<Waypoint> onScreen = new ArrayList<>();
         for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
             double[] at = waypointScreen(waypoint);
@@ -1668,7 +1718,14 @@ public class GuiWorldMap extends ScaledScreen {
         }
 
         for (Waypoint waypoint : onScreen) {
-            WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+            if (waypoint == hovered) {
+                // Hovered: a pulsing frame, and the marker a little bigger.
+                float hoveredSize = size * (1f + HOVER_GROWTH * effect);
+                drawHoverFrame(waypoint, screenX(waypoint), screenY(waypoint), hoveredSize, effect);
+                WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), hoveredSize, false);
+            } else {
+                WaypointRenderer.drawMapMarker(waypoint, screenX(waypoint), screenY(waypoint), size, false);
+            }
         }
 
         // Labels shrink with the markers when zooming out and stop growing at normal size when zooming in.
@@ -1678,7 +1735,10 @@ public class GuiWorldMap extends ScaledScreen {
         List<int[]> rects = new ArrayList<>();
         for (int i = onScreen.size() - 1; i >= 0; i--) {
             Waypoint waypoint = onScreen.get(i);
-            int[] rect = WaypointRenderer.getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), size, textScale);
+            // The hovered one's label moves down out of the way of its bigger marker and frame.
+            float labelSize = waypoint == hovered ? size * (1f + HOVER_GROWTH * effect) + 8 * effect : size;
+            int[] rect = WaypointRenderer
+                .getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), labelSize, textScale);
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
                 continue;
             }

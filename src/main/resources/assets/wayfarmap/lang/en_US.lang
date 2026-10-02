@@ -151,6 +151,7 @@ wayfarmap.option.waypoints.deathPoints.desc=Place a waypoint where you die.
 wayfarmap.option.waypoints.deathPointsKeep=Keep
 wayfarmap.option.waypoints.deathPointsKeep.desc=How many death markers to keep; older ones are removed.
 wayfarmap.gui.drag_hint=Drag a waypoint onto a group to move it
+wayfarmap.gui.waypoint_hint=Right click: waypoint menu
 key.wayfarmap.cave_mode=Cave view (auto/off/on)
 wayfarmap.gui.caves=Caves
 wayfarmap.gui.cave_layer=Caves Y %s-%s

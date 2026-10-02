@@ -151,6 +151,7 @@ wayfarmap.option.waypoints.deathPoints.desc=Ставить метку там, г
 wayfarmap.option.waypoints.deathPointsKeep=Хранить
 wayfarmap.option.waypoints.deathPointsKeep.desc=Сколько меток смерти хранить; старые удаляются.
 wayfarmap.gui.drag_hint=Перетащите вейпоинт на группу
+wayfarmap.gui.waypoint_hint=ПКМ — меню метки
 key.wayfarmap.cave_mode=Режим пещер (авто/выкл/вкл)
 wayfarmap.gui.caves=Пещеры
 wayfarmap.gui.cave_layer=Пещеры Y %s-%s
