@@ -90,17 +90,17 @@ public class WaypointRenderer {
      * Draws the item as in an inventory slot at 0,0, surviving modded renderers that fail or leave things behind: a
      * renderer that throws halfway left the game's tessellator in the middle of a drawing, and every item after it
      * then failed too (the icon picker went empty for good). Whatever happens, the tessellator is finished and the
-     * matrices and settings the renderer left pushed are taken off. False if the item can't be drawn.
+     * matrices the renderer left pushed are taken off. False if the item can't be drawn.
+     *
+     * Only matrices are touched: GL settings are cached by some mods (Angelica in GTNH), and changing them behind
+     * the cache's back broke the whole game's drawing.
      */
     public static boolean renderItemSafely(RenderItem renderItem, Minecraft mc, ItemStack stack) {
         String key = itemKey(stack);
         if (BROKEN_ITEMS.contains(key)) {
             return false;
         }
-        int matrixMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE);
         int modelview = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
-        int projection = GL11.glGetInteger(GL11.GL_PROJECTION_STACK_DEPTH);
-        int attribs = GL11.glGetInteger(GL11.GL_ATTRIB_STACK_DEPTH);
         boolean ok = true;
         try {
             renderItem.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
@@ -109,39 +109,30 @@ public class WaypointRenderer {
             BROKEN_ITEMS.add(key);
             WayFarMap.LOG.warn("Could not draw the icon of item " + key + "; it is left out", t);
             finishTessellator();
-        }
-        // Also after a renderer that didn't fail but left something pushed.
-        restoreStack(GL11.GL_ATTRIB_STACK_DEPTH, attribs);
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        restoreStack(GL11.GL_PROJECTION_STACK_DEPTH, projection);
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        restoreStack(GL11.GL_MODELVIEW_STACK_DEPTH, modelview);
-        GL11.glMatrixMode(matrixMode);
-        return ok;
-    }
-
-    /** Pops what was pushed past {@code depth} (matrices of the current mode, or settings). */
-    private static void restoreStack(int depthQuery, int depth) {
-        for (int extra = GL11.glGetInteger(depthQuery) - depth; extra > 0; extra--) {
-            if (depthQuery == GL11.GL_ATTRIB_STACK_DEPTH) {
-                GL11.glPopAttrib();
-            } else {
+            // Matrices it pushed and never took off (the game's item code pushes one around it); items are drawn in
+            // the model-view mode.
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            for (int extra = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH) - modelview; extra > 0; extra--) {
                 GL11.glPopMatrix();
             }
         }
+        return ok;
     }
 
-    /** Ends a drawing a failed renderer left open, without showing what it had (nothing is written). */
+    /**
+     * Ends a drawing a failed renderer left open, without showing what it had: drawn shrunk to nothing (only the
+     * matrix changes, put back right after).
+     */
     private static void finishTessellator() {
-        GL11.glPushAttrib(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
-        GL11.glColorMask(false, false, false, false);
-        GL11.glDepthMask(false);
+        GL11.glPushMatrix();
+        GL11.glScalef(0f, 0f, 0f);
         try {
             Tessellator.instance.draw();
         } catch (Throwable ignored) {
             // Wasn't drawing: nothing to finish.
+        } finally {
+            GL11.glPopMatrix();
         }
-        GL11.glPopAttrib();
     }
 
     /**
