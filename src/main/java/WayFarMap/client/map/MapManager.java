@@ -178,7 +178,7 @@ public class MapManager implements IResourceManagerReloadListener {
             DimensionInfo info = readInfo(directory, id);
             this.name = info.name;
             this.noSky = info.noSky;
-            surface = new MapDimension(id, directory, loadExecutor);
+            surface = new MapDimension(id, directory, loadExecutor).withPlantless();
             biomes = new MapDimension(id, new File(directory, "biomes"), loadExecutor);
         }
 
@@ -197,6 +197,7 @@ public class MapManager implements IResourceManagerReloadListener {
         List<MapDimension> all() {
             List<MapDimension> maps = new ArrayList<>();
             maps.add(surface);
+            maps.add(surface.plantless());
             maps.add(biomes);
             maps.addAll(caves.values());
             return maps;
@@ -433,8 +434,19 @@ public class MapManager implements IResourceManagerReloadListener {
         return player == null ? 4 : Math.max(0, Math.min(15, MathHelper.floor_double(player.boundingBox.minY) >> 4));
     }
 
-    /** Map shown on the world map: like {@link #getDimension()}, but of the viewed dimension. */
+    /**
+     * Map shown on the world map: like {@link #getDimension()}, but of the viewed dimension; the surface without grass
+     * and flowers in that mode.
+     */
     public MapDimension getViewMap() {
+        MapDimension map = viewedMap();
+        if (!Config.showPlants && map != null && map.plantless() != null) {
+            return map.plantless();
+        }
+        return map;
+    }
+
+    private MapDimension viewedMap() {
         if (viewed == null) {
             return getDimension();
         }
@@ -494,6 +506,9 @@ public class MapManager implements IResourceManagerReloadListener {
             return false;
         }
         MapRegion region = map.getRegion(rx, rz, true);
+        // Teammates send the surface as they see it, with grass and flowers: the map without them gets the same.
+        MapRegion plantlessRegion = map.plantless() != null ? map.plantless()
+            .getRegion(rx, rz, true) : null;
         int localX = record.chunkX & (MapRegion.CHUNKS - 1), localZ = record.chunkZ & (MapRegion.CHUNKS - 1);
         if (region.getChunkTime(localX, localZ) >= record.time) {
             // Ours is as new or newer: keep it.
@@ -501,6 +516,9 @@ public class MapManager implements IResourceManagerReloadListener {
             return true;
         }
         region.setChunkTime(localX, localZ, record.time, true);
+        if (plantlessRegion != null) {
+            plantlessRegion.setChunkTime(localX, localZ, record.time, true);
+        }
         MapRegion biomeRegion = biomeMap != null ? biomeMap.getRegion(rx, rz, true) : null;
         int baseX = (record.chunkX * 16) & (MapRegion.SIZE - 1);
         int baseZ = (record.chunkZ * 16) & (MapRegion.SIZE - 1);
@@ -514,6 +532,9 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 if (record.layer < 0) {
                     region.setPixel(baseX + lx, baseZ + lz, color, record.extra[i] & 0xFF);
+                    if (plantlessRegion != null) {
+                        plantlessRegion.setPixel(baseX + lx, baseZ + lz, color, record.extra[i] & 0xFF);
+                    }
                 } else {
                     region.setPixel(baseX + lx, baseZ + lz, color);
                 }
@@ -575,6 +596,7 @@ public class MapManager implements IResourceManagerReloadListener {
         List<MapDimension> maps = new ArrayList<>();
         if (surface != null) {
             maps.add(surface);
+            maps.add(surface.plantless());
         }
         if (biomes != null) {
             maps.add(biomes);
@@ -713,12 +735,6 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
-    /** Scans the loaded chunks again, after a setting that changes how they are drawn. */
-    public void rescanLoaded() {
-        surfaceTracker.reset();
-        caveTracker.reset();
-    }
-
     private void updateCaveMode(WorldClient world, EntityPlayer player) {
         if (tick % 10 == 0) {
             underground = isUnderground(world, player);
@@ -844,6 +860,7 @@ public class MapManager implements IResourceManagerReloadListener {
         List<MapDimension> maps = new ArrayList<>();
         if (dimensionId == surface.dimensionId) {
             maps.add(surface);
+            maps.add(surface.plantless());
             maps.add(biomes);
             maps.addAll(caveLayers.values());
         } else {
@@ -882,7 +899,7 @@ public class MapManager implements IResourceManagerReloadListener {
         // Name and sky saved so the world map can show this dimension from elsewhere.
         writeInfo(dimensionDirectory, world.provider);
         WaypointManager.INSTANCE.load(worldDirectory);
-        surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor);
+        surface = new MapDimension(dimensionId, dimensionDirectory, loadExecutor).withPlantless();
         biomes = new MapDimension(dimensionId, new File(dimensionDirectory, "biomes"), loadExecutor);
         lastAutosave = System.currentTimeMillis();
         IsoMap.INSTANCE.open(worldDirectory);

@@ -399,8 +399,8 @@ public class Config {
         bool(
             c,
             "showPlants",
-            "Draw grass and flowers on the 2D map. If false, the block under them is shown. "
-                + "Applies as chunks are rescanned.",
+            "Draw grass and flowers on the 2D map. If false, the block under them is shown (the \"2D map without "
+                + "plants\" mode). Areas mapped before it was kept show them until they are mapped again.",
             true,
             () -> showPlants,
             v -> showPlants = v);

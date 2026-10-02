@@ -20,6 +20,13 @@ public class MapDimension {
     /** A cave layer (dimN/caves/L), not the surface or the biome map. */
     public final boolean cave;
     private final File directory;
+    /**
+     * Folder read instead where this map has no file of a region yet (the surface, for the map without plants), or
+     * null. What is read from it is saved here once it changes.
+     */
+    private final File fallbackDirectory;
+    /** The surface without grass and flowers, written along with this surface map; null for other maps. */
+    private MapDimension plantless;
     private final ExecutorService loadExecutor;
     private final Map<Long, MapRegion> regions = new HashMap<>();
     /** Regions being read from disk in the background. */
@@ -40,8 +47,14 @@ public class MapDimension {
     private final String label;
 
     public MapDimension(int dimensionId, File directory, ExecutorService loadExecutor) {
+        this(dimensionId, directory, loadExecutor, null);
+    }
+
+    /** @param fallbackDirectory read where this map has no file of a region yet (see {@link #fallbackDirectory}) */
+    public MapDimension(int dimensionId, File directory, ExecutorService loadExecutor, File fallbackDirectory) {
         this.dimensionId = dimensionId;
         this.directory = directory;
+        this.fallbackDirectory = fallbackDirectory;
         this.loadExecutor = loadExecutor;
         // dimN, dimN/biomes, dimN/caves/L
         File parent = directory.getParentFile();
@@ -51,8 +64,8 @@ public class MapDimension {
         if (cave) {
             File dim = parent.getParentFile();
             this.label = (dim == null ? "" : dim.getName() + "/") + "cave" + name;
-        } else if (parent != null && name.equals("biomes")) {
-            this.label = parent.getName() + "/biomes";
+        } else if (parent != null && (name.equals("biomes") || name.equals(PLANTLESS_FOLDER))) {
+            this.label = parent.getName() + "/" + name;
         } else {
             this.label = name;
         }
@@ -111,6 +124,25 @@ public class MapDimension {
         return tile == null ? 0 : tile.getExtra(lx / LodTile.FACTOR, lz / LodTile.FACTOR);
     }
 
+    /** Folder of the surface map without grass and flowers, inside the surface's folder. */
+    public static final String PLANTLESS_FOLDER = "bare";
+
+    /** Surface map: makes its map without grass and flowers, kept along with it (scans write both). */
+    public MapDimension withPlantless() {
+        plantless = new MapDimension(dimensionId, new File(directory, PLANTLESS_FOLDER), loadExecutor, directory);
+        return this;
+    }
+
+    /** The surface without grass and flowers, or null if this map has none. */
+    public MapDimension plantless() {
+        return plantless;
+    }
+
+    /** Folder read where this map has no file of a region yet, or null. */
+    public File getFallbackDirectory() {
+        return fallbackDirectory;
+    }
+
     /** Whether the region is known to have no file (and none was made): nothing to draw there. */
     public boolean isKnownMissing(int rx, int rz) {
         return missing.contains(key(rx, rz));
@@ -147,7 +179,7 @@ public class MapDimension {
             }
         } else if (!missing.contains(key)) {
             long start = System.nanoTime();
-            region = readFile(directory, rx, rz, label);
+            region = readFile(directory, fallbackDirectory, rx, rz, label);
             if (log) {
                 FlatLog.blockingRead(label, rx, rz, System.nanoTime() - start, false, caller());
             }
@@ -200,8 +232,10 @@ public class MapDimension {
      */
     public boolean prepareRegion(int rx, int rz) {
         long key = key(rx, rz);
+        // The map without plants is written along with the surface: both are read at once.
+        boolean plantlessReady = plantless == null || plantless.prepareRegion(rx, rz);
         if (regions.containsKey(key) || missing.contains(key)) {
-            return true;
+            return plantlessReady;
         }
         Future<MapRegion> pending = loading.get(key);
         if (pending == null) {
@@ -209,13 +243,13 @@ public class MapDimension {
             return false;
         }
         // A finished read is picked up by getRegion without waiting.
-        return pending.isDone();
+        return pending.isDone() && plantlessReady;
     }
 
     private void startRead(long key, int rx, int rz, String why) {
-        final File dir = directory;
+        final File dir = directory, fallback = fallbackDirectory;
         final String name = label;
-        loading.put(key, loadExecutor.submit(() -> readFile(dir, rx, rz, name)));
+        loading.put(key, loadExecutor.submit(() -> readFile(dir, fallback, rx, rz, name)));
         FlatLog.readAsked(label, rx, rz, why, loading.size() + lodLoading.size());
     }
 
@@ -251,10 +285,10 @@ public class MapDimension {
         }
         Future<LodTile> pending = lodLoading.get(key);
         if (pending == null) {
-            final File dir = directory;
+            final File dir = directory, fallback = fallbackDirectory;
             final String name = label;
             lodLoading.put(key, loadExecutor.submit(() -> {
-                MapRegion read = readFile(dir, rx, rz, name);
+                MapRegion read = readFile(dir, fallback, rx, rz, name);
                 if (read == null) {
                     return null;
                 }
@@ -292,6 +326,15 @@ public class MapDimension {
             WayFarMap.LOG.warn("Could not load map region", e);
             return null;
         }
+    }
+
+    /** Reads the region from the folder, or from the fallback folder (if any) where the folder has no file of it. */
+    private static MapRegion readFile(File directory, File fallback, int rx, int rz, String label) {
+        if (fallback != null && !MapRegion.getFile(directory, rx, rz)
+            .isFile()) {
+            return readFile(fallback, null, rx, rz, label + "(fallback)");
+        }
+        return readFile(directory, rx, rz, label);
     }
 
     private static MapRegion readFile(File directory, int rx, int rz, String label) {

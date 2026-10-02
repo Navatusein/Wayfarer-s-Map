@@ -774,12 +774,8 @@ public class GuiWorldMap extends ScaledScreen {
         int display = mode == MODE_TOPO ? Config.DISPLAY_TOPO
             : mode == MODE_BIOMES ? Config.DISPLAY_BIOMES : Config.DISPLAY_BLOCKS;
         Config.setMapMode(mode == MODE_ISO, display);
-        // Grass and flowers are drawn into the map as chunks are scanned: the loaded ones are scanned again now.
-        boolean plants = mode != MODE_BARE;
-        if (plants != Config.showPlants) {
-            Config.setShowPlants(plants);
-            MapManager.INSTANCE.rescanLoaded();
-        }
+        // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
+        Config.setShowPlants(mode != MODE_BARE);
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
