@@ -65,6 +65,13 @@ final class IsoTracer {
     private int mip;
     /** Sprite detail: 0 = 64 pixels per block ... 7 = one color. */
     private int spriteMip;
+    /**
+     * Look key of the cell just passed when the ray met its translucent sprite, else 0: the next cell of the same
+     * block (glass next to glass) isn't added again where the two sprites overlap along their shared edge.
+     */
+    private int spriteRun;
+    /** Whether the last {@link #sprite} call met a drawn pixel. */
+    private boolean spriteMet;
     /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
     private int pictureMip;
 
@@ -220,6 +227,7 @@ final class IsoTracer {
         int previousLight = OPEN;
         int previousKey = 0;
         insideLiquid = 0;
+        spriteRun = 0;
 
         for (int steps = 0; steps < MAX_STEPS && y >= 0; steps++) {
             int chunkX = x >> 4, chunkZ = z >> 4;
@@ -314,6 +322,8 @@ final class IsoTracer {
                         break;
                     }
                     int key = ChunkBlocks.lookKey(cell);
+                    boolean sameRun = spriteRun != 0 && spriteRun == key && previousKey == key;
+                    spriteRun = 0;
                     if (key != insideLiquid) {
                         insideLiquid = 0;
                     }
@@ -324,7 +334,12 @@ final class IsoTracer {
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
-                        int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, side, t, lightHere);
+                        spriteMet = false;
+                        int drawn = spriteId == 0 ? SPRITE_NONE
+                            : sprite(spriteId, look, x, y, z, side, t, lightHere, sameRun);
+                        if (spriteMet && look.translucent) {
+                            spriteRun = key;
+                        }
                         if (fallbacks != null && look.complex && !look.opaque && !look.noPictures) {
                             if (spriteId == 0) {
                                 fallbacks.computeIfAbsent(key, k -> new int[3])[0]++;
@@ -545,7 +560,7 @@ final class IsoTracer {
             int blockCell = blocks.cells[cell];
             BlockLooks.Look look = BlockLooks.get(ChunkBlocks.lookKey(blockCell));
             int light = brighter(light(blockCell), previousLight);
-            if (sprite(id, look, ox, oy, oz, side, t, light) == SPRITE_STOP) {
+            if (sprite(id, look, ox, oy, oz, side, t, light, false) == SPRITE_STOP) {
                 return SPRITE_STOP;
             }
         }
@@ -568,7 +583,8 @@ final class IsoTracer {
      * @return {@link #SPRITE_STOP}, {@link #SPRITE_PASS} (the ray goes on), or {@link #SPRITE_NONE} (draw the block
      *         from its icons instead)
      */
-    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere) {
+    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere,
+        boolean sameRun) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
             if (id == FacePalette.EMPTY) {
@@ -583,7 +599,30 @@ final class IsoTracer {
         int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
         if (exactAlpha < minAlpha) {
-            return SPRITE_PASS;
+            // The edge of a side lies between pixels of the sprite, at a different place in each block's sprite:
+            // where neither of two blocks next to each other has the pixel drawn, a line showed through the wall
+            // (glass, connected tile entities). A pixel drawn right next to it stands in.
+            double step = 1.0 / sprite.size;
+            double[] near = { su - step, sv, su + step, sv, su, sv - step, su, sv + step };
+            for (int i = 0; i < near.length && exactAlpha < minAlpha; i += 2) {
+                int texel = sprite.texel(near[i], near[i + 1], 0);
+                if ((texel >>> 24) >= minAlpha) {
+                    exact = texel;
+                    exactAlpha = texel >>> 24;
+                    su = near[i];
+                    sv = near[i + 1];
+                }
+            }
+            if (exactAlpha < minAlpha) {
+                return SPRITE_PASS;
+            }
+        }
+        spriteMet = true;
+        if (look.translucent) {
+            if (sameRun) {
+                // The same glass as the cell just passed, already seen: one layer, not a darker line on the seam.
+                return SPRITE_PASS;
+            }
         }
         int pixel = exact;
         if (spriteMip > 0) {
