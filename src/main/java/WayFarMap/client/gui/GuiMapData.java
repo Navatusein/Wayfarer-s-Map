@@ -90,6 +90,11 @@ public class GuiMapData extends ScaledScreen {
 
     private final GuiScreen parent;
     private final File logsDirectory;
+    /**
+     * This world's folder, kept: a cleaning closes the maps, and until the next tick opens them again the map
+     * manager has none (the count right after the cleaning still needs it).
+     */
+    private File worldDirectory;
     private int left, top, right, bottom;
     /** Counted once per opening (not again when the window is resized). */
     private boolean started;
@@ -115,6 +120,15 @@ public class GuiMapData extends ScaledScreen {
                 net.minecraft.client.Minecraft.getMinecraft().mcDataDir,
                 "wayfarmap"),
             "logs");
+    }
+
+    /** This world's folder: the map manager's, or the one kept while the maps are closed. */
+    private File worldDirectory() {
+        File current = MapManager.INSTANCE.getWorldDirectory();
+        if (current != null) {
+            worldDirectory = current;
+        }
+        return worldDirectory;
     }
 
     // ---------------------------------------------------------------- layout
@@ -215,7 +229,7 @@ public class GuiMapData extends ScaledScreen {
      * cleaning) wins over one still running.
      */
     private void startCount() {
-        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        File worldDirectory = worldDirectory();
         if (worldDirectory == null) {
             return;
         }
@@ -299,9 +313,9 @@ public class GuiMapData extends ScaledScreen {
     }
 
     /** The last count if it is of this world. */
-    private static Data visibleData() {
+    private Data visibleData() {
         Data data = last;
-        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        File worldDirectory = worldDirectory();
         return data != null && worldDirectory != null && data.worldDirectory.equals(worldDirectory) ? data : null;
     }
 
@@ -398,7 +412,7 @@ public class GuiMapData extends ScaledScreen {
     }
 
     private void clean(int id) {
-        File worldDirectory = MapManager.INSTANCE.getWorldDirectory();
+        File worldDirectory = worldDirectory();
         if (worldDirectory == null) {
             return;
         }
@@ -596,7 +610,7 @@ public class GuiMapData extends ScaledScreen {
         // Old numbers are dimmed while they are counted again.
         int value = updating ? Theme.TEXT_DISABLED : Theme.ACCENT;
 
-        boolean canDelete = MapManager.INSTANCE.getWorldDirectory() != null && data != null;
+        boolean canDelete = worldDirectory() != null && data != null;
         for (Object o : buttonList) {
             FlatButton b = (FlatButton) o;
             if (b.id == ID_DIMENSION) {
