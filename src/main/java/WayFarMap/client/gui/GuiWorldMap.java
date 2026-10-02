@@ -73,7 +73,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21, ID_CLEAN = 22;
+        ID_CLOSE = 21;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
         MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -212,10 +212,7 @@ public class GuiWorldMap extends ScaledScreen {
                 x);
         }
         if (Config.isMapButtonShown("stats")) {
-            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.stats")), x);
-        }
-        if (Config.isMapButtonShown("clean")) {
-            x = addIconButton(new IconButton(ID_CLEAN, x, 4, Icons.CLEAN, I18n.format("wayfarmap.gui.clean")), x);
+            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data")), x);
         }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
         if (Config.isMapButtonShown("export")) {
@@ -656,9 +653,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
         } else if (button.id == ID_STATS) {
-            mc.displayGuiScreen(new GuiMapStats(this));
-        } else if (button.id == ID_CLEAN) {
-            mc.displayGuiScreen(new GuiMapClean(this));
+            mc.displayGuiScreen(new GuiMapData(this));
         } else if (button.id == ID_TEAM) {
             openTeamMenu();
         } else if (button.id == ID_ADDONS) {
