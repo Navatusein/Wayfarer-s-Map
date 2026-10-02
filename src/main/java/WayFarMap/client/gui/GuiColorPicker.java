@@ -17,8 +17,9 @@ import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
- * Picks any color: a saturation/brightness square for the current hue, a hue bar, and a hex field. Shows the old and
- * the new color side by side.
+ * Picks any color: a tall hue bar, a saturation/brightness square for that hue, fields for R, G, B, hex, H, S and V
+ * (typed, or turned with the mouse wheel), ready-made colors, and the old color over the new one (a click on the old
+ * one goes back to it).
  */
 public class GuiColorPicker extends ScaledScreen {
 
@@ -27,18 +28,30 @@ public class GuiColorPicker extends ScaledScreen {
         void onPicked(int rgb);
     }
 
-    private static final int SQUARE = 120, BAR_WIDTH = 12, PANEL_WIDTH = 226, PANEL_HEIGHT = 186;
+    private static final int PAD = 10, TITLE = 24;
+    private static final int BAR_WIDTH = 12, SQUARE = 128;
+    private static final int SWATCH = 16, SWATCH_GAP = 3, SWATCH_COLUMNS = 4;
+    private static final int LABEL_WIDTH = 12, FIELD_WIDTH = 50, FIELD_HEIGHT = 14, FIELD_STEP = 18;
     private static final int ID_DONE = 0, ID_CANCEL = 1;
     /** Hue stops of the bar, top to bottom. */
     private static final int[] HUE_STOPS = { 0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF, 0xFF0000 };
+    /** Ready-made colors. */
+    private static final int[] PRESETS = { 0xC41E3A, 0xA330C9, 0xFF7C0A, 0x33937F, 0xAAD372, 0x3FC7EB, 0x00FF98,
+        0xF48CBA, 0xFFFFFF, 0xFFF468, 0x0070DD, 0x8788EE, 0xC69B6D, 0x4C9AFF, 0x3FB950, 0x000000 };
+
+    /** The fields, top to bottom. */
+    private static final int F_R = 0, F_G = 1, F_B = 2, F_HEX = 3, F_H = 4, F_S = 5, F_V = 6;
+    private static final String[] LABELS = { "R", "G", "B", "#", "H", "S", "V" };
+    /** Largest value of each number field (the hex field has none). */
+    private static final int[] MAX = { 255, 255, 255, 0, 360, 100, 100 };
 
     private final GuiScreen parent;
     private final Callback callback;
     private final int oldColor;
 
     private float hue, saturation, brightness;
-    private FlatTextField hexField;
-    private int left, top;
+    private final FlatTextField[] fields = new FlatTextField[LABELS.length];
+    private int left, top, panelWidth, panelHeight;
     /** 1 = dragging in the square, 2 = on the hue bar, 0 = none. */
     private int dragging;
 
@@ -46,56 +59,181 @@ public class GuiColorPicker extends ScaledScreen {
         this.parent = parent;
         this.callback = callback;
         this.oldColor = color & 0xFFFFFF;
-        float[] hsb = Color.RGBtoHSB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, null);
-        hue = hsb[0];
-        saturation = hsb[1];
-        brightness = hsb[2];
+        setRgb(oldColor);
     }
 
     private int color() {
         return Color.HSBtoRGB(hue, saturation, brightness) & 0xFFFFFF;
     }
 
+    /** Takes the color, keeping the hue where the color has none (grey, black). */
+    private void setRgb(int rgb) {
+        float[] hsb = Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, null);
+        if (hsb[1] > 0f && hsb[2] > 0f) {
+            hue = hsb[0];
+        }
+        saturation = hsb[1];
+        brightness = hsb[2];
+    }
+
+    // Layout: the hue bar on the left at full height, the square next to it with the ready-made colors under it,
+    // the fields on the right with the old and new color under them.
+
+    private int barX() {
+        return left + PAD;
+    }
+
     private int squareX() {
-        return left + 10;
+        return barX() + BAR_WIDTH + PAD;
     }
 
     private int squareY() {
-        return top + 24;
+        return top + TITLE;
     }
 
-    private int barX() {
-        return squareX() + SQUARE + 8;
+    private int fieldsX() {
+        return squareX() + SQUARE + PAD + LABEL_WIDTH;
+    }
+
+    private int fieldY(int field) {
+        // Gaps between R/G/B, the hex field, and H/S/V.
+        int gap = field >= F_H ? 2 * 8 : field >= F_HEX ? 8 : 0;
+        return squareY() + field * FIELD_STEP + gap;
+    }
+
+    private int lowerY() {
+        return squareY() + SQUARE + PAD;
+    }
+
+    private int swatchesY() {
+        return lowerY() + 12;
+    }
+
+    private int barBottom() {
+        int rows = (PRESETS.length + SWATCH_COLUMNS - 1) / SWATCH_COLUMNS;
+        return swatchesY() + rows * (SWATCH + SWATCH_GAP) - SWATCH_GAP;
+    }
+
+    /** Old and new color: {x0, y0, x1, y1, y of the line between them}. */
+    private int[] previewBox() {
+        int x0 = squareX() + SWATCH_COLUMNS * (SWATCH + SWATCH_GAP) + PAD;
+        int y0 = lowerY();
+        int y1 = barBottom();
+        return new int[] { x0, y0, left + panelWidth - PAD, y1, y0 + (y1 - y0) / 3 };
     }
 
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
-        left = (width - PANEL_WIDTH) / 2;
-        top = (height - PANEL_HEIGHT) / 2;
-        int sideX = barX() + BAR_WIDTH + 8;
-        int sideWidth = left + PANEL_WIDTH - 10 - sideX;
-        hexField = new FlatTextField(fontRendererObj, sideX, squareY() + 72, sideWidth, 16);
-        hexField.setMaxStringLength(7);
-        updateHexField();
+        panelWidth = PAD + BAR_WIDTH + PAD + SQUARE + PAD + LABEL_WIDTH + FIELD_WIDTH + 14 + PAD;
+        panelHeight = TITLE + SQUARE + PAD + 12 + 4 * (SWATCH + SWATCH_GAP) - SWATCH_GAP + PAD + 18 + PAD;
+        left = (width - panelWidth) / 2;
+        top = (height - panelHeight) / 2;
+        for (int i = 0; i < fields.length; i++) {
+            int w = i == F_HEX ? FIELD_WIDTH + 14 : FIELD_WIDTH;
+            fields[i] = new FlatTextField(fontRendererObj, fieldsX(), fieldY(i), w, FIELD_HEIGHT);
+            fields[i].setMaxStringLength(i == F_HEX ? 6 : 3);
+        }
+        updateFields(-1);
 
         buttonList.clear();
-        int w = (PANEL_WIDTH - 24) / 2;
-        FlatButton done = new FlatButton(ID_DONE, left + 10, top + PANEL_HEIGHT - 28, w, 18, I18n.format("gui.done"));
+        int buttonY = top + panelHeight - PAD - 18;
+        int w = (panelWidth - 2 * PAD - 4) / 2;
+        FlatButton done = new FlatButton(ID_DONE, left + PAD, buttonY, w, 18, I18n.format("gui.done"));
         done.active = true;
         buttonList.add(done);
-        buttonList.add(
-            new FlatButton(
-                ID_CANCEL,
-                left + PANEL_WIDTH - 10 - w,
-                top + PANEL_HEIGHT - 28,
-                w,
-                18,
-                I18n.format("gui.cancel")));
+        buttonList
+            .add(new FlatButton(ID_CANCEL, left + panelWidth - PAD - w, buttonY, w, 18, I18n.format("gui.cancel")));
     }
 
-    private void updateHexField() {
-        hexField.setText(String.format("#%06X", color()));
+    /** Shows the color in every field but {@code except} (the one being typed in). */
+    private void updateFields(int except) {
+        int rgb = color();
+        String[] values = { String.valueOf((rgb >> 16) & 0xFF), String.valueOf((rgb >> 8) & 0xFF),
+            String.valueOf(rgb & 0xFF), String.format("%06x", rgb), String.valueOf(Math.round(hue * 360) % 360),
+            String.valueOf(Math.round(saturation * 100)), String.valueOf(Math.round(brightness * 100)) };
+        for (int i = 0; i < fields.length; i++) {
+            if (i != except) {
+                fields[i].setText(values[i]);
+                fields[i].setCursorPositionZero();
+            }
+        }
+    }
+
+    /** Applies what is typed in the field, if it is a whole value. */
+    private void applyField(int field) {
+        String text = fields[field].getText()
+            .trim();
+        if (field == F_HEX) {
+            if (text.length() == 6) {
+                try {
+                    setRgb(Integer.parseInt(text, 16));
+                } catch (NumberFormatException ignored) {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else {
+            if (text.isEmpty()) {
+                return;
+            }
+            setNumber(field, Integer.parseInt(text));
+        }
+        updateFields(field);
+    }
+
+    /** Sets one number of the color (clamped to its range). */
+    private void setNumber(int field, int value) {
+        value = Math.max(0, Math.min(MAX[field], value));
+        int rgb = color();
+        switch (field) {
+            case F_R:
+                setRgb(value << 16 | rgb & 0x00FFFF);
+                break;
+            case F_G:
+                setRgb(value << 8 | rgb & 0xFF00FF);
+                break;
+            case F_B:
+                setRgb(value | rgb & 0xFFFF00);
+                break;
+            case F_H:
+                hue = (value % 360) / 360f;
+                break;
+            case F_S:
+                saturation = value / 100f;
+                break;
+            default:
+                brightness = value / 100f;
+                break;
+        }
+    }
+
+    private int numberOf(int field) {
+        int rgb = color();
+        switch (field) {
+            case F_R:
+                return (rgb >> 16) & 0xFF;
+            case F_G:
+                return (rgb >> 8) & 0xFF;
+            case F_B:
+                return rgb & 0xFF;
+            case F_H:
+                return Math.round(hue * 360) % 360;
+            case F_S:
+                return Math.round(saturation * 100);
+            default:
+                return Math.round(brightness * 100);
+        }
+    }
+
+    private int focusedField() {
+        for (int i = 0; i < fields.length; i++) {
+            if (fields[i].isFocused()) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override
@@ -119,20 +257,47 @@ public class GuiColorPicker extends ScaledScreen {
             mc.displayGuiScreen(parent);
             return;
         }
-        if (hexField.textboxKeyTyped(typedChar, keyCode)) {
-            String text = hexField.getText()
-                .trim();
-            if (text.startsWith("#")) {
-                text = text.substring(1);
+        int focused = focusedField();
+        if (keyCode == Keyboard.KEY_TAB) {
+            // To the next field (back with Shift), its text selected to type over.
+            int step = isShiftKeyDown() ? fields.length - 1 : 1;
+            int next = focused < 0 ? 0 : (focused + step) % fields.length;
+            for (FlatTextField field : fields) {
+                field.setFocused(false);
             }
-            if (text.length() == 6) {
-                try {
-                    int rgb = Integer.parseInt(text, 16);
-                    float[] hsb = Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, null);
-                    hue = hsb[0];
-                    saturation = hsb[1];
-                    brightness = hsb[2];
-                } catch (NumberFormatException ignored) {}
+            updateFields(-1);
+            fields[next].setFocused(true);
+            fields[next].setCursorPositionEnd();
+            fields[next].setSelectionPos(0);
+            return;
+        }
+        if (focused < 0) {
+            return;
+        }
+        // Numbers only (hex digits in the hex field); keys that edit or move go through.
+        boolean allowed = typedChar < ' ' || Character.isDigit(typedChar)
+            || focused == F_HEX && Character.digit(typedChar, 16) >= 0;
+        if (allowed && fields[focused].textboxKeyTyped(typedChar, keyCode)) {
+            applyField(focused);
+        }
+    }
+
+    @Override
+    public void handleMouseInput() {
+        super.handleMouseInput();
+        int wheel = Mouse.getEventDWheel();
+        if (wheel == 0) {
+            return;
+        }
+        int mouseX = Mouse.getEventX() * width / mc.displayWidth;
+        int mouseY = height - Mouse.getEventY() * height / mc.displayHeight - 1;
+        for (int i = 0; i < fields.length; i++) {
+            if (i != F_HEX && fields[i].isMouseOver(mouseX, mouseY)) {
+                // The wheel turns the number: by 1, by 10 with Shift.
+                int step = (wheel > 0 ? 1 : -1) * (isShiftKeyDown() ? 10 : 1);
+                setNumber(i, numberOf(i) + step);
+                updateFields(-1);
+                return;
             }
         }
     }
@@ -140,26 +305,48 @@ public class GuiColorPicker extends ScaledScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         super.mouseClicked(mouseX, mouseY, button);
-        hexField.mouseClicked(mouseX, mouseY, button);
+        int wasFocused = focusedField();
+        for (FlatTextField field : fields) {
+            field.mouseClicked(mouseX, mouseY, button);
+        }
+        if (wasFocused >= 0 && !fields[wasFocused].isFocused()) {
+            // Left a half typed field: show the color in it again.
+            updateFields(focusedField());
+        }
         if (button != 0) {
             return;
         }
-        int sideX = barX() + BAR_WIDTH + 8;
-        if (Theme.inside(mouseX, mouseY, sideX, squareY() + 46, left + PANEL_WIDTH - 10, squareY() + 66)) {
-            // Clicking the old color goes back to it.
-            float[] hsb = Color.RGBtoHSB((oldColor >> 16) & 0xFF, (oldColor >> 8) & 0xFF, oldColor & 0xFF, null);
-            hue = hsb[0];
-            saturation = hsb[1];
-            brightness = hsb[2];
-            updateHexField();
+        int[] preview = previewBox();
+        if (Theme.inside(mouseX, mouseY, preview[0], preview[1], preview[2], preview[4])) {
+            // The old color goes back to it.
+            setRgb(oldColor);
+            updateFields(-1);
             return;
         }
-        if (Theme.inside(mouseX, mouseY, squareX(), squareY(), squareX() + SQUARE, squareY() + SQUARE)) {
+        int swatch = swatchAt(mouseX, mouseY);
+        if (swatch >= 0) {
+            setRgb(PRESETS[swatch]);
+            updateFields(-1);
+            return;
+        }
+        int sx = squareX(), sy = squareY();
+        if (Theme.inside(mouseX, mouseY, sx, sy, sx + SQUARE, sy + SQUARE)) {
             dragging = 1;
-        } else if (Theme.inside(mouseX, mouseY, barX() - 2, squareY(), barX() + BAR_WIDTH + 2, squareY() + SQUARE)) {
+        } else if (Theme.inside(mouseX, mouseY, barX() - 3, sy, barX() + BAR_WIDTH + 3, barBottom())) {
             dragging = 2;
         }
         updateDrag(mouseX, mouseY);
+    }
+
+    private int swatchAt(int mouseX, int mouseY) {
+        for (int i = 0; i < PRESETS.length; i++) {
+            int x = squareX() + (i % SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
+            int y = swatchesY() + (i / SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
+            if (Theme.inside(mouseX, mouseY, x, y, x + SWATCH, y + SWATCH)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Applies the mouse position while a button is held; done every frame for smooth dragging. */
@@ -167,19 +354,21 @@ public class GuiColorPicker extends ScaledScreen {
         if (dragging == 0) {
             return;
         }
-        float ty = Math.max(0f, Math.min(1f, (mouseY - squareY()) / (float) SQUARE));
         if (dragging == 1) {
             saturation = Math.max(0f, Math.min(1f, (mouseX - squareX()) / (float) SQUARE));
-            brightness = 1f - ty;
+            brightness = 1f - Math.max(0f, Math.min(1f, (mouseY - squareY()) / (float) SQUARE));
         } else {
-            hue = Math.min(ty, 0.9999f);
+            float ty = (mouseY - squareY()) / (float) (barBottom() - squareY());
+            hue = Math.max(0f, Math.min(0.9999f, ty));
         }
-        updateHexField();
+        updateFields(-1);
     }
 
     @Override
     public void updateScreen() {
-        hexField.updateCursorCounter();
+        for (FlatTextField field : fields) {
+            field.updateCursorCounter();
+        }
     }
 
     @Override
@@ -198,29 +387,32 @@ public class GuiColorPicker extends ScaledScreen {
         }
 
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
-        Theme.panel(left, top, left + PANEL_WIDTH, top + PANEL_HEIGHT);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_color"), left + 10, top + 9, Theme.ACCENT);
+        Theme.panel(left, top, left + panelWidth, top + panelHeight);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_color"), left + PAD, top + 9, Theme.ACCENT);
 
         int sx = squareX(), sy = squareY();
-        Theme.outline(sx - 1, sy - 1, sx + SQUARE + 1, sy + SQUARE + 1, Theme.BORDER);
-        // White to the pure hue left to right, fading to black downwards: exactly HSV with bilinear shading.
-        int pureHue = Color.HSBtoRGB(hue, 1f, 1f) & 0xFFFFFF;
+        int bx = barX(), barBottom = barBottom();
+        Tessellator tessellator = Tessellator.instance;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glShadeModel(GL11.GL_SMOOTH);
-        Tessellator tessellator = Tessellator.instance;
+
+        // The square: white to the pure hue left to right, fading to black downwards (exactly HSV).
+        Theme.outline(sx - 1, sy - 1, sx + SQUARE + 1, sy + SQUARE + 1, Theme.BORDER);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
         tessellator.startDrawingQuads();
         tessellator.setColorOpaque_I(0x000000);
         tessellator.addVertex(sx, sy + SQUARE, 0);
         tessellator.addVertex(sx + SQUARE, sy + SQUARE, 0);
-        tessellator.setColorOpaque_I(pureHue);
+        tessellator.setColorOpaque_I(Color.HSBtoRGB(hue, 1f, 1f) & 0xFFFFFF);
         tessellator.addVertex(sx + SQUARE, sy, 0);
         tessellator.setColorOpaque_I(0xFFFFFF);
         tessellator.addVertex(sx, sy, 0);
         tessellator.draw();
 
-        int bx = barX();
-        Theme.outline(bx - 1, sy - 1, bx + BAR_WIDTH + 1, sy + SQUARE + 1, Theme.BORDER);
-        double segment = SQUARE / (double) (HUE_STOPS.length - 1);
+        // The hue bar, as tall as the square and the colors under it.
+        Theme.outline(bx - 1, sy - 1, bx + BAR_WIDTH + 1, barBottom + 1, Theme.BORDER);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        double segment = (barBottom - sy) / (double) (HUE_STOPS.length - 1);
         tessellator.startDrawingQuads();
         for (int i = 0; i < HUE_STOPS.length - 1; i++) {
             double y0 = sy + i * segment, y1 = sy + (i + 1) * segment;
@@ -232,30 +424,80 @@ public class GuiColorPicker extends ScaledScreen {
             tessellator.addVertex(bx, y0, 0);
         }
         tessellator.draw();
+
+        // Marker in the square: a ring, white on dark colors and black on light ones.
+        double mx = sx + saturation * SQUARE, my = sy + (1f - brightness) * SQUARE;
+        boolean light = brightness > 0.6f && saturation < 0.4f;
+        ring(tessellator, mx, my, 3.5, 5.5, light ? 0x000000 : 0xFFFFFF);
+        ring(tessellator, mx, my, 5.5, 6.5, light ? 0xFFFFFF : 0x000000);
         GL11.glShadeModel(GL11.GL_FLAT);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
 
-        // Markers: a ring in the square, a line on the bar.
-        int mx = sx + Math.round(saturation * SQUARE);
-        int my = sy + Math.round((1f - brightness) * SQUARE);
-        int ring = brightness > 0.5f && saturation < 0.5f ? 0xFF000000 : 0xFFFFFFFF;
-        Theme.outline(mx - 3, my - 3, mx + 4, my + 4, ring);
-        int hy = sy + Math.round(hue * SQUARE);
-        Theme.fill(bx - 2, hy - 1, bx + BAR_WIDTH + 2, hy + 1, 0xFFFFFFFF);
-        Theme.outline(bx - 3, hy - 2, bx + BAR_WIDTH + 3, hy + 2, 0xFF000000);
+        // Handle on the bar: a frame around the hue, wider than the bar.
+        int hy = sy + Math.round(hue * (barBottom - sy));
+        Theme.outline(bx - 4, hy - 4, bx + BAR_WIDTH + 4, hy + 4, 0xFF000000);
+        Theme.outline(bx - 3, hy - 3, bx + BAR_WIDTH + 3, hy + 3, 0xFFFFFFFF);
+        Theme.fill(bx - 2, hy - 2, bx + BAR_WIDTH + 2, hy + 2, 0xFF000000 | Color.HSBtoRGB(hue, 1f, 1f));
 
-        // Old and new color.
-        int sideX = bx + BAR_WIDTH + 8;
-        int sideWidth = left + PANEL_WIDTH - 10 - sideX;
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.color_new"), sideX, sy, Theme.TEXT_MUTED);
-        Theme.fill(sideX, sy + 10, sideX + sideWidth, sy + 30, 0xFF000000 | color());
-        Theme.outline(sideX, sy + 10, sideX + sideWidth, sy + 30, Theme.BORDER);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.color_old"), sideX, sy + 36, Theme.TEXT_MUTED);
-        Theme.fill(sideX, sy + 46, sideX + sideWidth, sy + 66, 0xFF000000 | oldColor);
-        Theme.outline(sideX, sy + 46, sideX + sideWidth, sy + 66, Theme.BORDER);
-        hexField.drawTextBox();
+        // The fields with their letters.
+        for (int i = 0; i < fields.length; i++) {
+            FlatTextField field = fields[i];
+            Theme.text(
+                fontRendererObj,
+                LABELS[i],
+                fieldsX() - LABEL_WIDTH,
+                field.boxY + (FIELD_HEIGHT - 8) / 2,
+                field.isFocused() ? Theme.TEXT : Theme.TEXT_MUTED);
+            field.drawTextBox();
+        }
+
+        // Ready-made colors.
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.color_presets"), sx, lowerY(), Theme.TEXT_MUTED);
+        int hoveredSwatch = swatchAt(mouseX, mouseY);
+        for (int i = 0; i < PRESETS.length; i++) {
+            int x = sx + (i % SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
+            int y = swatchesY() + (i / SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
+            Theme.fill(x, y, x + SWATCH, y + SWATCH, 0xFF000000 | PRESETS[i]);
+            boolean current = PRESETS[i] == color();
+            Theme.outline(
+                x - 1,
+                y - 1,
+                x + SWATCH + 1,
+                y + SWATCH + 1,
+                i == hoveredSwatch || current ? Theme.ACCENT : Theme.BORDER);
+        }
+
+        // The old color over the new one; the old one can be clicked to go back to it.
+        int[] p = previewBox();
+        Theme.fill(p[0], p[1], p[2], p[4], 0xFF000000 | oldColor);
+        Theme.fill(p[0], p[4], p[2], p[3], 0xFF000000 | color());
+        Theme.fill(p[0], p[4], p[2], p[4] + 1, 0xFF000000);
+        boolean overOld = Theme.inside(mouseX, mouseY, p[0], p[1], p[2], p[4]);
+        Theme.outline(p[0] - 1, p[1] - 1, p[2] + 1, p[3] + 1, overOld ? Theme.ACCENT : Theme.BORDER);
 
         super.drawScaled(mouseX, mouseY, partialTicks);
+
+        if (overOld) {
+            drawHoveringText(
+                java.util.Collections.singletonList(I18n.format("wayfarmap.gui.color_old_hint")),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
+    }
+
+    /** A ring between two radii around the point. */
+    private static void ring(Tessellator tessellator, double cx, double cy, double inner, double outer, int rgb) {
+        int segments = 24;
+        tessellator.startDrawing(GL11.GL_TRIANGLE_STRIP);
+        tessellator.setColorOpaque_I(rgb);
+        for (int i = 0; i <= segments; i++) {
+            double a = 2 * Math.PI * i / segments;
+            double cos = Math.cos(a), sin = Math.sin(a);
+            tessellator.addVertex(cx + cos * outer, cy + sin * outer, 0);
+            tessellator.addVertex(cx + cos * inner, cy + sin * inner, 0);
+        }
+        tessellator.draw();
     }
 
     @Override
