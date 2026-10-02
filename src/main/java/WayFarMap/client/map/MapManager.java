@@ -466,11 +466,18 @@ public class MapManager implements IResourceManagerReloadListener {
         return layer >= 0 ? viewed.cave(layer) : viewed.surface;
     }
 
-    /** The world map shows the surface whatever the cave mode (its chunk loading view); not the minimap. */
+    /**
+     * The world map shows the surface whatever the cave mode (its 3D view, its chunk and region loading views); not the
+     * minimap.
+     */
     private boolean surfaceView;
 
     public void setSurfaceView(boolean surfaceOnly) {
         surfaceView = surfaceOnly;
+    }
+
+    public boolean isSurfaceView() {
+        return surfaceView;
     }
 
     /** Biome map of the dimension shown on the world map. */

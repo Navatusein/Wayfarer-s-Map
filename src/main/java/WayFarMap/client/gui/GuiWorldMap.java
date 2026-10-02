@@ -182,8 +182,7 @@ public class GuiWorldMap extends ScaledScreen {
     public void initGui() {
         super.initGui();
         checkWelcome();
-        // The chunk loading view always shows the surface, whatever the cave mode.
-        MapManager.INSTANCE.setSurfaceView(chunkloadView || regionloadView);
+        updateSurfaceView();
         if (!initialized && mc.thePlayer != null) {
             // Only on first open, not when the window is resized: back where the map was closed (unless it follows
             // the player), or at the player.
@@ -808,7 +807,7 @@ public class GuiWorldMap extends ScaledScreen {
         Config.setShowPlants(mode != MODE_BARE);
         chunkloadView = mode == MODE_CHUNKLOAD;
         regionloadView = mode == MODE_REGIONLOAD;
-        MapManager.INSTANCE.setSurfaceView(chunkloadView || regionloadView);
+        updateSurfaceView();
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
@@ -2021,13 +2020,21 @@ public class GuiWorldMap extends ScaledScreen {
     private boolean pickRemove;
     private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
 
+    /**
+     * The 3D view and the chunk and region loading views always show the surface, as with the cave mode off: the
+     * cave mode is for the flat map only.
+     */
+    private static void updateSurfaceView() {
+        MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView || regionloadView);
+    }
+
     /** The chunk loading view: the flat map of the player's own dimension. */
     private boolean chunkloadShown() {
         if ((chunkloadView || regionloadView) && !ChunkLoadView.isAllowed()) {
             // No longer allowed (or another server): back to the flat map.
             chunkloadView = false;
             regionloadView = false;
-            MapManager.INSTANCE.setSurfaceView(false);
+            updateSurfaceView();
         }
         // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
         return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
