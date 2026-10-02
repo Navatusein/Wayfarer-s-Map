@@ -506,7 +506,8 @@ public class MapManager implements IResourceManagerReloadListener {
             return false;
         }
         MapRegion region = map.getRegion(rx, rz, true);
-        // Teammates send the surface as they see it, with grass and flowers: the map without them gets the same.
+        // Teammates send the surface as they see it, with grass and flowers: the map without them gets it only where
+        // it has nothing.
         MapRegion plantlessRegion = map.plantless() != null ? map.plantless()
             .getRegion(rx, rz, true) : null;
         int localX = record.chunkX & (MapRegion.CHUNKS - 1), localZ = record.chunkZ & (MapRegion.CHUNKS - 1);
@@ -532,7 +533,10 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
                 if (record.layer < 0) {
                     region.setPixel(baseX + lx, baseZ + lz, color, record.extra[i] & 0xFF);
-                    if (plantlessRegion != null) {
+                    if (plantlessRegion != null
+                        && (plantlessRegion.getPixel(baseX + lx, baseZ + lz) >>> 24) == 0) {
+                        // Only where we have nothing: the team's colors have the plants in them, and the
+                        // server's copy of our own chunks (newer by its time) would cover the plants up again.
                         plantlessRegion.setPixel(baseX + lx, baseZ + lz, color, record.extra[i] & 0xFF);
                     }
                 } else {

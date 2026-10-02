@@ -19,6 +19,7 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -45,6 +46,10 @@ public class MinimapRenderer {
         Minecraft mc = Minecraft.getMinecraft();
         EntityClientPlayerMP player = mc.thePlayer;
         MapDimension dimension = MapManager.INSTANCE.getDimension();
+        if (dimension != null && !Config.showPlants && dimension.plantless() != null) {
+            // The world map shows the surface without grass and flowers: the minimap too.
+            dimension = dimension.plantless();
+        }
         if (player == null || mc.theWorld == null
             || dimension == null
             || mc.gameSettings.showDebugInfo
@@ -195,6 +200,10 @@ public class MinimapRenderer {
             }
             if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
+            }
+            if (Config.showClaims && Mods.isClaimsAvailable()) {
+                // Claims as on the world map, when they are shown there.
+                ClaimsLayer.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, null, 0);
             }
             if (Mods.isVisualProspectingLoaded()) {
                 int dimensionId = mc.theWorld.provider.dimensionId;
