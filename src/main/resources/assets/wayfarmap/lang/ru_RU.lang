@@ -198,7 +198,6 @@ wayfarmap.gui.teleport_y_hint=Высота неизвестна: X %s Z %s. Y (0
 wayfarmap.gui.pick_color=Выбор цвета
 wayfarmap.gui.color_new=Новый
 wayfarmap.gui.color_old=Было
-wayfarmap.gui.color_presets=Готовые цвета
 wayfarmap.gui.color_old_hint=Было: нажмите, чтобы вернуть
 wayfarmap.gui.grid=Сетка
 wayfarmap.option.map.chunkGrid=Сетка чанков

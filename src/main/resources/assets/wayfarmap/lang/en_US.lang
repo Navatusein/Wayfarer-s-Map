@@ -198,7 +198,6 @@ wayfarmap.gui.teleport_y_hint=Ground unknown at X %s Z %s. Y (0-255):
 wayfarmap.gui.pick_color=Pick a color
 wayfarmap.gui.color_new=New
 wayfarmap.gui.color_old=Old
-wayfarmap.gui.color_presets=Ready-made colors
 wayfarmap.gui.color_old_hint=Was: click to go back to it
 wayfarmap.gui.grid=Grid
 wayfarmap.option.map.chunkGrid=Chunk grid

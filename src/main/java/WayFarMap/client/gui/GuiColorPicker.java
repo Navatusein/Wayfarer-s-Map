@@ -18,8 +18,8 @@ import WayFarMap.client.gui.ui.Theme;
 
 /**
  * Picks any color: a tall hue bar, a saturation/brightness square for that hue, fields for R, G, B, hex, H, S and V
- * (typed, or turned with the mouse wheel), ready-made colors, and the old color over the new one (a click on the old
- * one goes back to it).
+ * (typed, or turned with the mouse wheel), and the old color next to the new one (a click on the old one goes back to
+ * it).
  */
 public class GuiColorPicker extends ScaledScreen {
 
@@ -30,14 +30,12 @@ public class GuiColorPicker extends ScaledScreen {
 
     private static final int PAD = 10, TITLE = 24;
     private static final int BAR_WIDTH = 12, SQUARE = 128;
-    private static final int SWATCH = 16, SWATCH_GAP = 3, SWATCH_COLUMNS = 4;
+    /** Height of the old and new color under the square. */
+    private static final int PREVIEW_HEIGHT = 40;
     private static final int LABEL_WIDTH = 12, FIELD_WIDTH = 50, FIELD_HEIGHT = 14, FIELD_STEP = 18;
     private static final int ID_DONE = 0, ID_CANCEL = 1;
     /** Hue stops of the bar, top to bottom. */
     private static final int[] HUE_STOPS = { 0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF, 0xFF0000 };
-    /** Ready-made colors. */
-    private static final int[] PRESETS = { 0xC41E3A, 0xA330C9, 0xFF7C0A, 0x33937F, 0xAAD372, 0x3FC7EB, 0x00FF98,
-        0xF48CBA, 0xFFFFFF, 0xFFF468, 0x0070DD, 0x8788EE, 0xC69B6D, 0x4C9AFF, 0x3FB950, 0x000000 };
 
     /** The fields, top to bottom. */
     private static final int F_R = 0, F_G = 1, F_B = 2, F_HEX = 3, F_H = 4, F_S = 5, F_V = 6;
@@ -76,8 +74,8 @@ public class GuiColorPicker extends ScaledScreen {
         brightness = hsb[2];
     }
 
-    // Layout: the hue bar on the left at full height, the square next to it with the ready-made colors under it,
-    // the fields on the right with the old and new color under them.
+    // Layout: the hue bar on the left at full height, the square next to it and the fields on the right, the old and
+    // new color under both.
 
     private int barX() {
         return left + PAD;
@@ -105,28 +103,21 @@ public class GuiColorPicker extends ScaledScreen {
         return squareY() + SQUARE + PAD;
     }
 
-    private int swatchesY() {
-        return lowerY() + 12;
-    }
-
     private int barBottom() {
-        int rows = (PRESETS.length + SWATCH_COLUMNS - 1) / SWATCH_COLUMNS;
-        return swatchesY() + rows * (SWATCH + SWATCH_GAP) - SWATCH_GAP;
+        return lowerY() + PREVIEW_HEIGHT;
     }
 
-    /** Old and new color: {x0, y0, x1, y1, y of the line between them}. */
+    /** Old and new color side by side: {x0, y0, x1, y1, x of the edge between them}; the new one gets more room. */
     private int[] previewBox() {
-        int x0 = squareX() + SWATCH_COLUMNS * (SWATCH + SWATCH_GAP) + PAD;
-        int y0 = lowerY();
-        int y1 = barBottom();
-        return new int[] { x0, y0, left + panelWidth - PAD, y1, y0 + (y1 - y0) / 3 };
+        int x0 = squareX(), x1 = left + panelWidth - PAD;
+        return new int[] { x0, lowerY(), x1, barBottom(), x0 + (x1 - x0) * 2 / 5 };
     }
 
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         panelWidth = PAD + BAR_WIDTH + PAD + SQUARE + PAD + LABEL_WIDTH + FIELD_WIDTH + 14 + PAD;
-        panelHeight = TITLE + SQUARE + PAD + 12 + 4 * (SWATCH + SWATCH_GAP) - SWATCH_GAP + PAD + 18 + PAD;
+        panelHeight = TITLE + SQUARE + PAD + PREVIEW_HEIGHT + PAD + 18 + PAD;
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         for (int i = 0; i < fields.length; i++) {
@@ -317,15 +308,9 @@ public class GuiColorPicker extends ScaledScreen {
             return;
         }
         int[] preview = previewBox();
-        if (Theme.inside(mouseX, mouseY, preview[0], preview[1], preview[2], preview[4])) {
+        if (Theme.inside(mouseX, mouseY, preview[0], preview[1], preview[4], preview[3])) {
             // The old color goes back to it.
             setRgb(oldColor);
-            updateFields(-1);
-            return;
-        }
-        int swatch = swatchAt(mouseX, mouseY);
-        if (swatch >= 0) {
-            setRgb(PRESETS[swatch]);
             updateFields(-1);
             return;
         }
@@ -336,17 +321,6 @@ public class GuiColorPicker extends ScaledScreen {
             dragging = 2;
         }
         updateDrag(mouseX, mouseY);
-    }
-
-    private int swatchAt(int mouseX, int mouseY) {
-        for (int i = 0; i < PRESETS.length; i++) {
-            int x = squareX() + (i % SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
-            int y = swatchesY() + (i / SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
-            if (Theme.inside(mouseX, mouseY, x, y, x + SWATCH, y + SWATCH)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     /** Applies the mouse position while a button is held; done every frame for smooth dragging. */
@@ -451,29 +425,24 @@ public class GuiColorPicker extends ScaledScreen {
             field.drawTextBox();
         }
 
-        // Ready-made colors.
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.color_presets"), sx, lowerY(), Theme.TEXT_MUTED);
-        int hoveredSwatch = swatchAt(mouseX, mouseY);
-        for (int i = 0; i < PRESETS.length; i++) {
-            int x = sx + (i % SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
-            int y = swatchesY() + (i / SWATCH_COLUMNS) * (SWATCH + SWATCH_GAP);
-            Theme.fill(x, y, x + SWATCH, y + SWATCH, 0xFF000000 | PRESETS[i]);
-            boolean current = PRESETS[i] == color();
-            Theme.outline(
-                x - 1,
-                y - 1,
-                x + SWATCH + 1,
-                y + SWATCH + 1,
-                i == hoveredSwatch || current ? Theme.ACCENT : Theme.BORDER);
-        }
-
-        // The old color over the new one; the old one can be clicked to go back to it.
+        // The old color next to the new one, each with its name and hex code; the old one can be clicked to go back.
         int[] p = previewBox();
-        Theme.fill(p[0], p[1], p[2], p[4], 0xFF000000 | oldColor);
-        Theme.fill(p[0], p[4], p[2], p[3], 0xFF000000 | color());
-        Theme.fill(p[0], p[4], p[2], p[4] + 1, 0xFF000000);
-        boolean overOld = Theme.inside(mouseX, mouseY, p[0], p[1], p[2], p[4]);
-        Theme.outline(p[0] - 1, p[1] - 1, p[2] + 1, p[3] + 1, overOld ? Theme.ACCENT : Theme.BORDER);
+        int x0 = p[0], y0 = p[1], x1 = p[2], y1 = p[3], split = p[4];
+        boolean overOld = Theme.inside(mouseX, mouseY, x0, y0, split, y1);
+        Theme.fill(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
+        Theme.outline(x0 - 3, y0 - 3, x1 + 3, y1 + 3, Theme.BORDER);
+        Theme.fill(x0, y0, split, y1, 0xFF000000 | oldColor);
+        Theme.fill(split + 2, y0, x1, y1, 0xFF000000 | color());
+        // A soft shine along the top, so the two read as one glossy piece.
+        Theme.fill(x0, y0, split, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
+        Theme.fill(split + 2, y0, x1, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
+        swatchText(I18n.format("wayfarmap.gui.color_old"), oldColor, x0 + 5, y0 + 5);
+        swatchText(String.format("#%06X", oldColor), oldColor, x0 + 5, y1 - 13);
+        swatchText(I18n.format("wayfarmap.gui.color_new"), color(), split + 7, y0 + 5);
+        swatchText(String.format("#%06X", color()), color(), split + 7, y1 - 13);
+        if (overOld) {
+            Theme.outline(x0, y0, split, y1, 0xC0FFFFFF);
+        }
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 
@@ -483,6 +452,16 @@ public class GuiColorPicker extends ScaledScreen {
                 mouseX,
                 mouseY,
                 fontRendererObj);
+        }
+    }
+
+    /** Text on a color swatch: dark on light colors, white on dark ones. */
+    private void swatchText(String text, int rgb, int x, int y) {
+        double luminance = 0.299 * ((rgb >> 16) & 0xFF) + 0.587 * ((rgb >> 8) & 0xFF) + 0.114 * (rgb & 0xFF);
+        if (luminance > 150) {
+            fontRendererObj.drawString(text, x, y, 0xD0101418);
+        } else {
+            fontRendererObj.drawStringWithShadow(text, x, y, 0xFFFFFFFF);
         }
     }
 
