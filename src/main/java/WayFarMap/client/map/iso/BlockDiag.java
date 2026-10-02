@@ -151,9 +151,14 @@ final class BlockDiag {
         if (!IsoLog.on() || !DESCRIBED.add(key)) {
             return;
         }
+        IsoLog.log("BLOCK_KIND " + describe(key, look));
+    }
+
+    /** The game's view of a kind of block and the 3D map's, and whether the map may take pictures of it. */
+    static String describe(int key, BlockLooks.Look look) {
         int id = ChunkBlocks.blockId(key), meta = (key >>> 16) & 15;
         Block block = Block.getBlockById(id);
-        StringBuilder b = new StringBuilder("BLOCK_KIND ").append(name(block))
+        StringBuilder b = new StringBuilder(name(block))
             .append(':')
             .append(meta)
             .append(" id=")
@@ -244,7 +249,7 @@ final class BlockDiag {
                             : look.complex ? "yes (the map doesn't imitate its renderer)"
                                 : "if needed (tile entity, glass touching glass, sides depending on the world)")
             .append(look.opaque ? " as 6 side pictures (solid cube)" : " as 4 view sprites (drawn from each map side)");
-        IsoLog.log(b.toString());
+        return b.toString();
     }
 
     /** One block's pictures, as taken: how the game drew it and what each view came out like. */
@@ -438,7 +443,7 @@ final class BlockDiag {
         return name;
     }
 
-    private static void writePng(File file, boolean cube, int views, int[][] images) {
+    static void writePng(File file, boolean cube, int views, int[][] images) {
         try {
             int cell = 128;
             BufferedImage out = new BufferedImage(views * cell, cell * 2, BufferedImage.TYPE_INT_RGB);

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -70,6 +71,9 @@ final class IsoTracer {
     private int mip;
     /** Sprite detail: 0 = 64 pixels per block ... 7 = one color. */
     private int spriteMip;
+    /** Step by step account of the rays, for the report of {@code /wfmap3d}; null normally. */
+    StringBuilder debug;
+    private static final String[] SIDE_NAMES = { "down", "up", "north", "south", "west", "east" };
     /**
      * Look key of the cell just passed when the ray met its translucent sprite, else 0: the next cell of the same
      * block (glass next to glass) isn't added again where the two sprites overlap along their shared edge.
@@ -279,6 +283,9 @@ final class IsoTracer {
                     if (y < blocks.yMin) {
                         // The ground below what was stored, in the world's usual layers.
                         BlockLooks.Look look = BlockLooks.get(ground(blocks, lx, lz, y));
+                        if (debug != null) {
+                            debug("  below the stored copy at " + x + "," + y + "," + z + ": ground drawn from icons");
+                        }
                         cellIndex = -1;
                         face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                         break;
@@ -345,6 +352,15 @@ final class IsoTracer {
                         BlockLooks.Look look = BlockLooks.get(key);
                         // Solid cubes show the game's pictures of their sides (in face); other blocks its sprites.
                         int spriteId = look.opaque || look.noPictures ? 0 : pictureId(blocks, projection.rotation);
+                        if (debug != null) {
+                            debug(
+                                "  cell " + x + "," + y + "," + z + " " + BlockDiag.name(key)
+                                    + " entered through " + SIDE_NAMES[side] + String.format(Locale.ROOT, " t=%.4f", t)
+                                    + " look[opaque=" + look.opaque + " fullCube=" + look.fullCube + " translucent="
+                                    + look.translucent + " complex=" + look.complex + " skipSame=" + look.skipSame
+                                    + "] sprite=" + spriteId + (spriteId == FacePalette.EMPTY ? "(EMPTY)" : "")
+                                    + " sameRun=" + sameRun + " light=" + Integer.toHexString(lightOf(cell)));
+                        }
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
@@ -413,6 +429,13 @@ final class IsoTracer {
                 maxZ += deltaZ;
                 side = stepZ > 0 ? 2 : 3;
             }
+        }
+        if (debug != null) {
+            debug(
+                String.format(Locale.ROOT,
+                    "  END after %s: first surface %s at y=%.3f, solid (hides mobs) at y=%s, light left %.2f",
+                    steps(t), hitSide < 0 ? "none" : SIDE_NAMES[hitSide], hitY,
+                    Double.isNaN(solidY) ? "none" : String.format(Locale.ROOT, "%.3f", solidY), transmit));
         }
         double reached = projection.toward(ox + dx * t, oz + dz * t);
         if (reached < minToward) {
@@ -614,6 +637,13 @@ final class IsoTracer {
         int exact = sprite.texel(su, sv, 0);
         int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
+        if (debug != null) {
+            debug(
+                String.format(Locale.ROOT,
+                    "    sprite %d of %d,%d,%d%s at pixel %d,%d of %d: argb=%08x (needs alpha >= %d)",
+                    id, x, y, z, ownCell ? "" : " (reaching into this cell)", (int) (su * sprite.size),
+                    (int) (sv * sprite.size), sprite.size, exact, minAlpha));
+        }
         if (exactAlpha < minAlpha) {
             if (!ownCell) {
                 // Only the parts of a model reaching past its cell: a pixel next to the block's own outline would
@@ -632,6 +662,10 @@ final class IsoTracer {
                     exactAlpha = texel >>> 24;
                     su = near[i];
                     sv = near[i + 1];
+                    if (debug != null) {
+                        debug(
+                            String.format(Locale.ROOT, "    empty there: the pixel next to it stands in, argb=%08x", texel));
+                    }
                 }
             }
             if (exactAlpha < minAlpha) {
@@ -642,6 +676,9 @@ final class IsoTracer {
         if (look.translucent) {
             if (sameRun) {
                 // The same glass as the cell just passed, already seen: one layer, not a darker line on the seam.
+                if (debug != null) {
+                    debug("    same see-through block as the cell just passed: not added again");
+                }
                 return SPRITE_PASS;
             }
         }
@@ -900,6 +937,13 @@ final class IsoTracer {
             if (picture == null && id > 0) {
                 incomplete |= palette.has(id);
             }
+            if (debug != null) {
+                debug(
+                    String.format(Locale.ROOT,
+                        "    solid cube side %s at %.3f,%.3f: picture %d%s", SIDE_NAMES[side], texU, texV, id,
+                        picture == null ? " (none: drawn from its icon)"
+                            : String.format(Locale.ROOT, " argb=%08x", picture.texel(texU, texV, 0))));
+            }
             if (picture != null) {
                 // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
                 int pixel = picture.texel(texU, texV, pictureMip);
@@ -921,9 +965,28 @@ final class IsoTracer {
             texel = visible(texture, texU, texV);
             if (texel == 0) {
                 // A hole in the texture (leaves, glass frames): look further.
+                if (debug != null) {
+                    debug(
+                        String.format(
+                            Locale.ROOT,
+                            "    icon side %s at %.3f,%.3f: a hole, the ray goes on",
+                            SIDE_NAMES[side],
+                            texU,
+                            texV));
+                }
                 return false;
             }
             alpha = 1f;
+        }
+        if (debug != null) {
+            debug(
+                String.format(
+                    Locale.ROOT,
+                    "    icon side %s at %.3f,%.3f: argb=%08x",
+                    SIDE_NAMES[side],
+                    texU,
+                    texV,
+                    texel));
         }
         hit(side, hitT);
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
@@ -1085,7 +1148,28 @@ final class IsoTracer {
     }
 
     /** Adds a surface seen through what is in front of it, by day and by night. */
+    private void debug(String line) {
+        if (debug.length() < 400_000) {
+            debug.append(line)
+                .append('\n');
+        }
+    }
+
+    private static String steps(double t) {
+        return String.format(Locale.ROOT, "t=%.3f", t);
+    }
+
+    private static int lightOf(int cell) {
+        return ChunkBlocks.skyLight(cell) << 4 | ChunkBlocks.blockLight(cell);
+    }
+
     private void add(int rgb, float dayShade, float nightShade, float warmth, float alpha) {
+        if (debug != null) {
+            debug(
+                String.format(Locale.ROOT,
+                    "    ADDED rgb=%06x alpha=%.2f shade=%.2f (light left before: %.2f, after: %.2f)", rgb & 0xFFFFFF,
+                    alpha, dayShade, transmit, transmit * (1 - alpha)));
+        }
         int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
         double weight = transmit * alpha;
         accR += r * weight * dayShade;

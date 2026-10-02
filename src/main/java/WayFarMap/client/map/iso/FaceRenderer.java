@@ -191,6 +191,106 @@ final class FaceRenderer {
         }
     }
 
+    /** What {@link #inspect} found out about one block's pictures. */
+    static final class Inspection {
+
+        boolean cube, ownRenderer, glassLike;
+        int exposed, covered;
+        long surroundings;
+        /** Picture ids the fresh pictures got (as the map would store them). */
+        int[] ids;
+        /** Per way of taking them ({@link #VARIANTS}): how it went, with the pictures. */
+        BlockDiag.Shot[] shots = new BlockDiag.Shot[VARIANTS.length];
+        /** Tile entities drawing over its place from farther (a stargate's base), as text. */
+        List<String> drawnOver = new ArrayList<>();
+        /** Its pictures as kept by place (tile entities), or null: surroundings and ids. */
+        String cached;
+    }
+
+    /**
+     * Takes the pictures of one block now, the usual way and the other ways to compare (render thread), for the
+     * report of {@code /wfmap3d}: they are also what the map would store for it.
+     */
+    static Inspection inspect(World world, int x, int y, int z, FacePalette palette) {
+        Inspection result = new Inspection();
+        Block block = world.getBlock(x, y, z);
+        int meta = world.getBlockMetadata(x, y, z);
+        int key = Block.getIdFromBlock(block) | meta << 16;
+        BlockLooks.Look look = BlockLooks.get(key);
+        TileEntity tileEntity = null;
+        boolean ownRenderer = false;
+        try {
+            if (block.hasTileEntity(meta)) {
+                tileEntity = world.getTileEntity(x, y, z);
+                ownRenderer = tileEntity != null
+                    && TileEntityRendererDispatcher.instance.hasSpecialRenderer(tileEntity);
+            }
+        } catch (RuntimeException ignored) {}
+        result.ownRenderer = ownRenderer;
+        result.cube = look.opaque;
+        result.glassLike = look.renderType == 0 && look.fullCube && !look.opaque && look.skipSame;
+        result.surroundings = surroundings(world, block, x, y, z, look.opaque || look.fullCube);
+        Cached cached = BY_PLACE.get(place(x, y, z));
+        if (cached != null) {
+            result.cached = "surroundings=" + Long.toHexString(cached.surroundings)
+                + (cached.surroundings == result.surroundings ? " (same as now)" : " (CHANGED since)")
+                + " ids="
+                + Arrays.toString(cached.ids)
+                + " taken "
+                + (System.currentTimeMillis() - cached.time) / 1000
+                + " s ago";
+        }
+        if (!available()) {
+            return result;
+        }
+        for (int v = 0; v < VARIANTS.length; v++) {
+            Pending pending = new Pending(-1, x, y, z, block, tileEntity, result.surroundings, look.opaque,
+                ownRenderer);
+            pending.lookKey = key;
+            pending.why = "inspect";
+            // Made by the drawing itself for the usual way; the others are only compared.
+            pending.shot = new BlockDiag.Shot();
+            pending.shot.images = new int[pending.views()][];
+            variant = v;
+            inspecting = true;
+            try {
+                draw(world, java.util.Collections.singletonList(pending), palette);
+            } finally {
+                variant = 0;
+                inspecting = false;
+            }
+            result.shots[v] = pending.shot;
+            if (v == 0) {
+                result.ids = pending.ids.clone();
+                result.covered = pending.covered;
+            }
+        }
+        if (tileEntity != null) {
+            for (TileEntity big : bigTileEntities(world)) {
+                Pending probe = new Pending(-1, x, y, z, block, tileEntity, 0, false, false);
+                if (big != tileEntity && drawsOver(big, probe)) {
+                    result.drawnOver.add(
+                        big.getClass()
+                            .getName() + " at "
+                            + big.xCoord
+                            + ","
+                            + big.yCoord
+                            + ","
+                            + big.zCoord
+                            + " renderBox="
+                            + big.getRenderBoundingBox());
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Sides of a block hidden by the blocks next to it, as its sprites leave them out (bits by {@link #OFFSETS}). */
+    static int coveredSides(World world, int x, int y, int z) {
+        Pending probe = new Pending(-1, x, y, z, null, null, 0, false, false);
+        return covered(world, probe);
+    }
+
     /** Whether sprites can be taken (off-screen buffers are available and nothing went wrong). */
     static boolean available() {
         return !broken && OpenGlHelper.isFramebufferEnabled();
@@ -224,7 +324,9 @@ final class FaceRenderer {
      * back faces culled for the tile entity too, 3 with the game's item lighting for the tile entity). Not stored.
      */
     private static int variant;
-    private static final String[] VARIANTS = { "usual", "noClip", "cullBackFaces", "itemLighting" };
+    static final String[] VARIANTS = { "usual", "noClip", "cullBackFaces", "itemLighting" };
+    /** While {@link #inspect} takes pictures: they are kept whole for its report, not logged. */
+    private static boolean inspecting;
     private static boolean cullLogged;
     static int sessionReused;
     /** For the log: blocks of the chunk's list of pictures to take done so far, and in all. */
@@ -767,12 +869,12 @@ final class FaceRenderer {
             long drawStart = System.nanoTime();
             setupNanos += drawStart - setupStart;
 
-            boolean diagnose = IsoLog.on();
+            boolean diagnose = IsoLog.on() || inspecting;
             int slot = 0;
             for (Pending pending : batch) {
                 if (variant == 0) {
                     pending.shot = diagnose ? new BlockDiag.Shot() : null;
-                    if (pending.shot != null && BlockDiag.wantsImages(pending.lookKey)) {
+                    if (pending.shot != null && (inspecting || BlockDiag.wantsImages(pending.lookKey))) {
                         pending.shot.images = new int[pending.views()][];
                     }
                 }
@@ -891,7 +993,7 @@ final class FaceRenderer {
                 }
             }
             storeNanos += System.nanoTime() - storeStart;
-            if (diagnose && variant == 0) {
+            if (diagnose && variant == 0 && !inspecting) {
                 for (Pending pending : batch) {
                     BlockDiag.picture(
                         pending.block,
