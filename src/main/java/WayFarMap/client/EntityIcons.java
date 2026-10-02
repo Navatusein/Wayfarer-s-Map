@@ -101,6 +101,11 @@ public final class EntityIcons {
      * @return false if the mob has no usable face, so the caller can draw something else
      */
     public static boolean drawFace(EntityLivingBase entity, double sx, double sy, float size) {
+        return drawFace(entity, sx, sy, size, 1f);
+    }
+
+    /** Same, at the given opacity. */
+    public static boolean drawFace(EntityLivingBase entity, double sx, double sy, float size, float alpha) {
         Render render = RenderManager.instance.getEntityRenderObject(entity);
         if (!(render instanceof RendererLivingEntity) || !initReflection()) {
             return false;
@@ -136,7 +141,7 @@ public final class EntityIcons {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glColor4f(1f, 1f, 1f, alpha);
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawingQuads();
         if (face.parts != null) {

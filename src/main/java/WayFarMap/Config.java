@@ -32,6 +32,8 @@ public class Config {
      * nothing set before is lost).
      */
     public static final String TAB_MAP = CATEGORY_MAP, TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
+    /** Tab of the mobs' options (saved under {@link #CATEGORY_ENTITIES}, where they were before). */
+    public static final String TAB_MOBS = "mobs";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
         Arrays.asList(
@@ -41,6 +43,7 @@ public class Config {
             TAB_MAP_3D,
             CATEGORY_PLAYER_MARKER,
             CATEGORY_ENTITIES,
+            TAB_MOBS,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
             CATEGORY_LOGS));
@@ -160,9 +163,21 @@ public class Config {
     public static int autosaveIntervalSeconds = 60;
 
     public static boolean showOtherPlayers = true;
+    /** Hostile mobs (red). */
     public static boolean showHostileMobs = true;
+    /** Neutral mobs: animals and the like (grey). */
     public static boolean showPassiveMobs = true;
+    /** Friendly mobs: villagers, traders, golems (green). */
     public static boolean showOtherEntities = true;
+    /** Tamed mobs (blue). */
+    public static boolean showPets = true;
+    /** Width of the colored frame around mob icons, in GUI pixels. */
+    public static int mobFrameWidth = 1;
+    /** A small arrow at the mob's icon pointing where it looks. */
+    public static boolean mobFacing = true;
+    /** Names of pets (given with a name tag) under their icon. */
+    public static boolean petNames = true;
+
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
     public static int entityVerticalRange = 32;
@@ -606,25 +621,35 @@ public class Config {
             true,
             () -> showOtherPlayers,
             v -> showOtherPlayers = v);
+        // The mobs' own tab; still saved under the entities, where they were before.
+        tab(TAB_MOBS);
+        group("shown");
         bool(
             c,
             "showHostileMobs",
-            "Show hostile mobs on the maps.",
+            "Show hostile mobs on the maps (red frame).",
             true,
             () -> showHostileMobs,
             v -> showHostileMobs = v);
-        bool(c, "showPassiveMobs", "Show animals on the maps.", true, () -> showPassiveMobs, v -> showPassiveMobs = v);
+        bool(
+            c,
+            "showPassiveMobs",
+            "Show neutral mobs: cows, sheep and other animals (grey frame).",
+            true,
+            () -> showPassiveMobs,
+            v -> showPassiveMobs = v);
         bool(
             c,
             "showOtherEntities",
-            "Show other living entities (villagers, golems...) on the maps.",
+            "Show friendly mobs: villagers, traders, golems (green frame).",
             true,
             () -> showOtherEntities,
             v -> showOtherEntities = v);
+        bool(c, "showPets", "Show tamed mobs (blue frame).", true, () -> showPets, v -> showPets = v);
         integer(
             c,
             "verticalRange",
-            "Only show mobs at most this many blocks above or below you.",
+            "Only show mobs at most this many blocks above or below you; those below fade out the lower they are.",
             32,
             4,
             256,
@@ -651,6 +676,31 @@ public class Config {
             4,
             () -> entityIconLimit,
             v -> entityIconLimit = v);
+        integer(
+            c,
+            "frameWidth",
+            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels.",
+            1,
+            1,
+            3,
+            1,
+            () -> mobFrameWidth,
+            v -> mobFrameWidth = v);
+        bool(
+            c,
+            "facing",
+            "A small arrow at each mob's icon pointing where it looks.",
+            true,
+            () -> mobFacing,
+            v -> mobFacing = v);
+        bool(
+            c,
+            "petNames",
+            "Names of pets (given with a name tag) under their icon.",
+            true,
+            () -> petNames,
+            v -> petNames = v);
+        tab(null);
 
         c = CATEGORY_WAYPOINTS;
         group("where");
@@ -866,27 +916,28 @@ public class Config {
         save();
     }
 
-    /** Mob filter of the world map's "Mobs" button: which of hostile and friendly mobs are shown. */
-    public static final int MOBS_ALL = 0, MOBS_FRIENDLY = 1, MOBS_HOSTILE = 2, MOBS_NONE = 3;
-
-    /** Current mob filter; "friendly" is animals and other living entities (villagers, golems...). */
-    public static int getMobFilter() {
-        boolean friendly = showPassiveMobs || showOtherEntities;
-        if (showHostileMobs) {
-            return friendly ? MOBS_ALL : MOBS_HOSTILE;
-        }
-        return friendly ? MOBS_FRIENDLY : MOBS_NONE;
+    /** Whether every kind of mob and other players are shown (the "Mobs" button is not highlighted then). */
+    public static boolean allMobsShown() {
+        return showHostileMobs && showPassiveMobs && showOtherEntities && showPets && showOtherPlayers;
     }
 
-    /** Friendly mobs on the maps: animals and other living things (villagers, golems...) together. */
-    public static boolean friendlyMobsShown() {
-        return showPassiveMobs || showOtherEntities;
+    /** Whether nothing at all is shown: no kind of mob, no other players. */
+    public static boolean noMobsShown() {
+        return !showHostileMobs && !showPassiveMobs && !showOtherEntities && !showPets && !showOtherPlayers;
+    }
+
+    public static void toggleNeutralMobs() {
+        showPassiveMobs = !showPassiveMobs;
+        save();
     }
 
     public static void toggleFriendlyMobs() {
-        boolean show = !friendlyMobsShown();
-        showPassiveMobs = show;
-        showOtherEntities = show;
+        showOtherEntities = !showOtherEntities;
+        save();
+    }
+
+    public static void togglePets() {
+        showPets = !showPets;
         save();
     }
 
@@ -897,14 +948,6 @@ public class Config {
 
     public static void toggleOtherPlayers() {
         showOtherPlayers = !showOtherPlayers;
-        save();
-    }
-
-    public static void setMobFilter(int filter) {
-        showHostileMobs = filter == MOBS_ALL || filter == MOBS_HOSTILE;
-        boolean friendly = filter == MOBS_ALL || filter == MOBS_FRIENDLY;
-        showPassiveMobs = friendly;
-        showOtherEntities = friendly;
         save();
     }
 

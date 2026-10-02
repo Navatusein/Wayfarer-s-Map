@@ -450,11 +450,17 @@ public class GuiWorldMap extends ScaledScreen {
         }, on);
     }
 
-    /** "Mobs: friendly, hostile, players", or that none are shown. */
+    /** "Mobs: neutral, friendly, pets, hostile, players", or that none are shown. */
     private static String mobsButtonText() {
         List<String> shown = new ArrayList<>();
-        if (Config.friendlyMobsShown()) {
+        if (Config.showPassiveMobs) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.neutral"));
+        }
+        if (Config.showOtherEntities) {
             shown.add(I18n.format("wayfarmap.gui.mobs.friendly"));
+        }
+        if (Config.showPets) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.pets"));
         }
         if (Config.showHostileMobs) {
             shown.add(I18n.format("wayfarmap.gui.mobs.hostile"));
@@ -466,11 +472,13 @@ public class GuiWorldMap extends ScaledScreen {
             + (shown.isEmpty() ? I18n.format("wayfarmap.gui.mobs.none") : String.join(", ", shown));
     }
 
-    /** Menu under the "Mobs" button: checkboxes for friendly mobs, hostile mobs and players; all off shows none. */
+    /** Menu under the "Mobs" button: a checkbox for each kind of mob and for players; all off shows none. */
     private void openMobsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
-        entries.add(
-            addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.friendlyMobsShown(), Config::toggleFriendlyMobs));
+        entries.add(addonToggle("wayfarmap.gui.mobs.menu.neutral", Config.showPassiveMobs, Config::toggleNeutralMobs));
+        entries
+            .add(addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs));
+        entries.add(addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets));
         entries.add(addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs));
         entries
             .add(addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
@@ -625,11 +633,13 @@ public class GuiWorldMap extends ScaledScreen {
         gridButton.active = Config.chunkGrid;
         followButton.active = Config.mapFollowPlayer;
         layoutRightButtons();
-        // Mobs: highlighted while some are hidden, dim when none are shown; the dot tells which kind of mob is left.
-        boolean friendly = Config.friendlyMobsShown(), hostile = Config.showHostileMobs;
-        mobsButton.active = !friendly || !hostile || !Config.showOtherPlayers;
-        mobsButton.dim = !friendly && !hostile && !Config.showOtherPlayers;
-        mobsButton.badge = friendly && !hostile ? Theme.SUCCESS : hostile && !friendly ? Theme.DANGER : 0;
+        // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
+        // peaceful mobs are left.
+        boolean peaceful = Config.showPassiveMobs || Config.showOtherEntities || Config.showPets;
+        boolean hostile = Config.showHostileMobs;
+        mobsButton.active = !Config.allMobsShown();
+        mobsButton.dim = Config.noMobsShown();
+        mobsButton.badge = peaceful && !hostile ? Theme.SUCCESS : hostile && !peaceful ? Theme.DANGER : 0;
         mobsButton.tooltip = mobsButtonText();
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
