@@ -99,25 +99,30 @@ public class GuiColorPicker extends ScaledScreen {
         return squareY() + field * FIELD_STEP + gap;
     }
 
+    /** Top of the old and new color: under the square and the last field, with room for the frame around it. */
     private int lowerY() {
-        return squareY() + SQUARE + PAD;
+        int fieldsBottom = fieldY(F_V) + FIELD_HEIGHT;
+        return Math.max(squareY() + SQUARE, fieldsBottom) + PAD + 3;
     }
 
     private int barBottom() {
         return lowerY() + PREVIEW_HEIGHT;
     }
 
-    /** Old and new color side by side: {x0, y0, x1, y1, x of the edge between them}; the new one gets more room. */
+    /** Old and new color side by side, the same size: {x0, y0, x1, y1, x where the old one ends}. */
     private int[] previewBox() {
-        int x0 = squareX(), x1 = left + panelWidth - PAD;
-        return new int[] { x0, lowerY(), x1, barBottom(), x0 + (x1 - x0) * 2 / 5 };
+        int x0 = squareX(), x1 = left + panelWidth - PAD - 3;
+        // A 2 pixel gap in the middle.
+        return new int[] { x0, lowerY(), x1, barBottom(), x0 + (x1 - x0 - 2) / 2 };
     }
 
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         panelWidth = PAD + BAR_WIDTH + PAD + SQUARE + PAD + LABEL_WIDTH + FIELD_WIDTH + 14 + PAD;
-        panelHeight = TITLE + SQUARE + PAD + PREVIEW_HEIGHT + PAD + 18 + PAD;
+        top = 0;
+        // Everything down to the old and new color, then the buttons under it.
+        panelHeight = lowerY() + PREVIEW_HEIGHT + 3 + PAD + 18 + PAD;
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         for (int i = 0; i < fields.length; i++) {
@@ -432,14 +437,15 @@ public class GuiColorPicker extends ScaledScreen {
         Theme.fill(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
         Theme.outline(x0 - 3, y0 - 3, x1 + 3, y1 + 3, Theme.BORDER);
         Theme.fill(x0, y0, split, y1, 0xFF000000 | oldColor);
-        Theme.fill(split + 2, y0, x1, y1, 0xFF000000 | color());
+        int newX = x1 - (split - x0);
+        Theme.fill(newX, y0, x1, y1, 0xFF000000 | color());
         // A soft shine along the top, so the two read as one glossy piece.
         Theme.fill(x0, y0, split, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
-        Theme.fill(split + 2, y0, x1, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
+        Theme.fill(newX, y0, x1, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
         swatchText(I18n.format("wayfarmap.gui.color_old"), oldColor, x0 + 5, y0 + 5);
         swatchText(String.format("#%06X", oldColor), oldColor, x0 + 5, y1 - 13);
-        swatchText(I18n.format("wayfarmap.gui.color_new"), color(), split + 7, y0 + 5);
-        swatchText(String.format("#%06X", color()), color(), split + 7, y1 - 13);
+        swatchText(I18n.format("wayfarmap.gui.color_new"), color(), newX + 5, y0 + 5);
+        swatchText(String.format("#%06X", color()), color(), newX + 5, y1 - 13);
         if (overOld) {
             Theme.outline(x0, y0, split, y1, 0xC0FFFFFF);
         }
