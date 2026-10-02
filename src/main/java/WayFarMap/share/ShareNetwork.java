@@ -232,6 +232,12 @@ public final class ShareNetwork {
          */
         public int sent, reloaded, missing;
         public int serverMs, workMs;
+        /**
+         * For chunks picked on the world map: which inner chunks to map (bit (z - innerZ0) * width + x - innerX0);
+         * null maps them all. The others are only there for their neighbours (loaded so the picked ones get
+         * finished), not to be put on the map.
+         */
+        public long[] picked;
 
         @Override
         public void fromBytes(ByteBuf buf) {
@@ -255,6 +261,13 @@ public final class ShareNetwork {
             missing = buf.readInt();
             serverMs = buf.readInt();
             workMs = buf.readInt();
+            int words = buf.readInt();
+            if (words > 0) {
+                picked = new long[Math.min(words, 1024)];
+                for (int i = 0; i < picked.length; i++) {
+                    picked[i] = buf.readLong();
+                }
+            }
         }
 
         @Override
@@ -279,6 +292,12 @@ public final class ShareNetwork {
             buf.writeInt(missing);
             buf.writeInt(serverMs);
             buf.writeInt(workMs);
+            buf.writeInt(picked == null ? 0 : picked.length);
+            if (picked != null) {
+                for (long word : picked) {
+                    buf.writeLong(word);
+                }
+            }
         }
     }
 

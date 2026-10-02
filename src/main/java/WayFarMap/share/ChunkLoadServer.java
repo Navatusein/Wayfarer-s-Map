@@ -758,6 +758,15 @@ public final class ChunkLoadServer {
         batch.missing = missing;
         batch.serverMs = (int) ((System.nanoTime() - job.batchStarted) / 1_000_000L);
         batch.workMs = (int) (job.workNanos / 1_000_000L);
+        if (job.selected != null) {
+            int width = inner[2] - inner[0] + 1, count = width * (inner[3] - inner[1] + 1);
+            batch.picked = new long[(count + 63) / 64];
+            for (int n = 0; n < count; n++) {
+                if (job.selected.contains(pack(inner[0] + n % width, inner[1] + n / width))) {
+                    batch.picked[n >> 6] |= 1L << (n & 63);
+                }
+            }
+        }
         ShareNetwork.sendTo(batch, player);
         job.waiting = true;
         job.sentTo = player;

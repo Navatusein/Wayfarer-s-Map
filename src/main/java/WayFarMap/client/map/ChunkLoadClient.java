@@ -124,6 +124,11 @@ public final class ChunkLoadClient {
         int width = b.innerX1 - b.innerX0 + 1, count = width * (b.innerZ1 - b.innerZ0 + 1);
         while (at < count) {
             int cx = b.innerX0 + at % width, cz = b.innerZ0 + at / width;
+            if (b.picked != null && (b.picked[at >> 6] & 1L << (at & 63)) == 0) {
+                // Only loaded for a picked chunk next to it: not put on the map.
+                at++;
+                continue;
+            }
             // The client's chunk provider says every chunk exists: one not received is empty.
             Chunk chunk = ChunkScanner.isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
             if (chunk == null) {
@@ -157,7 +162,7 @@ public final class ChunkLoadClient {
             }
             at++;
             scanned = false;
-            done = b.doneBefore + at;
+            done = b.doneBefore + (b.picked == null ? at : pickedBefore(b, at));
             if (b.with3d && System.nanoTime() >= end) {
                 return;
             }
@@ -165,7 +170,18 @@ public final class ChunkLoadClient {
         finish(world, b, mc);
     }
 
-    private void start(ShareNetwork.LoadBatch b) {
+    /** Picked chunks among the batch's first {@code n} inner chunks (the progress of a picked chunks job). */
+    private static int pickedBefore(ShareNetwork.LoadBatch b, int n) {
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if ((b.picked[i >> 6] & 1L << (i & 63)) != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+        private void start(ShareNetwork.LoadBatch b) {
         if (total <= 0 || b.doneBefore < done - 64 || b.total != total || b.with3d != with3d) {
             // A new area (or one taken up again): the time left is worked out from here.
             startedAt = System.currentTimeMillis();
