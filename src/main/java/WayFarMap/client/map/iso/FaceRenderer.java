@@ -54,6 +54,11 @@ final class FaceRenderer {
      * 1.3 blocks wide), and cut to its column they lost every upright face.
      */
     private static final double OWN_MODEL_MARGIN = 0.25;
+    /**
+     * How far inside the block a side hidden by its neighbour is cut off: only what lies on that side is lost (a
+     * thousandth of a block of the rest, far less than a pixel).
+     */
+    private static final double COVERED_INSET = 1 / 1024.0;
     /** Brightness the game gives each side; taken out of pictures of sides, the tracer shades sides itself. */
     private static final float[] SIDE_SHADE = { 0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f };
     /**
@@ -162,6 +167,8 @@ final class FaceRenderer {
         int lookKey;
         String why;
         BlockDiag.Shot shot;
+        /** Sides (bits by {@link #OFFSETS}) hidden by a solid block next to it: left out of its sprites. */
+        int covered;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -767,6 +774,7 @@ final class FaceRenderer {
                     }
                 }
                 long blockStart = System.nanoTime();
+                pending.covered = pending.cube ? 0 : covered(world, pending);
                 for (int view = 0; view < pending.views(); view++, slot++) {
                     int pixels = pending.cube ? FacePalette.FACE_SIZE : FacePalette.SPRITE_SIZE;
                     GL11.glViewport((slot % PER_ROW) * SLOT, (slot / PER_ROW) * SLOT, pixels, pixels);
@@ -787,9 +795,9 @@ final class FaceRenderer {
                     // Only what is inside the block's column: not the other half of a double chest, not neighbours.
                     // A little outside the block, or its own sides, which lie on these planes, get cut off.
                     if (variant != 1) {
-                        clipColumn(pending, CLIP_MARGIN);
+                        clipColumn(pending, CLIP_MARGIN, true);
                     } else {
-                        for (int plane = 0; plane < 4; plane++) {
+                        for (int plane = 0; plane < 6; plane++) {
                             GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
                         }
                     }
@@ -830,7 +838,7 @@ final class FaceRenderer {
             }
             long readStart = System.nanoTime();
             drawNanos += readStart - drawStart;
-            for (int plane = 0; plane < 4; plane++) {
+            for (int plane = 0; plane < 6; plane++) {
                 GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
             }
             // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
@@ -1014,20 +1022,67 @@ final class FaceRenderer {
         return slots;
     }
 
-    /** Keeps only what is within the block's column, and the margin around it (with the camera of the view set). */
-    private static void clipColumn(Pending pending, double margin) {
-        clip(0, 1, 0, -(pending.x - margin));
-        clip(1, -1, 0, pending.x + 1 + margin);
-        clip(2, 0, 1, -(pending.z - margin));
-        clip(3, 0, -1, pending.z + 1 + margin);
+    /**
+     * Keeps only what is within the block's column, and the margin around it (with the camera of the view set). Its
+     * sides hidden by a solid block next to it are cut off: the game draws them (the top of a Nuclear Control panel
+     * under another), the world hides them, but in the sprite they showed, and where the sprite's pixels of such a
+     * side and a seen one meet on their edge, the hidden one drew lines along the seams of a wall.
+     */
+    private static void clipColumn(Pending pending, double margin, boolean hideCovered) {
+        int covered = hideCovered ? pending.covered : 0;
+        clip(0, 1, 0, 0, -(pending.x - side(covered, 4, margin)));
+        clip(1, -1, 0, 0, pending.x + 1 + side(covered, 5, margin));
+        clip(2, 0, 0, 1, -(pending.z - side(covered, 2, margin)));
+        clip(3, 0, 0, -1, pending.z + 1 + side(covered, 3, margin));
+        if ((covered & 1) != 0) {
+            clip(4, 0, 1, 0, -(pending.y + COVERED_INSET));
+        } else {
+            GL11.glDisable(GL11.GL_CLIP_PLANE0 + 4);
+        }
+        if ((covered & 2) != 0) {
+            clip(5, 0, -1, 0, pending.y + 1 - COVERED_INSET);
+        } else {
+            GL11.glDisable(GL11.GL_CLIP_PLANE0 + 5);
+        }
     }
 
-    /** Keeps what is on the positive side of a vertical plane: a * x + b * z + d >= 0 (world coordinates). */
-    private static void clip(int plane, double a, double b, double d) {
+    /** How far outside the block its column is kept on a side: the margin, or inside it if the side is hidden. */
+    private static double side(int covered, int side, double margin) {
+        return (covered & 1 << side) != 0 ? -COVERED_INSET : margin;
+    }
+
+    /**
+     * The sides of a block hidden by the blocks next to them: a solid cube, or a block filling its cell whose side
+     * toward it is drawn without holes (the next block of a Nuclear Control panel; not frames or glass).
+     */
+    private static int covered(World world, Pending pending) {
+        int covered = 0;
+        for (int side = 0; side < 6; side++) {
+            int nx = pending.x + OFFSETS[side][0], ny = pending.y + OFFSETS[side][1], nz = pending.z + OFFSETS[side][2];
+            int key = blockAt(world, nx, ny, nz);
+            if (ChunkBlocks.blockId(key) == 0) {
+                continue;
+            }
+            BlockLooks.Look look = BlockLooks.get(key);
+            boolean hides = look.opaque;
+            if (!hides && look.fullCube && !look.translucent) {
+                // Its side toward this block: down <-> up, north <-> south, west <-> east.
+                BlockLooks.Texture texture = look.textures[side ^ 1];
+                hides = texture != null && texture.solid();
+            }
+            if (hides) {
+                covered |= 1 << side;
+            }
+        }
+        return covered;
+    }
+
+    /** Keeps what is on the positive side of a plane: a * x + b * y + c * z + d >= 0 (world coordinates). */
+    private static void clip(int plane, double a, double b, double c, double d) {
         planeBuffer.clear();
         planeBuffer.put(a)
-            .put(0)
             .put(b)
+            .put(c)
             .put(d);
         planeBuffer.flip();
         GL11.glClipPlane(GL11.GL_CLIP_PLANE0 + plane, planeBuffer);
@@ -1139,8 +1194,8 @@ final class FaceRenderer {
                 }
                 if (variant != 1) {
                     // Its own model with room around; one next to it (a double chest's other half) only in this
-                    // column.
-                    clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN);
+                    // column. Not cut at its hidden sides: what they draw (a panel's text) reaches past them.
+                    clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN, false);
                 }
                 TileEntityRendererDispatcher.instance
                     .renderTileEntityAt(tileEntity, tileEntity.xCoord, tileEntity.yCoord, tileEntity.zCoord, 0f);

@@ -56,6 +56,20 @@ public final class BlockLooks {
             return mips[mip][ty * size + tx];
         }
 
+        /** Whether every texel is drawn (no holes, nothing see-through). */
+        boolean solid() {
+            int[] pixels = mips[0];
+            if (pixels == null) {
+                return false;
+            }
+            for (int pixel : pixels) {
+                if ((pixel >>> 24) < 128) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         static Texture of(int[] pixels16) {
             Texture texture = new Texture();
             texture.mips[0] = pixels16;
