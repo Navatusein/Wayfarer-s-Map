@@ -553,7 +553,7 @@ public final class MapDrawer {
     }
 
     /** Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), neutral. */
-    private static int entityColor(EntityLivingBase entity) {
+    static int entityColor(EntityLivingBase entity) {
         if (isPet(entity)) {
             return Config.showPets ? PET_COLOR : 0;
         }

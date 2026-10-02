@@ -27,7 +27,7 @@ import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
-import WayFarMap.client.PlayerModelDrawer;
+import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.TeamMates;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
@@ -922,7 +922,7 @@ public class GuiWorldMap extends ScaledScreen {
         boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         boolean iso = isoShown();
         if (iso) {
-            // 3D: the terrain only; the add-on layers, the grid and mobs are drawn on the flat map.
+            // 3D: the terrain; the mobs and the player come below. The add-on layers and the grid are flat only.
             IsoMap.INSTANCE.draw(
                 dimensionId,
                 Config.isoRotation,
@@ -948,15 +948,25 @@ public class GuiWorldMap extends ScaledScreen {
         double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
         double[] playerScreen = toScreen(px, py, pz);
         double playerScreenX = playerScreen[0], playerScreenY = playerScreen[1];
-        if (!otherDimension && playerScreenX >= 0
+        boolean playerOnScreen = !otherDimension && playerScreenX >= 0
             && playerScreenY >= 0
             && playerScreenX <= width
-            && playerScreenY <= height) {
+            && playerScreenY <= height;
+        // 3D: the mobs in sight and the player as their 3D models (mobs of the player's own dimension only).
+        boolean model = iso && !otherDimension
+            && IsoEntityDrawer.draw(
+                mc,
+                this::toScreen,
+                scale,
+                isoProjection(),
+                width,
+                height,
+                partialTicks,
+                true,
+                playerOnScreen && Config.isoPlayerModel);
+        if (playerOnScreen) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
-            boolean model = iso && Config.isoPlayerModel
-                && PlayerModelDrawer
-                    .draw(mc.thePlayer, playerScreenX, playerScreenY, scale, isoProjection(), partialTicks);
             // Drawn as the player itself, or else as the arrow.
             if (!model && iso) {
                 // Where one block ahead of the player lands on the screen gives the arrow's direction.
