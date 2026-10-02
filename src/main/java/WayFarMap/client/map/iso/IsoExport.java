@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
 import WayFarMap.client.map.export.TilePyramid;
 
 /**
- * The whole 3D map of a dimension as tiles for {@link TilePyramid}: everything the block files and the flat map know,
+ * The whole 3D map of a dimension as tiles for {@link TilePyramid}: everything the block files know,
  * seen from one side, drawn at one level of detail (up to 64 pixels per block, like the closest zoom in game).
  */
 public final class IsoExport implements TilePyramid.Source {
@@ -18,7 +18,7 @@ public final class IsoExport implements TilePyramid.Source {
     private static final int SIZE = 256;
     /** The least detailed level offered: 2 pixels per block. */
     public static final int MAX_LEVEL = 5;
-    private static final Pattern REGION = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.(wfb|png)");
+    private static final Pattern REGION = Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.wfb");
 
     private final IsoMap.Dimension dimension;
     private final IsoProjection projection;
@@ -36,7 +36,7 @@ public final class IsoExport implements TilePyramid.Source {
         this.night = night;
         this.pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         this.tileBlocks = SIZE / pixelsPerBlock;
-        this.tracers = ThreadLocal.withInitial(() -> new IsoTracer(dimension.store, dimension.fallback, palette));
+        this.tracers = ThreadLocal.withInitial(() -> new IsoTracer(dimension.store, palette));
     }
 
     /**
@@ -74,30 +74,17 @@ public final class IsoExport implements TilePyramid.Source {
                     .availableProcessors() - 2));
     }
 
-    /** Tiles over every chunk with blocks or on the flat map, from the bottom of the world to its highest block. */
+    /** Tiles over every chunk with blocks, from the bottom of the world to its highest block. */
     @Override
     public Set<Long> tiles() {
-        return tiles(true);
-    }
-
-    /** Roughly the tiles there are, quickly (render thread): doesn't read the flat map's pictures. */
-    public Set<Long> estimatedTiles() {
-        return tiles(false);
-    }
-
-    private Set<Long> tiles(boolean exact) {
         Set<Long> regions = new HashSet<>();
         addRegions(new File(dimension.directory, "blocks"), regions);
-        addRegions(dimension.directory, regions);
         Set<Long> tiles = new HashSet<>();
         for (long region : regions) {
             int rx = (int) (region >> 32), rz = (int) region;
             for (int cz = rz * 32; cz < rz * 32 + 32; cz++) {
                 for (int cx = rx * 32; cx < rx * 32 + 32; cx++) {
                     int top = dimension.store.top(cx, cz);
-                    if (top < 0 && dimension.fallback.time(cx, cz) != 0) {
-                        top = exact ? dimension.fallback.top(cx, cz) : 128;
-                    }
                     if (top < 0) {
                         continue;
                     }

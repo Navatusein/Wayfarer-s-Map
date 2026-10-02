@@ -579,9 +579,6 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             }
         }
-        if (record.layer < 0) {
-            IsoMap.INSTANCE.onFlatChunkChanged(dimension, record.chunkX, record.chunkZ);
-        }
         FlatLog.shared(record.chunkX, record.chunkZ, "written");
         return true;
     }
@@ -845,7 +842,7 @@ public class MapManager implements IResourceManagerReloadListener {
             long start = System.nanoTime();
             surfaceTracker.scanIfStale(currentWorld, chunk, surface, biomes);
             // Copying blocks for the 3D map costs more: only for a few milliseconds per tick (flying fast, dozens of
-            // chunks go at once); the others are drawn in 3D from the flat map.
+            // chunks go at once); the others are copied the next time they are loaded.
             IsoMap.INSTANCE.onChunkUnload(world, chunk, unloadNanos < UNLOAD_BUDGET_NANOS);
             unloadNanos += System.nanoTime() - start;
         }
@@ -1267,18 +1264,8 @@ public class MapManager implements IResourceManagerReloadListener {
                     biomesReady);
                 return false;
             }
-            // A chunk new to the map, mapped for the flat map only, isn't drawn on the 3D map from the flat map.
-            MapRegion region = map.getRegion(rx, rz, true);
-            int lx = chunk.xPosition & (MapRegion.CHUNKS - 1), lz = chunk.zPosition & (MapRegion.CHUNKS - 1);
-            boolean flatOnly = !with3d && (region.getChunkTime(lx, lz) == 0 || region.isFlatOnly(lx, lz));
             scanChunk(world, chunk, map, -1, biomeMap, rx, rz, false, false);
-            region.setFlatOnly(lx, lz, flatOnly);
-            FlatLog.log(
-                "CHUNKLOAD_SCAN " + chunk.xPosition
-                    + ","
-                    + chunk.zPosition
-                    + (with3d ? " 3D" : " 2D")
-                    + (flatOnly ? " flat map only (not on the 3D map)" : ""));
+            FlatLog.log("CHUNKLOAD_SCAN " + chunk.xPosition + "," + chunk.zPosition + (with3d ? " 3D" : " 2D"));
             return true;
         }
 
@@ -1360,10 +1347,6 @@ public class MapManager implements IResourceManagerReloadListener {
                         cx & (MapRegion.CHUNKS - 1),
                         cz & (MapRegion.CHUNKS - 1),
                         System.currentTimeMillis());
-                }
-                if (scanned != null && caveLayer < 0 && for3d) {
-                    // Mapped as usual: the 3D map has its blocks, or else draws it from the flat map.
-                    scanned.setFlatOnly(cx & (MapRegion.CHUNKS - 1), cz & (MapRegion.CHUNKS - 1), false);
                 }
                 TeamMapClient.INSTANCE.onChunkScanned(map, biomeMap, caveLayer, cx, cz);
             } catch (Exception e) {

@@ -192,13 +192,13 @@ public final class IsoLog {
         line(
             "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
                 + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
-                + "chunks=where the rays found blocks: store (3D blocks) / flat (pillars of the 2D map) / none, "
+                + "chunks=where the rays found blocks: store (3D blocks) / none, "
                 + "reads=region files read for it, waits=time waiting for block looks from the game, px=pixels: "
                 + "clear (nothing, the dark background shows) / black / dark, saved=what was written to its file) -> "
                 + "VIEW every second while the screen is not complete (onScreen, ready, empty, fromCoarser = a "
                 + "blurry parent shown, holes = nothing shown at all) -> VIEW_COMPLETE (how long the screen took). "
                 + "TILE_WARN marks what looks wrong (empty or black tiles saved, files that couldn't be read, slow "
-                + "tiles); FALLBACK_READ / LOOKS_WAIT are reads of 2D map regions and waits for block looks.");
+                + "tiles); LOOKS_WAIT are waits for block looks.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -1013,10 +1013,10 @@ public final class IsoLog {
         String disk = "-";
         long diskNanos;
         long diskBytes;
-        /** Chunks the rays entered: with 3D blocks, with only the flat map's pillars, with nothing. */
-        int storeChunks, flatChunks, noChunks;
-        /** Region files read for it: 3D block headers and blobs, flat map regions (and failures). */
-        int headerReads, blobReads, flatReads, flatFails;
+        /** Chunks the rays entered: with 3D blocks, with nothing. */
+        int storeChunks, noChunks;
+        /** Region files read for it: 3D block headers and blobs. */
+        int headerReads, blobReads;
         long readNanos, readBytes;
         int decoded;
         long decodeNanos;
@@ -1062,14 +1062,12 @@ public final class IsoLog {
         return TILE_WORK.get();
     }
 
-    /** The rays of a tile entered a chunk: 0 = 3D blocks, 1 = flat map pillars, 2 = nothing there. */
+    /** The rays of a tile entered a chunk: 0 = 3D blocks, 2 = nothing there. */
     static void tileChunk(int kind) {
         TileWork w = TILE_WORK.get();
         if (w != null) {
             if (kind == 0) {
                 w.storeChunks++;
-            } else if (kind == 1) {
-                w.flatChunks++;
             } else {
                 w.noChunks++;
             }
@@ -1082,36 +1080,6 @@ public final class IsoLog {
         if (w != null) {
             w.decoded++;
             w.decodeNanos += nanos;
-        }
-    }
-
-    /** A region of the flat map was read for the 3D map's pillars (any thread). */
-    static void fallbackRead(int rx, int rz, long nanos, long bytes, String failure) {
-        TileWork w = TILE_WORK.get();
-        if (w != null) {
-            w.flatReads++;
-            w.readNanos += nanos;
-            w.readBytes += bytes;
-            if (failure != null) {
-                w.flatFails++;
-            }
-        }
-        if (on()) {
-            if (failure != null) {
-                countTile("warn FALLBACK_READ failed");
-            }
-            line(
-                (failure != null ? "TILE_WARN " : "") + "FALLBACK_READ r="
-                    + rx
-                    + ","
-                    + rz
-                    + " ms="
-                    + ms(nanos)
-                    + " bytes="
-                    + bytes
-                    + (failure != null
-                        ? " FAILED (" + failure + "): its chunks count as not explored, tiles over it come out empty"
-                        : ""));
         }
     }
 
@@ -1174,17 +1142,12 @@ public final class IsoLog {
             if (!"disk".equals(source)) {
                 b.append(" chunks[store=")
                     .append(w.storeChunks)
-                    .append(" flat=")
-                    .append(w.flatChunks)
                     .append(" none=")
                     .append(w.noChunks)
                     .append("] reads[headers=")
                     .append(w.headerReads)
                     .append(" blobs=")
                     .append(w.blobReads)
-                    .append(" flat=")
-                    .append(w.flatReads)
-                    .append(w.flatFails > 0 ? " flatFailed=" + w.flatFails : "")
                     .append(" ms=")
                     .append(ms(w.readNanos))
                     .append(" kb=")
@@ -1245,19 +1208,6 @@ public final class IsoLog {
 
         // What looks wrong, on lines of their own so they are easy to find.
         String where = tile(key) + " src=" + source;
-        if (w != null && empty && "saved-empty".equals(w.saved) && w.flatFails > 0) {
-            // Empty because a region couldn't be read, not because nothing was explored there.
-            warn(
-                "EMPTY_SAVED",
-                where + ": "
-                    + w.flatFails
-                    + " flat map regions failed to read, so "
-                    + w.noChunks
-                    + " chunks counted as unexplored; the tile stays empty on disk until a chunk there changes");
-        }
-        if (w != null && !empty && w.flatFails > 0) {
-            warn("HOLES", where + ": " + w.flatFails + " flat map regions failed to read");
-        }
         if (!empty && day[1] + day[2] > total / 2) {
             warn(
                 "DARK",
@@ -1269,13 +1219,13 @@ public final class IsoLog {
                     + day[3]
                     + (w != null && w.noPalette ? " (no block pictures)" : ""));
         }
-        if (!empty && day[0] > total * 3 / 4 && w != null && w.storeChunks + w.flatChunks > 0) {
+        if (!empty && day[0] > total * 3 / 4 && w != null && w.storeChunks > 0) {
             warn(
                 "MOSTLY_CLEAR",
                 where + " clear="
                     + percent(day[0], total)
                     + " though the rays met "
-                    + (w.storeChunks + w.flatChunks)
+                    + w.storeChunks
                     + " chunks with blocks");
         }
         if (w != null && (w.disk.startsWith("io-error") || w.disk.startsWith("bad-magic"))) {

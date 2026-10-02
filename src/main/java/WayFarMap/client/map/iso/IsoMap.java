@@ -30,15 +30,14 @@ import WayFarMap.client.map.ChunkScanner;
 /**
  * The 3D (isometric) world map, drawn like Dynmap's HD maps from the blocks themselves: while playing, the blocks
  * of every explored chunk are kept ({@link BlockStore}); on the world map, tiles are drawn from them by ray tracing
- * ({@link IsoTracer}, {@link IsoTiles}). Chunks without blocks (explored before, or by a teammate) are shown from the
- * flat map's colors and heights.
+ * ({@link IsoTracer}, {@link IsoTiles}). Only chunks whose blocks were copied are shown.
  */
 public final class IsoMap implements BlockStore.Listener {
 
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 14;
+    private static final int RENDER_VERSION = 15;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /**
@@ -61,13 +60,11 @@ public final class IsoMap implements BlockStore.Listener {
         final int id;
         final File directory;
         final BlockStore store;
-        final SurfaceFallback fallback;
 
         Dimension(int id, File directory, BlockStore.Listener listener) {
             this.id = id;
             this.directory = directory;
             this.store = new BlockStore(id, directory, listener);
-            this.fallback = new SurfaceFallback(directory);
         }
     }
 
@@ -471,7 +468,7 @@ public final class IsoMap implements BlockStore.Listener {
         partial.remove(key);
         copiedWhileLoaded.remove(key);
         if (!mayCopy) {
-            // No time left this tick: the 3D map draws this chunk from the flat map.
+            // No time left this tick: the chunk is copied the next time it is loaded.
             if (waiting) {
                 IsoLog.dropped(
                     chunk.xPosition,
@@ -610,8 +607,8 @@ public final class IsoMap implements BlockStore.Listener {
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
         if (loading.add(key)) {
-            // Copied and stored again whatever is stored (a chunk drawn from the flat map, or an old copy): the
-            // loading is asked for to make the 3D map of the area anew.
+            // Copied and stored again whatever is stored (an old copy): the loading is asked for to make the 3D map
+            // of the area anew.
             refreshing.add(key);
             IsoLog.log("CHUNKLOAD_CAPTURE " + chunk.xPosition + "," + chunk.zPosition + " forced (stored again)");
         }
@@ -724,8 +721,8 @@ public final class IsoMap implements BlockStore.Listener {
             if (copies < MAX_UNFINISHED_COPIES) {
                 IsoLog
                     .captured(cx, cz, reason, whole, unloading, t1 - t0, t2 - t1, false, false, copies, deadline - t2);
-                // Stored once all its pictures are taken; until then the map shows the copy before (or the flat
-                // map for a new chunk), not one half drawn.
+                // Stored once all its pictures are taken; until then the map shows the copy before (or nothing
+                // for a new chunk), not one half drawn.
                 if (FaceRenderer.progressTotal > 0) {
                     IsoLog.log(
                         "PROGRESS " + cx
@@ -873,11 +870,6 @@ public final class IsoMap implements BlockStore.Listener {
         } else {
             partial.remove(key);
         }
-    }
-
-    /** A teammate's chunk was written into the flat map: tiles showing it from the flat map are drawn again. */
-    public void onFlatChunkChanged(int dimension, int chunkX, int chunkZ) {
-        changes.add(new long[] { dimension, chunkX, chunkZ, 255, System.currentTimeMillis() });
     }
 
     @Override

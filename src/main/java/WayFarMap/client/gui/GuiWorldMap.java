@@ -506,7 +506,7 @@ public class GuiWorldMap extends ScaledScreen {
                 if (export == null) {
                     continue;
                 }
-                Set<Long> tiles = export.estimatedTiles();
+                Set<Long> tiles = export.tiles();
                 // Drawing time grows with the pixels: a tile of 256x256 takes about the same at any detail.
                 double minutes = tiles.size() * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
                 String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
@@ -1171,7 +1171,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (iso) {
             drawQualitySlider(mouseX, mouseY);
             if (!Config.record3d) {
-                // Nothing new comes onto the 3D map: it is drawn from the flat map where it has no blocks.
+                // Nothing new comes onto the 3D map: chunks without copied blocks stay empty.
                 String warning = I18n.format("wayfarmap.gui.iso_not_recording");
                 int w = fontRendererObj.getStringWidth(warning);
                 int x = (width - w) / 2, y = height - FOOTER_HEIGHT - 16;
