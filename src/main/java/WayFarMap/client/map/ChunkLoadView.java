@@ -3,7 +3,6 @@ package WayFarMap.client.map;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +55,8 @@ public final class ChunkLoadView {
         }
         Map<Long, Long> pending = PENDING_CHUNKS.computeIfAbsent(dimension, d -> new HashMap<>());
         long now = System.currentTimeMillis();
+        // The far view shows the change at once.
+        REGION_STATES.clear();
         for (long chunk : chunks) {
             if (remove) {
                 pending.remove(chunk);
@@ -159,19 +160,37 @@ public final class ChunkLoadView {
                     }
                 }
             }
-        } else {
-            // Zoomed far out: only the picked chunks, as small red squares.
-            Iterator<Map.Entry<Long, Long>> it = pending.entrySet()
-                .iterator();
-            while (it.hasNext()) {
-                Map.Entry<Long, Long> entry = it.next();
-                int cx = unpackX(entry.getKey()), cz = unpackZ(entry.getKey());
-                if (cx < minX || cx > maxX || cz < minZ || cz > maxZ) {
-                    continue;
+        } else if (surface != null) {
+            // Zoomed far out: too many chunks to look at every frame. The states of each region's chunks are kept
+            // and refreshed now and then, and drawn as strips along the rows (no borders: they would be too thin).
+            int minRx = minX >> 5, maxRx = maxX >> 5, minRz = minZ >> 5, maxRz = maxZ >> 5;
+            long now = System.currentTimeMillis();
+            for (int rz = minRz; rz <= maxRz; rz++) {
+                for (int rx = minRx; rx <= maxRx; rx++) {
+                    byte[] states = regionStates(surface, pending, dimension, rx, rz, now);
+                    for (int lz = 0; lz < 32; lz++) {
+                        int lx = 0;
+                        while (lx < 32) {
+                            int st = states[lz * 32 + lx];
+                            int start = lx;
+                            while (lx < 32 && states[lz * 32 + lx] == st) {
+                                lx++;
+                            }
+                            if (st == NONE) {
+                                continue;
+                            }
+                            double sx = x + ((rx * 32 + start) * 16 - left) * scale;
+                            double sy = y + ((rz * 32 + lz) * 16 - top) * scale;
+                            // At least a pixel, so far out the areas still show.
+                            rect(sx, sy, Math.max(pixel, cell * (lx - start)), Math.max(pixel, cell),
+                                st == PENDING ? PENDING_BORDER : MAPPED_FILL,
+                                st == PENDING ? BORDER_ALPHA : FILL_ALPHA + 40, x, y, width, height);
+                        }
+                    }
                 }
-                double sx = x + (cx * 16 - left) * scale, sy = y + (cz * 16 - top) * scale;
-                double size = Math.max(pixel, cell);
-                rect(sx, sy, size, size, PENDING_BORDER, BORDER_ALPHA, x, y, width, height);
+            }
+            if (REGION_STATES.size() > MAX_CACHED_REGIONS) {
+                REGION_STATES.clear();
             }
         }
         if (selection != null && !selection.isEmpty()) {
@@ -185,7 +204,47 @@ public final class ChunkLoadView {
         end();
     }
 
-    /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
+    /** States of a region's chunks for the far view, and when they were worked out. */
+    private static final Map<Long, Object[]> REGION_STATES = new HashMap<>();
+    /** How often the far view looks at a region's chunks again. */
+    private static final long REGION_REFRESH_MS = 500;
+    private static final int MAX_CACHED_REGIONS = 4096;
+
+    /** The 32 x 32 chunk states of a region (row by row), kept for {@link #REGION_REFRESH_MS}. */
+    private static byte[] regionStates(MapDimension surface, Map<Long, Long> pending, int dimension, int rx, int rz,
+        long now) {
+        long key = ((long) rx << 32) ^ (rz & 0xFFFFFFFFL) ^ ((long) dimension << 52);
+        Object[] kept = REGION_STATES.get(key);
+        if (kept != null && now - (Long) kept[0] < REGION_REFRESH_MS && kept[2] == surface) {
+            return (byte[]) kept[1];
+        }
+        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz)) {
+            // Nothing of it on the map in memory, nothing picked: no need to look at its 1024 chunks.
+            REGION_STATES.put(key, new Object[] { now, EMPTY, surface });
+            return EMPTY;
+        }
+        byte[] states = new byte[32 * 32];
+        for (int lz = 0; lz < 32; lz++) {
+            for (int lx = 0; lx < 32; lx++) {
+                states[lz * 32 + lx] = (byte) state(surface, pending, rx * 32 + lx, rz * 32 + lz);
+            }
+        }
+        REGION_STATES.put(key, new Object[] { now, states, surface });
+        return states;
+    }
+
+    private static final byte[] EMPTY = new byte[32 * 32];
+
+    private static boolean hasPending(Map<Long, Long> pending, int rx, int rz) {
+        for (long chunk : pending.keySet()) {
+            if (unpackX(chunk) >> 5 == rx && unpackZ(chunk) >> 5 == rz) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+        /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
     private static int state(MapDimension surface, Map<Long, Long> pending, int chunkX, int chunkZ) {
         long time = surface.chunkTimeInMemory(chunkX, chunkZ);
         if (!pending.isEmpty()) {

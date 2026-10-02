@@ -131,7 +131,13 @@ public class MapDimension {
         return missing.contains(key) ? 0 : -1;
     }
 
-    /** Like {@link #peekPixel}, for the extra byte (height or biome); 0 if unknown. */
+    /** Whether the full region or its reduced copy is in memory. */
+    public boolean isInMemory(int rx, int rz) {
+        long key = key(rx, rz);
+        return regions.containsKey(key) || lods.containsKey(key);
+    }
+
+        /** Like {@link #peekPixel}, for the extra byte (height or biome); 0 if unknown. */
     public int peekExtra(int x, int z) {
         long key = key(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
         int lx = x & (MapRegion.SIZE - 1), lz = z & (MapRegion.SIZE - 1);

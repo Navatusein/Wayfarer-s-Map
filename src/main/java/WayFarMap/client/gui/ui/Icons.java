@@ -32,7 +32,11 @@ public final class Icons {
         "....###....", "...#.#.#...", "....###....", ".....#.....", ".#...#...#.", "..#..#..#..", "#..#.#.#..#",
         ".#.#.#.#.#.", "..#######.." };
 
-    public static final String[] TOPO = { // contour lines around a peak
+    public static final String[] CHUNKLOAD = { // an arrow down into a tray: loading
+        "....###....", "....###....", "..#######..", "...#####...", "....###....", ".....#.....", "#.........#",
+        "#.........#", "#.........#", "###########" };
+
+        public static final String[] TOPO = { // contour lines around a peak
         "...####...", "..#....#..", ".#..##..#.", "#..#..#..#", "#..#..#..#", ".#..##..#.", "..#....#..",
         "...####..." };
 

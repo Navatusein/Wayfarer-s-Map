@@ -752,7 +752,7 @@ public class GuiWorldMap extends ScaledScreen {
         MODE_CHUNKLOAD = 5;
     private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
     private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
-        Icons.GRID };
+        Icons.CHUNKLOAD };
     /** The chunk loading view: the flat map with the chunks on it and those picked to be loaded. */
     private static boolean chunkloadView;
 
