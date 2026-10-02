@@ -70,19 +70,35 @@ final class BlockCapture {
      * The floor of a column whose first block from the top that hides what is below is at {@code y}: under a roof
      * (with open space below it) the floor under that space, down to {@link Config#isoOverhangDepth} blocks, several
      * storeys if there are; {@code y} itself for solid ground. Seen from the side under an overhang, the space would
-     * otherwise be drawn as solid ground.
+     * otherwise be drawn as solid ground. Open space going on past that depth is under something hanging in the air:
+     * then the floor is the ground under it, however far down.
      */
     private static int underOverhang(Chunk chunk, int x, int z, int y) {
         int floor = y;
         boolean open = false;
         int depth = Math.max(0, Config.isoOverhangDepth);
-        for (int yy = y - 1; yy >= 0 && yy >= y - depth; yy--) {
+        if (depth == 0) {
+            return floor;
+        }
+        int yy = y - 1;
+        for (; yy >= 0 && yy >= y - depth; yy--) {
             if (!hidesBelow(chunk.getBlock(x, yy, z))) {
                 open = true;
             } else if (open) {
                 floor = yy;
                 open = false;
             }
+        }
+        if (open) {
+            // Still in open space at the limit: not a cave under the ground but something hanging over empty space
+            // (a platform or a building high in the air). The ground is under that space, however far down: kept
+            // down to it, or the space under it would be drawn as solid stone from the side.
+            for (; yy >= 0; yy--) {
+                if (hidesBelow(chunk.getBlock(x, yy, z))) {
+                    return yy;
+                }
+            }
+            return 0;
         }
         return floor;
     }
