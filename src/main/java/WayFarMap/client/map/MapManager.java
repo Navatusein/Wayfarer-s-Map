@@ -420,6 +420,9 @@ public class MapManager implements IResourceManagerReloadListener {
      * "Auto" shows caves only where there is no sky (like the Nether), at the player's height or the slider's layer.
      */
     public int getViewCaveLayer() {
+        if (surfaceView) {
+            return -1;
+        }
         if (viewed == null) {
             return activeCaveLayer;
         }
@@ -447,6 +450,9 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     private MapDimension viewedMap() {
+        if (surfaceView) {
+            return viewed == null ? surface : viewed.surface;
+        }
         if (viewed == null) {
             return getDimension();
         }
@@ -458,6 +464,13 @@ public class MapManager implements IResourceManagerReloadListener {
         }
         int layer = getViewCaveLayer();
         return layer >= 0 ? viewed.cave(layer) : viewed.surface;
+    }
+
+    /** The world map shows the surface whatever the cave mode (its chunk loading view); not the minimap. */
+    private boolean surfaceView;
+
+    public void setSurfaceView(boolean surfaceOnly) {
+        surfaceView = surfaceOnly;
     }
 
     /** Biome map of the dimension shown on the world map. */

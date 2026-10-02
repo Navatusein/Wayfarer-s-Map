@@ -182,6 +182,8 @@ public class GuiWorldMap extends ScaledScreen {
     public void initGui() {
         super.initGui();
         checkWelcome();
+        // The chunk loading view always shows the surface, whatever the cave mode.
+        MapManager.INSTANCE.setSurfaceView(chunkloadView);
         if (!initialized && mc.thePlayer != null) {
             // Only on first open, not when the window is resized: back where the map was closed (unless it follows
             // the player), or at the player.
@@ -796,6 +798,7 @@ public class GuiWorldMap extends ScaledScreen {
         // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
         Config.setShowPlants(mode != MODE_BARE);
         chunkloadView = mode == MODE_CHUNKLOAD;
+        MapManager.INSTANCE.setSurfaceView(chunkloadView);
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
@@ -2004,9 +2007,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** The chunk loading view: the flat map of the player's own dimension. */
     private boolean chunkloadShown() {
-        return chunkloadView && !isoShown()
-            && !MapManager.INSTANCE.isViewingOtherDimension()
-            && MapManager.INSTANCE.getViewCaveLayer() < 0;
+        // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
+        return chunkloadView && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
     /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
@@ -2190,6 +2192,7 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     public void onGuiClosed() {
         super.onGuiClosed();
+        MapManager.INSTANCE.setSurfaceView(false);
         Keyboard.enableRepeatEvents(false);
         // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
         if (Mods.isVisualProspectingLoaded()) {
