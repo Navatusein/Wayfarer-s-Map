@@ -7,11 +7,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -1128,12 +1126,6 @@ public class MapManager implements IResourceManagerReloadListener {
          * is whole, so the map shows it finished at once instead of bare first.
          */
         private final Map<Long, int[]> settling = new HashMap<>();
-        /**
-         * Chunks last scanned without all 8 neighbours loaded (mostly at the edge of the view, mapped by timeout):
-         * their decoration (snow over half the chunk, trees) comes only once the neighbours are made, as the player
-         * gets closer, often seconds after. Their changes are picked up as quickly as those next to the player.
-         */
-        private final Set<Long> incomplete = new HashSet<>();
         private final ArrayDeque<Long> queue = new ArrayDeque<>();
         private int nextQueueBuild;
         /** Chunk the player was in when the queue was built. */
@@ -1147,14 +1139,12 @@ public class MapManager implements IResourceManagerReloadListener {
 
         /** Forgets that a chunk was scanned (it is scanned again as a new one); the tick of its last scan, or -1. */
         int forget(int chunkX, int chunkZ) {
-            incomplete.remove(chunkKey(chunkX, chunkZ));
             Integer last = lastScanTick.remove(chunkKey(chunkX, chunkZ));
             return last == null ? -1 : last;
         }
 
         void reset() {
             lastScanTick.clear();
-            incomplete.clear();
             settling.clear();
             queue.clear();
             nextQueueBuild = 0;
@@ -1503,13 +1493,6 @@ public class MapManager implements IResourceManagerReloadListener {
                 scanChunk(world, chunk, map, caveLayer, biomeMap, rx, rz, lastScanTick.containsKey(key));
                 lastScanTick.put(key, tick);
                 settling.remove(key);
-                if (surface) {
-                    if (allAroundReady(world, chunk)) {
-                        incomplete.remove(key);
-                    } else {
-                        incomplete.add(key);
-                    }
-                }
                 budget--;
             }
             if (FlatLog.on()) {
@@ -1550,7 +1533,6 @@ public class MapManager implements IResourceManagerReloadListener {
                 if ((Math.abs(cx - pcx) > radius + 4 || Math.abs(cz - pcz) > radius + 4)
                     && !ChunkScanner.isChunkReady(world, cx, cz)) {
                     it.remove();
-                    incomplete.remove(key);
                 }
             }
             Iterator<Long> waiting = settling.keySet()
@@ -1585,8 +1567,7 @@ public class MapManager implements IResourceManagerReloadListener {
                         // Changes are caught by the chunk's changed mark: scanning again without one is only a
                         // fallback, now and then.
                         int interval = distance <= 1 ? 200 : distance <= 4 ? 600 : 1200;
-                        int changedInterval = distance <= 1 || incomplete.contains(key) ? NEAR_CHANGED_RESCAN_TICKS
-                            : CHANGED_RESCAN_TICKS;
+                        int changedInterval = distance <= 1 ? NEAR_CHANGED_RESCAN_TICKS : CHANGED_RESCAN_TICKS;
                         changed = tick - last >= changedInterval && world.getChunkFromChunkCoords(cx, cz).isModified;
                         if (tick - last < interval && !changed) {
                             continue;
