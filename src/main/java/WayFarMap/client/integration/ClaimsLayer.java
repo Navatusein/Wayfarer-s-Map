@@ -252,6 +252,25 @@ public final class ClaimsLayer {
             if (hasBorder(data, get(pos.posX + 1, pos.posZ, dimension))) {
                 rect(sx + cell - border, sy, border, cell, color, BORDER_ALPHA, x, y, width, height);
             }
+            // Inner corners of an area: the borders of the two neighbours meet in this chunk's corner.
+            for (int dx = -1; dx <= 1; dx += 2) {
+                for (int dz = -1; dz <= 1; dz += 2) {
+                    innerCorner(
+                        data,
+                        pos.posX,
+                        pos.posZ,
+                        dx,
+                        dz,
+                        dimension,
+                        dx < 0 ? sx : sx + cell - border,
+                        dz < 0 ? sy : sy + cell - border,
+                        border,
+                        x,
+                        y,
+                        width,
+                        height);
+                }
+            }
         }
         if (selection != null && !selection.isEmpty()) {
             int color = selectionMode == UNCLAIM || selectionMode == UNLOAD || selectionMode == UNLOAD_AND_UNCLAIM
@@ -265,6 +284,26 @@ public final class ClaimsLayer {
             }
         }
         end();
+    }
+
+    /**
+     * The corner square of a chunk where an area turns inward: the neighbours on both sides draw their border toward
+     * the chunk diagonal to this one, but each stops at its own edge and the corner between them, which is in this
+     * chunk, stayed empty (a notch in the line). Filled in their color when this chunk has no border there itself.
+     */
+    private static void innerCorner(ClientClaimedChunks.ChunkData data, int chunkX, int chunkZ, int dx, int dz,
+        int dimension, double cornerX, double cornerY, double border, int x, int y, int width, int height) {
+        ClientClaimedChunks.ChunkData side = get(chunkX + dx, chunkZ, dimension);
+        ClientClaimedChunks.ChunkData across = get(chunkX, chunkZ + dz, dimension);
+        if (side == null || across == null || hasBorder(data, side) || hasBorder(data, across)) {
+            return;
+        }
+        ClientClaimedChunks.ChunkData diagonal = get(chunkX + dx, chunkZ + dz, dimension);
+        if (!hasBorder(side, diagonal) || !hasBorder(across, diagonal)) {
+            return;
+        }
+        int color = side.isLoaded() ? LOADED_BORDER_COLOR : BORDER_COLOR;
+        rect(cornerX, cornerY, border, border, color, BORDER_ALPHA, x, y, width, height);
     }
 
     /**
