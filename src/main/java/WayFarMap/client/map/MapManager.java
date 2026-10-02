@@ -827,6 +827,17 @@ public class MapManager implements IResourceManagerReloadListener {
     public void onChunkLoad(ChunkEvent.Load event) {
         Chunk chunk = event.getChunk();
         if (event.world != null && event.world.isRemote && event.world == currentWorld && chunk != null) {
+            // The server can send a chunk the client still has again (a new chunk object, a load event again): the
+            // scanner took it for one already mapped and never looked at the new data. It is mapped as a new one.
+            boolean known = surfaceTracker.forget(chunk.xPosition, chunk.zPosition);
+            caveTracker.forget(chunk.xPosition, chunk.zPosition);
+            if (known) {
+                FlatLog.log(
+                    "RELOADED " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " sent again while mapped: mapped again as a new chunk");
+            }
             FlatLog.loaded(chunk.xPosition, chunk.zPosition);
         }
     }
@@ -1090,6 +1101,11 @@ public class MapManager implements IResourceManagerReloadListener {
 
         ScanTracker(boolean surface) {
             this.surface = surface;
+        }
+
+        /** Forgets that a chunk was scanned (it is scanned again as a new one); true if it was. */
+        boolean forget(int chunkX, int chunkZ) {
+            return lastScanTick.remove(chunkKey(chunkX, chunkZ)) != null;
         }
 
         void reset() {
