@@ -1035,7 +1035,8 @@ public class GuiWorldMap extends ScaledScreen {
                 height,
                 pickSelection,
                 pickRemove,
-                regionloadView);
+                regionloadView,
+                pickCaves);
             return;
         }
         if (Topography.isShown()) {
@@ -2018,6 +2019,8 @@ public class GuiWorldMap extends ScaledScreen {
     private int pickButton = -1;
     /** Right button: the picked chunks are taken off the queue. */
     private boolean pickRemove;
+    /** Shift held with Ctrl: the picked chunks are loaded with every cave layer. */
+    private boolean pickCaves;
     private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
 
     /**
@@ -2040,13 +2043,17 @@ public class GuiWorldMap extends ScaledScreen {
         return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
-    /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
+    /**
+     * Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. With Shift too,
+     * the chunks are loaded with every cave layer.
+     */
     private boolean startPick(int mouseX, int mouseY, int button) {
         if (!Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) && !Keyboard.isKeyDown(Keyboard.KEY_RCONTROL)) {
             return false;
         }
         pickButton = button;
         pickRemove = button == 1;
+        pickCaves = isShiftDown();
         pickStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
         pickStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
         pickEndX = Integer.MIN_VALUE;
@@ -2061,6 +2068,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (!Mouse.isButtonDown(pickButton)) {
             finishPick();
             return;
+        }
+        if (isShiftDown()) {
+            pickCaves = true;
         }
         updatePickRectangle(
             MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4,
@@ -2082,8 +2092,13 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         pickButton = -1;
-        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView);
+        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView, pickCaves);
         pickSelection.clear();
+        pickCaves = false;
+    }
+
+    private static boolean isShiftDown() {
+        return Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
     }
 
     // ---------------------------------------------------------------- claims painting

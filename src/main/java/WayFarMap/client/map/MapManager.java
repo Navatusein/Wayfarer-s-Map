@@ -801,6 +801,23 @@ public class MapManager implements IResourceManagerReloadListener {
         return surfaceTracker.scanForLoad(currentWorld, chunk, surface, biomes, with3d);
     }
 
+    /**
+     * Maps a cave layer of a chunk sent for {@code /wf chunkload} (picked with Shift on the world map: every cave
+     * layer is mapped). False if it can't be yet (the layer's region is being read): tried again next tick.
+     */
+    public boolean scanCaveForLoad(Chunk chunk, int layer) {
+        if (currentWorld == null || surface == null || chunk == null || chunk.isEmpty()) {
+            return currentWorld == null || chunk == null || chunk.isEmpty();
+        }
+        MapDimension cave = getCaveLayer(layer);
+        return cave == null || caveTracker.scanCaveForLoad(currentWorld, chunk, cave, layer);
+    }
+
+    /** Cave layers worth mapping for a chunk: up to the one just above its highest blocks (higher show nothing). */
+    public static int caveLayersOf(Chunk chunk) {
+        return Math.min(16, Math.max(0, chunk.getTopFilledSegment() >> 4) + 2);
+    }
+
     /** For the log: when the game loaded each chunk. */
     @SubscribeEvent
     public void onChunkLoad(ChunkEvent.Load event) {
@@ -1262,6 +1279,16 @@ public class MapManager implements IResourceManagerReloadListener {
                     + chunk.zPosition
                     + (with3d ? " 3D" : " 2D")
                     + (flatOnly ? " flat map only (not on the 3D map)" : ""));
+            return true;
+        }
+
+        boolean scanCaveForLoad(WorldClient world, Chunk chunk, MapDimension map, int caveLayer) {
+            int rx = chunk.xPosition >> (MapRegion.SHIFT - 4), rz = chunk.zPosition >> (MapRegion.SHIFT - 4);
+            if (!map.prepareRegion(rx, rz)) {
+                FlatLog.deferred(chunk.xPosition, chunk.zPosition, map.label() + " (chunkload)", false, true);
+                return false;
+            }
+            scanChunk(world, chunk, map, caveLayer, null, rx, rz, false, false);
             return true;
         }
 
