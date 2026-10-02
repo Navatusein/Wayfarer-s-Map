@@ -216,8 +216,9 @@ public final class FlatLog {
                 + "two ticks, with the map's own time in the tick before. ARRIVAL: a chunk first mapped compared "
                 + "with how it looked from above when first seen (complete = nothing changed while it waited; snow, "
                 + "ice, tree added after; whether snow and ice predicted from the biome's temperature were right). "
-                + "GONE_UNSEEN: loaded and let go before the scanner saw it. RELOADED: the server sent a mapped "
-                + "chunk again, mapped again as new. chunksNotYetSentInView: chunks within "
+                + "GONE_UNSEEN: loaded and let go before the scanner saw it. RELOADED: a mapped chunk loaded again "
+                + "(came back to it, or the server sent it again), mapped again as new. chunksNotYetSentInView: "
+                + "chunks within "
                 + "the view distance the server hasn't sent (yet).");
         synchronized (PENDING) {
             for (String pending : PENDING) {
