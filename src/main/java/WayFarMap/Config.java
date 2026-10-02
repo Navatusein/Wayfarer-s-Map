@@ -55,7 +55,7 @@ public class Config {
      * button and the dimension title always stay.
      */
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "clean", "export", "addons", "follow", "light",
-        "caves", "modes", "grid", "plants", "mobs", "team", "help" };
+        "caves", "modes", "grid", "mobs", "team", "help" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
@@ -154,7 +154,7 @@ public class Config {
     public static boolean useTextureColors = true;
     /** Clear glass shows what is under it, lightly tinted with the glass color. */
     public static boolean seeThroughGlass = true;
-    /** Grass and flowers drawn on the flat map (off: the block under them shows). */
+    /** Grass and flowers drawn on the flat map (off: the block under them shows, the "2D map without plants"). */
     public static boolean showPlants = true;
     public static int chunksScannedPerTick = 16;
     public static int autosaveIntervalSeconds = 60;
@@ -929,8 +929,8 @@ public class Config {
         save();
     }
 
-    public static void togglePlants() {
-        showPlants = !showPlants;
+    public static void setShowPlants(boolean show) {
+        showPlants = show;
         save();
     }
 

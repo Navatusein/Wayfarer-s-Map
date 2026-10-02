@@ -71,7 +71,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21, ID_CLEAN = 22, ID_PLANTS = 23;
+        ID_CLOSE = 21, ID_CLEAN = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
         MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -105,7 +105,6 @@ public class GuiWorldMap extends ScaledScreen {
     /** The map's mode: 2D, 3D, topography or biomes, picked from a list. */
     private IconButton modesButton;
     private IconButton gridButton;
-    private IconButton plantsButton;
     /** Open the map at the player every time, or where it was closed. */
     private IconButton followButton;
     private IconButton mobsButton;
@@ -231,7 +230,6 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
         modesButton = new IconButton(ID_MODES, 0, 4, Icons.FLAT, "");
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
-        plantsButton = new IconButton(ID_PLANTS, 0, 4, Icons.PLANTS, "");
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
@@ -279,8 +277,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Buttons on the right of the header, from the right edge to the left. */
     private IconButton[] rightButtons() {
-        return new IconButton[] { followButton, lightButton, caveButton, modesButton, gridButton, plantsButton,
-            mobsButton, teamButton };
+        return new IconButton[] { followButton, lightButton, caveButton, modesButton, gridButton, mobsButton,
+            teamButton };
     }
 
     /** Places the right header buttons next to each other, leaving out hidden ones. */
@@ -626,11 +624,6 @@ public class GuiWorldMap extends ScaledScreen {
             + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
         gridButton.active = Config.chunkGrid;
         followButton.active = Config.mapFollowPlayer;
-        // Grass and flowers: only on the flat map; dimmed while hidden.
-        plantsButton.visible = Config.isMapButtonShown("plants") && !Config.isometric;
-        plantsButton.dim = !Config.showPlants;
-        plantsButton.tooltip = I18n
-            .format(Config.showPlants ? "wayfarmap.gui.plants.hide" : "wayfarmap.gui.plants.show");
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; the dot tells which kind of mob is left.
         boolean friendly = Config.friendlyMobsShown(), hostile = Config.showHostileMobs;
@@ -666,10 +659,6 @@ public class GuiWorldMap extends ScaledScreen {
                 centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
                 zooming = false;
             }
-        } else if (button.id == ID_PLANTS) {
-            Config.togglePlants();
-            MapManager.INSTANCE.rescanLoaded();
-            updateLightButtons();
         } else if (button.id == ID_GRID) {
             Config.toggleChunkGrid();
             updateLightButtons();
@@ -741,10 +730,13 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** Switches between the flat map and the 3D view, keeping the same place in the middle. */
-    /** Modes of the map, in the order of the list: flat in block colors, 3D, topography, biomes. */
-    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_TOPO = 2, MODE_BIOMES = 3;
-    private static final String[] MODE_KEYS = { "flat", "iso", "topo", "biomes" };
-    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.TOPO, Icons.BIOMES };
+    /**
+     * Modes of the map, in the order of the list: flat in block colors, 3D, flat without grass and flowers,
+     * topography, biomes.
+     */
+    private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4;
+    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes" };
+    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES };
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -753,10 +745,13 @@ public class GuiWorldMap extends ScaledScreen {
         if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
             return MODE_TOPO;
         }
-        return Config.isometric ? MODE_ISO : MODE_FLAT;
+        return Config.isometric ? MODE_ISO : Config.showPlants ? MODE_FLAT : MODE_BARE;
     }
 
-    /** Menu under the modes button: 2D map, 3D map, topography, biomes; the current one is marked. */
+    /**
+     * Menu under the modes button: 2D map, 3D map, 2D map without plants, topography, biomes; the current one is
+     * marked.
+     */
     private void openModesMenu() {
         List<MenuEntry> entries = new ArrayList<>();
         int current = currentMode();
@@ -779,6 +774,12 @@ public class GuiWorldMap extends ScaledScreen {
         int display = mode == MODE_TOPO ? Config.DISPLAY_TOPO
             : mode == MODE_BIOMES ? Config.DISPLAY_BIOMES : Config.DISPLAY_BLOCKS;
         Config.setMapMode(mode == MODE_ISO, display);
+        // Grass and flowers are drawn into the map as chunks are scanned: the loaded ones are scanned again now.
+        boolean plants = mode != MODE_BARE;
+        if (plants != Config.showPlants) {
+            Config.setShowPlants(plants);
+            MapManager.INSTANCE.rescanLoaded();
+        }
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
         updateLightButtons();
