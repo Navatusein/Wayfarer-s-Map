@@ -36,7 +36,7 @@ public final class Icons {
         "....###....", "....###....", "..#######..", "...#####...", "....###....", ".....#.....", "#.........#",
         "#.........#", "#.........#", "###########" };
 
-        public static final String[] REGIONLOAD = { // an arrow up out of a box: taken back out of the world's files
+    public static final String[] REGIONLOAD = { // an arrow up out of a box: taken back out of the world's files
         "###########", "#.........#", "#....#....#", "#...###...#", "#..#####..#", "#....#....#", "#....#....#",
         "#.........#", "###########" };
 

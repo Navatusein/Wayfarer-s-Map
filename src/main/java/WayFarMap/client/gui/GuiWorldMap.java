@@ -25,9 +25,9 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
-import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.TeamMates;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
@@ -1202,21 +1202,21 @@ public class GuiWorldMap extends ScaledScreen {
             && mouseY > HEADER_HEIGHT
             && mouseY < height - FOOTER_HEIGHT
             && claimButton < 0) {
-            // Power failures are drawn on top, so their tooltip comes first.
-            List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
-            if (tooltip == null && nodesShown()) {
-                tooltip = ThaumcraftNodes.getHoveredTooltip();
+                // Power failures are drawn on top, so their tooltip comes first.
+                List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
+                if (tooltip == null && nodesShown()) {
+                    tooltip = ThaumcraftNodes.getHoveredTooltip();
+                }
+                if (tooltip == null && prospecting && Config.showOreVeins) {
+                    tooltip = ProspectingLayer.getHoveredTooltip();
+                }
+                if (tooltip == null && claimsShown()) {
+                    tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
+                }
+                if (tooltip != null) {
+                    drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
+                }
             }
-            if (tooltip == null && prospecting && Config.showOreVeins) {
-                tooltip = ProspectingLayer.getHoveredTooltip();
-            }
-            if (tooltip == null && claimsShown()) {
-                tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
-            }
-            if (tooltip != null) {
-                drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
-            }
-        }
     }
 
     private int headerLeftEnd() {

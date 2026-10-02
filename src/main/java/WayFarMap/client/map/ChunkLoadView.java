@@ -173,8 +173,17 @@ public final class ChunkLoadView {
                     if (s != NONE) {
                         double sx = x + ((minX - 1 + start) * 16 - left) * scale;
                         double sy = y + ((minZ - 1 + j) * 16 - top) * scale;
-                        rect(sx, sy, cell * (i - start), cell, fill(s), s == PENDING ? PENDING_ALPHA : FILL_ALPHA,
-                            x, y, width, height);
+                        rect(
+                            sx,
+                            sy,
+                            cell * (i - start),
+                            cell,
+                            fill(s),
+                            s == PENDING ? PENDING_ALPHA : FILL_ALPHA,
+                            x,
+                            y,
+                            width,
+                            height);
                     }
                 }
             }
@@ -242,9 +251,17 @@ public final class ChunkLoadView {
                             double sx = x + ((rx * 32 + start) * 16 - left) * scale;
                             double sy = y + ((rz * 32 + lz) * 16 - top) * scale;
                             // At least a pixel, so far out the areas still show.
-                            rect(sx, sy, Math.max(pixel, cell * (lx - start)), Math.max(pixel, cell),
+                            rect(
+                                sx,
+                                sy,
+                                Math.max(pixel, cell * (lx - start)),
+                                Math.max(pixel, cell),
                                 st == PENDING ? PENDING_BORDER : fill(st),
-                                st == PENDING ? BORDER_ALPHA : FILL_ALPHA + 40, x, y, width, height);
+                                st == PENDING ? BORDER_ALPHA : FILL_ALPHA + 40,
+                                x,
+                                y,
+                                width,
+                                height);
                         }
                     }
                 }
@@ -309,7 +326,7 @@ public final class ChunkLoadView {
         return false;
     }
 
-        /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
+    /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
     private static int state(MapDimension surface, Map<Long, Long> pending, int dimension, int chunkX, int chunkZ) {
         long time = surface.chunkTimeInMemory(chunkX, chunkZ);
         if (!pending.isEmpty()) {
@@ -374,9 +391,8 @@ public final class ChunkLoadView {
         }
         final int midX = (minRx + maxRx) / 2, midZ = (minRz + maxRz) / 2;
         wanted.sort(
-            (a, b) -> Integer.compare(
-                Math.abs(a[0] - midX) + Math.abs(a[1] - midZ),
-                Math.abs(b[0] - midX) + Math.abs(b[1] - midZ)));
+            (a, b) -> Integer
+                .compare(Math.abs(a[0] - midX) + Math.abs(a[1] - midZ), Math.abs(b[0] - midX) + Math.abs(b[1] - midZ)));
         int count = Math.min(wanted.size(), ShareNetwork.SavedRequest.MAX);
         int[] regions = new int[count * 2];
         for (int n = 0; n < count; n++) {
@@ -457,8 +473,8 @@ public final class ChunkLoadView {
         tessellator.addVertex(x0, y0, 0);
     }
 
-    private static void hollowRect(double rx, double ry, double w, double h, double t, int rgb, int alpha, int x,
-        int y, int width, int height) {
+    private static void hollowRect(double rx, double ry, double w, double h, double t, int rgb, int alpha, int x, int y,
+        int width, int height) {
         rect(rx, ry, w, t, rgb, alpha, x, y, width, height);
         rect(rx, ry + h - t, w, t, rgb, alpha, x, y, width, height);
         rect(rx, ry + t, t, h - 2 * t, rgb, alpha, x, y, width, height);
