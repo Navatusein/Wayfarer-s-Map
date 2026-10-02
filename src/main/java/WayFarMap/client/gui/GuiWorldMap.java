@@ -947,9 +947,11 @@ public class GuiWorldMap extends ScaledScreen {
             drawFlatLayers(dimension, dimensionId, otherDimension, mouseX, mouseY, partialTicks);
         }
         // Teammates always, also in another dimension being looked at.
-        MapDrawer.drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
-
-        drawWaypoints(mouseX, mouseY);
+        if (!chunkloadShown()) {
+            MapDrawer
+                .drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
+            drawWaypoints(mouseX, mouseY);
+        }
 
         double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
         double py = mc.thePlayer.prevPosY + (mc.thePlayer.posY - mc.thePlayer.prevPosY) * partialTicks
@@ -994,20 +996,8 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawFlatLayers(MapDimension dimension, int dimensionId, boolean otherDimension, int mouseX, int mouseY,
         float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
-        if (Topography.isShown()) {
-            Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height);
-        }
-        boolean prospecting = Mods.isVisualProspectingLoaded();
-        // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
-        if (biomeViewShown() && BiomeHighlight.isActive()) {
-            BiomeHighlight.draw(MapManager.INSTANCE.getViewBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
-        } else if (prospecting && prospectingLayerShown() && ProspectingLayer.isSearchActive()) {
-            Theme.fill(0, 0, width, height, 0xB0202428);
-        }
-        if (Config.chunkGrid) {
-            MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
-        }
         if (chunkloadShown()) {
+            // Only the map and its chunks: no layers, grid or mobs.
             updatePick(mouseX, mouseY);
             ChunkLoadView.draw(
                 MapManager.INSTANCE.getViewMap(),
@@ -1021,6 +1011,20 @@ public class GuiWorldMap extends ScaledScreen {
                 height,
                 pickSelection,
                 pickRemove);
+            return;
+        }
+        if (Topography.isShown()) {
+            Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height);
+        }
+        boolean prospecting = Mods.isVisualProspectingLoaded();
+        // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
+        if (biomeViewShown() && BiomeHighlight.isActive()) {
+            BiomeHighlight.draw(MapManager.INSTANCE.getViewBiomeMap(), centerX, centerZ, scale, 0, 0, width, height);
+        } else if (prospecting && prospectingLayerShown() && ProspectingLayer.isSearchActive()) {
+            Theme.fill(0, 0, width, height, 0xB0202428);
+        }
+        if (Config.chunkGrid) {
+            MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
         }
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
@@ -1124,7 +1128,7 @@ public class GuiWorldMap extends ScaledScreen {
                 helpButton.xPosition - 8 - fontRendererObj.getStringWidth(note),
                 height - 10,
                 Theme.TEXT_MUTED);
-        } else if (claimsShown()) {
+        } else if (claimsShown() && !chunkloadShown()) {
             String counts = ClaimsLayer.countsText();
             Theme.text(
                 fontRendererObj,
@@ -1176,7 +1180,10 @@ public class GuiWorldMap extends ScaledScreen {
             drawMenu(mouseX, mouseY);
         } else if (hoveredIcon != null && !hoveredIcon.tooltip.isEmpty()) {
             drawHoveringText(Collections.singletonList(hoveredIcon.tooltip), mouseX, mouseY, fontRendererObj);
-        } else if (!iso && mouseY > HEADER_HEIGHT && mouseY < height - FOOTER_HEIGHT && claimButton < 0) {
+        } else if (!iso && !chunkloadShown()
+            && mouseY > HEADER_HEIGHT
+            && mouseY < height - FOOTER_HEIGHT
+            && claimButton < 0) {
             // Power failures are drawn on top, so their tooltip comes first.
             List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
             if (tooltip == null && nodesShown()) {
@@ -1515,7 +1522,7 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         // The vein under the mouse right now: the menu keeps it, since the mouse leaves the vein to click an entry.
         // The 3D view has no layers to point at.
-        boolean flat = !isoShown();
+        boolean flat = !isoShown() && !chunkloadShown();
         final Object vein = flat && Mods.isVisualProspectingLoaded() && Config.showOreVeins
             ? ProspectingLayer.getHoveredVein()
             : null;
@@ -1835,6 +1842,10 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     private Waypoint waypointAt(int mouseX, int mouseY) {
+        if (chunkloadShown()) {
+            // The chunk loading view shows no waypoints.
+            return null;
+        }
         Waypoint best = null;
         double bestDistance = markerSize() / 2 + 2;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getMapWaypoints(viewDimension())) {
@@ -1932,7 +1943,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (chunkloadShown() && (button == 0 || button == 1) && startPick(mouseX, mouseY, button)) {
             return;
         }
-        if (!isoShown() && claimsShown() && (button == 0 || button == 1) && startClaimPaint(mouseX, mouseY, button)) {
+        if (!isoShown() && !chunkloadShown()
+            && claimsShown()
+            && (button == 0 || button == 1)
+            && startClaimPaint(mouseX, mouseY, button)) {
             return;
         }
         if (button == 0 && isoShown() && qualityAt(mouseX, mouseY) >= 0) {

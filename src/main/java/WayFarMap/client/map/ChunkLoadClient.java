@@ -272,7 +272,9 @@ public final class ChunkLoadClient {
         } finally {
             lettingGo = false;
         }
-        done = b.doneBefore + (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        long innerCount = (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
+        // Picked chunks: only those count (the others were loaded for them, not mapped).
+        done = b.doneBefore + (b.picked == null ? innerCount : pickedBefore(b, (int) innerCount));
         if (done >= total && finishedAt == 0) {
             finishedAt = System.currentTimeMillis();
         }
