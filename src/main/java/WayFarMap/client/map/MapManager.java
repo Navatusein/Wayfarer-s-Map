@@ -1106,8 +1106,15 @@ public class MapManager implements IResourceManagerReloadListener {
      * show 18% sooner on average and half as late at the 90th percentile, with no more snow or ice arriving late.
      */
     private static final int SETTLE_QUIET_TICKS = 20;
-    /** A new chunk is mapped after this long anyway (the edge of the view, flowing water that never settles). */
+    /** A new chunk is mapped after this long anyway (a neighbour not sent, flowing water that never settles). */
     private static final int SETTLE_MAX_TICKS = 100;
+    /**
+     * The same at the edge of the view distance, whose outer neighbours come only when the player gets closer: they
+     * waited the whole 5 s. Replaying two flights' logs, 2 s brings the 90th percentile of the time to the map from
+     * 5 s to 2 s on a straight flight, with about the same snow and ice arriving after the first scan (6 chunks more
+     * of 8516).
+     */
+    private static final int SETTLE_EDGE_MAX_TICKS = 40;
 
     /** Decides which loaded chunks to (re)scan into one map, nearest and never scanned first. */
     private final class ScanTracker {
@@ -1176,7 +1183,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 state[2] = 1;
                 FlatLog.neighboursReady(chunk.xPosition, chunk.zPosition);
             }
-            if (tick - state[0] >= SETTLE_MAX_TICKS) {
+            if (tick - state[0] >= (atEdge(chunk) ? SETTLE_EDGE_MAX_TICKS : SETTLE_MAX_TICKS)) {
                 if (surface && IsoLog.enabled()) {
                     IsoLog.settled(
                         chunk.xPosition,
