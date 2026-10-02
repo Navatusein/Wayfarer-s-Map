@@ -115,6 +115,8 @@ wayfarmap.option.map.useTextureColors=Texture colors
 wayfarmap.option.map.useTextureColors.desc=Color blocks by their texture (supports resource packs and mods). Off: vanilla map colors. Applies as chunks are rescanned.
 wayfarmap.option.map.seeThroughGlass=See through glass
 wayfarmap.option.map.seeThroughGlass.desc=Show what is under glass, lightly tinted with its color. Applies as chunks are rescanned.
+wayfarmap.option.map.biomeColorContrast=Biome color contrast
+wayfarmap.option.map.biomeColorContrast.desc=Saturation and contrast of grass, leaves and water colors on the 2D map (1.0 = the game's own). Transitions between biomes stay smooth. Applies as chunks are rescanned.
 wayfarmap.option.map.isoPlayerModel=Player as a 3D model
 wayfarmap.option.map.isoPlayerModel.desc=On the 3D map, show yourself as your 3D model (skin, armor, walking, where you look) instead of the arrow.
 wayfarmap.option.map.showPlants=Grass and flowers
