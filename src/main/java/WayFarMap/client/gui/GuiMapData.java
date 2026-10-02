@@ -117,9 +117,7 @@ public class GuiMapData extends ScaledScreen {
     public GuiMapData(GuiScreen parent) {
         this.parent = parent;
         this.logsDirectory = new File(
-            new File(
-                net.minecraft.client.Minecraft.getMinecraft().mcDataDir,
-                "wayfarmap"),
+            new File(net.minecraft.client.Minecraft.getMinecraft().mcDataDir, "wayfarmap"),
             "logs");
     }
 

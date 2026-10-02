@@ -959,9 +959,9 @@ public final class FlatLog {
     /**
      * A round of saves of every map (autosave) or saving all as the world is left.
      *
-     * @param nanos      time on the render thread (autosave: copying the regions; leaving: waiting for them too)
-     * @param regions    regions queued for saving
-     * @param dirtyLeft  regions with changes not queued (being written already)
+     * @param nanos     time on the render thread (autosave: copying the regions; leaving: waiting for them too)
+     * @param regions   regions queued for saving
+     * @param dirtyLeft regions with changes not queued (being written already)
      */
     public static void saveAll(String why, int maps, int regions, int dirtyLeft, long nanos, int inMemory) {
         if (!on()) {
@@ -1305,8 +1305,9 @@ public final class FlatLog {
                 problems.append(' ')
                     .append(entry.getKey())
                     .append('=')
-                    .append(entry.getValue()
-                        .get());
+                    .append(
+                        entry.getValue()
+                            .get());
             }
             line(problems.toString());
         }
