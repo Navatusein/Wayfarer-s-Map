@@ -55,7 +55,7 @@ final class IsoTiles {
      * at once; finer ones are quick to draw and would be too many files.
      */
     private static final int DISK_LEVEL = 3;
-    private static final int MAGIC = 0x5746543C; // "WFT<"
+    private static final int MAGIC = 0x5746543D; // "WFT="
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
     /**

@@ -32,6 +32,8 @@ import net.minecraft.world.chunk.Chunk;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GLContext;
 
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.ChunkScanner;
@@ -892,8 +894,10 @@ final class FaceRenderer {
             GL11.glClearDepth(1.0);
             GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
             GL11.glShadeModel(GL11.GL_SMOOTH);
-            // No light map: every block fully lit, the tracer adds the light of the place.
+            // No light map: every block fully lit, the tracer adds the light of the place. Renderers turning it on
+            // themselves (SGCraft's) get a white one: the game's own is tinted by the time of day (blue at night).
             OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, whiteTexture());
             GL11.glDisable(GL11.GL_TEXTURE_2D);
             OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
             GL11.glEnable(GL11.GL_TEXTURE_2D);
@@ -947,7 +951,7 @@ final class FaceRenderer {
                     GL11.glDisable(GL11.GL_CULL_FACE);
                     GL11.glDisable(GL11.GL_LIGHTING);
                     GL11.glDisable(GL11.GL_FOG);
-                    GL11.glDisable(GL11.GL_BLEND);
+                    drawnPixelsWhole(!BlockLooks.get(pending.lookKey).translucent);
                     GL11.glEnable(GL11.GL_DEPTH_TEST);
                     GL11.glDepthFunc(GL11.GL_LEQUAL);
                     GL11.glDepthMask(true);
@@ -1163,6 +1167,42 @@ final class FaceRenderer {
             slots += pending.views();
         }
         return slots;
+    }
+
+    private static int whiteTexture = -1;
+
+    /** A texture of one white pixel (render thread). */
+    private static int whiteTexture() {
+        if (whiteTexture < 0) {
+            whiteTexture = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, whiteTexture);
+            java.nio.ByteBuffer white = BufferUtils.createByteBuffer(4);
+            white.put((byte) -1)
+                .put((byte) -1)
+                .put((byte) -1)
+                .put((byte) -1)
+                .flip();
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, 1, 1, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, white);
+        }
+        return whiteTexture;
+    }
+
+    /**
+     * For blocks that aren't see-through: every pixel drawn is stored fully drawn, its color as drawn. The game draws
+     * them without blending, so a texel of half alpha (over the alpha test's 0.1) shows whole on screen; stored with
+     * its alpha it was a hole on the map (a gap in the rim of SGCraft's DHD). See-through ones keep their alpha.
+     * Renderers that blend set their own blending, which then keeps theirs.
+     */
+    private static void drawnPixelsWhole(boolean whole) {
+        if (whole && GLContext.getCapabilities().OpenGL14) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL14.glBlendColor(0f, 0f, 0f, 1f);
+            GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ZERO, GL14.GL_CONSTANT_ALPHA, GL11.GL_ZERO);
+        } else {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
     }
 
     /**
