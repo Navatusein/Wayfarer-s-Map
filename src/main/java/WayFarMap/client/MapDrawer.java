@@ -351,89 +351,29 @@ public final class MapDrawer {
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
         GL11.glDisable(GL11.GL_CULL_FACE);
+        // The soft edge of the texture would be cut off by the alpha test.
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
         GL11.glTranslated(sx, sy, 0);
         // Yaw 180 faces north, which is "up" on the map.
         GL11.glRotatef(yaw + 180f, 0f, 0f, 1f);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        PlayerMarkerTexture.bind(style, color, outline);
 
+        double half = size * PlayerMarkerTexture.EXTENT;
         Tessellator tessellator = Tessellator.instance;
-        tessellator.startDrawing(GL11.GL_TRIANGLES);
-        if (outline != 0) {
-            // The shape in the outline color shifted all around, then in its color on top: an even line around any
-            // shape.
-            tessellator.setColorRGBA_I(outline & 0xFFFFFF, (outline >>> 24) & 0xFF);
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (dx != 0 || dy != 0) {
-                        markerShape(tessellator, style, size, dx * 0.8, dy * 0.8);
-                    }
-                }
-            }
-        }
-        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
-        markerShape(tessellator, style, size, 0, 0);
+        tessellator.startDrawingQuads();
+        tessellator.setColorRGBA_I(0xFFFFFF, (color >>> 24) & 0xFF);
+        tessellator.addVertexWithUV(-half, half, 0, 0, 1);
+        tessellator.addVertexWithUV(half, half, 0, 1, 1);
+        tessellator.addVertexWithUV(half, -half, 0, 1, 0);
+        tessellator.addVertexWithUV(-half, -half, 0, 0, 0);
         tessellator.draw();
 
         GL11.glPopAttrib();
         GL11.glPopMatrix();
-    }
-
-    private static final int MARKER_SEGMENTS = 24;
-
-    /** Triangles of a marker pointing up (-y), centered on (ox, oy). */
-    private static void markerShape(Tessellator t, int style, float s, double ox, double oy) {
-        switch (style) {
-            case Config.MARKER_TRIANGLE:
-                triangle(t, ox, oy, 0, -s, -s * 0.7, s * 0.8, s * 0.7, s * 0.8);
-                break;
-            case Config.MARKER_CHEVRON:
-                // An arrow with a deep notch: a thin V.
-                triangle(t, ox, oy, 0, -s, -s * 0.8, s * 0.85, 0, -s * 0.15);
-                triangle(t, ox, oy, 0, -s, 0, -s * 0.15, s * 0.8, s * 0.85);
-                break;
-            case Config.MARKER_KITE:
-                triangle(t, ox, oy, 0, -s, -s * 0.6, s * 0.3, 0, s * 0.8);
-                triangle(t, ox, oy, 0, -s, 0, s * 0.8, s * 0.6, s * 0.3);
-                break;
-            case Config.MARKER_CIRCLE:
-                // A disc with a nose showing the direction.
-                disc(t, ox, oy, s * 0.6);
-                triangle(t, ox, oy, 0, -s * 1.2, -s * 0.42, -s * 0.38, s * 0.42, -s * 0.38);
-                break;
-            case Config.MARKER_DOT:
-                disc(t, ox, oy, s * 0.6);
-                break;
-            default:
-                // Arrow head with a notch at the back.
-                triangle(t, ox, oy, 0, -s, -s * 0.75, s, 0, s * 0.45);
-                triangle(t, ox, oy, 0, -s, 0, s * 0.45, s * 0.75, s);
-                break;
-        }
-    }
-
-    private static void triangle(Tessellator t, double ox, double oy, double x0, double y0, double x1, double y1,
-        double x2, double y2) {
-        t.addVertex(ox + x0, oy + y0, 0);
-        t.addVertex(ox + x1, oy + y1, 0);
-        t.addVertex(ox + x2, oy + y2, 0);
-    }
-
-    private static void disc(Tessellator t, double ox, double oy, double radius) {
-        for (int i = 0; i < MARKER_SEGMENTS; i++) {
-            double a0 = 2 * Math.PI * i / MARKER_SEGMENTS, a1 = 2 * Math.PI * (i + 1) / MARKER_SEGMENTS;
-            triangle(
-                t,
-                ox,
-                oy,
-                0,
-                0,
-                Math.cos(a0) * radius,
-                Math.sin(a0) * radius,
-                Math.cos(a1) * radius,
-                Math.sin(a1) * radius);
-        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Draws a filled square marker centered on the given position. */
