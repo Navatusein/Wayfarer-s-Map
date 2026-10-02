@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import WayFarMap.client.map.MapRegion;
-
 /**
  * Draws tiles of the 3D map by following, for every pixel, the line of sight into the world block by block (like
  * Dynmap's HD renderer) until it meets something solid. Faces show the pixel of the block's texture where they are
@@ -60,7 +58,6 @@ final class IsoTracer {
     }
 
     private final BlockStore store;
-    private final SurfaceFallback fallback;
     private IsoProjection projection;
     /** Texture detail: 0 = 16x16 texels per block ... 4 = one average color. */
     private int mip;
@@ -69,7 +66,7 @@ final class IsoTracer {
     /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
     private int pictureMip;
 
-    /** Chunks looked at lately (direct mapped by position): blocks, flat map region, or nothing. */
+    /** Chunks looked at lately (direct mapped by position): blocks, or nothing. */
     private static final int CACHE = 1 << 10;
     private final long[] cacheKeys = new long[CACHE];
     private final Object[] cacheData = new Object[CACHE];
@@ -110,9 +107,8 @@ final class IsoTracer {
     /** Sprites of blocks as the game draws them; null if there are none. */
     private final FacePalette palette;
 
-    IsoTracer(BlockStore store, SurfaceFallback fallback, FacePalette palette) {
+    IsoTracer(BlockStore store, FacePalette palette) {
         this.store = store;
-        this.fallback = fallback;
         this.palette = palette;
     }
 
@@ -182,19 +178,12 @@ final class IsoTracer {
                 }
             }
         }
-        if (data == NOTHING) {
-            MapRegion region = fallback.region(chunkX, chunkZ);
-            if (region != null) {
-                top = fallback.top(chunkX, chunkZ);
-                data = top >= 0 ? region : NOTHING;
-            }
-        }
         cacheKeys[slot] = key;
         cacheData[slot] = data;
         cacheTops[slot] = top;
         currentData = data;
         currentTop = top;
-        IsoLog.tileChunk(data instanceof ChunkBlocks ? 0 : data == NOTHING ? 2 : 1);
+        IsoLog.tileChunk(data instanceof ChunkBlocks ? 0 : 2);
     }
 
     /**
@@ -374,23 +363,6 @@ final class IsoTracer {
                         previousLight = light(cell);
                     }
                     previousKey = key;
-                } else if (data instanceof MapRegion) {
-                    MapRegion region = (MapRegion) data;
-                    int lx = x & (MapRegion.SIZE - 1), lz = z & (MapRegion.SIZE - 1);
-                    int pixel = region.getPixel(lx, lz);
-                    if ((pixel >>> 24) != 0 && y < region.getExtra(lx, lz)) {
-                        // A pillar of the flat map's color; its top already has the map's relief shading. Below the
-                        // top block its sides show ground in layers: a few blocks like soil, then stone.
-                        hit(side, t);
-                        float shade = side == 1 ? 1f : SIDE_SHADE[side];
-                        int depth = region.getExtra(lx, lz) - 1 - y;
-                        int color = depth < 1 ? pixel & 0xFFFFFF : pillarGround(pixel, depth, x, y, z);
-                        add(color, shade, shade * NIGHT_LIGHT[15 - NIGHT_SKY_DROP], 0f, 1f);
-                        break;
-                    }
-                    previousLight = OPEN;
-                    previousKey = 0;
-                    insideLiquid = 0;
                 }
             }
             // Next block along the ray.
@@ -1022,25 +994,6 @@ final class IsoTracer {
                 // Something built, or a modded block: natural ground below it.
                 return STONE;
         }
-    }
-
-    /** Color of a flat map pillar's side below its top block: soil under the surface, then stone. */
-    private static int pillarGround(int surface, int depth, int x, int y, int z) {
-        // A little variation from block to block, like a texture seen from afar.
-        int noise = ((x * 73856093 ^ y * 19349663 ^ z * 83492791) >>> 13 & 15) - 8;
-        int r, g, b;
-        if (depth <= 3) {
-            // Soil: the surface color turned toward brown earth.
-            r = (((surface >> 16) & 0xFF) * 3 + 0x86 * 7) / 10;
-            g = (((surface >> 8) & 0xFF) * 3 + 0x60 * 7) / 10;
-            b = ((surface & 0xFF) * 3 + 0x43 * 7) / 10;
-        } else {
-            r = g = b = 0x7A;
-        }
-        r = Math.max(0, Math.min(255, r + noise));
-        g = Math.max(0, Math.min(255, g + noise));
-        b = Math.max(0, Math.min(255, b + noise));
-        return r << 16 | g << 8 | b;
     }
 
     private void hit(int side, double hitT) {

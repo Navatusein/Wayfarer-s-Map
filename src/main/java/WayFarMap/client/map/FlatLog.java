@@ -57,8 +57,19 @@ public final class FlatLog {
     private static final Map<Long, Long> LOADED = new ConcurrentHashMap<>();
     /** What each chunk looked like from above when the scanner first saw it (see {@link ArrivalCheck}). */
     private static final Map<Long, ArrivalCheck.Snapshot> ARRIVED = new ConcurrentHashMap<>();
+    /**
+     * For tuning how long new chunks wait before being mapped: when each chunk was first seen, and what it looked
+     * like from above at its last look (seen, marked changed, scanned), until the game lets it go.
+     */
+    private static final Map<Long, Long> FIRST_SEEN = new ConcurrentHashMap<>();
+    private static final Map<Long, ArrivalCheck.Snapshot> LAST_LOOK = new ConcurrentHashMap<>();
     /** Chunks put off while their region is read: when first. */
     private static final Map<Long, Long> DEFERRED = new ConcurrentHashMap<>();
+    /**
+     * Lines for the next log file, written while no log was open (a cleaning closes the maps and the log, and
+     * deletes the files before the next one opens).
+     */
+    private static final List<String> PENDING = Collections.synchronizedList(new ArrayList<>());
     /** Regions asked to be read: when (per map folder and region). */
     private static final Map<String, Long> ASKED = new ConcurrentHashMap<>();
 
@@ -68,10 +79,14 @@ public final class FlatLog {
         "region save (writing)", "region save (copying, render thread)", "texture upload", "reduced copy built",
         "frame of the world map (flat)", "scan queue built", "put off->scanned (region read)",
         "map tick (render thread, 2D+3D)", "game hitch (gap between ticks)", "seen->settled (quiet+neighbours)",
-        "seen->settled (timeout)", "chunk loaded->seen by the scanner" };
+        "seen->settled (timeout)", "chunk loaded->seen by the scanner", "region read: PNG decode",
+        "region save: PNG encode", "region read: waiting for a loader thread", "region save: waiting for the saver",
+        "region changes unsaved (changed->copied)", "autosave round (render thread)",
+        "leaving: saving everything (waited)" };
     static final int SEEN_TO_SCANNED = 0, SCAN = 1, READ = 2, ASKED_TO_PICKED = 3, BLOCKING_READ = 4, SAVE_WRITE = 5,
         SAVE_COPY = 6, UPLOAD = 7, LOD_BUILD = 8, FRAME = 9, QUEUE_BUILD = 10, DEFER_TO_SCAN = 11, MAP_TICK = 12,
-        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15, LOAD_TO_SEEN = 16;
+        HITCH = 13, SETTLE_QUIET = 14, SETTLE_TIMEOUT = 15, LOAD_TO_SEEN = 16, PNG_DECODE = 17, PNG_ENCODE = 18,
+        READ_QUEUE = 19, SAVE_QUEUE = 20, UNSAVED = 21, AUTOSAVE = 22, CLOSE_SAVE = 23;
     @SuppressWarnings("unchecked")
     private static final List<Long>[] SAMPLES = new List[SAMPLE_NAMES.length];
     static {
@@ -94,13 +109,17 @@ public final class FlatLog {
         sharedWaiting = new AtomicLong(), scansNoPixels = new AtomicLong(), scansSameSurface = new AtomicLong(),
         marksNoise = new AtomicLong(), marksReal = new AtomicLong(), settleTimeouts = new AtomicLong(),
         settleTimeoutsEdge = new AtomicLong(), hitches = new AtomicLong(), hitchNanos = new AtomicLong(),
-        mapTickNanos = new AtomicLong(), mapTickMaxNanos = new AtomicLong();
+        mapTickNanos = new AtomicLong(), mapTickMaxNanos = new AtomicLong(), readProblems = new AtomicLong(),
+        saveProblems = new AtomicLong();
     /** All of them, to start a new file from zero (saves of the world left would count in the next one). */
     private static final AtomicLong[] COUNTERS = { scans, scanNanos, scansDeferred, unloadScans, readsAsked, readsDone,
         readNanos, readBytes, blockingReads, blockingNanos, regionsMade, lodBuilt, lodNanos, saves, saveNanos,
         saveBytes, uploads, uploadNanos, uploadPixels, texturesMade, frames, frameNanos, frameMaxNanos, drawn,
         notLoaded, noFile, textureWait, shared, sharedOlder, sharedWaiting, scansNoPixels, scansSameSurface, marksNoise,
-        marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos, mapTickMaxNanos };
+        marksReal, settleTimeouts, settleTimeoutsEdge, hitches, hitchNanos, mapTickNanos, mapTickMaxNanos, readProblems,
+        saveProblems };
+    /** Problems with region files since the log started, per kind (READ_WARN, SAVE_FAILED...), for the summaries. */
+    private static final Map<String, AtomicLong> PROBLEMS = new ConcurrentHashMap<>();
     private static long lastStats, lastSummary;
     private static final AtomicLong mapTickCount = new AtomicLong();
 
@@ -150,7 +169,10 @@ public final class FlatLog {
             samples.clear();
         }
         SEEN.clear();
+        FIRST_SEEN.clear();
+        LAST_LOOK.clear();
         ASKED.clear();
+        PROBLEMS.clear();
         SETTLING.clear();
         SCANNED_SIGNATURE.clear();
         DEFERRED.clear();
@@ -202,8 +224,31 @@ public final class FlatLog {
                 + "two ticks, with the map's own time in the tick before. ARRIVAL: a chunk first mapped compared "
                 + "with how it looked from above when first seen (complete = nothing changed while it waited; snow, "
                 + "ice, tree added after; whether snow and ice predicted from the biome's temperature were right). "
-                + "GONE_UNSEEN: loaded and let go before the scanner saw it. chunksNotYetSentInView: chunks within "
+                + "GONE_UNSEEN: loaded and let go before the scanner saw it. RELOADED: a mapped chunk loaded again "
+                + "(came back to it, or the server sent it again), mapped again as new. CHANGE / NEIGHBOURS / "
+                + "LET_GO / MARK (times from when the chunk was first seen): what of its surface changed at each "
+                + "look, when its 8 neighbours were all loaded, when the game let it go, each changed mark while "
+                + "waiting. "
+                + "chunksNotYetSentInView: "
+                + "chunks within "
                 + "the view distance the server hasn't sent (yet).");
+        synchronized (PENDING) {
+            for (String pending : PENDING) {
+                line(pending + " (while no log was open, before this one)");
+            }
+            PENDING.clear();
+        }
+        line(
+            "LEGEND region files: READ and SAVE list each part of the region (png = the map picture, dat = heights, "
+                + "light = night glow, time = when each chunk was mapped) with its time and size on disk; png "
+                + "shows the PNG decode / encode and the pixel copy apart (imageType other than INT_ARGB makes the "
+                + "copy slow), ratio = size on disk against the raw data; moves = files put in place atomically or "
+                + "in two steps; content = chunks explored, with times, from teammates, heights and light kept. "
+                + "READ: for = what asked for it, queuedMs = waiting for a loader thread, loaderBacklog = reads "
+                + "queued or running; PARTIAL = read with a part lost. SAVE: queuedMs = waiting for the saver, "
+                + "saverBacklogWhenQueued, unsavedForMs = how long its changes waited for this save. Problems get "
+                + "lines of their own: READ_WARN / READ_FAILED / SAVE_WARN / SAVE_FAILED, counted in the SUMMARY. "
+                + "AUTOSAVE / CLOSE_SAVE: a round of saves of every map, and saving all when the world is left.");
     }
 
     /** The world was left: the summary, then the file is closed. */
@@ -259,7 +304,12 @@ public final class FlatLog {
             + text;
         boolean summaryLine = text.startsWith("STATS") || text.startsWith("SUMMARY")
             || text.startsWith("END")
-            || text.startsWith("DRAW");
+            || text.startsWith("DRAW")
+            || text.startsWith("READ_WARN")
+            || text.startsWith("READ_FAILED")
+            || text.startsWith("SAVE_WARN")
+            || text.startsWith("SAVE_FAILED")
+            || text.startsWith("CLOSE_SAVE");
         if (written.addAndGet(line.length() + 1) > MAX_BYTES && !summaryLine) {
             if (!detailsStopped) {
                 detailsStopped = true;
@@ -273,6 +323,15 @@ public final class FlatLog {
     public static void log(String text) {
         if (on()) {
             line(text);
+        }
+    }
+
+    /** A line written now, or at the start of the next log file if none is open (with the log on). */
+    public static void note(String text) {
+        if (on()) {
+            line(text);
+        } else if (Config.log2d && PENDING.size() < 50) {
+            PENDING.add(new SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new Date()) + " " + text);
         }
     }
 
@@ -335,6 +394,11 @@ public final class FlatLog {
         }
         chunksUnloaded.incrementAndGet();
         ARRIVED.remove(key(cx, cz));
+        LAST_LOOK.remove(key(cx, cz));
+        Long firstSeen = FIRST_SEEN.remove(key(cx, cz));
+        if (firstSeen != null) {
+            line("LET_GO " + cx + "," + cz + " +" + ms(System.nanoTime() - firstSeen));
+        }
         Long loadedAt = LOADED.remove(key(cx, cz));
         if (loadedAt != null) {
             goneUnseen.incrementAndGet();
@@ -407,6 +471,67 @@ public final class FlatLog {
         arrivedIncomplete, columnsChanged, snowAdded, iceAdded, treeAdded, otherAdded, coldHit, coldMissed, coldWrong };
 
     /** The game marked a settling chunk changed; whether its surface really changed. */
+    /**
+     * The surface of a chunk looked at again (first seen, marked changed while waiting, scanned): a CHANGE line with
+     * what changed since its last look, timed from when it was first seen. With NEIGHBOURS and LET_GO, a flight's log
+     * tells how long new chunks keep changing, so the wait before mapping them can be tuned offline.
+     *
+     * @param when seen, waiting (marked changed while waiting to be mapped) or scan:why
+     */
+    static void look(net.minecraft.world.World world, net.minecraft.world.chunk.Chunk chunk, String when) {
+        if (!on()) {
+            return;
+        }
+        long key = key(chunk.xPosition, chunk.zPosition);
+        long now = System.nanoTime();
+        if (when.equals("seen")) {
+            FIRST_SEEN.putIfAbsent(key, now);
+        }
+        Long firstSeen = FIRST_SEEN.get(key);
+        ArrivalCheck.Snapshot before = LAST_LOOK.get(key);
+        if (before != null && firstSeen != null) {
+            int[] counts = new int[8];
+            ArrivalCheck.compare(chunk, before, world.provider.hasNoSky, counts);
+            if (counts[0] > 0) {
+                line(
+                    "CHANGE " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " +"
+                        + ms(now - firstSeen)
+                        + " at="
+                        + when
+                        + " columns="
+                        + counts[0]
+                        + " snow="
+                        + counts[1]
+                        + " ice="
+                        + counts[2]
+                        + " tree="
+                        + counts[3]
+                        + " other="
+                        + counts[4]
+                        + " sinceLastLookMs="
+                        + ms(now - before.at));
+            }
+        }
+        if (firstSeen != null) {
+            LAST_LOOK.put(key, ArrivalCheck.take(world, chunk));
+        }
+        if (LAST_LOOK.size() > 20_000) {
+            LAST_LOOK.clear();
+            FIRST_SEEN.clear();
+        }
+    }
+
+    /** All 8 neighbours of a chunk waiting to be mapped are loaded, for the first time since it was seen. */
+    static void neighboursReady(int cx, int cz) {
+        Long firstSeen = on() ? FIRST_SEEN.get(key(cx, cz)) : null;
+        if (firstSeen != null) {
+            line("NEIGHBOURS " + cx + "," + cz + " +" + ms(System.nanoTime() - firstSeen));
+        }
+    }
+
     static void marked(int cx, int cz, long signature) {
         if (!on()) {
             return;
@@ -416,12 +541,24 @@ public final class FlatLog {
             return;
         }
         state[1]++;
-        if (state[0] != signature) {
+        boolean real = state[0] != signature;
+        if (real) {
             state[2]++;
             state[0] = signature;
             marksReal.incrementAndGet();
         } else {
             marksNoise.incrementAndGet();
+        }
+        Long firstSeen = FIRST_SEEN.get(key(cx, cz));
+        if (firstSeen != null) {
+            line(
+                "MARK " + cx
+                    + ","
+                    + cz
+                    + " +"
+                    + ms(System.nanoTime() - firstSeen)
+                    + " surface="
+                    + (real ? "changed" : "same"));
         }
     }
 
@@ -505,6 +642,10 @@ public final class FlatLog {
         long now = System.nanoTime();
         Long seen = SEEN.remove(key(cx, cz));
         SETTLING.remove(key(cx, cz));
+        if (layer < 0) {
+            // Sent again by the server while it waited to be scanned: this scan maps the new one, which isn't lost.
+            LOADED.remove(key(cx, cz));
+        }
         String waited = "";
         if (seen != null && layer < 0) {
             long delay = now - seen;
@@ -773,6 +914,78 @@ public final class FlatLog {
         }
     }
 
+    /** PNG decode (read) or encode (save) of a region, for the summaries. */
+    static void png(boolean encode, long nanos) {
+        if (on() && nanos > 0) {
+            sample(encode ? PNG_ENCODE : PNG_DECODE, nanos);
+        }
+    }
+
+    /** A region read waited this long for a loader thread. */
+    static void readQueued(long nanos) {
+        if (on()) {
+            sample(READ_QUEUE, nanos);
+        }
+    }
+
+    /** A region save waited this long for the saver thread. */
+    static void saveQueued(long nanos) {
+        if (on()) {
+            sample(SAVE_QUEUE, nanos);
+        }
+    }
+
+    /** A region's changes waited this long before being copied for saving. */
+    static void unsavedFor(long millis) {
+        if (on() && millis > 0) {
+            sample(UNSAVED, millis * 1_000_000L);
+        }
+    }
+
+    /**
+     * Something wrong with a region's files, on a line of its own so it is easy to find: READ_WARN (a part lost),
+     * READ_FAILED, SAVE_WARN, SAVE_FAILED.
+     */
+    static void problem(String kind, String map, int rx, int rz, String text) {
+        if (!on()) {
+            return;
+        }
+        (kind.startsWith("READ") ? readProblems : saveProblems).incrementAndGet();
+        PROBLEMS.computeIfAbsent(kind, k -> new AtomicLong())
+            .incrementAndGet();
+        line(kind + " " + region(map, rx, rz) + " " + text);
+    }
+
+    /**
+     * A round of saves of every map (autosave) or saving all as the world is left.
+     *
+     * @param nanos     time on the render thread (autosave: copying the regions; leaving: waiting for them too)
+     * @param regions   regions queued for saving
+     * @param dirtyLeft regions with changes not queued (being written already)
+     */
+    public static void saveAll(String why, int maps, int regions, int dirtyLeft, long nanos, int inMemory) {
+        if (!on()) {
+            return;
+        }
+        sample(why.equals("CLOSE_SAVE") ? CLOSE_SAVE : AUTOSAVE, nanos);
+        line(
+            why + " maps="
+                + maps
+                + " regionsQueued="
+                + regions
+                + " regionsInMemory="
+                + inMemory
+                + (dirtyLeft > 0 ? " stillChanged=" + dirtyLeft : "")
+                + " ms="
+                + ms(nanos)
+                + " heapUsedMB="
+                + ((Runtime.getRuntime()
+                    .totalMemory()
+                    - Runtime.getRuntime()
+                        .freeMemory())
+                    >> 20));
+    }
+
     static void retained(String map, int freed, int keptUnsaved, int textures, int lods, int cancelled, int inMemory) {
         if (on() && freed + textures + lods + cancelled > 0) {
             line(
@@ -1013,6 +1226,10 @@ public final class FlatLog {
                     + ms(saveNanos.getAndSet(0))
                     + " saveKB="
                     + (saveBytes.getAndSet(0) >> 10)
+                    + " readProblems="
+                    + readProblems.getAndSet(0)
+                    + " saveProblems="
+                    + saveProblems.getAndSet(0)
                     + " texturesMade="
                     + texturesMade.getAndSet(0)
                     + " uploads="
@@ -1082,5 +1299,17 @@ public final class FlatLog {
                 + DEFERRED.size()
                 + ", chunks loaded and not seen yet: "
                 + LOADED.size());
+        if (!PROBLEMS.isEmpty()) {
+            StringBuilder problems = new StringBuilder(title + "   region file problems since the start:");
+            for (Map.Entry<String, AtomicLong> entry : PROBLEMS.entrySet()) {
+                problems.append(' ')
+                    .append(entry.getKey())
+                    .append('=')
+                    .append(
+                        entry.getValue()
+                            .get());
+            }
+            line(problems.toString());
+        }
     }
 }

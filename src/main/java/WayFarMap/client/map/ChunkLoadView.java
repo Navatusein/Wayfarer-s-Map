@@ -24,6 +24,8 @@ import WayFarMap.share.ShareNetwork;
  * Its region loading variant also shows in grey the chunks saved in the world (its region files) that the map
  * doesn't have, as the server tells; only those can be picked, and they are loaded from the world as they are,
  * nothing generated ({@code /wf regionload}'s way).
+ * <p>
+ * Picked with Shift too, every cave layer of the chunks is mapped as well, not only the surface.
  */
 public final class ChunkLoadView {
 
@@ -42,6 +44,9 @@ public final class ChunkLoadView {
      * flat map has them.
      */
     private static final Set<Long> WITH_3D = new java.util.HashSet<>();
+    /** Picked chunks whose cave layers are mapped too: red until the loading has mapped them all. */
+    private static final Set<Long> WITH_CAVES = new java.util.HashSet<>();
+    private static final int CAVES_BORDER = 0x58A6FF;
 
     /** Region loading view: which chunks of each region are saved in the world, by dimension and region key. */
     private static final Map<Integer, Map<Long, long[]>> SAVED_CHUNKS = new HashMap<>();
@@ -85,8 +90,9 @@ public final class ChunkLoadView {
      * Sends the picked chunks to the server to be loaded (or taken off the queue) and marks them.
      *
      * @param regions from the region loading view: only chunks saved in the world are taken, loaded as they are
+     * @param caves   every cave layer of the chunks is mapped too
      */
-    public static void pick(int dimension, Set<Long> chunks, boolean remove, boolean regions) {
+    public static void pick(int dimension, Set<Long> chunks, boolean remove, boolean regions, boolean caves) {
         if (regions && !remove) {
             Set<Long> saved = new java.util.LinkedHashSet<>();
             for (long chunk : chunks) {
@@ -107,12 +113,18 @@ public final class ChunkLoadView {
             if (remove) {
                 pending.remove(chunk);
                 WITH_3D.remove(chunk);
+                WITH_CAVES.remove(chunk);
             } else {
                 pending.put(chunk, now);
                 if (Config.record3d) {
                     WITH_3D.add(chunk);
                 } else {
                     WITH_3D.remove(chunk);
+                }
+                if (caves) {
+                    WITH_CAVES.add(chunk);
+                } else {
+                    WITH_CAVES.remove(chunk);
                 }
             }
         }
@@ -133,9 +145,10 @@ public final class ChunkLoadView {
      * @param selection chunks of the drag going on, or null
      * @param removing  the drag takes chunks off the queue
      * @param regions   the region loading view (saved chunks in grey)
+     * @param caves     the drag picks the chunks with their cave layers
      */
     public static void draw(MapDimension surface, int dimension, double centerX, double centerZ, double scale, int x,
-        int y, int width, int height, Set<Long> selection, boolean removing, boolean regions) {
+        int y, int width, int height, Set<Long> selection, boolean removing, boolean regions, boolean caves) {
         if (regions != regionsMode) {
             regionsMode = regions;
             REGION_STATES.clear();
@@ -271,7 +284,7 @@ public final class ChunkLoadView {
             }
         }
         if (selection != null && !selection.isEmpty()) {
-            int color = removing ? 0xA0A0A0 : PENDING_BORDER;
+            int color = removing ? 0xA0A0A0 : caves ? CAVES_BORDER : PENDING_BORDER;
             for (long chunk : selection) {
                 double sx = x + (unpackX(chunk) * 16 - left) * scale, sy = y + (unpackZ(chunk) * 16 - top) * scale;
                 rect(sx, sy, cell, cell, 0xFFFFFF, 33, x, y, width, height);
@@ -332,7 +345,8 @@ public final class ChunkLoadView {
         if (!pending.isEmpty()) {
             Long picked = pending.get(pack(chunkX, chunkZ));
             if (picked != null) {
-                if (time > picked && !WITH_3D.contains(pack(chunkX, chunkZ))) {
+                if (time > picked && !WITH_3D.contains(pack(chunkX, chunkZ))
+                    && !WITH_CAVES.contains(pack(chunkX, chunkZ))) {
                     pending.remove(pack(chunkX, chunkZ));
                 } else {
                     return PENDING;
@@ -412,8 +426,8 @@ public final class ChunkLoadView {
     }
 
     /**
-     * A chunk was mapped by the loading (on the 3D map too when it was loaded for it): it is done, even if it looks the
-     * same as before (its time stays then).
+     * A chunk was mapped by the loading (on the 3D map and its cave layers too when it was loaded for them): it is
+     * done, even if it looks the same as before (its time stays then).
      */
     public static void mapped(int dimension, int chunkX, int chunkZ) {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
@@ -422,6 +436,12 @@ public final class ChunkLoadView {
             REGION_STATES.clear();
         }
         WITH_3D.remove(pack(chunkX, chunkZ));
+        WITH_CAVES.remove(pack(chunkX, chunkZ));
+    }
+
+    /** Whether the chunk was picked with its cave layers (they are mapped along with the surface). */
+    public static boolean withCaves(int chunkX, int chunkZ) {
+        return WITH_CAVES.contains(pack(chunkX, chunkZ));
     }
 
     /** Picked chunks still waiting, for the footer. */

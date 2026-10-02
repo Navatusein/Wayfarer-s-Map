@@ -73,7 +73,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21, ID_CLEAN = 22;
+        ID_CLOSE = 21;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
         MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -212,10 +212,7 @@ public class GuiWorldMap extends ScaledScreen {
                 x);
         }
         if (Config.isMapButtonShown("stats")) {
-            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.stats")), x);
-        }
-        if (Config.isMapButtonShown("clean")) {
-            x = addIconButton(new IconButton(ID_CLEAN, x, 4, Icons.CLEAN, I18n.format("wayfarmap.gui.clean")), x);
+            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data")), x);
         }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
         if (Config.isMapButtonShown("export")) {
@@ -509,7 +506,7 @@ public class GuiWorldMap extends ScaledScreen {
                 if (export == null) {
                     continue;
                 }
-                Set<Long> tiles = export.estimatedTiles();
+                Set<Long> tiles = export.tiles();
                 // Drawing time grows with the pixels: a tile of 256x256 takes about the same at any detail.
                 double minutes = tiles.size() * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
                 String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
@@ -656,9 +653,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (button.id == ID_WAYPOINTS) {
             mc.displayGuiScreen(new GuiWaypointList(this));
         } else if (button.id == ID_STATS) {
-            mc.displayGuiScreen(new GuiMapStats(this));
-        } else if (button.id == ID_CLEAN) {
-            mc.displayGuiScreen(new GuiMapClean(this));
+            mc.displayGuiScreen(new GuiMapData(this));
         } else if (button.id == ID_TEAM) {
             openTeamMenu();
         } else if (button.id == ID_ADDONS) {
@@ -1035,7 +1030,8 @@ public class GuiWorldMap extends ScaledScreen {
                 height,
                 pickSelection,
                 pickRemove,
-                regionloadView);
+                regionloadView,
+                pickCaves);
             return;
         }
         if (Topography.isShown()) {
@@ -1175,7 +1171,7 @@ public class GuiWorldMap extends ScaledScreen {
         if (iso) {
             drawQualitySlider(mouseX, mouseY);
             if (!Config.record3d) {
-                // Nothing new comes onto the 3D map: it is drawn from the flat map where it has no blocks.
+                // Nothing new comes onto the 3D map: chunks without copied blocks stay empty.
                 String warning = I18n.format("wayfarmap.gui.iso_not_recording");
                 int w = fontRendererObj.getStringWidth(warning);
                 int x = (width - w) / 2, y = height - FOOTER_HEIGHT - 16;
@@ -2018,6 +2014,8 @@ public class GuiWorldMap extends ScaledScreen {
     private int pickButton = -1;
     /** Right button: the picked chunks are taken off the queue. */
     private boolean pickRemove;
+    /** Shift held with Ctrl: the picked chunks are loaded with every cave layer. */
+    private boolean pickCaves;
     private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
 
     /**
@@ -2040,13 +2038,17 @@ public class GuiWorldMap extends ScaledScreen {
         return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
-    /** Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. */
+    /**
+     * Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. With Shift too,
+     * the chunks are loaded with every cave layer.
+     */
     private boolean startPick(int mouseX, int mouseY, int button) {
         if (!Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) && !Keyboard.isKeyDown(Keyboard.KEY_RCONTROL)) {
             return false;
         }
         pickButton = button;
         pickRemove = button == 1;
+        pickCaves = isShiftDown();
         pickStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
         pickStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
         pickEndX = Integer.MIN_VALUE;
@@ -2061,6 +2063,9 @@ public class GuiWorldMap extends ScaledScreen {
         if (!Mouse.isButtonDown(pickButton)) {
             finishPick();
             return;
+        }
+        if (isShiftDown()) {
+            pickCaves = true;
         }
         updatePickRectangle(
             MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4,
@@ -2082,8 +2087,13 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         pickButton = -1;
-        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView);
+        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView, pickCaves);
         pickSelection.clear();
+        pickCaves = false;
+    }
+
+    private static boolean isShiftDown() {
+        return Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
     }
 
     // ---------------------------------------------------------------- claims painting

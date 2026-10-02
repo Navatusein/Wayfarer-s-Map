@@ -672,7 +672,7 @@ final class IsoTiles {
         if (work != null) {
             work.noPalette = palette == null;
         }
-        IsoTracer tracer = new IsoTracer(dimension.store, dimension.fallback, palette);
+        IsoTracer tracer = new IsoTracer(dimension.store, palette);
         BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
@@ -895,11 +895,7 @@ final class IsoTiles {
                 if (u < u0 - reach || u > u1 + reach || t < t0 - reach || t > t1 + reach) {
                     continue;
                 }
-                long time = dimension.store.time(cx, cz);
-                if (time == 0) {
-                    time = dimension.fallback.time(cx, cz);
-                }
-                newest = Math.max(newest, time);
+                newest = Math.max(newest, dimension.store.time(cx, cz));
             }
         }
         return newest;

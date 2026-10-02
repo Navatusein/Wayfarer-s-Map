@@ -40,6 +40,8 @@ public final class ChunkLoadClient {
     /** Next inner chunk of the batch to map (row by row), and whether its flat map is done. */
     private int at;
     private boolean scanned;
+    /** Cave layers of the chunk mapped so far (picked with its caves). */
+    private int caveAt;
     private boolean lettingGo;
     // Progress, for the world map.
     private long done, total;
@@ -165,6 +167,20 @@ public final class ChunkLoadClient {
                 mappedCount++;
                 scanned = true;
             }
+            if (chunk != null && ChunkLoadView.withCaves(cx, cz)) {
+                // Picked with Shift: every cave layer too, as many per tick as the time allows.
+                int layers = MapManager.caveLayersOf(chunk);
+                while (caveAt < layers) {
+                    if (System.nanoTime() >= end) {
+                        return;
+                    }
+                    if (!MapManager.INSTANCE.scanCaveForLoad(chunk, caveAt)) {
+                        // The layer's region is being read: next tick.
+                        return;
+                    }
+                    caveAt++;
+                }
+            }
             if (chunk != null && b.with3d && Config.record3d) {
                 // The 3D map's own time per tick; a chunk with many pictures takes several ticks.
                 long deadline = System.nanoTime() + Math.max(2, Config.isoCaptureMs) * 1_000_000L;
@@ -178,6 +194,7 @@ public final class ChunkLoadClient {
             }
             at++;
             scanned = false;
+            caveAt = 0;
             done = b.doneBefore + (b.picked == null ? at : pickedBefore(b, at));
             if (b.with3d && System.nanoTime() >= end) {
                 return;
@@ -207,6 +224,7 @@ public final class ChunkLoadClient {
         at = 0;
         firstWorkAt = 0;
         scanned = false;
+        caveAt = 0;
         mappedCount = 0;
         skippedCount = 0;
         workNanos = 0;

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import WayFarMap.WayFarMap;
 
@@ -45,6 +46,8 @@ public class MapDimension {
 
     /** Short name of the map for the flat map log (surface, biomes, cave layer folder). */
     private final String label;
+    /** For the log: region reads and saves queued or running, of every map (the loader's and saver's backlog). */
+    private static final AtomicInteger READS_QUEUED = new AtomicInteger(), SAVES_QUEUED = new AtomicInteger();
 
     public MapDimension(int dimensionId, File directory, ExecutorService loadExecutor) {
         this(dimensionId, directory, loadExecutor, null);
@@ -195,7 +198,7 @@ public class MapDimension {
         if (pending != null) {
             boolean done = pending.isDone();
             long start = System.nanoTime();
-            region = await(pending);
+            region = await(pending, rx, rz);
             if (log) {
                 if (!done) {
                     FlatLog.blockingRead(label, rx, rz, System.nanoTime() - start, true, caller());
@@ -204,7 +207,8 @@ public class MapDimension {
             }
         } else if (!missing.contains(key)) {
             long start = System.nanoTime();
-            region = readFile(directory, fallbackDirectory, rx, rz, label);
+            String why = log ? "blocking:" + caller() : "blocking";
+            region = readFile(directory, fallbackDirectory, rx, rz, label, why, 0);
             if (log) {
                 FlatLog.blockingRead(label, rx, rz, System.nanoTime() - start, false, caller());
             }
@@ -241,7 +245,7 @@ public class MapDimension {
             return null;
         }
         loading.remove(key);
-        region = await(pending);
+        region = await(pending, rx, rz);
         FlatLog.picked(label, rx, rz, region != null, "draw");
         if (region == null) {
             missing.add(key);
@@ -274,7 +278,15 @@ public class MapDimension {
     private void startRead(long key, int rx, int rz, String why) {
         final File dir = directory, fallback = fallbackDirectory;
         final String name = label;
-        loading.put(key, loadExecutor.submit(() -> readFile(dir, fallback, rx, rz, name)));
+        final long asked = System.nanoTime();
+        READS_QUEUED.incrementAndGet();
+        loading.put(key, loadExecutor.submit(() -> {
+            try {
+                return readFile(dir, fallback, rx, rz, name, why, asked);
+            } finally {
+                READS_QUEUED.decrementAndGet();
+            }
+        }));
         FlatLog.readAsked(label, rx, rz, why, loading.size() + lodLoading.size());
     }
 
@@ -312,15 +324,21 @@ public class MapDimension {
         if (pending == null) {
             final File dir = directory, fallback = fallbackDirectory;
             final String name = label;
+            final long asked = System.nanoTime();
+            READS_QUEUED.incrementAndGet();
             lodLoading.put(key, loadExecutor.submit(() -> {
-                MapRegion read = readFile(dir, fallback, rx, rz, name);
-                if (read == null) {
-                    return null;
+                try {
+                    MapRegion read = readFile(dir, fallback, rx, rz, name, "reduced", asked);
+                    if (read == null) {
+                        return null;
+                    }
+                    long start = System.nanoTime();
+                    LodTile built = LodTile.of(read.pixelArray(), read.extraArray());
+                    FlatLog.lod(name, rx, rz, "file", System.nanoTime() - start);
+                    return built;
+                } finally {
+                    READS_QUEUED.decrementAndGet();
                 }
-                long start = System.nanoTime();
-                LodTile built = LodTile.of(read.pixelArray(), read.extraArray());
-                FlatLog.lod(name, rx, rz, "file", System.nanoTime() - start);
-                return built;
             }));
             FlatLog.readAsked(label, rx, rz, "reduced", loading.size() + lodLoading.size());
             return null;
@@ -333,6 +351,7 @@ public class MapDimension {
             tile = pending.get();
         } catch (Exception e) {
             WayFarMap.LOG.warn("Could not load map region", e);
+            FlatLog.problem("READ_FAILED", label, rx, rz, "reduced copy's read threw " + e);
             tile = null;
         }
         FlatLog.picked(label, rx, rz, tile != null, "reduced");
@@ -344,44 +363,65 @@ public class MapDimension {
         return tile;
     }
 
-    private static MapRegion await(Future<MapRegion> future) {
+    private MapRegion await(Future<MapRegion> future, int rx, int rz) {
         try {
             return future.get();
         } catch (Exception e) {
             WayFarMap.LOG.warn("Could not load map region", e);
+            FlatLog.problem("READ_FAILED", label, rx, rz, "background read threw " + e);
             return null;
         }
     }
 
-    /** Reads the region from the folder, or from the fallback folder (if any) where the folder has no file of it. */
-    private static MapRegion readFile(File directory, File fallback, int rx, int rz, String label) {
+    /**
+     * Reads the region from the folder, or from the fallback folder (if any) where the folder has no file of it.
+     *
+     * @param why   what the read is for (draw, scan, reduced, blocking:caller), for the log
+     * @param asked when it was queued (System.nanoTime), 0 for a read on the caller's thread
+     */
+    private static MapRegion readFile(File directory, File fallback, int rx, int rz, String label, String why,
+        long asked) {
         if (fallback != null && !MapRegion.getFile(directory, rx, rz)
             .isFile()) {
-            return readFile(fallback, null, rx, rz, label + "(fallback)");
+            return readFile(fallback, null, rx, rz, label + "(fallback)", why, asked);
         }
-        return readFile(directory, rx, rz, label);
+        return readFile(directory, rx, rz, label, why, asked);
     }
 
-    private static MapRegion readFile(File directory, int rx, int rz, String label) {
+    private static MapRegion readFile(File directory, int rx, int rz, String label, String why, long asked) {
         long start = System.nanoTime();
         File file = MapRegion.getFile(directory, rx, rz);
+        // Time waiting for a loader thread, and how many reads were queued or running then.
+        String queue = !FlatLog.on() ? ""
+            : " for=" + why
+                + (asked != 0 ? " queuedMs=" + FlatLog.ms(start - asked) : "")
+                + " loaderBacklog="
+                + READS_QUEUED.get();
+        if (asked != 0) {
+            FlatLog.readQueued(start - asked);
+        }
         if (!file.isFile()) {
             if (FlatLog.on()) {
-                FlatLog.read(label, rx, rz, System.nanoTime() - start, 0, "-", "NO_FILE");
+                FlatLog.read(label, rx, rz, System.nanoTime() - start, 0, "-", "NO_FILE" + queue);
             }
             return null;
         }
+        MapRegion.IoTrace trace = new MapRegion.IoTrace();
         try {
-            MapRegion region = MapRegion.read(file, rx, rz);
+            MapRegion region = MapRegion.read(file, rx, rz, trace);
             if (FlatLog.on()) {
+                FlatLog.png(false, trace.pngNanos());
                 FlatLog.read(
                     label,
                     rx,
                     rz,
                     System.nanoTime() - start,
                     MapRegion.bytesOnDisk(file),
-                    MapRegion.partsOnDisk(file),
-                    "OK");
+                    trace.toString(),
+                    (trace.warnings() > 0 ? "PARTIAL" : "OK") + queue);
+                if (trace.warnings() > 0) {
+                    FlatLog.problem("READ_WARN", label, rx, rz, trace.warnings() + "x, first: " + trace.firstWarning());
+                }
             }
             return region;
         } catch (Exception e) {
@@ -393,8 +433,14 @@ public class MapDimension {
                     rz,
                     System.nanoTime() - start,
                     MapRegion.bytesOnDisk(file),
-                    MapRegion.partsOnDisk(file),
-                    "FAILED " + e);
+                    trace + " onDisk=" + MapRegion.partsOnDisk(file),
+                    "FAILED " + e + queue);
+                FlatLog.problem(
+                    "READ_FAILED",
+                    label,
+                    rx,
+                    rz,
+                    e + " (the region counts as missing: a new one is made over it and saved, losing the old)");
             }
             return null;
         }
@@ -411,6 +457,10 @@ public class MapDimension {
             }
             final int changed = region.getChanges() - region.changesAtSave;
             region.changesAtSave = region.getChanges();
+            // How long its changes waited for this save, and whether the save before is still being written.
+            final long dirtyMs = region.dirtyForMs();
+            final boolean stillSaving = region.isSaving();
+            FlatLog.unsavedFor(dirtyMs);
             long copyStart = System.nanoTime();
             final MapRegion.Snapshot data = region.snapshotForSave();
             long copy = System.nanoTime() - copyStart;
@@ -418,26 +468,54 @@ public class MapDimension {
             FlatLog.saveCopy(label, region.rx, region.rz, copy);
             final File file = MapRegion.getFile(directory, region.rx, region.rz);
             final long queued = System.nanoTime();
+            final int backlog = SAVES_QUEUED.incrementAndGet();
             futures.add(executor.submit(() -> {
                 long start = System.nanoTime();
                 String result = "OK";
+                MapRegion.IoTrace trace = new MapRegion.IoTrace();
                 try {
-                    MapRegion.write(file, data);
+                    MapRegion.write(file, data, trace);
                 } catch (Exception e) {
                     WayFarMap.LOG.warn("Could not save map region " + file, e);
                     result = "FAILED " + e;
                 } finally {
                     region.onSaved();
+                    SAVES_QUEUED.decrementAndGet();
                 }
                 if (FlatLog.on()) {
+                    FlatLog.saveQueued(start - queued);
+                    FlatLog.png(true, trace.pngNanos());
                     FlatLog.saved(
                         name,
                         region.rx,
                         region.rz,
                         System.nanoTime() - start,
                         MapRegion.bytesOnDisk(file),
-                        MapRegion.partsOnDisk(file),
-                        result + " queuedMs=" + FlatLog.ms(start - queued) + " changesSinceLastSave=" + changed);
+                        trace.toString(),
+                        result + " queuedMs="
+                            + FlatLog.ms(start - queued)
+                            + " saverBacklogWhenQueued="
+                            + backlog
+                            + " unsavedForMs="
+                            + dirtyMs
+                            + (stillSaving ? " (queued while the save before was still being written)" : "")
+                            + " changesSinceLastSave="
+                            + changed);
+                    if (result.startsWith("FAILED")) {
+                        FlatLog.problem(
+                            "SAVE_FAILED",
+                            name,
+                            region.rx,
+                            region.rz,
+                            result.substring(7) + " (changes stay in memory only until the next save)");
+                    } else if (trace.warnings() > 0) {
+                        FlatLog.problem(
+                            "SAVE_WARN",
+                            name,
+                            region.rx,
+                            region.rz,
+                            trace.warnings() + "x, first: " + trace.firstWarning());
+                    }
                 }
             }));
         }
@@ -479,6 +557,14 @@ public class MapDimension {
         }
         MapRegion.deleteFiles(directory, rx, rz);
         missing.add(key);
+        FlatLog.log(
+            "DELETE " + label
+                + " r."
+                + rx
+                + "."
+                + rz
+                + (region == null ? " (not in memory)"
+                    : region.isSaving() ? " (a save of it was still running after 3 s: it may write it back)" : ""));
     }
 
     /** Releases everything farther than {@code radius} regions from the given one (see {@link #retain}). */
@@ -553,6 +639,17 @@ public class MapDimension {
     /** For the log's statistics: regions and reduced copies in memory, textures, background reads. */
     int regionCount() {
         return regions.size();
+    }
+
+    /** Regions with changes not queued for saving. */
+    int dirtyCount() {
+        int count = 0;
+        for (MapRegion region : regions.values()) {
+            if (region.isSaveDirty()) {
+                count++;
+            }
+        }
+        return count;
     }
 
     int lodCount() {

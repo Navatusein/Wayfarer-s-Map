@@ -1,6 +1,11 @@
 package WayFarMap.client.map;
 
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.awt.image.DataBufferInt;
+import java.awt.image.PixelInterleavedSampleModel;
+import java.awt.image.Raster;
+import java.awt.image.SampleModel;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
@@ -12,7 +17,6 @@ import java.io.OutputStream;
 import java.nio.IntBuffer;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -58,11 +62,6 @@ public class MapRegion implements PixelSource {
      * team has it already). Cleared when we map the chunk ourselves.
      */
     private final long[] fromTeam = new long[CHUNKS * CHUNKS / 64];
-    /**
-     * One bit per chunk: mapped only for the flat map by {@code /wf chunkload 2d}, so the 3D map doesn't draw it from
-     * the flat map. Cleared when the chunk is mapped as usual.
-     */
-    private final long[] flatOnly = new long[CHUNKS * CHUNKS / 64];
 
     /**
      * Block light (torches, lamps, lava) just above the surface of each pixel, 0-15; null while there is none. At
@@ -91,6 +90,8 @@ public class MapRegion implements PixelSource {
     /** When the area waiting for upload was first changed (for the flat map log). */
     private long dirtySince;
     private volatile boolean saveDirty;
+    /** For the log: when the region last went from saved to changed (0 while saved). */
+    private volatile long unsavedSince;
     private volatile boolean saving;
     /** Incremented on every change, so derived images (e.g. search highlights) know when to rebuild. */
     private int changes;
@@ -106,7 +107,7 @@ public class MapRegion implements PixelSource {
         int index = localZ * SIZE + localX;
         if (pixels[index] != argb) {
             pixels[index] = argb;
-            saveDirty = true;
+            markDirty();
             changes++;
             if (light != null) {
                 glowDirty = true;
@@ -129,7 +130,7 @@ public class MapRegion implements PixelSource {
         }
         if (extra[index] != (byte) extraValue) {
             extra[index] = (byte) extraValue;
-            saveDirty = true;
+            markDirty();
             changes++;
         }
     }
@@ -145,7 +146,7 @@ public class MapRegion implements PixelSource {
         }
         if (light[index] != (byte) level) {
             light[index] = (byte) level;
-            saveDirty = true;
+            markDirty();
             glowDirty = true;
         }
     }
@@ -387,7 +388,7 @@ public class MapRegion implements PixelSource {
             } else {
                 fromTeam[index >> 6] &= ~bit;
             }
-            saveDirty = true;
+            markDirty();
         }
     }
 
@@ -397,23 +398,16 @@ public class MapRegion implements PixelSource {
         return (fromTeam[index >> 6] & 1L << (index & 63)) != 0;
     }
 
-    /** Marks the chunk as mapped for the flat map only, or not (see {@link #flatOnly}). */
-    public void setFlatOnly(int localChunkX, int localChunkZ, boolean only) {
-        int index = localChunkZ * CHUNKS + localChunkX;
-        long bit = 1L << (index & 63);
-        if (((flatOnly[index >> 6] & bit) != 0) != only) {
-            if (only) {
-                flatOnly[index >> 6] |= bit;
-            } else {
-                flatOnly[index >> 6] &= ~bit;
-            }
-            saveDirty = true;
+    private void markDirty() {
+        if (!saveDirty) {
+            unsavedSince = System.currentTimeMillis();
         }
+        saveDirty = true;
     }
 
-    public boolean isFlatOnly(int localChunkX, int localChunkZ) {
-        int index = localChunkZ * CHUNKS + localChunkX;
-        return (flatOnly[index >> 6] & 1L << (index & 63)) != 0;
+    /** For the log: how long the region has had changes not saved, 0 if none. */
+    public long dirtyForMs() {
+        return saveDirty && unsavedSince != 0 ? System.currentTimeMillis() - unsavedSince : 0;
     }
 
     public boolean isSaveDirty() {
@@ -429,7 +423,6 @@ public class MapRegion implements PixelSource {
             extra != null ? extra.clone() : null,
             chunkTimes.clone(),
             fromTeam.clone(),
-            flatOnly.clone(),
             light != null ? light.clone() : null);
     }
 
@@ -439,15 +432,13 @@ public class MapRegion implements PixelSource {
         final byte[] extra;
         final long[] chunkTimes;
         final long[] fromTeam;
-        final long[] flatOnly;
         final byte[] light;
 
-        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam, long[] flatOnly, byte[] light) {
+        Snapshot(int[] pixels, byte[] extra, long[] chunkTimes, long[] fromTeam, byte[] light) {
             this.pixels = pixels;
             this.extra = extra;
             this.chunkTimes = chunkTimes;
             this.fromTeam = fromTeam;
-            this.flatOnly = flatOnly;
             this.light = light;
         }
     }
@@ -514,24 +505,119 @@ public class MapRegion implements PixelSource {
         return new File(path.substring(0, path.length() - 4) + ".time");
     }
 
-    public static void write(File file, Snapshot snapshot) throws IOException {
-        writeImage(file, snapshot.pixels);
-        if (snapshot.extra != null) {
-            File extraFile = getExtraFile(file);
-            File tmp = new File(extraFile.getPath() + ".tmp");
-            try (OutputStream out = new GZIPOutputStream(new FileOutputStream(tmp))) {
-                out.write(snapshot.extra);
+    /**
+     * For the log: what reading or writing a region's files did, part by part (time, size on disk, what went wrong),
+     * and what the region holds. Filled on the loader or saver thread, then put on the READ or SAVE line.
+     */
+    public static final class IoTrace {
+
+        private final StringBuilder parts = new StringBuilder();
+        /** Problems that didn't stop the read or the save (a part lost, a move that couldn't be atomic). */
+        int warnings;
+        String firstWarning;
+        /** PNG decoding (read) or encoding (write), and the copy of its pixels, in nanoseconds. */
+        long pngNanos, pixelCopyNanos;
+        int atomicMoves, plainMoves;
+        String content = "";
+
+        void part(String name, long nanos, long bytes, String note) {
+            parts.append(' ')
+                .append(name)
+                .append("[ms=")
+                .append(FlatLog.ms(nanos));
+            if (bytes >= 0) {
+                parts.append(" kb=")
+                    .append((bytes + 1023) >> 10);
             }
-            replace(tmp, extraFile);
+            if (note != null && !note.isEmpty()) {
+                parts.append(' ')
+                    .append(note);
+            }
+            parts.append(']');
+        }
+
+        void warn(String what) {
+            warnings++;
+            if (firstWarning == null) {
+                firstWarning = what;
+            }
+        }
+
+        public int warnings() {
+            return warnings;
+        }
+
+        public String firstWarning() {
+            return firstWarning;
+        }
+
+        public long pngNanos() {
+            return pngNanos;
+        }
+
+        public int plainMoves() {
+            return plainMoves;
+        }
+
+        @Override
+        public String toString() {
+            String text = parts.toString()
+                .trim();
+            if (atomicMoves + plainMoves > 0) {
+                text += " moves[atomic=" + atomicMoves + " plain=" + plainMoves + "]";
+            }
+            if (!content.isEmpty()) {
+                text += " " + content;
+            }
+            if (warnings > 0) {
+                text += " warnings=" + warnings + " (first: " + firstWarning + ")";
+            }
+            return text.isEmpty() ? "-" : text;
+        }
+    }
+
+    /** What the region holds, for the log: chunks explored, from teammates, with times; extra and light kept. */
+    String contentSummary() {
+        int explored = 0, timed = 0, team = 0;
+        for (int cz = 0; cz < CHUNKS; cz++) {
+            for (int cx = 0; cx < CHUNKS; cx++) {
+                int index = cz * CHUNKS + cx;
+                if (hasPixels(cx, cz)) {
+                    explored++;
+                }
+                if (chunkTimes[index] != 0) {
+                    timed++;
+                }
+                if ((fromTeam[index >> 6] & 1L << (index & 63)) != 0) {
+                    team++;
+                }
+            }
+        }
+        return "content[chunks=" + explored
+            + " timed="
+            + timed
+            + " fromTeam="
+            + team
+            + " heights="
+            + (extra != null ? "yes" : "no")
+            + " light="
+            + (light != null ? "yes" : "no")
+            + "]";
+    }
+
+    public static void write(File file, Snapshot snapshot, IoTrace trace) throws IOException {
+        writeImage(file, snapshot.pixels, trace);
+        if (snapshot.extra != null) {
+            writeGzip(getExtraFile(file), snapshot.extra, "dat", trace);
+        } else {
+            trace.part("dat", 0, -1, "none (no heights)");
         }
         if (snapshot.light != null) {
-            File lightFile = getLightFile(file);
-            File lightTmp = new File(lightFile.getPath() + ".tmp");
-            try (OutputStream out = new GZIPOutputStream(new FileOutputStream(lightTmp))) {
-                out.write(snapshot.light);
-            }
-            replace(lightTmp, lightFile);
+            writeGzip(getLightFile(file), snapshot.light, "light", trace);
+        } else {
+            trace.part("light", 0, -1, "none (no light)");
         }
+        long start = System.nanoTime();
         File timesFile = getTimesFile(file);
         File tmp = new File(timesFile.getPath() + ".tmp");
         try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(new FileOutputStream(tmp)))) {
@@ -542,68 +628,113 @@ public class MapRegion implements PixelSource {
             for (long bits : snapshot.fromTeam) {
                 out.writeLong(bits);
             }
-            // Added later still (SurfaceFallback reads it too).
-            for (long bits : snapshot.flatOnly) {
-                out.writeLong(bits);
-            }
         }
-        replace(tmp, timesFile);
+        long written = tmp.length();
+        replace(tmp, timesFile, trace);
+        trace.part("time", System.nanoTime() - start, written, null);
+    }
+
+    private static void writeGzip(File target, byte[] data, String name, IoTrace trace) throws IOException {
+        long start = System.nanoTime();
+        File tmp = new File(target.getPath() + ".tmp");
+        try (OutputStream out = new GZIPOutputStream(new FileOutputStream(tmp))) {
+            out.write(data);
+        }
+        long written = tmp.length();
+        replace(tmp, target, trace);
+        trace.part(name, System.nanoTime() - start, written, ratio(data.length, written));
+    }
+
+    /** "ratio=12%": the size on disk against the raw data. */
+    private static String ratio(long raw, long written) {
+        return raw <= 0 ? "" : "ratio=" + written * 100 / raw + "%";
     }
 
     /** Puts the new file in place in one step where the file system can: a crash never leaves no file at all. */
-    private static void replace(File tmp, File file) throws IOException {
+    private static void replace(File tmp, File file, IoTrace trace) throws IOException {
         try {
             Files
                 .move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            trace.atomicMoves++;
         } catch (IOException e) {
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            trace.plainMoves++;
+            trace.warn("atomic move of " + file.getName() + " failed (" + e + "), replaced in two steps");
         }
     }
 
-    private static void writeImage(File file, int[] data) throws IOException {
+    private static void writeImage(File file, int[] data, IoTrace trace) throws IOException {
+        long start = System.nanoTime();
         BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
-        image.setRGB(0, 0, SIZE, SIZE, data, 0, SIZE);
+        // Straight into the image's own pixels: setRGB goes through the color model pixel by pixel.
+        int[] target = ((DataBufferInt) image.getRaster()
+            .getDataBuffer()).getData();
+        System.arraycopy(data, 0, target, 0, SIZE * SIZE);
+        trace.pixelCopyNanos = System.nanoTime() - start;
         File parent = file.getParentFile();
-        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-            throw new IOException("Could not create " + parent);
+        if (parent != null && !parent.isDirectory()) {
+            if (!parent.mkdirs()) {
+                throw new IOException("Could not create " + parent);
+            }
+            trace.part("mkdirs", 0, -1, parent.getName());
         }
         File tmp = new File(file.getPath() + ".tmp");
+        long encodeStart = System.nanoTime();
         if (!ImageIO.write(image, "png", tmp)) {
             throw new IOException("No PNG writer available");
         }
-        replace(tmp, file);
+        trace.pngNanos = System.nanoTime() - encodeStart;
+        long written = tmp.length();
+        replace(tmp, file, trace);
+        trace.part(
+            "png",
+            System.nanoTime() - start,
+            written,
+            "encodeMs=" + FlatLog.ms(trace.pngNanos)
+                + " copyMs="
+                + FlatLog.ms(trace.pixelCopyNanos)
+                + " "
+                + ratio(SIZE * SIZE * 4L, written));
     }
 
     public static MapRegion read(File file, int rx, int rz) throws IOException {
+        return read(file, rx, rz, new IoTrace());
+    }
+
+    public static MapRegion read(File file, int rx, int rz, IoTrace trace) throws IOException {
+        long start = System.nanoTime();
         BufferedImage image = ImageIO.read(file);
+        trace.pngNanos = System.nanoTime() - start;
         if (image == null || image.getWidth() != SIZE || image.getHeight() != SIZE) {
-            throw new IOException("Invalid map region image " + file);
+            String what = image == null ? "not a readable image"
+                : "size " + image.getWidth() + "x" + image.getHeight() + " instead of " + SIZE + "x" + SIZE;
+            trace.part("png", trace.pngNanos, file.length(), "INVALID " + what);
+            throw new IOException("Invalid map region image " + file + ": " + what);
         }
         MapRegion region = new MapRegion(rx, rz);
-        image.getRGB(0, 0, SIZE, SIZE, region.pixels, 0, SIZE);
-        File extraFile = getExtraFile(file);
-        if (extraFile.isFile()) {
-            byte[] extra = new byte[SIZE * SIZE];
-            try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(extraFile)))) {
-                in.readFully(extra);
-                region.extra = extra;
-            } catch (IOException e) {
-                // Only the extra data is lost; the map image is still fine.
-            }
+        long copyStart = System.nanoTime();
+        boolean fast = copyPixels(image, region.pixels);
+        if (!fast) {
+            image.getRGB(0, 0, SIZE, SIZE, region.pixels, 0, SIZE);
         }
-        File lightFile = getLightFile(file);
-        if (lightFile.isFile()) {
-            byte[] levels = new byte[SIZE * SIZE];
-            try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(lightFile)))) {
-                in.readFully(levels);
-                region.light = levels;
-            } catch (IOException e) {
-                // Only the night glow is lost.
-            }
-        }
+        trace.pixelCopyNanos = System.nanoTime() - copyStart;
+        // A type other than INT_ARGB makes getRGB convert every pixel: slow, worth knowing.
+        trace.part(
+            "png",
+            System.nanoTime() - start,
+            file.length(),
+            "decodeMs=" + FlatLog.ms(trace.pngNanos)
+                + (fast ? " copyMs=" : " getRgbMs=")
+                + FlatLog.ms(trace.pixelCopyNanos)
+                + " imageType="
+                + imageType(image.getType()));
+        region.extra = readGzip(getExtraFile(file), "dat", "heights lost, the map still shows", trace);
+        region.light = readGzip(getLightFile(file), "light", "night glow lost", trace);
         File timesFile = getTimesFile(file);
         boolean haveTimes = false;
+        long timesStart = System.nanoTime();
         if (timesFile.isFile()) {
+            String note = null;
             try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(timesFile)))) {
                 for (int i = 0; i < region.chunkTimes.length; i++) {
                     region.chunkTimes[i] = in.readLong();
@@ -613,16 +744,19 @@ public class MapRegion implements PixelSource {
                     for (int i = 0; i < region.fromTeam.length; i++) {
                         region.fromTeam[i] = in.readLong();
                     }
-                    for (int i = 0; i < region.flatOnly.length; i++) {
-                        region.flatOnly[i] = in.readLong();
-                    }
+                    // Older files may go on with bits no longer used: left unread.
                 } catch (EOFException e) {
-                    // Saved before it was kept: everything counts as ours, and on the 3D map.
-                    Arrays.fill(region.flatOnly, 0L);
+                    // Saved before it was kept: everything counts as ours.
+                    note = "old (no teammate bits)";
                 }
             } catch (IOException e) {
                 // Fall back to the file's date below.
+                note = "CORRUPT (" + e + "), times from the file's date";
+                trace.warn("time file unreadable: " + e);
             }
+            trace.part("time", System.nanoTime() - timesStart, timesFile.length(), note);
+        } else {
+            trace.part("time", 0, -1, "missing, times from the file's date");
         }
         if (!haveTimes) {
             // Saved before chunk times existed: every explored chunk counts as mapped when the file was written.
@@ -635,6 +769,95 @@ public class MapRegion implements PixelSource {
                 }
             }
         }
+        if (FlatLog.on()) {
+            trace.content = region.contentSummary();
+        }
         return region;
+    }
+
+    /**
+     * Copies a decoded region picture into ARGB pixels straight from its raster, for the layouts PNG decoding gives
+     * (INT_ARGB, and 4BYTE_ABGR for pictures with alpha). False for any other layout: getRGB is used then, which goes
+     * through the color model pixel by pixel and took longer than decoding the PNG.
+     */
+    private static boolean copyPixels(BufferedImage image, int[] pixels) {
+        Raster raster = image.getRaster();
+        if (raster.getMinX() != 0 || raster.getMinY() != 0
+            || raster.getSampleModelTranslateX() != 0
+            || raster.getSampleModelTranslateY() != 0) {
+            return false;
+        }
+        if (image.getType() == BufferedImage.TYPE_INT_ARGB && raster.getDataBuffer() instanceof DataBufferInt) {
+            DataBufferInt buffer = (DataBufferInt) raster.getDataBuffer();
+            if (buffer.getNumBanks() != 1 || buffer.getOffset() != 0 || buffer.getSize() < SIZE * SIZE) {
+                return false;
+            }
+            System.arraycopy(buffer.getData(), 0, pixels, 0, SIZE * SIZE);
+            return true;
+        }
+        if (image.getType() != BufferedImage.TYPE_4BYTE_ABGR || !(raster.getDataBuffer() instanceof DataBufferByte)) {
+            return false;
+        }
+        SampleModel model = raster.getSampleModel();
+        if (!(model instanceof PixelInterleavedSampleModel)) {
+            return false;
+        }
+        PixelInterleavedSampleModel interleaved = (PixelInterleavedSampleModel) model;
+        int[] offsets = interleaved.getBandOffsets();
+        DataBufferByte buffer = (DataBufferByte) raster.getDataBuffer();
+        if (interleaved.getPixelStride() != 4 || interleaved.getScanlineStride() != SIZE * 4
+            || offsets.length != 4
+            || buffer.getNumBanks() != 1
+            || buffer.getOffset() != 0) {
+            return false;
+        }
+        // Bands are R, G, B, A at these byte offsets in each pixel.
+        int r = offsets[0], g = offsets[1], b = offsets[2], a = offsets[3];
+        byte[] data = buffer.getData();
+        if (data.length < SIZE * SIZE * 4) {
+            return false;
+        }
+        for (int i = 0, p = 0; i < SIZE * SIZE; i++, p += 4) {
+            pixels[i] = (data[p + a] & 0xFF) << 24 | (data[p + r] & 0xFF) << 16
+                | (data[p + g] & 0xFF) << 8
+                | data[p + b] & 0xFF;
+        }
+        return true;
+    }
+
+    /** A gzip part of the region (heights or light), null if missing or unreadable (the rest is still fine). */
+    private static byte[] readGzip(File part, String name, String lost, IoTrace trace) {
+        if (!part.isFile()) {
+            trace.part(name, 0, -1, "missing");
+            return null;
+        }
+        long start = System.nanoTime();
+        byte[] data = new byte[SIZE * SIZE];
+        try (DataInputStream in = new DataInputStream(new GZIPInputStream(new FileInputStream(part)))) {
+            in.readFully(data);
+            trace.part(name, System.nanoTime() - start, part.length(), null);
+            return data;
+        } catch (IOException e) {
+            trace.part(name, System.nanoTime() - start, part.length(), "CORRUPT (" + e + ")");
+            trace.warn(name + " file unreadable, " + lost + ": " + e);
+            return null;
+        }
+    }
+
+    private static String imageType(int type) {
+        switch (type) {
+            case BufferedImage.TYPE_INT_ARGB:
+                return "INT_ARGB";
+            case BufferedImage.TYPE_4BYTE_ABGR:
+                return "4BYTE_ABGR";
+            case BufferedImage.TYPE_3BYTE_BGR:
+                return "3BYTE_BGR";
+            case BufferedImage.TYPE_INT_RGB:
+                return "INT_RGB";
+            case BufferedImage.TYPE_CUSTOM:
+                return "CUSTOM";
+            default:
+                return String.valueOf(type);
+        }
     }
 }
