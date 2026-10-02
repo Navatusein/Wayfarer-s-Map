@@ -187,7 +187,8 @@ public final class IsoEntityDrawer {
             // toward the viewer ends up out of the screen).
             GL11.glRotatef((float) Math.toDegrees(IsoProjection.ELEVATION), 1f, 0f, 0f);
             GL11.glRotatef((float) -azimuth, 0f, 1f, 0f);
-            // Lit from above, fixed in the world like the map's light.
+            // Lit from above, fixed in the world like the map's light; never by the light where the mob really is.
+            fullBright();
             RenderHelper.enableStandardItemLighting();
             GL11.glEnable(GL12.GL_RESCALE_NORMAL);
             // The game draws the player that far below its position.
@@ -204,6 +205,19 @@ public final class IsoEntityDrawer {
         } finally {
             GL11.glPopMatrix();
         }
+    }
+
+    /**
+     * Turns off the game's light map (the light of blocks and sky at a place) for the next model. Left on by the world's
+     * drawing or by renderers that light parts themselves (spider and enderman eyes, which also leave the previous
+     * mob's darkness set), it drew a mob standing in the shade or at night all black.
+     */
+    private static void fullBright() {
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Whether the map's viewer sees the mob (checked again every few ticks). */
