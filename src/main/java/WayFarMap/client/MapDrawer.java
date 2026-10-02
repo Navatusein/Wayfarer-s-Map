@@ -328,9 +328,8 @@ public final class MapDrawer {
             day = 1f;
         } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
             day = 0f;
-        } else
-            if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
-                || MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
+        } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
+            || MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
                 // No sunlight underground: caves look the same at any time of day (the surface shown whatever the
                 // cave mode follows the sun even with the player underground).
                 day = 1f;
