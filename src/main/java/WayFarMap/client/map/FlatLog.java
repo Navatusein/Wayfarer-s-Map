@@ -57,6 +57,12 @@ public final class FlatLog {
     private static final Map<Long, Long> LOADED = new ConcurrentHashMap<>();
     /** What each chunk looked like from above when the scanner first saw it (see {@link ArrivalCheck}). */
     private static final Map<Long, ArrivalCheck.Snapshot> ARRIVED = new ConcurrentHashMap<>();
+    /**
+     * For tuning how long new chunks wait before being mapped: when each chunk was first seen, and what it looked
+     * like from above at its last look (seen, marked changed, scanned), until the game lets it go.
+     */
+    private static final Map<Long, Long> FIRST_SEEN = new ConcurrentHashMap<>();
+    private static final Map<Long, ArrivalCheck.Snapshot> LAST_LOOK = new ConcurrentHashMap<>();
     /** Chunks put off while their region is read: when first. */
     private static final Map<Long, Long> DEFERRED = new ConcurrentHashMap<>();
     /**
@@ -163,6 +169,8 @@ public final class FlatLog {
             samples.clear();
         }
         SEEN.clear();
+        FIRST_SEEN.clear();
+        LAST_LOOK.clear();
         ASKED.clear();
         PROBLEMS.clear();
         SETTLING.clear();
@@ -217,7 +225,11 @@ public final class FlatLog {
                 + "with how it looked from above when first seen (complete = nothing changed while it waited; snow, "
                 + "ice, tree added after; whether snow and ice predicted from the biome's temperature were right). "
                 + "GONE_UNSEEN: loaded and let go before the scanner saw it. RELOADED: a mapped chunk loaded again "
-                + "(came back to it, or the server sent it again), mapped again as new. chunksNotYetSentInView: "
+                + "(came back to it, or the server sent it again), mapped again as new. CHANGE / NEIGHBOURS / "
+                + "LET_GO / MARK (times from when the chunk was first seen): what of its surface changed at each "
+                + "look, when its 8 neighbours were all loaded, when the game let it go, each changed mark while "
+                + "waiting. "
+                + "chunksNotYetSentInView: "
                 + "chunks within "
                 + "the view distance the server hasn't sent (yet).");
         synchronized (PENDING) {
@@ -382,6 +394,11 @@ public final class FlatLog {
         }
         chunksUnloaded.incrementAndGet();
         ARRIVED.remove(key(cx, cz));
+        LAST_LOOK.remove(key(cx, cz));
+        Long firstSeen = FIRST_SEEN.remove(key(cx, cz));
+        if (firstSeen != null) {
+            line("LET_GO " + cx + "," + cz + " +" + ms(System.nanoTime() - firstSeen));
+        }
         Long loadedAt = LOADED.remove(key(cx, cz));
         if (loadedAt != null) {
             goneUnseen.incrementAndGet();
@@ -454,6 +471,67 @@ public final class FlatLog {
         arrivedIncomplete, columnsChanged, snowAdded, iceAdded, treeAdded, otherAdded, coldHit, coldMissed, coldWrong };
 
     /** The game marked a settling chunk changed; whether its surface really changed. */
+    /**
+     * The surface of a chunk looked at again (first seen, marked changed while waiting, scanned): a CHANGE line with
+     * what changed since its last look, timed from when it was first seen. With NEIGHBOURS and LET_GO, a flight's log
+     * tells how long new chunks keep changing, so the wait before mapping them can be tuned offline.
+     *
+     * @param when seen, waiting (marked changed while waiting to be mapped) or scan:why
+     */
+    static void look(net.minecraft.world.World world, net.minecraft.world.chunk.Chunk chunk, String when) {
+        if (!on()) {
+            return;
+        }
+        long key = key(chunk.xPosition, chunk.zPosition);
+        long now = System.nanoTime();
+        if (when.equals("seen")) {
+            FIRST_SEEN.putIfAbsent(key, now);
+        }
+        Long firstSeen = FIRST_SEEN.get(key);
+        ArrivalCheck.Snapshot before = LAST_LOOK.get(key);
+        if (before != null && firstSeen != null) {
+            int[] counts = new int[8];
+            ArrivalCheck.compare(chunk, before, world.provider.hasNoSky, counts);
+            if (counts[0] > 0) {
+                line(
+                    "CHANGE " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " +"
+                        + ms(now - firstSeen)
+                        + " at="
+                        + when
+                        + " columns="
+                        + counts[0]
+                        + " snow="
+                        + counts[1]
+                        + " ice="
+                        + counts[2]
+                        + " tree="
+                        + counts[3]
+                        + " other="
+                        + counts[4]
+                        + " sinceLastLookMs="
+                        + ms(now - before.at));
+            }
+        }
+        if (firstSeen != null) {
+            LAST_LOOK.put(key, ArrivalCheck.take(world, chunk));
+        }
+        if (LAST_LOOK.size() > 20_000) {
+            LAST_LOOK.clear();
+            FIRST_SEEN.clear();
+        }
+    }
+
+    /** All 8 neighbours of a chunk waiting to be mapped are loaded, for the first time since it was seen. */
+    static void neighboursReady(int cx, int cz) {
+        Long firstSeen = on() ? FIRST_SEEN.get(key(cx, cz)) : null;
+        if (firstSeen != null) {
+            line("NEIGHBOURS " + cx + "," + cz + " +" + ms(System.nanoTime() - firstSeen));
+        }
+    }
+
     static void marked(int cx, int cz, long signature) {
         if (!on()) {
             return;
@@ -463,12 +541,24 @@ public final class FlatLog {
             return;
         }
         state[1]++;
-        if (state[0] != signature) {
+        boolean real = state[0] != signature;
+        if (real) {
             state[2]++;
             state[0] = signature;
             marksReal.incrementAndGet();
         } else {
             marksNoise.incrementAndGet();
+        }
+        Long firstSeen = FIRST_SEEN.get(key(cx, cz));
+        if (firstSeen != null) {
+            line(
+                "MARK " + cx
+                    + ","
+                    + cz
+                    + " +"
+                    + ms(System.nanoTime() - firstSeen)
+                    + " surface="
+                    + (real ? "changed" : "same"));
         }
     }
 

@@ -1145,7 +1145,8 @@ public class MapManager implements IResourceManagerReloadListener {
         private boolean settled(WorldClient world, Chunk chunk, long key) {
             int[] state = settling.get(key);
             if (state == null) {
-                state = new int[] { tick, tick };
+                // First seen, last marked changed, neighbours all loaded once (for the log).
+                state = new int[] { tick, tick, 0 };
                 settling.put(key, state);
                 if (surface) {
                     chunk.isModified = false;
@@ -1160,9 +1161,14 @@ public class MapManager implements IResourceManagerReloadListener {
                         surfaceSignature(chunk));
                     if (surface) {
                         FlatLog.arrived(chunk.xPosition, chunk.zPosition, ArrivalCheck.take(world, chunk));
+                        FlatLog.look(world, chunk, "seen");
                     }
                 }
                 return false;
+            }
+            if (surface && state[2] == 0 && FlatLog.on() && allAroundReady(world, chunk)) {
+                state[2] = 1;
+                FlatLog.neighboursReady(chunk.xPosition, chunk.zPosition);
             }
             if (tick - state[0] >= SETTLE_MAX_TICKS) {
                 if (surface && IsoLog.enabled()) {
@@ -1193,6 +1199,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 state[1] = tick;
                 if (FlatLog.on()) {
                     FlatLog.marked(chunk.xPosition, chunk.zPosition, surfaceSignature(chunk));
+                    FlatLog.look(world, chunk, "waiting");
                 }
                 return false;
             }
@@ -1396,6 +1403,9 @@ public class MapManager implements IResourceManagerReloadListener {
                         onMapSince);
                     if (arrival != null) {
                         FlatLog.arrival(cx, cz, arrival, System.nanoTime() - arrived.at, why);
+                    }
+                    if (caveLayer < 0) {
+                        FlatLog.look(world, chunk, "scan:" + why);
                     }
                 }
                 // The time says when the chunk last looked like this: kept if nothing changed, so a region scanned
