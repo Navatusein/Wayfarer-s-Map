@@ -733,6 +733,26 @@ public final class MapDrawer {
     /** Like the other drawTeammates, with any projection (the 3D map's). */
     public static void drawTeammates(Minecraft mc, int dimension, Projection projection, double scale, int x, int y,
         int width, int height, float partialTicks, float playerSize, boolean showNames) {
+        drawTeammates(
+            mc,
+            dimension,
+            projection,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            partialTicks,
+            playerSize,
+            showNames,
+            false);
+    }
+
+    /**
+     * @param skipLoaded leave out teammates the client has nearby (the 3D map draws them as their model)
+     */
+    public static void drawTeammates(Minecraft mc, int dimension, Projection projection, double scale, int x, int y,
+        int width, int height, float partialTicks, float playerSize, boolean showNames, boolean skipLoaded) {
         List<TeamMates.Mate> mates = TeamMates.INSTANCE.all();
         if (mates.isEmpty()) {
             return;
@@ -743,6 +763,11 @@ public final class MapDrawer {
         FontRenderer font = mc.fontRenderer;
         for (TeamMates.Mate mate : mates) {
             if (mate.dimension != dimension) {
+                continue;
+            }
+            if (skipLoaded && mc.theWorld != null
+                && mc.theWorld.provider.dimensionId == dimension
+                && mc.theWorld.func_152378_a(mate.id) != null) { // getPlayerEntityByUUID
                 continue;
             }
             double[] position = TeamMates.INSTANCE.position(mate, partialTicks);

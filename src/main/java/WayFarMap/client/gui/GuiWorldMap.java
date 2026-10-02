@@ -961,8 +961,20 @@ public class GuiWorldMap extends ScaledScreen {
         }
         // Teammates always, also in another dimension being looked at.
         if (!chunkloadShown()) {
-            MapDrawer
-                .drawTeammates(mc, dimensionId, this::toScreen, scale, 0, 0, width, height, partialTicks, 8f, true);
+            // In 3D the teammates the client has nearby are drawn as their model with the mobs, not as a head.
+            MapDrawer.drawTeammates(
+                mc,
+                dimensionId,
+                this::toScreen,
+                scale,
+                0,
+                0,
+                width,
+                height,
+                partialTicks,
+                8f,
+                true,
+                iso && !otherDimension && IsoEntityDrawer.drawsPlayers());
             drawWaypoints(mouseX, mouseY);
         }
 

@@ -11,11 +11,13 @@ import java.util.WeakHashMap;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityOtherPlayerMP;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
@@ -24,6 +26,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
+import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.iso.IsoProjection;
 
@@ -62,6 +65,9 @@ public final class IsoEntityDrawer {
     private static final class Item {
 
         final EntityLivingBase entity;
+        /** Name shown over the model (other players), or null; and its color. */
+        String name;
+        int nameColor;
         final double sx, sy, depth;
         final float scale;
 
@@ -87,6 +93,9 @@ public final class IsoEntityDrawer {
         if (player) {
             float playerScale = (float) Math.max(PLAYER_MIN_PIXELS_PER_BLOCK, pixelsPerBlock);
             items.add(item(mc.thePlayer, screen, projection, partialTicks, playerScale));
+        }
+        if (withMobs) {
+            addPlayers(mc, screen, projection, width, height, partialTicks, pixelsPerBlock, items);
         }
         if (withMobs && pixelsPerBlock >= MOB_MIN_PIXELS_PER_BLOCK) {
             List<Item> mobs = new ArrayList<>();
@@ -167,7 +176,76 @@ public final class IsoEntityDrawer {
             }
             GL11.glColor4f(1f, 1f, 1f, 1f);
         }
+        // Names over the players, on top of all the models.
+        for (Item item : items) {
+            if (item.name != null && !BROKEN.contains(item.entity.getClass())) {
+                drawName(mc, item);
+            }
+        }
         return playerDrawn;
+    }
+
+    /** Teammates' names, in the color the map gives teammates. */
+    private static final int TEAMMATE_NAME = 0x9FD4FF;
+
+    /**
+     * Other players: teammates (ServerUtilities team) always, like the player, the size of the player at least;
+     * others like mobs, only in sight of the map's viewer and close enough, if players are shown. Both named.
+     */
+    private static void addPlayers(Minecraft mc, MapDrawer.Projection screen, IsoProjection projection, int width,
+        int height, float partialTicks, double pixelsPerBlock, List<Item> items) {
+        long now = mc.theWorld.getTotalWorldTime();
+        float margin = (float) (Math.max(pixelsPerBlock, PLAYER_MIN_PIXELS_PER_BLOCK) * 3);
+        for (Object o : mc.theWorld.playerEntities) {
+            if (!(o instanceof EntityPlayer) || o == mc.thePlayer) {
+                continue;
+            }
+            EntityPlayer other = (EntityPlayer) o;
+            if (other.isDead || BROKEN.contains(other.getClass())) {
+                continue;
+            }
+            boolean teammate = TeamMates.INSTANCE.isTeammate(other.getUniqueID());
+            float scale;
+            if (teammate) {
+                scale = (float) Math.max(PLAYER_MIN_PIXELS_PER_BLOCK, pixelsPerBlock);
+            } else {
+                if (!Config.showOtherPlayers || other.isInvisible() || pixelsPerBlock < MOB_MIN_PIXELS_PER_BLOCK) {
+                    continue;
+                }
+                scale = (float) pixelsPerBlock;
+            }
+            Item item = item(other, screen, projection, partialTicks, scale);
+            if (item.sx < -margin || item.sy < -margin || item.sx > width + margin || item.sy > height + margin) {
+                continue;
+            }
+            if (!teammate && !inSight(mc.theWorld, other, projection, now)) {
+                continue;
+            }
+            item.name = other.getCommandSenderName();
+            item.nameColor = teammate ? TEAMMATE_NAME : 0xFFFFFF;
+            items.add(item);
+        }
+    }
+
+    /** Whether teammates near enough to be in the client's world are drawn as their model (not as a head). */
+    public static boolean drawsPlayers() {
+        return !BROKEN.contains(EntityOtherPlayerMP.class);
+    }
+
+    /** A player's name over the model's head, small, with a shadow. */
+    private static void drawName(Minecraft mc, Item item) {
+        // The top of the head on the screen: the model's height turned up by the map's view.
+        double top = item.sy - (item.entity.height + 0.25) * IsoProjection.COS * item.scale;
+        float textScale = 0.75f;
+        int width = mc.fontRenderer.getStringWidth(item.name);
+        GL11.glPushMatrix();
+        GL11.glTranslated(item.sx, top - 9 * textScale, 0);
+        GL11.glScalef(textScale, textScale, 1f);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        mc.fontRenderer.drawStringWithShadow(item.name, -width / 2, 0, item.nameColor);
+        GL11.glPopMatrix();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static Item item(EntityLivingBase entity, MapDrawer.Projection screen, IsoProjection projection,
