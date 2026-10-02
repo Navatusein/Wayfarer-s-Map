@@ -224,8 +224,6 @@ wayfarmap.gui.iso_hint=3D: Q / E turn the view
 wayfarmap.gui.iso_not_recording=Block recording is off: new places on the 3D map are drawn from the flat map (settings, 3D map tab)
 wayfarmap.option.map.isoCaptureMs=Chunk copying, ms per tick
 wayfarmap.option.map.isoCaptureMs.desc=Time per game tick spent copying the blocks of loaded chunks into the 3D map. More puts new chunks on it sooner, but may cost frames while flying over new land.
-wayfarmap.option.map.isoOverhangDepth=Look under roofs
-wayfarmap.option.map.isoOverhangDepth.desc=How many blocks under a roof or an overhang the 3D map keeps, so the space under it is not drawn as solid stone from the side. 0 = off. More takes more memory. Applies as chunks are copied again.
 wayfarmap.option.logs.log3d=3D map log
 wayfarmap.option.logs.log3d.desc=Write a detailed log of how chunks get onto the 3D map (.minecraft/wayfarmap/logs/3d-*.log), to find out why some take long. Takes effect when a world is joined.
 wayfarmap.option.logs.log2d=Flat map log
