@@ -72,6 +72,16 @@ final class IsoTracer {
     private int spriteRun;
     /** Whether the last {@link #sprite} call met a drawn pixel. */
     private boolean spriteMet;
+    /**
+     * A sprite's pixel next to where the ray passed it, kept in case nothing right behind is drawn there: added
+     * before the next surface the ray meets farther away, dropped when a sprite of a block next to it has the pixel.
+     */
+    private boolean seamPending;
+    private int seamColor, seamLight;
+    private float seamAlpha;
+    private double seamT;
+    /** How far along the ray (in blocks) a sprite still counts as the other side of a seam. */
+    private static final double SEAM_DEPTH = 1.0;
     /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
     private int pictureMip;
 
@@ -228,6 +238,7 @@ final class IsoTracer {
         int previousKey = 0;
         insideLiquid = 0;
         spriteRun = 0;
+        seamPending = false;
 
         for (int steps = 0; steps < MAX_STEPS && y >= 0; steps++) {
             int chunkX = x >> 4, chunkZ = z >> 4;
@@ -400,6 +411,7 @@ final class IsoTracer {
                 side = stepZ > 0 ? 2 : 3;
             }
         }
+        flushSeam();
         double reached = projection.toward(ox + dx * t, oz + dz * t);
         if (reached < minToward) {
             minToward = reached;
@@ -601,21 +613,35 @@ final class IsoTracer {
         if (exactAlpha < minAlpha) {
             // The edge of a side lies between pixels of the sprite, at a different place in each block's sprite:
             // where neither of two blocks next to each other has the pixel drawn, a line showed through the wall
-            // (glass, connected tile entities). A pixel drawn right next to it stands in.
-            double step = 1.0 / sprite.size;
-            double[] near = { su - step, sv, su + step, sv, su, sv - step, su, sv + step };
-            for (int i = 0; i < near.length && exactAlpha < minAlpha; i += 2) {
-                int texel = sprite.texel(near[i], near[i + 1], 0);
-                if ((texel >>> 24) >= minAlpha) {
-                    exact = texel;
-                    exactAlpha = texel >>> 24;
-                    su = near[i];
-                    sv = near[i + 1];
+            // (glass, connected tile entities). A pixel drawn right next to it stands in, unless a sprite right
+            // behind has the pixel itself (a screen drawn by the block next to it is not covered by this frame).
+            if (!seamPending) {
+                double step = 1.0 / sprite.size;
+                double[] near = { su - step, sv, su + step, sv, su, sv - step, su, sv + step };
+                for (int i = 0; i < near.length; i += 2) {
+                    int texel = sprite.texel(near[i], near[i + 1], 0);
+                    if ((texel >>> 24) >= minAlpha) {
+                        int pixel = texel;
+                        if (spriteMip > 0) {
+                            int reduced = sprite.texel(near[i], near[i + 1], spriteMip);
+                            if ((reduced >>> 24) >= 64) {
+                                pixel = reduced;
+                            }
+                        }
+                        seamPending = true;
+                        seamColor = pixel & 0xFFFFFF;
+                        seamLight = lightHere;
+                        seamAlpha = look.translucent ? Math.max(0.3f, (texel >>> 24) / 255f) : 1f;
+                        seamT = t;
+                        break;
+                    }
                 }
             }
-            if (exactAlpha < minAlpha) {
-                return SPRITE_PASS;
-            }
+            return SPRITE_PASS;
+        }
+        if (seamPending && t - seamT < SEAM_DEPTH) {
+            // The other side of the seam: its own pixel, not the stand-in.
+            seamPending = false;
         }
         spriteMet = true;
         if (look.translucent) {
@@ -1055,11 +1081,22 @@ final class IsoTracer {
      * @param light sky light << 4 | block light
      */
     private void addLit(int rgb, float shade, int light, float alpha) {
+        flushSeam();
         int sky = light >> 4, block = light & 15;
         int nightSky = Math.max(0, sky - NIGHT_SKY_DROP);
         int night = Math.max(nightSky, block);
         float warmth = block > nightSky ? Math.min(1f, (block - nightSky) / 6f) : 0f;
         add(rgb, shade * LIGHT[Math.max(sky, block)], shade * NIGHT_LIGHT[night], warmth, alpha);
+    }
+
+    /** Adds the stand-in pixel of a seam kept by {@link #sprite}, before anything farther along the ray. */
+    private void flushSeam() {
+        if (!seamPending) {
+            return;
+        }
+        seamPending = false;
+        hit(1, seamT);
+        addLit(seamColor, 1f, seamLight, seamAlpha);
     }
 
     /** Adds a surface seen through what is in front of it, by day and by night. */
