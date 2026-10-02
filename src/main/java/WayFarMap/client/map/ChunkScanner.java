@@ -1,14 +1,11 @@
 package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockBush;
-import net.minecraft.block.BlockFlower;
 import net.minecraft.block.material.Material;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
-import net.minecraftforge.common.IShearable;
 
 import WayFarMap.Config;
 
@@ -215,7 +212,7 @@ public final class ChunkScanner {
             || material != Material.plants && material != Material.vine && material != Material.circuits) {
             return -1;
         }
-        if (!grassAndFlowers && isGrassOrFlower(above)) {
+        if (!grassAndFlowers && isPlant(material)) {
             return -1;
         }
         int x = chunk.xPosition * 16 + lx;
@@ -223,9 +220,13 @@ public final class ChunkScanner {
         return BlockColors.getColor(world, above, chunk.getBlockMetadata(lx, y + 1, lz), x, y + 1, z);
     }
 
-    /** Tall grass, ferns, dead bushes and flowers (also double ones), not crops, saplings or mushrooms. */
-    private static boolean isGrassOrFlower(Block block) {
-        return block instanceof BlockBush && (block instanceof BlockFlower || block instanceof IShearable);
+    /**
+     * Left out of the map without plants: anything of the plants' materials. Flowers, double plants, sugar cane,
+     * crops, saplings and mushrooms are {@link Material#plants}; tall grass, ferns and dead bushes are
+     * {@link Material#vine} in this version (it has no separate reed material).
+     */
+    private static boolean isPlant(Material material) {
+        return material == Material.plants || material == Material.vine;
     }
 
     /** Color of the biome for the biome map; biomes without a color get a stable made-up one. */
