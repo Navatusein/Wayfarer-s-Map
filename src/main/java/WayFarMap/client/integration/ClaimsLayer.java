@@ -45,8 +45,6 @@ public final class ClaimsLayer {
 
     /** Colors of the drag selection: claiming and loading. */
     private static final int CLAIMED_COLOR = 0x4CB4FF, LOADED_COLOR = 0x50E070;
-    /** Outline around chunk loaded areas. */
-    private static final int LOADED_OUTLINE = 0x000000;
 
     private static final long REQUEST_MS = 2000, VALIDATE_MS = 10_000, COUNTS_MS = 5000;
     /** The area asked from the server at once is capped, like the view of a normal map. */
@@ -162,20 +160,6 @@ public final class ClaimsLayer {
         return a != null && b != null && a.team != null && b.team != null && a.team.uid == b.team.uid;
     }
 
-    /** A claimed chunk that is chunk loaded (and not just unclaimed). */
-    private static boolean loaded(int chunkX, int chunkZ, int dimension) {
-        if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(chunkX, chunkZ))) {
-            return false;
-        }
-        ClientClaimedChunks.ChunkData data = get(chunkX, chunkZ, dimension);
-        return data != null && data.isLoaded();
-    }
-
-    /** The neighbour is chunk loaded by the same team: the loaded area goes on there, no outline between. */
-    private static boolean loaded(ClientClaimedChunks.ChunkData of, int chunkX, int chunkZ, int dimension) {
-        return loaded(chunkX, chunkZ, dimension) && sameTeam(of, get(chunkX, chunkZ, dimension));
-    }
-
     private static int teamColor(ClientClaimedChunks.ChunkData data) {
         try {
             return data.team.color.getColor()
@@ -185,11 +169,32 @@ public final class ClaimsLayer {
         }
     }
 
+    // The look of ServerUtilities' own claim screen (GuiClaimedChunks), so the two read the same.
+    /** Fill of a claimed chunk over its team color. */
+    private static final int FILL_ALPHA = 150;
+    /** Border of a claimed area, and of a chunk loaded one. */
+    private static final int BORDER_COLOR = 0x505050, LOADED_BORDER_COLOR = 0xFF5050, BORDER_ALPHA = 230;
+    /** Dashed diagonal lines over chunk loaded chunks. */
+    private static final int DASH_COLOR = 0x000000, DASH_ALPHA = 90;
+    /** Selection being dragged: a light veil (ServerUtilities' own), outlined in the action's color here. */
+    private static final int SELECTION_ALPHA = 33;
+
     /**
-     * Draws the claims in their team's color (own ones too), with a border around each claimed area, and one
-     * black outline around each area of chunk loaded chunks (none between loaded chunks side by side). And the chunks
-     * of
-     * the current drag selection.
+     * Whether a claimed chunk has a border on the side of the neighbour: as in ServerUtilities, where the neighbour
+     * is another team or unclaimed, or differs in being chunk loaded, but never toward a chunk loaded neighbour
+     * (which draws its own, red, border).
+     */
+    private static boolean hasBorder(ClientClaimedChunks.ChunkData data, ClientClaimedChunks.ChunkData with) {
+        if (with == null) {
+            return true;
+        }
+        return (data.getFlags() != with.getFlags() || !sameTeam(data, with)) && !with.isLoaded();
+    }
+
+    /**
+     * Draws the claims as ServerUtilities' claim screen does: every claimed chunk in its team's color, a grey border
+     * around each claimed area (red around chunk loaded ones) and dashed diagonal lines over chunk loaded chunks. All
+     * of it scales with the zoom. And the chunks of the current drag selection.
      *
      * @param selection     packed chunk positions being selected, or null
      * @param selectionMode one of the action constants, for the selection color
@@ -205,67 +210,47 @@ public final class ClaimsLayer {
 
         double pixel = 1.0 / ScaledScreen.currentFactor();
         double cell = 16 * scale;
-        double border = Math.max(pixel, Math.min(2, cell / 12));
+        // ServerUtilities: a 1 pixel line on a 12 pixel chunk.
+        double border = Math.max(pixel, Math.min(3, cell / 12));
+        // Dashes only where a chunk is big enough for them to read as lines.
+        boolean dashes = cell >= 8;
 
         begin();
+        List<ChunkDimPos> shown = new ArrayList<>();
         for (Map.Entry<ChunkDimPos, ClientClaimedChunks.ChunkData> entry : NavigatorIntegration.CLAIMS.entrySet()) {
             ChunkDimPos pos = entry.getKey();
-            if (!unclaimed.isEmpty() && unclaimed.containsKey(pack(pos.posX, pos.posZ))) {
-                continue;
-            }
             if (pos.dim != dimension || pos.posX < minChunkX
                 || pos.posX > maxChunkX
                 || pos.posZ < minChunkZ
-                || pos.posZ > maxChunkZ) {
+                || pos.posZ > maxChunkZ
+                || get(pos.posX, pos.posZ, dimension) == null) {
                 continue;
             }
-            ClientClaimedChunks.ChunkData data = entry.getValue();
-            boolean own = data.team != null && data.team.isMember;
-            int color = teamColor(data);
+            shown.add(pos);
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            rect(sx, sy, cell, cell, color, own ? 0x70 : 0x50, x, y, width, height);
-            // Border only where the neighbour isn't the same team, so a claimed area has one outline.
-            if (!sameTeam(data, get(pos.posX, pos.posZ - 1, dimension))) {
-                rect(sx, sy, cell, border, color, 0xE0, x, y, width, height);
-            }
-            if (!sameTeam(data, get(pos.posX, pos.posZ + 1, dimension))) {
-                rect(sx, sy + cell - border, cell, border, color, 0xE0, x, y, width, height);
-            }
-            if (!sameTeam(data, get(pos.posX - 1, pos.posZ, dimension))) {
-                rect(sx, sy, border, cell, color, 0xE0, x, y, width, height);
-            }
-            if (!sameTeam(data, get(pos.posX + 1, pos.posZ, dimension))) {
-                rect(sx + cell - border, sy, border, cell, color, 0xE0, x, y, width, height);
-            }
+            rect(sx, sy, cell, cell, teamColor(entry.getValue()), FILL_ALPHA, x, y, width, height);
         }
-        // Chunk loaded areas over the claims: an outline only where the neighbour isn't loaded.
-        for (Map.Entry<ChunkDimPos, ClientClaimedChunks.ChunkData> entry : NavigatorIntegration.CLAIMS.entrySet()) {
-            ChunkDimPos pos = entry.getKey();
-            if (pos.dim != dimension || !entry.getValue()
-                .isLoaded()
-                || !loaded(pos.posX, pos.posZ, dimension)
-                || pos.posX < minChunkX
-                || pos.posX > maxChunkX
-                || pos.posZ < minChunkZ
-                || pos.posZ > maxChunkZ) {
-                continue;
-            }
-            ClientClaimedChunks.ChunkData data = entry.getValue();
-            int outline = LOADED_OUTLINE;
+        for (ChunkDimPos pos : shown) {
+            ClientClaimedChunks.ChunkData data = get(pos.posX, pos.posZ, dimension);
             double sx = x + (pos.posX * 16 - left) * scale;
             double sy = y + (pos.posZ * 16 - top) * scale;
-            if (!loaded(data, pos.posX, pos.posZ - 1, dimension)) {
-                rect(sx, sy, cell, border, outline, 0xFF, x, y, width, height);
+            boolean isLoaded = data.isLoaded();
+            if (isLoaded && dashes) {
+                dashedDiagonals(sx, sy, cell, pixel, x, y, width, height);
             }
-            if (!loaded(data, pos.posX, pos.posZ + 1, dimension)) {
-                rect(sx, sy + cell - border, cell, border, outline, 0xFF, x, y, width, height);
+            int color = isLoaded ? LOADED_BORDER_COLOR : BORDER_COLOR;
+            if (hasBorder(data, get(pos.posX, pos.posZ - 1, dimension))) {
+                rect(sx, sy, cell, border, color, BORDER_ALPHA, x, y, width, height);
             }
-            if (!loaded(data, pos.posX - 1, pos.posZ, dimension)) {
-                rect(sx, sy, border, cell, outline, 0xFF, x, y, width, height);
+            if (hasBorder(data, get(pos.posX, pos.posZ + 1, dimension))) {
+                rect(sx, sy + cell - border, cell, border, color, BORDER_ALPHA, x, y, width, height);
             }
-            if (!loaded(data, pos.posX + 1, pos.posZ, dimension)) {
-                rect(sx + cell - border, sy, border, cell, outline, 0xFF, x, y, width, height);
+            if (hasBorder(data, get(pos.posX - 1, pos.posZ, dimension))) {
+                rect(sx, sy, border, cell, color, BORDER_ALPHA, x, y, width, height);
+            }
+            if (hasBorder(data, get(pos.posX + 1, pos.posZ, dimension))) {
+                rect(sx + cell - border, sy, border, cell, color, BORDER_ALPHA, x, y, width, height);
             }
         }
         if (selection != null && !selection.isEmpty()) {
@@ -275,11 +260,49 @@ public final class ClaimsLayer {
             for (long packed : selection) {
                 double sx = x + (unpackX(packed) * 16 - left) * scale;
                 double sy = y + (unpackZ(packed) * 16 - top) * scale;
-                rect(sx, sy, cell, cell, color, 0x60, x, y, width, height);
+                rect(sx, sy, cell, cell, 0xFFFFFF, SELECTION_ALPHA, x, y, width, height);
                 hollowRect(sx, sy, cell, cell, pixel, color, 0xFF, x, y, width, height);
             }
         }
         end();
+    }
+
+    /**
+     * ServerUtilities' mark of a chunk loaded chunk: three parallel dashed lines going down to the right (corner to
+     * corner, and halfway on both sides of it).
+     */
+    private static void dashedDiagonals(double sx, double sy, double cell, double pixel, int x, int y, int width,
+        int height) {
+        double half = cell / 2;
+        dashedLine(sx, sy, sx + cell, sy + cell, cell, pixel, x, y, width, height);
+        dashedLine(sx, sy + half, sx + half, sy + cell, cell, pixel, x, y, width, height);
+        dashedLine(sx + half, sy, sx + cell, sy + half, cell, pixel, x, y, width, height);
+    }
+
+    /** A dashed line of thin quads; dashes and gaps grow with the chunk (about 10 of each corner to corner). */
+    private static void dashedLine(double x0, double y0, double x1, double y1, double cell, double pixel, int x, int y,
+        int width, int height) {
+        double length = Math.hypot(x1 - x0, y1 - y0);
+        double dash = Math.max(2 * pixel, cell / 14);
+        double thickness = Math.max(pixel, cell / 40) / 2;
+        double ux = (x1 - x0) / length, uy = (y1 - y0) / length;
+        // Across the line, for its thickness.
+        double nx = -uy * thickness, ny = ux * thickness;
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.setColorRGBA_I(DASH_COLOR, DASH_ALPHA);
+        for (double t = 0; t < length; t += 2 * dash) {
+            double t1 = Math.min(length, t + dash);
+            double ax = x0 + ux * t, ay = y0 + uy * t, bx = x0 + ux * t1, by = y0 + uy * t1;
+            if (Math.max(ax, bx) < x || Math.min(ax, bx) > x + width
+                || Math.max(ay, by) < y
+                || Math.min(ay, by) > y + height) {
+                continue;
+            }
+            tessellator.addVertex(ax - nx, ay - ny, 0);
+            tessellator.addVertex(bx - nx, by - ny, 0);
+            tessellator.addVertex(bx + nx, by + ny, 0);
+            tessellator.addVertex(ax + nx, ay + ny, 0);
+        }
     }
 
     /** Tooltip lines for a chunk, or null if it isn't claimed. */
