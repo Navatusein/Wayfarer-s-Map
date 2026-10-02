@@ -7,6 +7,7 @@ import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
@@ -65,7 +66,7 @@ public class WaypointRenderer {
     public static void drawItemDirect(ItemStack stack, double centerX, double centerY, float size) {
         Minecraft mc = Minecraft.getMinecraft();
         GL11.glPushMatrix();
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
         GL11.glTranslated(centerX - size / 2.0, centerY - size / 2.0, 0);
         GL11.glScalef(size / 16f, size / 16f, 1f);
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -92,8 +93,9 @@ public class WaypointRenderer {
      * then failed too (the icon picker went empty for good). Whatever happens, the tessellator is finished and the
      * matrices the renderer left pushed are taken off. False if the item can't be drawn.
      *
-     * Only matrices are touched: GL settings are cached by some mods (Angelica in GTNH), and changing them behind
-     * the cache's back broke the whole game's drawing.
+     * After a failure, the settings such renderers change on the way (GregTech's flask: the depth test, left so that
+     * the world and the screens drew nothing anymore) are set back to the game's usual ones with plain GL calls,
+     * which mods caching the GL state (Angelica in GTNH) see too.
      */
     public static boolean renderItemSafely(RenderItem renderItem, Minecraft mc, ItemStack stack) {
         String key = itemKey(stack);
@@ -101,6 +103,7 @@ public class WaypointRenderer {
             return false;
         }
         int modelview = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
+        float zLevel = renderItem.zLevel;
         boolean ok = true;
         try {
             renderItem.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
@@ -115,8 +118,22 @@ public class WaypointRenderer {
             for (int extra = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH) - modelview; extra > 0; extra--) {
                 GL11.glPopMatrix();
             }
+            resetGuiState();
+            // The game raises it before drawing and lowers it after, which a failure skips.
+            renderItem.zLevel = zLevel;
         }
         return ok;
+    }
+
+    /** The game's usual settings for drawing screens, after a renderer that failed halfway changed some. */
+    private static void resetGuiState() {
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GL11.glDepthFunc(GL11.GL_LEQUAL);
+        GL11.glDepthMask(true);
+        GL11.glColorMask(true, true, true, true);
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
