@@ -11,6 +11,7 @@ import java.util.zip.ZipFile
  * runPrism   - builds the mod, puts the jar into the instance's mods folder (removing the previous build)
  *              and launches the instance through the Prism command line (prismlauncher --launch).
  * debugPrism - the same, with a JDWP agent added to the instance's JVM arguments for the IDEA debugger.
+ * deleteMod  - removes this mod's jar from the instance's mods folder.
  *
  * Settings, in ~/.gradle/gradle.properties (or -P on the command line):
  *   prismInstance       - folder name of the instance under <prismDataDir>/instances (required)
@@ -31,17 +32,9 @@ class PrismLaunch {
     static final String JDWP_PREFIX = '-agentlib:jdwp='
 
     static void run(File jar, String modId, File dataDir, String instance, List<String> command, String jdwpArg) {
-        File instanceDir = new File(new File(dataDir, 'instances'), instance)
-        if (!instanceDir.isDirectory()) {
-            throw new GradleException("Prism instance not found: ${instanceDir} (check prismInstance and prismDataDir)")
-        }
-        File gameDir = ['.minecraft', 'minecraft'].collect { new File(instanceDir, it) }.find { it.isDirectory() }
-        if (gameDir == null) {
-            throw new GradleException("No .minecraft folder in the Prism instance: ${instanceDir}")
-        }
-
-        installJar(jar, modId, new File(gameDir, 'mods'))
-        setJdwpArg(new File(instanceDir, 'instance.cfg'), new File(dataDir, 'prismlauncher.cfg'), jdwpArg)
+        File instDir = instanceDir(dataDir, instance)
+        installJar(jar, modId, new File(gameDir(instDir), 'mods'))
+        setJdwpArg(new File(instDir, 'instance.cfg'), new File(dataDir, 'prismlauncher.cfg'), jdwpArg)
 
         List<String> cmd = new ArrayList<>(command)
         cmd.addAll(['--launch', instance])
@@ -53,15 +46,47 @@ class PrismLaunch {
             .start()
     }
 
+    static File instanceDir(File dataDir, String instance) {
+        File dir = new File(new File(dataDir, 'instances'), instance)
+        if (!dir.isDirectory()) {
+            throw new GradleException("Prism instance not found: ${dir} (check prismInstance and prismDataDir)")
+        }
+        return dir
+    }
+
+    static File gameDir(File instanceDir) {
+        File dir = ['.minecraft', 'minecraft'].collect { new File(instanceDir, it) }.find { it.isDirectory() }
+        if (dir == null) {
+            throw new GradleException("No .minecraft folder in the Prism instance: ${instanceDir}")
+        }
+        return dir
+    }
+
+    /** Deletes every jar of this mod (found by modid in mcmod.info) from the instance. */
+    static void deleteMod(String modId, File dataDir, String instance) {
+        File mods = new File(gameDir(instanceDir(dataDir, instance)), 'mods')
+        if (removeJars(modId, mods, null) == 0) {
+            println "Prism: no ${modId} jar in ${mods}"
+        }
+    }
+
+    /** @return how many jars of this mod were removed from the mods folder, keeping the one named keepName */
+    static int removeJars(String modId, File mods, String keepName) {
+        int removed = 0
+        mods.listFiles()?.each { File f ->
+            if (f.isFile() && f.name.endsWith('.jar') && f.name != keepName && readModIds(f).contains(modId)) {
+                f.delete()
+                removed++
+                println "Prism: removed ${f.name}"
+            }
+        }
+        return removed
+    }
+
     /** Replaces every jar of this mod (found by modid in mcmod.info) with the fresh build. */
     static void installJar(File jar, String modId, File mods) {
         mods.mkdirs()
-        mods.listFiles()?.each { File f ->
-            if (f.isFile() && f.name.endsWith('.jar') && f.name != jar.name && readModIds(f).contains(modId)) {
-                f.delete()
-                println "Prism: removed old ${f.name}"
-            }
-        }
+        removeJars(modId, mods, jar.name)
         Files.copy(jar.toPath(), new File(mods, jar.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
         println "Prism: installed ${jar.name} into ${mods}"
     }
@@ -168,5 +193,17 @@ def reobfJarFile = tasks.named('reobfJar').flatMap { it.archiveFile }
             PrismLaunch.run(reobfJarFile.get().asFile, ownModId, new File(prismDataDir.get()), prismInstance.get(),
                 prismCommand.get().trim().split(/\s+/).toList(), jdwpArg)
         }
+    }
+}
+
+tasks.register('deleteMod') { t ->
+    t.group = 'prism'
+    t.description = 'Removes this mod from the mods folder of the Prism instance'
+    t.doLast {
+        if (!prismInstance.present) {
+            throw new GradleException('deleteMod: set prismInstance in ~/.gradle/gradle.properties '
+                + 'to the folder name of the Prism instance')
+        }
+        PrismLaunch.deleteMod(ownModId, new File(prismDataDir.get()), prismInstance.get())
     }
 }
