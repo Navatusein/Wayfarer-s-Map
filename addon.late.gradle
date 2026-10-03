@@ -147,7 +147,7 @@ def reobfJarFile = tasks.named('reobfJar').flatMap { it.archiveFile }
 
 [runPrism: false, debugPrism: true].each { String taskName, boolean debug ->
     tasks.register(taskName) { t ->
-        t.group = 'Modded Minecraft'
+        t.group = 'prism'
         t.description = debug
             ? 'Builds the mod, installs it into the Prism instance and launches it with the JDWP debug agent'
             : 'Builds the mod, installs it into the Prism instance and launches it'
