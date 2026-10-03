@@ -29,6 +29,7 @@ import net.minecraft.world.chunk.Chunk;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL30;
 
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.ChunkScanner;
@@ -78,6 +79,12 @@ final class FaceRenderer {
     private static boolean broken;
     /** Failures in a row; pictures are given up only after several (one mod's renderer failing once is enough). */
     private static int failures;
+    /**
+     * Whether clip planes may be used, null until checked. OpenGL ES (Android launchers) has them only with
+     * GL_EXT_clip_cull_distance: without it, Angelica's shader for any drawing with a clip plane on fails to compile
+     * and the game crashes (at the next drawing, often another mod's). Pictures are then taken without them.
+     */
+    private static Boolean clipPlanesWork;
     /**
      * Pictures of blocks with a tile entity, by place: they depend on what is in it, so they aren't shared between
      * places, but the chunks near the player are copied every few seconds and are not taken again each time.
@@ -905,7 +912,9 @@ final class FaceRenderer {
                 Arrays.fill(pending.ids, 0);
             }
             IsoLog.log("PICTURES_FAILED batch of " + batch.size() + ": " + t);
-            if (++failures >= 5) {
+            if (isClipFailure(t)) {
+                // Taken again without clip planes next time.
+            } else if (++failures >= 5) {
                 // Something in this driver or the mods' renderers does not like this: no more pictures.
                 broken = true;
                 WayFarMap.LOG.warn("The 3D map can't take pictures of blocks; it uses their icons instead", t);
@@ -913,6 +922,8 @@ final class FaceRenderer {
                 WayFarMap.LOG.debug("Could not take pictures of blocks for the 3D map", t);
             }
         } finally {
+            // Off whatever happened: a clip plane left on clips (or, on OpenGL ES, crashes) the game's own drawing.
+            disableClipPlanes();
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
             if (bound) {
                 // Back to the buffer bound before (the game's own while a frame is drawn).
@@ -1016,6 +1027,9 @@ final class FaceRenderer {
 
     /** Keeps only what is within the block's column, and the margin around it (with the camera of the view set). */
     private static void clipColumn(Pending pending, double margin) {
+        if (!clipPlanesWork()) {
+            return;
+        }
         clip(0, 1, 0, -(pending.x - margin));
         clip(1, -1, 0, pending.x + 1 + margin);
         clip(2, 0, 1, -(pending.z - margin));
@@ -1032,6 +1046,71 @@ final class FaceRenderer {
         planeBuffer.flip();
         GL11.glClipPlane(GL11.GL_CLIP_PLANE0 + plane, planeBuffer);
         GL11.glEnable(GL11.GL_CLIP_PLANE0 + plane);
+    }
+
+    private static void disableClipPlanes() {
+        for (int plane = 0; plane < 4; plane++) {
+            GL11.glDisable(GL11.GL_CLIP_PLANE0 + plane);
+        }
+    }
+
+    /** Desktop OpenGL always has clip planes; OpenGL ES (Android) only with GL_EXT_clip_cull_distance. */
+    private static boolean clipPlanesWork() {
+        if (clipPlanesWork == null) {
+            boolean works = true;
+            try {
+                String version = GL11.glGetString(GL11.GL_VERSION);
+                boolean android = System.getProperty("os.version", "")
+                    .contains("Android")
+                    || System.getProperty("java.vendor", "")
+                        .contains("Android");
+                if (android || version != null && version.contains("OpenGL ES")) {
+                    works = hasExtension("GL_EXT_clip_cull_distance") || hasExtension("GL_APPLE_clip_distance");
+                }
+            } catch (Throwable t) {
+                works = false;
+            }
+            clipPlanesWork = works;
+            if (!works) {
+                WayFarMap.LOG.info("No clip planes on this OpenGL: the 3D map takes pictures of blocks without them");
+            }
+        }
+        return clipPlanesWork;
+    }
+
+    private static boolean hasExtension(String name) {
+        String all = GL11.glGetString(GL11.GL_EXTENSIONS);
+        if (all != null) {
+            return all.contains(name);
+        }
+        int count = GL11.glGetInteger(GL30.GL_NUM_EXTENSIONS);
+        for (int i = 0; i < count; i++) {
+            if (name.equals(GL30.glGetStringi(GL11.GL_EXTENSIONS, i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A drawing failed because clip planes aren't supported (Angelica's shader without gl_ClipDistance): they are
+     * no longer used. True if so, and the error is passed on so the batch isn't stored with empty pictures.
+     */
+    private static boolean isClipFailure(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            String message = t.getMessage();
+            if (message != null && (message.contains("gl_ClipDistance") || message.contains("clip_cull_distance"))) {
+                if (!Boolean.FALSE.equals(clipPlanesWork)) {
+                    clipPlanesWork = false;
+                    WayFarMap.LOG.warn(
+                        "Clip planes don't work on this OpenGL: the 3D map takes pictures of blocks without them",
+                        error);
+                }
+                disableClipPlanes();
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The block as the world draws it, then its tile entity and those next to it (a double chest's other half). */
@@ -1093,6 +1172,9 @@ final class FaceRenderer {
                             tessellator.draw();
                         } catch (RuntimeException ignored) {}
                     }
+                    if (isClipFailure(e)) {
+                        throw e;
+                    }
                 }
             }
             RenderPass.setWorld(worldPass);
@@ -1148,6 +1230,9 @@ final class FaceRenderer {
                     pending.shot.tileEntitiesDrawn++;
                 }
             } catch (RuntimeException e) {
+                if (isClipFailure(e)) {
+                    throw e;
+                }
                 // A renderer that needs more than this; the block's own drawing stays.
                 if (pending.shot != null && pending.shot.error == null) {
                     pending.shot.error = "tile entity renderer " + tileEntity.getClass()
