@@ -2,6 +2,7 @@ package WayFarMap.client.map.iso;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -886,6 +887,43 @@ public final class IsoMap implements BlockStore.Listener {
                 IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size());
             }
         }
+    }
+
+    /**
+     * Deletes chunks from the 3D map of a dimension: their recorded blocks are forgotten and the tiles over them drawn
+     * again. Chunks still loaded around the player are recorded again once they change or load again. Render thread.
+     *
+     * @param chunks packed as {@code x << 32 | z & 0xFFFFFFFF}
+     */
+    public void deleteChunks(int dimensionId, Collection<Long> chunks) {
+        Dimension dimension = dimension(dimensionId);
+        if (dimension == null || writer == null || chunks.isEmpty()) {
+            return;
+        }
+        if (dimensionId == lastCaptureDimension) {
+            // Copied anew when next seen, not skipped as unchanged.
+            for (long key : chunks) {
+                lastCapture.remove(key);
+                signatures.remove(key);
+                storedSignatures.remove(key);
+                partial.remove(key);
+                unfinished.remove(key);
+            }
+        }
+        List<Long> list = new ArrayList<>(chunks);
+        writer.submit(() -> {
+            int removed = 0;
+            for (long key : list) {
+                try {
+                    if (dimension.store.remove((int) (key >> 32), (int) (long) key)) {
+                        removed++;
+                    }
+                } catch (RuntimeException e) {
+                    WayFarMap.LOG.warn("Could not delete a chunk from the 3D map", e);
+                }
+            }
+            IsoLog.log("DELETE_CHUNKS dim=" + dimensionId + " asked=" + list.size() + " removed=" + removed);
+        });
     }
 
     /** Starts writing the changed block files in the background. */

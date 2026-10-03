@@ -392,6 +392,39 @@ public class MapRegion implements PixelSource {
         }
     }
 
+    /**
+     * Forgets a chunk (region-local chunk coordinates 0-31): its pixels, their extra bytes and light, and when it was
+     * mapped, as if it had never been explored.
+     *
+     * @return whether anything of it was there
+     */
+    public boolean clearChunk(int localChunkX, int localChunkZ) {
+        boolean had = getChunkTime(localChunkX, localChunkZ) != 0;
+        for (int z = 0; z < 16; z++) {
+            int lz = localChunkZ * 16 + z;
+            for (int x = 0; x < 16; x++) {
+                int lx = localChunkX * 16 + x;
+                int index = lz * SIZE + lx;
+                if (pixels[index] != 0) {
+                    had = true;
+                    setPixel(lx, lz, 0);
+                }
+                if (extra != null && extra[index] != 0) {
+                    extra[index] = 0;
+                    markDirty();
+                    changes++;
+                }
+                if (light != null && light[index] != 0) {
+                    light[index] = 0;
+                    markDirty();
+                    glowDirty = true;
+                }
+            }
+        }
+        setChunkTime(localChunkX, localChunkZ, 0, false);
+        return had;
+    }
+
     /** True if the chunk as we have it came from a teammate (see {@link #setChunkTime(int, int, long, boolean)}). */
     public boolean isFromTeammate(int localChunkX, int localChunkZ) {
         int index = localChunkZ * CHUNKS + localChunkX;

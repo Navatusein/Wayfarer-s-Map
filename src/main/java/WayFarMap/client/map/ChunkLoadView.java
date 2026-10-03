@@ -46,6 +46,8 @@ public final class ChunkLoadView {
     /** Picked chunks whose cave layers are mapped too: red until the loading has mapped them all. */
     private static final Set<Long> WITH_CAVES = new java.util.HashSet<>();
     private static final int CAVES_BORDER = 0x58A6FF;
+    /** Border of the chunks of a drag deleting them from the map. */
+    private static final int DELETE_BORDER = 0xF85149;
 
     /** Region loading view: which chunks of each region are saved in the world, by dimension and region key. */
     private static final Map<Integer, Map<Long, long[]>> SAVED_CHUNKS = new HashMap<>();
@@ -289,9 +291,15 @@ public final class ChunkLoadView {
             }
         }
         if (selection != null && !selection.isEmpty()) {
-            int color = removing ? 0xA0A0A0 : caves ? CAVES_BORDER : PENDING_BORDER;
+            int color = removing ? DELETE_BORDER : caves ? CAVES_BORDER : PENDING_BORDER;
             for (long chunk : selection) {
                 double sx = x + (unpackX(chunk) * 16 - left) * scale, sy = y + (unpackZ(chunk) * 16 - top) * scale;
+                if (removing) {
+                    // Deleting: the chunks darkened, as if wiped off.
+                    rect(sx, sy, cell, cell, 0x0C0E11, 150, x, y, width, height);
+                    hollowRect(sx, sy, cell, cell, pixel, color, 0xFF, x, y, width, height);
+                    continue;
+                }
                 if (savedOnly && !removing && !isSaved(dimension, unpackX(chunk), unpackZ(chunk))) {
                     // Not saved in the world: left out of a "saved only" pick.
                     rect(sx, sy, cell, cell, 0xFFFFFF, 10, x, y, width, height);
@@ -468,6 +476,39 @@ public final class ChunkLoadView {
             }
             pending.clear();
         }
+        REGION_STATES.clear();
+    }
+
+    /** Whether any of the chunks is queued to be loaded. */
+    public static boolean anyPending(int dimension, Set<Long> chunks) {
+        Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
+        if (pending == null || pending.isEmpty()) {
+            return false;
+        }
+        for (long chunk : chunks) {
+            if (pending.containsKey(chunk)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** How many of the chunks are on the map (or may be: their region isn't read yet). */
+    public static int countOnMap(MapDimension surface, Set<Long> chunks) {
+        if (surface == null) {
+            return 0;
+        }
+        int count = 0;
+        for (long chunk : chunks) {
+            if (surface.chunkTimeInMemory(unpackX(chunk), unpackZ(chunk)) != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Shows changes to the map at once in the far view (chunks deleted from it). */
+    public static void refresh() {
         REGION_STATES.clear();
     }
 
