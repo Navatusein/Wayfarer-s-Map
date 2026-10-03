@@ -190,12 +190,14 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §e/wf chunkload stop§r — stop it
 
 §fFrom the map:§r §bModes → Area loading§r shows the chunks §aon the map§r (green), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red).
-- The switch at the top: §bSaved only§r — only gray chunks are taken, nothing is generated (safe for the world); §bGenerate new§r — chunks never made are generated too
-- §bLoad all saved§r — every chunk saved in this dimension goes on the map at once (asks first; nothing generated)
-- §bDelete dimension map§r — the whole map of this dimension, 2D or 2D and 3D (asks first; waypoints stay)
-- Loading fills the 3D map too while §bRecord blocks§r is on
-- §eCtrl+LMB drag§r — load the rectangle, §eShift§r too — with every cave layer
-- §eCtrl+RMB drag§r — §cdelete§r the rectangle from the map: a menu asks whether from the 2D map or the 2D and 3D map; it is taken off the queue too. Chunks loaded around you are mapped again right away
+- §eCtrl+LMB drag§r — load the gray chunks of the rectangle from the regions, as they are (nothing generated)
+- §eShift+LMB drag§r — generate the chunks of the rectangle (those never made too)
+- §eCtrl+Shift+LMB drag§r — generate them with every cave layer
+- §eCtrl+RMB drag§r — §cdelete§r the rectangle from the map at once (taken off the queue too). Chunks loaded around you are mapped again right away
+- §eShift+RMB drag§r — cancel: the queued (red) chunks of the rectangle are taken off the queue
+- §bLoad all from regions§r — every chunk saved in this dimension, at once (asks first; nothing generated)
+- §bDelete dimension map§r — the whole map of this dimension (asks first; waypoints stay)
+- §b3D: on§r — everything above is done for the 3D map too (the same option as §bRecord blocks§r)
 
 - The world map shows it at the bottom: chunks done and §fseconds elapsed§r
 - Leave the world or go to another dimension — it pauses and goes on when you are back

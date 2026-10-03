@@ -151,11 +151,12 @@ public final class ChunkLoadView {
      * @param removing  the drag takes chunks off the queue
      * @param regions   the chunks saved in the world are shown (in grey)
      * @param caves     the drag picks the chunks with their cave layers
-     * @param savedOnly the drag takes only chunks saved in the world: the others in it are drawn faint
+     * @param savedOnly  the drag takes only chunks saved in the world: the others in it are drawn faint
+     * @param cancelling the drag takes chunks off the queue: only the queued ones in it are marked
      */
     public static void draw(MapDimension surface, int dimension, double centerX, double centerZ, double scale, int x,
         int y, int width, int height, Set<Long> selection, boolean removing, boolean regions, boolean caves,
-        boolean savedOnly) {
+        boolean savedOnly, boolean cancelling) {
         if (regions != regionsMode) {
             regionsMode = regions;
             REGION_STATES.clear();
@@ -294,6 +295,16 @@ public final class ChunkLoadView {
             int color = removing ? DELETE_BORDER : caves ? CAVES_BORDER : PENDING_BORDER;
             for (long chunk : selection) {
                 double sx = x + (unpackX(chunk) * 16 - left) * scale, sy = y + (unpackZ(chunk) * 16 - top) * scale;
+                if (cancelling) {
+                    // Taking off the queue: the queued (red) chunks it covers are outlined in white.
+                    if (pending.containsKey(chunk)) {
+                        rect(sx, sy, cell, cell, 0xFFFFFF, 60, x, y, width, height);
+                        hollowRect(sx, sy, cell, cell, pixel, 0xFFFFFF, 0xFF, x, y, width, height);
+                    } else {
+                        rect(sx, sy, cell, cell, 0xFFFFFF, 10, x, y, width, height);
+                    }
+                    continue;
+                }
                 if (removing) {
                     // Deleting: the chunks darkened, as if wiped off.
                     rect(sx, sy, cell, cell, 0x0C0E11, 150, x, y, width, height);
