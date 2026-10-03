@@ -186,6 +186,6 @@ Released under the [MIT License](src/main/resources/LICENSE).
 
 <br>
 
-Made with ❤️ by [**evgengoldwar**](https://github.com/evgengoldwar)
+Made with ❤️ by [**EvgenWarGold**](https://github.com/evgengoldwar)
 
 </div>
