@@ -189,6 +189,10 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §e/wf chunkload status§r — how far it got
 - §e/wf chunkload stop§r — stop it
 
+§fFrom the map:§r §bModes → Area loading§r shows the chunks §aon the map§r (green), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red).
+- The switch at the top: §bSaved only§r — only gray chunks are taken, nothing is generated (safe for the world); §bGenerate new§r — chunks never made are generated too
+- §eCtrl+LMB drag§r — queue the rectangle, §eShift§r too — with every cave layer, §eCtrl+RMB drag§r — take it off the queue
+
 - The world map shows it at the bottom: chunks done and §fseconds elapsed§r
 - Leave the world or go to another dimension — it pauses and goes on when you are back
 - Speed — §bSettings → Commands§r
