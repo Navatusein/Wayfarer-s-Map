@@ -58,7 +58,7 @@ public class Config {
      * button and the dimension title always stay.
      */
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
-        "modes", "grid", "mobs", "team", "help" };
+        "modes", "grid", "mobs", "team", "help", "about" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;

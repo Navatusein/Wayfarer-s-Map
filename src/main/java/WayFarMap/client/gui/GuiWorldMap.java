@@ -73,7 +73,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21;
+        ID_CLOSE = 21, ID_ABOUT = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
         MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -121,6 +121,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static String searchText = "";
     private FlatTextField searchField;
     private IconButton helpButton;
+    private IconButton aboutButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
     private final Set<Long> claimSelection = new LinkedHashSet<>();
@@ -260,6 +261,16 @@ public class GuiWorldMap extends ScaledScreen {
         helpButton.setHeight(13);
         helpButton.visible = Config.isMapButtonShown("help");
         buttonList.add(helpButton);
+        // Next to it: about the mod, its author and links.
+        aboutButton = new IconButton(
+            ID_ABOUT,
+            helpButton.visible ? width - 44 : width - 22,
+            height - FOOTER_HEIGHT + 1,
+            Icons.ABOUT,
+            I18n.format("wayfarmap.gui.about_button"));
+        aboutButton.setHeight(13);
+        aboutButton.visible = Config.isMapButtonShown("about");
+        buttonList.add(aboutButton);
 
         Keyboard.enableRepeatEvents(true);
         searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
@@ -685,6 +696,8 @@ public class GuiWorldMap extends ScaledScreen {
             mc.displayGuiScreen(null);
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
+        } else if (button.id == ID_ABOUT) {
+            mc.displayGuiScreen(new GuiAbout(this));
         } else if (button.id == ID_LIGHT) {
             // Auto -> day -> night -> auto.
             Config.setMapLightMode(
@@ -1159,7 +1172,7 @@ public class GuiWorldMap extends ScaledScreen {
             right = I18n.format("wayfarmap.claims.other_dimension");
             rightColor = Theme.DANGER;
         }
-        int rightEdge = helpButton.xPosition - 8;
+        int rightEdge = (aboutButton.visible ? aboutButton : helpButton).xPosition - 8;
         int rightX = rightEdge;
         if (right != null && !right.isEmpty()) {
             // Never more than half the footer, so the left text keeps room too.
