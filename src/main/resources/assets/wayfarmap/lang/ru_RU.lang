@@ -439,3 +439,6 @@ wayfarmap.clean.clear=Очистить
 wayfarmap.clean.delete=Удалить
 wayfarmap.clean.confirm=Точно? Ещё раз
 wayfarmap.clean.done=Удалено %s.
+wayfarmap.inspect.usage=Использование: %s (без координат — блок, на который вы смотрите)
+wayfarmap.inspect.done=Отчёт 3D-карты о блоке %s,%s,%s записан: wayfarmap/inspect/%s (нажмите, чтобы открыть папку)
+wayfarmap.inspect.failed=Не удалось записать отчёт 3D-карты: %s

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,6 +35,13 @@ final class IsoTracer {
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
+    /**
+     * How far (in blocks) a sprite's pixels may stick out of its block's outline and still be the block's own (two
+     * pixels of a sprite): only what reaches farther counts as a part of a model past its cell.
+     */
+    private static final double OUTLINE_MARGIN = 0.03;
+    /** The largest place on a side's texture short of its far edge. */
+    private static final double EDGE = Math.nextDown(1.0);
     /** How much of what is below the water's surface veils: the rest is the water body (see absorb). */
     private static final float WATER_SURFACE = 0.4f;
     /** Per block of water the ray passes, the share of light that becomes water color. */
@@ -63,6 +71,16 @@ final class IsoTracer {
     private int mip;
     /** Sprite detail: 0 = 64 pixels per block ... 7 = one color. */
     private int spriteMip;
+    /** Step by step account of the rays, for the report of {@code /wfmap3d}; null normally. */
+    StringBuilder debug;
+    private static final String[] SIDE_NAMES = { "down", "up", "north", "south", "west", "east" };
+    /**
+     * Look key of the cell just passed when the ray met its translucent sprite, else 0: the next cell of the same
+     * block (glass next to glass) isn't added again where the two sprites overlap along their shared edge.
+     */
+    private int spriteRun;
+    /** Whether the last {@link #sprite} call met a drawn pixel. */
+    private boolean spriteMet;
     /** Detail of the pictures of block sides: 0 = 32x32 per side ... 5 = one color. */
     private int pictureMip;
 
@@ -77,6 +95,13 @@ final class IsoTracer {
     /** Height of the first surface hit and its side (-1 if none). */
     double hitY;
     int hitSide;
+    /**
+     * Height where the ray stopped seeing through (met a surface drawn whole, or nearly all the light was taken by
+     * what it passed), NaN if it never did: models of mobs are hidden behind it, not behind glass or shallow water.
+     */
+    double solidY;
+    /** Where along the ray the surface being added was met. */
+    private double lastHitT;
     /** The color seen at night (the day color is returned by trace), ARGB. */
     int nightColor;
     /** Lowest "toward the viewer" distance any ray got to, for knowing which chunks a tile depends on. */
@@ -172,6 +197,11 @@ final class IsoTracer {
             if (blocks != null) {
                 data = blocks;
                 top = blocks.yMax;
+                // Models reaching up past their block (a DHD's top, a banner) show in the air above the highest
+                // block: rays don't skip that air. Sprites reach two blocks at most.
+                for (int cell : overhangs(blocks)) {
+                    top = Math.max(top, blocks.yMin + (cell >> 8) + 2);
+                }
                 if (!blocks.looksReady) {
                     // All the chunk's blocks at once: one wait for the render thread, not one per block.
                     blocks.looksReady = BlockLooks.prepare(blocks.lookKeys());
@@ -206,6 +236,8 @@ final class IsoTracer {
         nightR = nightG = nightB = 0;
         transmit = 1;
         hitSide = -1;
+        solidY = Double.NaN;
+        lastHitT = 0;
 
         int stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
         double deltaX = 1 / Math.abs(dx), deltaY = 1 / Math.abs(dy), deltaZ = 1 / Math.abs(dz);
@@ -218,6 +250,7 @@ final class IsoTracer {
         int previousLight = OPEN;
         int previousKey = 0;
         insideLiquid = 0;
+        spriteRun = 0;
 
         for (int steps = 0; steps < MAX_STEPS && y >= 0; steps++) {
             int chunkX = x >> 4, chunkZ = z >> 4;
@@ -249,12 +282,25 @@ final class IsoTracer {
             double exit = Math.min(maxX, Math.min(maxY, maxZ));
             if (y <= currentTop) {
                 Object data = currentData;
-                if (data instanceof ChunkBlocks) {
+                if (data instanceof ChunkBlocks && y > ((ChunkBlocks) data).yMax) {
+                    // Above the copy's blocks, under the top of a model reaching up past them (see enterChunk): only
+                    // such models are there.
+                    ChunkBlocks blocks = (ChunkBlocks) data;
+                    cellIndex = -1;
+                    if (reachingOut(blocks, overhangs(blocks), x, y, z, side, t, OPEN) == SPRITE_STOP) {
+                        break;
+                    }
+                    previousLight = OPEN;
+                    previousKey = 0;
+                } else if (data instanceof ChunkBlocks) {
                     ChunkBlocks blocks = (ChunkBlocks) data;
                     int lx = x & 15, lz = z & 15;
                     if (y < blocks.yMin) {
                         // The ground below what was stored, in the world's usual layers.
                         BlockLooks.Look look = BlockLooks.get(ground(blocks, lx, lz, y));
+                        if (debug != null) {
+                            debug("  below the stored copy at " + x + "," + y + "," + z + ": ground drawn from icons");
+                        }
                         cellIndex = -1;
                         face(look, blocks, lx, lz, side, t, x, y, z, previousLight);
                         break;
@@ -312,6 +358,8 @@ final class IsoTracer {
                         break;
                     }
                     int key = ChunkBlocks.lookKey(cell);
+                    boolean sameRun = spriteRun != 0 && spriteRun == key && previousKey == key;
+                    spriteRun = 0;
                     if (key != insideLiquid) {
                         insideLiquid = 0;
                     }
@@ -319,10 +367,45 @@ final class IsoTracer {
                         BlockLooks.Look look = BlockLooks.get(key);
                         // Solid cubes show the game's pictures of their sides (in face); other blocks its sprites.
                         int spriteId = look.opaque || look.noPictures ? 0 : pictureId(blocks, projection.rotation);
+                        if (debug != null) {
+                            debug(
+                                "  cell " + x
+                                    + ","
+                                    + y
+                                    + ","
+                                    + z
+                                    + " "
+                                    + BlockDiag.name(key)
+                                    + " entered through "
+                                    + SIDE_NAMES[side]
+                                    + String.format(Locale.ROOT, " t=%.4f", t)
+                                    + " look[opaque="
+                                    + look.opaque
+                                    + " fullCube="
+                                    + look.fullCube
+                                    + " translucent="
+                                    + look.translucent
+                                    + " complex="
+                                    + look.complex
+                                    + " skipSame="
+                                    + look.skipSame
+                                    + "] sprite="
+                                    + spriteId
+                                    + (spriteId == FacePalette.EMPTY ? "(EMPTY)" : "")
+                                    + " sameRun="
+                                    + sameRun
+                                    + " light="
+                                    + Integer.toHexString(lightOf(cell)));
+                        }
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
                         int lightHere = look.lightPasses ? brighter(light(cell), previousLight) : previousLight;
-                        int drawn = spriteId == 0 ? SPRITE_NONE : sprite(spriteId, look, x, y, z, side, t, lightHere);
+                        spriteMet = false;
+                        int drawn = spriteId == 0 ? SPRITE_NONE
+                            : sprite(spriteId, look, x, y, z, side, t, lightHere, sameRun, true);
+                        if (spriteMet && look.translucent) {
+                            spriteRun = key;
+                        }
                         if (fallbacks != null && look.complex && !look.opaque && !look.noPictures) {
                             if (spriteId == 0) {
                                 fallbacks.computeIfAbsent(key, k -> new int[3])[0]++;
@@ -383,6 +466,17 @@ final class IsoTracer {
                 side = stepZ > 0 ? 2 : 3;
             }
         }
+        if (debug != null) {
+            debug(
+                String.format(
+                    Locale.ROOT,
+                    "  END after %s: first surface %s at y=%.3f, solid (hides mobs) at y=%s, light left %.2f",
+                    steps(t),
+                    hitSide < 0 ? "none" : SIDE_NAMES[hitSide],
+                    hitY,
+                    Double.isNaN(solidY) ? "none" : String.format(Locale.ROOT, "%.3f", solidY),
+                    transmit));
+        }
         double reached = projection.toward(ox + dx * t, oz + dz * t);
         if (reached < minToward) {
             minToward = reached;
@@ -398,7 +492,7 @@ final class IsoTracer {
     }
 
     /** The corners of a block's cell seen from the view, around its center, in turn (its convex outline). */
-    private static double[] outline(IsoProjection p) {
+    static double[] outline(IsoProjection p) {
         double[][] points = new double[8][];
         for (int i = 0; i < 8; i++) {
             double x = (i & 1) - 0.5, y = (i >> 1 & 1) - 0.5, z = (i >> 2 & 1) - 0.5;
@@ -433,7 +527,11 @@ final class IsoTracer {
 
     /** Whether a point (around a block's center) is within the block's outline, grown by the margin. */
     private boolean withinCell(double u, double v, double margin) {
-        double[] o = outline;
+        return within(outline, u, v, margin);
+    }
+
+    /** Whether a point is within an outline ({@link #outline}), grown by the margin (shrunk if negative). */
+    static boolean within(double[] o, double u, double v, double margin) {
         int n = o.length / 2;
         for (int i = 0; i < n; i++) {
             double ax = o[i * 2], ay = o[i * 2 + 1];
@@ -488,6 +586,14 @@ final class IsoTracer {
         return cells;
     }
 
+    /**
+     * Blocks of the projection plane a sprite covers on each side of its block's center: 1, or 2 for the wide
+     * sprites of models reaching far (as sharp, twice the pixels).
+     */
+    private static double extent(FacePalette.Sprite sprite) {
+        return (double) sprite.size / FacePalette.SPRITE_SIZE;
+    }
+
     /** Whether a sprite has drawn pixels outside its block's outline for this view; null if it can't be read yet. */
     private Boolean reachesOut(int id, int rotation) {
         long key = (long) palette.generation << 34 | (long) id << 2 | rotation;
@@ -501,10 +607,12 @@ final class IsoTracer {
         }
         boolean out = false;
         int grid = 64;
+        double extent = extent(sprite);
         for (int j = 0; j < grid && !out; j++) {
             for (int i = 0; i < grid; i++) {
                 double su = (i + 0.5) / grid, sv = (j + 0.5) / grid;
-                if ((sprite.texel(su, sv, 0) >>> 24) >= 128 && !withinCell(su * 2 - 1, sv * 2 - 1, 0.03)) {
+                if ((sprite.texel(su, sv, 0) >>> 24) >= 128
+                    && !withinCell((su * 2 - 1) * extent, (sv * 2 - 1) * extent, OUTLINE_MARGIN)) {
                     out = true;
                     break;
                 }
@@ -526,14 +634,18 @@ final class IsoTracer {
         int lx = x & 15, lz = z & 15;
         for (int cell : reaching) {
             int oy = blocks.yMin + (cell >> 8), olx = cell & 15, olz = cell >> 4 & 15;
-            if (Math.abs(olx - lx) > 1 || Math.abs(olz - lz) > 1 || Math.abs(oy - y) > 1) {
+            // Wide sprites (models two blocks tall) reach two blocks.
+            if (Math.abs(olx - lx) > 2 || Math.abs(olz - lz) > 2 || Math.abs(oy - y) > 2) {
                 continue;
             }
             int ox = (x & ~15) + olx, oz = (z & ~15) + olz;
             double du = rayU - projection.u(ox + 0.5, oz + 0.5);
             double dv = rayV - projection.v(ox + 0.5, oy + 0.5, oz + 0.5);
             if (withinCell(du, dv, 0)) {
-                // That part is drawn by rays through the model's own cell.
+                // That part is drawn by rays through the model's own cell. Right from its outline on: a margin left
+                // a see-through stripe along it over models reaching out only a little (the rim of a DHD). The
+                // edges of hidden sides that drew dotted lines there (the top of a panel under another) are no
+                // longer in the sprites.
                 continue;
             }
             int id = blocks.pictureId(cell, projection.rotation);
@@ -543,7 +655,7 @@ final class IsoTracer {
             int blockCell = blocks.cells[cell];
             BlockLooks.Look look = BlockLooks.get(ChunkBlocks.lookKey(blockCell));
             int light = brighter(light(blockCell), previousLight);
-            if (sprite(id, look, ox, oy, oz, side, t, light) == SPRITE_STOP) {
+            if (sprite(id, look, ox, oy, oz, side, t, light, false, false) == SPRITE_STOP) {
                 return SPRITE_STOP;
             }
         }
@@ -566,7 +678,8 @@ final class IsoTracer {
      * @return {@link #SPRITE_STOP}, {@link #SPRITE_PASS} (the ray goes on), or {@link #SPRITE_NONE} (draw the block
      *         from its icons instead)
      */
-    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere) {
+    private int sprite(int id, BlockLooks.Look look, int x, int y, int z, int side, double t, int lightHere,
+        boolean sameRun, boolean ownCell) {
         FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
         if (sprite == null) {
             if (id == FacePalette.EMPTY) {
@@ -575,13 +688,68 @@ final class IsoTracer {
             incomplete |= palette.has(id);
             return SPRITE_NONE;
         }
-        double su = (rayU - projection.u(x + 0.5, z + 0.5) + 1) / 2;
-        double sv = (rayV - projection.v(x + 0.5, y + 0.5, z + 0.5) + 1) / 2;
+        double extent = extent(sprite);
+        double su = ((rayU - projection.u(x + 0.5, z + 0.5)) / extent + 1) / 2;
+        double sv = ((rayV - projection.v(x + 0.5, y + 0.5, z + 0.5)) / extent + 1) / 2;
         int exact = sprite.texel(su, sv, 0);
         int minAlpha = look.translucent ? 8 : 128;
         int exactAlpha = exact >>> 24;
+        if (debug != null) {
+            debug(
+                String.format(
+                    Locale.ROOT,
+                    "    sprite %d of %d,%d,%d%s at pixel %d,%d of %d: argb=%08x (needs alpha >= %d)",
+                    id,
+                    x,
+                    y,
+                    z,
+                    ownCell ? "" : " (reaching into this cell)",
+                    (int) (su * sprite.size),
+                    (int) (sv * sprite.size),
+                    sprite.size,
+                    exact,
+                    minAlpha));
+        }
         if (exactAlpha < minAlpha) {
-            return SPRITE_PASS;
+            if (!ownCell) {
+                // Only the parts of a model reaching past its cell: a pixel next to the block's own outline would
+                // draw its edge (the top of a block below) over the block in front.
+                return SPRITE_PASS;
+            }
+            // The edge of a side lies between pixels of the sprite, at a different place in each block's sprite:
+            // where neither of two blocks next to each other has the pixel drawn, a line showed through the wall
+            // (glass, connected tile entities). A pixel drawn right next to it stands in.
+            double step = 1.0 / sprite.size;
+            double[] near = { su - step, sv, su + step, sv, su, sv - step, su, sv + step };
+            for (int i = 0; i < near.length && exactAlpha < minAlpha; i += 2) {
+                int texel = sprite.texel(near[i], near[i + 1], 0);
+                if ((texel >>> 24) >= minAlpha) {
+                    exact = texel;
+                    exactAlpha = texel >>> 24;
+                    su = near[i];
+                    sv = near[i + 1];
+                    if (debug != null) {
+                        debug(
+                            String.format(
+                                Locale.ROOT,
+                                "    empty there: the pixel next to it stands in, argb=%08x",
+                                texel));
+                    }
+                }
+            }
+            if (exactAlpha < minAlpha) {
+                return SPRITE_PASS;
+            }
+        }
+        spriteMet = true;
+        if (look.translucent) {
+            if (sameRun) {
+                // The same glass as the cell just passed, already seen: one layer, not a darker line on the seam.
+                if (debug != null) {
+                    debug("    same see-through block as the cell just passed: not added again");
+                }
+                return SPRITE_PASS;
+            }
         }
         int pixel = exact;
         if (spriteMip > 0) {
@@ -818,6 +986,10 @@ final class IsoTracer {
                 texV = 1 - py;
                 break;
         }
+        // Rays meeting a side right at its edge land a hair outside it (rounding); pictures of sides have nothing
+        // there, and the side was drawn from its plain icon along every edge: thin light lines between blocks.
+        texU = texU < 0 ? 0 : texU >= 1 ? EDGE : texU;
+        texV = texV < 0 ? 0 : texV >= 1 ? EDGE : texV;
         if (look.shape == BlockLooks.SHAPE_LIQUID && look.translucent) {
             // The water's surface: its average color, a thin veil over what is below (see absorb).
             int color = tinted(look, blocks, lx, lz, side, look.textures[side].texel(0, 0, 4), texU, texV);
@@ -833,6 +1005,18 @@ final class IsoTracer {
             }
             if (picture == null && id > 0) {
                 incomplete |= palette.has(id);
+            }
+            if (debug != null) {
+                debug(
+                    String.format(
+                        Locale.ROOT,
+                        "    solid cube side %s at %.3f,%.3f: picture %d%s",
+                        SIDE_NAMES[side],
+                        texU,
+                        texV,
+                        id,
+                        picture == null ? " (none: drawn from its icon)"
+                            : String.format(Locale.ROOT, " argb=%08x", picture.texel(texU, texV, 0))));
             }
             if (picture != null) {
                 // The side as the game draws it here (connected textures, machine fronts): 32 pixels per side.
@@ -855,9 +1039,28 @@ final class IsoTracer {
             texel = visible(texture, texU, texV);
             if (texel == 0) {
                 // A hole in the texture (leaves, glass frames): look further.
+                if (debug != null) {
+                    debug(
+                        String.format(
+                            Locale.ROOT,
+                            "    icon side %s at %.3f,%.3f: a hole, the ray goes on",
+                            SIDE_NAMES[side],
+                            texU,
+                            texV));
+                }
                 return false;
             }
             alpha = 1f;
+        }
+        if (debug != null) {
+            debug(
+                String.format(
+                    Locale.ROOT,
+                    "    icon side %s at %.3f,%.3f: argb=%08x",
+                    SIDE_NAMES[side],
+                    texU,
+                    texV,
+                    texel));
         }
         hit(side, hitT);
         int color = tinted(look, blocks, lx, lz, side, texel, texU, texV);
@@ -997,6 +1200,7 @@ final class IsoTracer {
     }
 
     private void hit(int side, double hitT) {
+        lastHitT = hitT;
         if (hitSide < 0) {
             hitSide = side;
             hitY = oy + projection.rayY * hitT;
@@ -1018,7 +1222,33 @@ final class IsoTracer {
     }
 
     /** Adds a surface seen through what is in front of it, by day and by night. */
+    private void debug(String line) {
+        if (debug.length() < 400_000) {
+            debug.append(line)
+                .append('\n');
+        }
+    }
+
+    private static String steps(double t) {
+        return String.format(Locale.ROOT, "t=%.3f", t);
+    }
+
+    private static int lightOf(int cell) {
+        return ChunkBlocks.skyLight(cell) << 4 | ChunkBlocks.blockLight(cell);
+    }
+
     private void add(int rgb, float dayShade, float nightShade, float warmth, float alpha) {
+        if (debug != null) {
+            debug(
+                String.format(
+                    Locale.ROOT,
+                    "    ADDED rgb=%06x alpha=%.2f shade=%.2f (light left before: %.2f, after: %.2f)",
+                    rgb & 0xFFFFFF,
+                    alpha,
+                    dayShade,
+                    transmit,
+                    transmit * (1 - alpha)));
+        }
         int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
         double weight = transmit * alpha;
         accR += r * weight * dayShade;
@@ -1029,6 +1259,11 @@ final class IsoTracer {
         nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
         nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
         transmit *= 1 - alpha;
+        // A surface drawn whole, or so much see-through stuff that little gets past (deep water): one layer of
+        // tinted glass (GregTech's, a good half opaque by its texture) still shows what is behind it.
+        if (Double.isNaN(solidY) && (alpha >= 0.99f || transmit < 0.1)) {
+            solidY = oy + projection.rayY * lastHitT;
+        }
     }
 
     /** The brighter sky light and the brighter block light of two packed lights. */

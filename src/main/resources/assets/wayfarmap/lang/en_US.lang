@@ -439,3 +439,6 @@ wayfarmap.clean.clear=Clear
 wayfarmap.clean.delete=Delete
 wayfarmap.clean.confirm=Sure? Click again
 wayfarmap.clean.done=Deleted %s.
+wayfarmap.inspect.usage=Usage: %s (without coordinates: the block you look at)
+wayfarmap.inspect.done=3D map report of %s,%s,%s written: wayfarmap/inspect/%s (click to open the folder)
+wayfarmap.inspect.failed=Could not write the 3D map report: %s

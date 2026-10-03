@@ -1,0 +1,209 @@
+// Tasks for trying the mod in a real Prism Launcher instance (e.g. the full GT New Horizons pack).
+
+import groovy.json.JsonSlurper
+import org.gradle.api.GradleException
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.zip.ZipFile
+
+/*
+ * runPrism   - builds the mod, puts the jar into the instance's mods folder (removing the previous build)
+ *              and launches the instance through the Prism command line (prismlauncher --launch).
+ * debugPrism - the same, with a JDWP agent added to the instance's JVM arguments for the IDEA debugger.
+ * deleteMod  - removes this mod's jar from the instance's mods folder.
+ *
+ * Settings, in ~/.gradle/gradle.properties (or -P on the command line):
+ *   prismInstance       - folder name of the instance under <prismDataDir>/instances (required)
+ *   prismDataDir        - Prism data folder (default ~/.local/share/PrismLauncher;
+ *                         Flatpak: ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher)
+ *   prismCommand        - how to start Prism (default "prismlauncher";
+ *                         Flatpak: "flatpak run org.prismlauncher.PrismLauncher")
+ *   prismDebugPort      - JDWP port (default 5005)
+ *   prismDebugSuspend   - true to hold the game until the debugger attaches (default false)
+ *   prismDebugListen    - true when IDEA listens for the game ("Listen to remote JVM") instead of attaching to it
+ *
+ * Prism keeps instance settings in memory, so close it before running these tasks: the JVM arguments
+ * are written to instance.cfg and a Prism window that is already open won't see them.
+ */
+
+class PrismLaunch {
+
+    static final String JDWP_PREFIX = '-agentlib:jdwp='
+
+    static void run(File jar, String modId, File dataDir, String instance, List<String> command, String jdwpArg) {
+        File instDir = instanceDir(dataDir, instance)
+        installJar(jar, modId, new File(gameDir(instDir), 'mods'))
+        setJdwpArg(new File(instDir, 'instance.cfg'), new File(dataDir, 'prismlauncher.cfg'), jdwpArg)
+
+        List<String> cmd = new ArrayList<>(command)
+        cmd.addAll(['--launch', instance])
+        println "Prism: ${cmd.join(' ')}"
+        // Not waited for: Prism and the game keep running after the task ends.
+        new ProcessBuilder(cmd)
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start()
+    }
+
+    static File instanceDir(File dataDir, String instance) {
+        File dir = new File(new File(dataDir, 'instances'), instance)
+        if (!dir.isDirectory()) {
+            throw new GradleException("Prism instance not found: ${dir} (check prismInstance and prismDataDir)")
+        }
+        return dir
+    }
+
+    static File gameDir(File instanceDir) {
+        File dir = ['.minecraft', 'minecraft'].collect { new File(instanceDir, it) }.find { it.isDirectory() }
+        if (dir == null) {
+            throw new GradleException("No .minecraft folder in the Prism instance: ${instanceDir}")
+        }
+        return dir
+    }
+
+    /** Deletes every jar of this mod (found by modid in mcmod.info) from the instance. */
+    static void deleteMod(String modId, File dataDir, String instance) {
+        File mods = new File(gameDir(instanceDir(dataDir, instance)), 'mods')
+        if (removeJars(modId, mods, null) == 0) {
+            println "Prism: no ${modId} jar in ${mods}"
+        }
+    }
+
+    /** @return how many jars of this mod were removed from the mods folder, keeping the one named keepName */
+    static int removeJars(String modId, File mods, String keepName) {
+        int removed = 0
+        mods.listFiles()?.each { File f ->
+            if (f.isFile() && f.name.endsWith('.jar') && f.name != keepName && readModIds(f).contains(modId)) {
+                f.delete()
+                removed++
+                println "Prism: removed ${f.name}"
+            }
+        }
+        return removed
+    }
+
+    /** Replaces every jar of this mod (found by modid in mcmod.info) with the fresh build. */
+    static void installJar(File jar, String modId, File mods) {
+        mods.mkdirs()
+        removeJars(modId, mods, jar.name)
+        Files.copy(jar.toPath(), new File(mods, jar.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
+        println "Prism: installed ${jar.name} into ${mods}"
+    }
+
+    /** Mod ids listed in a jar's mcmod.info; empty when there is none or it can't be parsed. */
+    static Set<String> readModIds(File jar) {
+        Set<String> ids = new HashSet<>()
+        try {
+            new ZipFile(jar).withCloseable { zip ->
+                def entry = zip.getEntry('mcmod.info')
+                if (entry == null) return
+                def json = new JsonSlurper().parse(zip.getInputStream(entry), 'UTF-8')
+                def mods = json instanceof Map ? (json.modList ?: json.modlist) : json
+                mods?.each { m -> if (m instanceof Map && m.modid) ids.add(m.modid.toString().toLowerCase(Locale.ROOT)) }
+            }
+        } catch (Exception ignored) {
+            // Broken or unusual mcmod.info: treat the jar as having no known ids.
+        }
+        return ids
+    }
+
+    /**
+     * Adds the JDWP agent to the instance's JVM arguments, or removes it when jdwpArg is null.
+     * If the instance doesn't override the global JVM arguments yet, they are copied in first,
+     * so turning the override on doesn't drop them.
+     */
+    static void setJdwpArg(File instanceCfg, File globalCfg, String jdwpArg) {
+        List<String> lines = instanceCfg.isFile() ? instanceCfg.readLines('UTF-8') : []
+        boolean overridden = getKey(lines, 'OverrideJavaArgs') == 'true'
+        if (!overridden && jdwpArg == null) return
+
+        String current = overridden ? (getKey(lines, 'JvmArgs') ?: '')
+            : (globalCfg.isFile() ? (getKey(globalCfg.readLines('UTF-8'), 'JvmArgs') ?: '') : '')
+        List<String> args = current.split(/\s+/).findAll { !it.isEmpty() && !it.startsWith(JDWP_PREFIX) }
+        if (jdwpArg != null) args.add(jdwpArg)
+        String updated = args.join(' ')
+        if (overridden && updated == current) return
+
+        setKey(lines, 'OverrideJavaArgs', 'true')
+        setKey(lines, 'JvmArgs', quote(updated))
+        instanceCfg.write(lines.join('\n') + '\n', 'UTF-8')
+        println(jdwpArg != null ? "Prism: JVM arguments + ${jdwpArg}" : 'Prism: debug agent removed from JVM arguments')
+    }
+
+    static String getKey(List<String> lines, String key) {
+        String line = lines.find { it.startsWith(key + '=') }
+        return line == null ? null : unquote(line.substring(key.length() + 1))
+    }
+
+    static void setKey(List<String> lines, String key, String value) {
+        int idx = lines.findIndexOf { it.startsWith(key + '=') }
+        if (idx >= 0) {
+            lines[idx] = "${key}=${value}".toString()
+        } else {
+            int general = lines.findIndexOf { it.trim() == '[General]' }
+            lines.add(general >= 0 ? general + 1 : lines.size(), "${key}=${value}".toString())
+        }
+    }
+
+    // Prism writes instance.cfg with Qt's QSettings: values holding commas (like the JDWP options) must be
+    // quoted, or they are read back as a list.
+    static String quote(String s) {
+        return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    }
+
+    static String unquote(String s) {
+        if (s.length() >= 2 && s.startsWith('"') && s.endsWith('"')) {
+            return s.substring(1, s.length() - 1).replace('\\"', '"').replace('\\\\', '\\')
+        }
+        return s
+    }
+}
+
+def defaultPrismDataDir = (System.getenv('XDG_DATA_HOME') ?: "${System.getProperty('user.home')}/.local/share") + '/PrismLauncher'
+def prismInstance = providers.gradleProperty('prismInstance')
+def prismDataDir = providers.gradleProperty('prismDataDir').orElse(defaultPrismDataDir.toString())
+def prismCommand = providers.gradleProperty('prismCommand').orElse('prismlauncher')
+def prismDebugPort = providers.gradleProperty('prismDebugPort').orElse('5005')
+def prismDebugSuspend = providers.gradleProperty('prismDebugSuspend').map { it.toBoolean() }.orElse(false)
+def prismDebugListen = providers.gradleProperty('prismDebugListen').map { it.toBoolean() }.orElse(false)
+def ownModId = project.gtnhGradle.configuration.modId.toLowerCase(Locale.ROOT)
+def reobfJarFile = tasks.named('reobfJar').flatMap { it.archiveFile }
+
+[runPrism: false, debugPrism: true].each { String taskName, boolean debug ->
+    tasks.register(taskName) { t ->
+        t.group = 'prism'
+        t.description = debug
+            ? 'Builds the mod, installs it into the Prism instance and launches it with the JDWP debug agent'
+            : 'Builds the mod, installs it into the Prism instance and launches it'
+        t.dependsOn('reobfJar')
+        t.doLast {
+            if (!prismInstance.present) {
+                throw new GradleException("${taskName}: set prismInstance in ~/.gradle/gradle.properties "
+                    + 'to the folder name of the Prism instance')
+            }
+            String jdwpArg = null
+            if (debug) {
+                // listen: the game connects to IDEA; otherwise IDEA attaches to the game on this port.
+                String server = prismDebugListen.get() ? 'n' : 'y'
+                String suspend = prismDebugSuspend.get() ? 'y' : 'n'
+                jdwpArg = "${PrismLaunch.JDWP_PREFIX}transport=dt_socket,server=${server},suspend=${suspend},".toString() +
+                    "address=localhost:${prismDebugPort.get()}"
+            }
+            PrismLaunch.run(reobfJarFile.get().asFile, ownModId, new File(prismDataDir.get()), prismInstance.get(),
+                prismCommand.get().trim().split(/\s+/).toList(), jdwpArg)
+        }
+    }
+}
+
+tasks.register('deleteMod') { t ->
+    t.group = 'prism'
+    t.description = 'Removes this mod from the mods folder of the Prism instance'
+    t.doLast {
+        if (!prismInstance.present) {
+            throw new GradleException('deleteMod: set prismInstance in ~/.gradle/gradle.properties '
+                + 'to the folder name of the Prism instance')
+        }
+        PrismLaunch.deleteMod(ownModId, new File(prismDataDir.get()), prismInstance.get())
+    }
+}

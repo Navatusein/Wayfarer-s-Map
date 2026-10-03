@@ -6,6 +6,7 @@ import net.minecraft.client.resources.IResourceManager;
 import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 
+import WayFarMap.client.InspectCommand;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
@@ -67,6 +68,8 @@ public class ClientProxy extends CommonProxy {
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
         ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
+        // Report of how a block gets onto the 3D map, to send when it looks wrong there.
+        ClientCommandHandler.instance.registerCommand(new InspectCommand());
 
         MinecraftForge.EVENT_BUS.register(new IsoEntityDrawer.NameTags());
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());

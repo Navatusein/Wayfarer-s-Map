@@ -994,6 +994,20 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /**
+     * How far toward the viewer the map stops being see-through at each point of a grid on the projection plane (u0
+     * + i * step, v0 + j * step), row by row into {@code out}: NaN where nothing is drawn yet, negative infinity
+     * where nothing solid is seen. False if the 3D map has no tiles.
+     */
+    public boolean solidToward(int dimensionId, int rotation, double scale, int factor, double u0, double v0,
+        double step, int columns, int rows, float[] out) {
+        if (tiles == null) {
+            return false;
+        }
+        tiles.solidToward(dimensionId, rotation, scale, factor, u0, v0, step, columns, rows, out);
+        return true;
+    }
+
+    /**
      * The block seen at a screen point: {x, y, z}, or null if nothing is drawn there yet.
      *
      * @param offsetX,offsetY screen point relative to the middle of the map, in GUI pixels
