@@ -195,7 +195,7 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §bDelete dimension map§r — the whole map of this dimension, 2D or 2D and 3D (asks first; waypoints stay)
 - Loading fills the 3D map too while §bRecord blocks§r is on
 - §eCtrl+LMB drag§r — load the rectangle, §eShift§r too — with every cave layer
-- §eCtrl+RMB drag§r — §cdelete§r the rectangle from the map: a menu asks whether from the 2D map or the 2D and 3D map; it is taken off the queue too. Chunks loaded around you come back once they change or load again
+- §eCtrl+RMB drag§r — §cdelete§r the rectangle from the map: a menu asks whether from the 2D map or the 2D and 3D map; it is taken off the queue too. Chunks loaded around you are mapped again right away
 
 - The world map shows it at the bottom: chunks done and §fseconds elapsed§r
 - Leave the world or go to another dimension — it pauses and goes on when you are back

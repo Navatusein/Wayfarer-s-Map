@@ -891,7 +891,7 @@ public final class IsoMap implements BlockStore.Listener {
 
     /**
      * Deletes chunks from the 3D map of a dimension: their recorded blocks are forgotten and the tiles over them drawn
-     * again. Chunks still loaded around the player are recorded again once they change or load again. Render thread.
+     * again. Chunks still loaded around the player are recorded again as the flat map maps them anew. Render thread.
      *
      * @param chunks packed as {@code x << 32 | z & 0xFFFFFFFF}
      */

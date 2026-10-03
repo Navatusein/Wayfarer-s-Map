@@ -944,7 +944,7 @@ public class MapManager implements IResourceManagerReloadListener {
     /**
      * Deletes chunks from the flat map of the player's dimension: surface, the map without plants, biomes and every
      * cave layer (those not in memory are read for it), in memory; the regions are saved as usual. Chunks still loaded
-     * around the player are mapped again once they change or load again. Render thread.
+     * around the player are mapped again right away, from what the game has now. Render thread.
      *
      * @param chunks packed as {@code x << 32 | z & 0xFFFFFFFF}
      * @return how many of them were on the map
@@ -998,6 +998,14 @@ public class MapManager implements IResourceManagerReloadListener {
                 }
             }
         }
+        // Those still loaded around the player are mapped again at once, as new chunks, nearest first: otherwise only
+        // the scanner's slow check now and then brought them back, a few every few seconds, in a patchwork.
+        for (long chunk : chunks) {
+            surfaceTracker.forget((int) (chunk >> 32), (int) (long) chunk);
+            caveTracker.forget((int) (chunk >> 32), (int) (long) chunk);
+        }
+        surfaceTracker.requeue();
+        caveTracker.requeue();
         FlatLog.log(
             "DELETE_CHUNKS dim=" + dimensionId
                 + " asked="
@@ -1222,6 +1230,11 @@ public class MapManager implements IResourceManagerReloadListener {
             incomplete.remove(chunkKey(chunkX, chunkZ));
             Integer last = lastScanTick.remove(chunkKey(chunkX, chunkZ));
             return last == null ? -1 : last;
+        }
+
+        /** Builds the queue again on the next tick (chunks were forgotten and are to be mapped at once). */
+        void requeue() {
+            queuedAround = Long.MIN_VALUE;
         }
 
         void reset() {
