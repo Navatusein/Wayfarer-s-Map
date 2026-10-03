@@ -407,7 +407,6 @@ wayfarmap.chunkload.paused=Loading the area is paused: it goes on in dimension %
 wayfarmap.chunkload.finished=The area is loaded: %s chunks in %s h %s min %s s.
 wayfarmap.chunkload.progress=Loading area (%s): %s / %s chunks, %s%%%s
 wayfarmap.chunkload.elapsed=, %s s elapsed
-wayfarmap.gui.chunkload_hint=Ctrl+LMB: from regions, Shift+LMB: generate, Ctrl+Shift+LMB: with caves, Ctrl+RMB: delete, Shift+RMB: cancel
 wayfarmap.gui.load_legend_mapped=On the map
 wayfarmap.gui.load_legend_saved=In the world
 wayfarmap.gui.load_legend_pending=Queued

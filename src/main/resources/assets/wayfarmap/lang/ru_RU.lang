@@ -407,7 +407,6 @@ wayfarmap.chunkload.paused=Загрузка области на паузе: пр
 wayfarmap.chunkload.finished=Область загружена: %s чанков за %s ч %s мин %s с.
 wayfarmap.chunkload.progress=Загрузка области (%s): %s / %s чанков, %s%%%s
 wayfarmap.chunkload.elapsed=, прошло %s с
-wayfarmap.gui.chunkload_hint=Ctrl+ЛКМ: из регионов, Shift+ЛКМ: генерировать, Ctrl+Shift+ЛКМ: с пещерами, Ctrl+ПКМ: удалить, Shift+ПКМ: отменить
 wayfarmap.gui.load_legend_mapped=На карте
 wayfarmap.gui.load_legend_saved=В мире
 wayfarmap.gui.load_legend_pending=В очереди

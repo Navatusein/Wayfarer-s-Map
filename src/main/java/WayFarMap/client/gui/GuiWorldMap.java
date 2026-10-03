@@ -1149,10 +1149,11 @@ public class GuiWorldMap extends ScaledScreen {
                 + I18n.format("wayfarmap.gui.waypoint_hint");
         }
         if (chunkloadShown()) {
+            // The keys are listed in the toolbar at the top; here only how many chunks wait.
             int queued = ChunkLoadView.pendingCount(dimensionId);
-            cursorText += "  |  "
-                + I18n.format("wayfarmap.gui.chunkload_hint")
-                + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
+            if (queued > 0) {
+                cursorText += "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued);
+            }
         }
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
