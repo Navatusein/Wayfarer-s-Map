@@ -1,0 +1,135 @@
+// Loaded by GTNHGradle after ModernJavaModule, so runClient25's helpers (java25Toolchain, modernJvmArgs, ...) exist.
+
+import com.gtnewhorizons.gtnhgradle.tasks.RunHotswappableMinecraftTask
+import com.gtnewhorizons.retrofuturagradle.util.Distribution
+import groovy.json.JsonSlurper
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.zip.ZipFile
+
+/*
+ * runClientGTNH: the same launch as runClient25 (Java 25, lwjgl3ify, debugger/HotSwap from IDEA),
+ * but in run/gtnh with the mods and configs of an installed GT New Horizons instance.
+ *
+ * Point it at the instance's .minecraft folder (the one holding mods/ and config/), either in
+ * ~/.gradle/gradle.properties:   gtnhPackDir=C:/Users/me/PrismLauncher/instances/GTNH/.minecraft
+ * or with the GTNH_PACK_DIR environment variable.
+ *
+ * Optional properties:
+ *   gtnhMaxHeap        - -Xmx for the game (default 8G)
+ *   gtnhExcludeMods    - comma-separated parts of jar names not to copy (case-insensitive)
+ *   gtnhResyncConfig   - true to copy config/, scripts/ and resources/ from the pack again
+ */
+
+class GtnhPackSync {
+
+    /** Folders copied once (so local tweaks survive) unless a resync is asked for. */
+    static final List<String> COPY_ONCE_DIRS = ['config', 'scripts', 'resources']
+
+    static void sync(File packDir, File runDir, Set<File> devClasspath, List<String> excludes, boolean resyncConfig) {
+        File packMods = new File(packDir, 'mods')
+        if (!packMods.isDirectory()) {
+            throw new IllegalStateException("No mods folder in the GTNH pack: ${packMods}")
+        }
+
+        // Every modid the dev classpath already brings (our mod, lwjgl3ify, GTNHLib, GT5u, NEI, ...).
+        // Loading the pack's copy of them as well ends in a DuplicateModsFoundException.
+        Set<String> devModIds = new HashSet<>()
+        devClasspath.each { f -> if (f.isFile() && f.name.endsWith('.jar')) devModIds.addAll(readModIds(f)) }
+        // The freshly built jar of this mod sits in build/libs and is read the same way.
+
+        File runMods = new File(runDir, 'mods')
+        runMods.mkdirs()
+        Set<String> wanted = new HashSet<>()
+        int skipped = 0
+        packMods.eachFileRecurse { File src ->
+            if (!src.isFile() || !src.name.endsWith('.jar')) return
+            String lower = src.name.toLowerCase(Locale.ROOT)
+            boolean excluded = excludes.any { lower.contains(it) } || readModIds(src).any { devModIds.contains(it) }
+            if (excluded) {
+                skipped++
+                return
+            }
+            String rel = packMods.toPath().relativize(src.toPath()).toString()
+            wanted.add(rel)
+            File dst = new File(runMods, rel)
+            if (!dst.isFile() || dst.length() != src.length() || dst.lastModified() != src.lastModified()) {
+                dst.parentFile.mkdirs()
+                Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.COPY_ATTRIBUTES)
+            }
+        }
+        // Drop jars that left the pack (or are now excluded) so they don't linger between runs.
+        runMods.eachFileRecurse { File f ->
+            if (f.isFile() && f.name.endsWith('.jar')
+                && !wanted.contains(runMods.toPath().relativize(f.toPath()).toString())) {
+                f.delete()
+            }
+        }
+        println "GTNH pack: ${wanted.size()} mods copied to ${runMods}, ${skipped} skipped (already on the dev classpath or excluded)"
+
+        COPY_ONCE_DIRS.each { String name ->
+            File src = new File(packDir, name)
+            File dst = new File(runDir, name)
+            if (src.isDirectory() && (resyncConfig || !dst.exists())) {
+                copyTree(src, dst)
+                println "GTNH pack: copied ${name}/"
+            }
+        }
+    }
+
+    /** Mod ids listed in a jar's mcmod.info; empty when there is none or it can't be parsed. */
+    static Set<String> readModIds(File jar) {
+        Set<String> ids = new HashSet<>()
+        try {
+            new ZipFile(jar).withCloseable { zip ->
+                def entry = zip.getEntry('mcmod.info')
+                if (entry == null) return
+                def json = new JsonSlurper().parse(zip.getInputStream(entry), 'UTF-8')
+                def mods = json instanceof Map ? (json.modList ?: json.modlist) : json
+                mods?.each { m -> if (m instanceof Map && m.modid) ids.add(m.modid.toString().toLowerCase(Locale.ROOT)) }
+            }
+        } catch (Exception ignored) {
+            // Broken or unusual mcmod.info: treat the jar as having no known ids.
+        }
+        return ids
+    }
+
+    static void copyTree(File src, File dst) {
+        src.eachFileRecurse { File f ->
+            if (!f.isFile()) return
+            File out = new File(dst, src.toPath().relativize(f.toPath()).toString())
+            out.parentFile.mkdirs()
+            Files.copy(f.toPath(), out.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+def gtnhPackDir = providers.gradleProperty('gtnhPackDir').orElse(providers.environmentVariable('GTNH_PACK_DIR'))
+def gtnhMaxHeap = providers.gradleProperty('gtnhMaxHeap').orElse('8G')
+def gtnhExcludeMods = providers.gradleProperty('gtnhExcludeMods').orElse('')
+def gtnhResyncConfig = providers.gradleProperty('gtnhResyncConfig').map { it.toBoolean() }.orElse(false)
+def gtnhRunDir = file('run/gtnh')
+
+tasks.register('runClientGTNH', RunHotswappableMinecraftTask, Distribution.CLIENT, 'runClient').configure { t ->
+    t.description = 'Runs the client like runClient25, with the mods and configs of a full GTNH instance (see addon.late.gradle)'
+    t.dependsOn('setupHotswapAgent25')
+    t.targetJvmVersion.set(25)
+    t.setup(project, project.gtnhGradle)
+    t.javaLauncher.set(javaToolchains.launcherFor(project.java25Toolchain))
+    t.workingDir = gtnhRunDir
+    t.extraJvmArgs.add(gtnhMaxHeap.map { "-Xmx${it}".toString() })
+
+    def runClasspath = t.classpath
+    t.doFirst {
+        if (!gtnhPackDir.present) {
+            throw new GradleException('runClientGTNH: set gtnhPackDir in ~/.gradle/gradle.properties '
+                + '(or the GTNH_PACK_DIR environment variable) to the .minecraft folder of a GTNH instance')
+        }
+        List<String> excludes = gtnhExcludeMods.get().split(',')
+            .collect { it.trim().toLowerCase(Locale.ROOT) }
+            .findAll { !it.isEmpty() }
+        GtnhPackSync.sync(new File(gtnhPackDir.get()), gtnhRunDir, runClasspath.files, excludes, gtnhResyncConfig.get())
+    }
+}
