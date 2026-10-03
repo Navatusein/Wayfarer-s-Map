@@ -6,6 +6,7 @@ import net.minecraft.client.resources.IResourceManager;
 import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 
+import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.Teleport;
@@ -67,6 +68,7 @@ public class ClientProxy extends CommonProxy {
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
         ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
 
+        MinecraftForge.EVENT_BUS.register(new IsoEntityDrawer.NameTags());
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
     }
