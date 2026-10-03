@@ -54,8 +54,15 @@ public final class ProspectingLayer {
     private static final long REFRESH_MS = 1000;
     private static final int LABEL_BACKGROUND = 0xB4000000;
 
-    private static int cachedDimension = Integer.MIN_VALUE;
-    private static long lastRefresh;
+    /** Dimension and time of the last rebuild of each list: veins and fluids are rebuilt only while shown. */
+    private static int veinDimension = Integer.MIN_VALUE, fluidDimension = Integer.MIN_VALUE;
+    private static long lastVeinRefresh, lastFluidRefresh;
+    /**
+     * Locations made so far, by VisualProspecting's entry (null for an entry that failed): a well prospected world
+     * holds hundreds of thousands of veins, and making them all again every second froze the game.
+     */
+    private static Map<OreVeinPosition, OreVeinLocation> veinCache = new IdentityHashMap<>();
+    private static Map<UndergroundFluidPosition, UndergroundFluidLocation> fluidCache = new IdentityHashMap<>();
     private static List<OreVeinLocation> veins = Collections.emptyList();
     /** Database entry of each vein location, for its height range. */
     private static Map<OreVeinLocation, OreVeinPosition> positions = new IdentityHashMap<>();
@@ -100,7 +107,7 @@ public final class ProspectingLayer {
     /** Like VisualProspecting's onOpenMap: dims the veins that don't match the NEI search. */
     public static void onOpenMap() {
         setSearch("");
-        lastRefresh = 0;
+        forceRefresh();
     }
 
     public static boolean isSearchActive() {
@@ -139,50 +146,95 @@ public final class ProspectingLayer {
         return false;
     }
 
-    private static void refresh(int dimension) {
+    private static void forceRefresh() {
+        lastVeinRefresh = 0;
+        lastFluidRefresh = 0;
+    }
+
+    /** Rebuilds the dimension's ore veins now and then; only new entries get a new location. */
+    private static void refreshVeins(int dimension) {
         long now = System.currentTimeMillis();
-        if (dimension == cachedDimension && now - lastRefresh < REFRESH_MS) {
+        if (dimension == veinDimension && now - lastVeinRefresh < REFRESH_MS) {
             return;
         }
-        cachedDimension = dimension;
-        lastRefresh = now;
+        veinDimension = dimension;
+        lastVeinRefresh = now;
 
         // One bad entry (e.g. a vein type whose ore has no texture) is skipped instead of hiding everything.
         List<OreVeinLocation> newVeins = new ArrayList<>();
         Map<OreVeinLocation, OreVeinPosition> newPositions = new IdentityHashMap<>();
+        Map<OreVeinPosition, OreVeinLocation> newCache = new IdentityHashMap<>();
         try {
             for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
-                try {
-                    if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN && vein.dimensionId == dimension) {
-                        OreVeinLocation location = new OreVeinLocation(vein);
-                        newVeins.add(location);
-                        newPositions.put(location, vein);
+                if (vein.dimensionId != dimension) {
+                    continue;
+                }
+                OreVeinLocation location;
+                if (veinCache.containsKey(vein)) {
+                    location = veinCache.get(vein);
+                } else {
+                    location = null;
+                    try {
+                        if (vein.veinType != null && vein.veinType != VeinType.NO_VEIN) {
+                            location = new OreVeinLocation(vein);
+                        }
+                    } catch (Throwable t) {
+                        warnOnce("vein " + (vein.veinType != null ? vein.veinType.name : "?"), t);
                     }
-                } catch (Throwable t) {
-                    warnOnce("vein " + (vein.veinType != null ? vein.veinType.name : "?"), t);
+                }
+                newCache.put(vein, location);
+                if (location != null) {
+                    newVeins.add(location);
+                    newPositions.put(location, vein);
                 }
             }
         } catch (Throwable t) {
             warnOnce("ore veins", t);
         }
+        veinCache = newCache;
+        veins = newVeins;
+        positions = newPositions;
+    }
+
+    /** Rebuilds the dimension's underground fluids now and then; only new entries get a new location. */
+    private static void refreshFluids(int dimension) {
+        long now = System.currentTimeMillis();
+        if (dimension == fluidDimension && now - lastFluidRefresh < REFRESH_MS) {
+            return;
+        }
+        fluidDimension = dimension;
+        lastFluidRefresh = now;
+
         List<UndergroundFluidLocation> newFluids = new ArrayList<>();
+        Map<UndergroundFluidPosition, UndergroundFluidLocation> newCache = new IdentityHashMap<>();
         try {
             for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
-                try {
-                    if (fluid.isProspected() && fluid.dimensionId == dimension) {
-                        UndergroundFluidLocation location = new UndergroundFluidLocation(fluid);
-                        location.setActive(true);
-                        newFluids.add(location);
+                if (fluid.dimensionId != dimension) {
+                    continue;
+                }
+                UndergroundFluidLocation location;
+                if (fluidCache.containsKey(fluid)) {
+                    location = fluidCache.get(fluid);
+                } else {
+                    location = null;
+                    try {
+                        if (fluid.isProspected()) {
+                            location = new UndergroundFluidLocation(fluid);
+                            location.setActive(true);
+                        }
+                    } catch (Throwable t) {
+                        warnOnce("fluid " + (fluid.fluid != null ? fluid.fluid.getName() : "?"), t);
                     }
-                } catch (Throwable t) {
-                    warnOnce("fluid " + (fluid.fluid != null ? fluid.fluid.getName() : "?"), t);
+                }
+                newCache.put(fluid, location);
+                if (location != null) {
+                    newFluids.add(location);
                 }
             }
         } catch (Throwable t) {
             warnOnce("underground fluids", t);
         }
-        veins = newVeins;
-        positions = newPositions;
+        fluidCache = newCache;
         fluids = newFluids;
     }
 
@@ -233,7 +285,7 @@ public final class ProspectingLayer {
 
     public static void drawFluids(int dimension, double centerX, double centerZ, double scale, int x, int y, int width,
         int height, boolean minimap) {
-        refresh(dimension);
+        refreshFluids(dimension);
         if (fluids.isEmpty()) {
             return;
         }
@@ -378,7 +430,7 @@ public final class ProspectingLayer {
      */
     public static void drawOreVeins(int dimension, double centerX, double centerZ, double scale, int x, int y,
         int width, int height, boolean minimap, int mouseX, int mouseY) {
-        refresh(dimension);
+        refreshVeins(dimension);
         if (!minimap) {
             hovered = null;
         }
@@ -553,7 +605,7 @@ public final class ProspectingLayer {
     /** Marks the vein depleted, or not depleted anymore. */
     public static void toggleDepleted(Object vein) {
         ((Handle) vein).location.toggleOreVein();
-        lastRefresh = 0;
+        forceRefresh();
     }
 
     public static boolean isTracked(Object vein) {
