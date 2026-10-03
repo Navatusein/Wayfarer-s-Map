@@ -1,80 +1,69 @@
-// Loaded by GTNHGradle after ModernJavaModule, so runClient25's helpers (java25Toolchain, modernJvmArgs, ...) exist.
+// Tasks for trying the mod in a real Prism Launcher instance (e.g. the full GT New Horizons pack).
 
 import groovy.json.JsonSlurper
+import org.gradle.api.GradleException
 
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.zip.ZipFile
 
 /*
- * runClientGTNH: the same launch as runClient25 (Java 25, lwjgl3ify, debugger/HotSwap from IDEA),
- * but in run/gtnh with the mods and configs of an installed GT New Horizons instance.
+ * runPrism   - builds the mod, puts the jar into the instance's mods folder (removing the previous build)
+ *              and launches the instance through the Prism command line (prismlauncher --launch).
+ * debugPrism - the same, with a JDWP agent added to the instance's JVM arguments for the IDEA debugger.
  *
- * Point it at the instance's .minecraft folder (the one holding mods/ and config/), either in
- * ~/.gradle/gradle.properties:   gtnhPackDir=C:/Users/me/PrismLauncher/instances/GTNH/.minecraft
- * or with the GTNH_PACK_DIR environment variable.
+ * Settings, in ~/.gradle/gradle.properties (or -P on the command line):
+ *   prismInstance       - folder name of the instance under <prismDataDir>/instances (required)
+ *   prismDataDir        - Prism data folder (default ~/.local/share/PrismLauncher;
+ *                         Flatpak: ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher)
+ *   prismCommand        - how to start Prism (default "prismlauncher";
+ *                         Flatpak: "flatpak run org.prismlauncher.PrismLauncher")
+ *   prismDebugPort      - JDWP port (default 5005)
+ *   prismDebugSuspend   - true to hold the game until the debugger attaches (default false)
+ *   prismDebugListen    - true when IDEA listens for the game ("Listen to remote JVM") instead of attaching to it
  *
- * Optional properties:
- *   gtnhMaxHeap        - -Xmx for the game (default 8G)
- *   gtnhExcludeMods    - comma-separated parts of jar names not to copy (case-insensitive)
- *   gtnhResyncConfig   - true to copy config/, scripts/ and resources/ from the pack again
+ * Prism keeps instance settings in memory, so close it before running these tasks: the JVM arguments
+ * are written to instance.cfg and a Prism window that is already open won't see them.
  */
 
-class GtnhPackSync {
+class PrismLaunch {
 
-    /** Folders copied once (so local tweaks survive) unless a resync is asked for. */
-    static final List<String> COPY_ONCE_DIRS = ['config', 'scripts', 'resources']
+    static final String JDWP_PREFIX = '-agentlib:jdwp='
 
-    static void sync(File packDir, File runDir, Set<File> devClasspath, List<String> excludes, boolean resyncConfig) {
-        File packMods = new File(packDir, 'mods')
-        if (!packMods.isDirectory()) {
-            throw new IllegalStateException("No mods folder in the GTNH pack: ${packMods}")
+    static void run(File jar, String modId, File dataDir, String instance, List<String> command, String jdwpArg) {
+        File instanceDir = new File(new File(dataDir, 'instances'), instance)
+        if (!instanceDir.isDirectory()) {
+            throw new GradleException("Prism instance not found: ${instanceDir} (check prismInstance and prismDataDir)")
+        }
+        File gameDir = ['.minecraft', 'minecraft'].collect { new File(instanceDir, it) }.find { it.isDirectory() }
+        if (gameDir == null) {
+            throw new GradleException("No .minecraft folder in the Prism instance: ${instanceDir}")
         }
 
-        // Every modid the dev classpath already brings (our mod, lwjgl3ify, GTNHLib, GT5u, NEI, ...).
-        // Loading the pack's copy of them as well ends in a DuplicateModsFoundException.
-        Set<String> devModIds = new HashSet<>()
-        devClasspath.each { f -> if (f.isFile() && f.name.endsWith('.jar')) devModIds.addAll(readModIds(f)) }
-        // The freshly built jar of this mod sits in build/libs and is read the same way.
+        installJar(jar, modId, new File(gameDir, 'mods'))
+        setJdwpArg(new File(instanceDir, 'instance.cfg'), new File(dataDir, 'prismlauncher.cfg'), jdwpArg)
 
-        File runMods = new File(runDir, 'mods')
-        runMods.mkdirs()
-        Set<String> wanted = new HashSet<>()
-        int skipped = 0
-        packMods.eachFileRecurse { File src ->
-            if (!src.isFile() || !src.name.endsWith('.jar')) return
-            String lower = src.name.toLowerCase(Locale.ROOT)
-            boolean excluded = excludes.any { lower.contains(it) } || readModIds(src).any { devModIds.contains(it) }
-            if (excluded) {
-                skipped++
-                return
-            }
-            String rel = packMods.toPath().relativize(src.toPath()).toString()
-            wanted.add(rel)
-            File dst = new File(runMods, rel)
-            if (!dst.isFile() || dst.length() != src.length() || dst.lastModified() != src.lastModified()) {
-                dst.parentFile.mkdirs()
-                Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.COPY_ATTRIBUTES)
-            }
-        }
-        // Drop jars that left the pack (or are now excluded) so they don't linger between runs.
-        runMods.eachFileRecurse { File f ->
-            if (f.isFile() && f.name.endsWith('.jar')
-                && !wanted.contains(runMods.toPath().relativize(f.toPath()).toString())) {
+        List<String> cmd = new ArrayList<>(command)
+        cmd.addAll(['--launch', instance])
+        println "Prism: ${cmd.join(' ')}"
+        // Not waited for: Prism and the game keep running after the task ends.
+        new ProcessBuilder(cmd)
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start()
+    }
+
+    /** Replaces every jar of this mod (found by modid in mcmod.info) with the fresh build. */
+    static void installJar(File jar, String modId, File mods) {
+        mods.mkdirs()
+        mods.listFiles()?.each { File f ->
+            if (f.isFile() && f.name.endsWith('.jar') && f.name != jar.name && readModIds(f).contains(modId)) {
                 f.delete()
+                println "Prism: removed old ${f.name}"
             }
         }
-        println "GTNH pack: ${wanted.size()} mods copied to ${runMods}, ${skipped} skipped (already on the dev classpath or excluded)"
-
-        COPY_ONCE_DIRS.each { String name ->
-            File src = new File(packDir, name)
-            File dst = new File(runDir, name)
-            if (src.isDirectory() && (resyncConfig || !dst.exists())) {
-                copyTree(src, dst)
-                println "GTNH pack: copied ${name}/"
-            }
-        }
+        Files.copy(jar.toPath(), new File(mods, jar.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
+        println "Prism: installed ${jar.name} into ${mods}"
     }
 
     /** Mod ids listed in a jar's mcmod.info; empty when there is none or it can't be parsed. */
@@ -94,76 +83,90 @@ class GtnhPackSync {
         return ids
     }
 
-    static void copyTree(File src, File dst) {
-        src.eachFileRecurse { File f ->
-            if (!f.isFile()) return
-            File out = new File(dst, src.toPath().relativize(f.toPath()).toString())
-            out.parentFile.mkdirs()
-            Files.copy(f.toPath(), out.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    /**
+     * Adds the JDWP agent to the instance's JVM arguments, or removes it when jdwpArg is null.
+     * If the instance doesn't override the global JVM arguments yet, they are copied in first,
+     * so turning the override on doesn't drop them.
+     */
+    static void setJdwpArg(File instanceCfg, File globalCfg, String jdwpArg) {
+        List<String> lines = instanceCfg.isFile() ? instanceCfg.readLines('UTF-8') : []
+        boolean overridden = getKey(lines, 'OverrideJavaArgs') == 'true'
+        if (!overridden && jdwpArg == null) return
+
+        String current = overridden ? (getKey(lines, 'JvmArgs') ?: '')
+            : (globalCfg.isFile() ? (getKey(globalCfg.readLines('UTF-8'), 'JvmArgs') ?: '') : '')
+        List<String> args = current.split(/\s+/).findAll { !it.isEmpty() && !it.startsWith(JDWP_PREFIX) }
+        if (jdwpArg != null) args.add(jdwpArg)
+        String updated = args.join(' ')
+        if (overridden && updated == current) return
+
+        setKey(lines, 'OverrideJavaArgs', 'true')
+        setKey(lines, 'JvmArgs', quote(updated))
+        instanceCfg.write(lines.join('\n') + '\n', 'UTF-8')
+        println(jdwpArg != null ? "Prism: JVM arguments + ${jdwpArg}" : 'Prism: debug agent removed from JVM arguments')
+    }
+
+    static String getKey(List<String> lines, String key) {
+        String line = lines.find { it.startsWith(key + '=') }
+        return line == null ? null : unquote(line.substring(key.length() + 1))
+    }
+
+    static void setKey(List<String> lines, String key, String value) {
+        int idx = lines.findIndexOf { it.startsWith(key + '=') }
+        if (idx >= 0) {
+            lines[idx] = "${key}=${value}".toString()
+        } else {
+            int general = lines.findIndexOf { it.trim() == '[General]' }
+            lines.add(general >= 0 ? general + 1 : lines.size(), "${key}=${value}".toString())
         }
+    }
+
+    // Prism writes instance.cfg with Qt's QSettings: values holding commas (like the JDWP options) must be
+    // quoted, or they are read back as a list.
+    static String quote(String s) {
+        return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    }
+
+    static String unquote(String s) {
+        if (s.length() >= 2 && s.startsWith('"') && s.endsWith('"')) {
+            return s.substring(1, s.length() - 1).replace('\\"', '"').replace('\\\\', '\\')
+        }
+        return s
     }
 }
 
-def gtnhPackDir = providers.gradleProperty('gtnhPackDir').orElse(providers.environmentVariable('GTNH_PACK_DIR'))
-def gtnhMaxHeap = providers.gradleProperty('gtnhMaxHeap').orElse('8G')
-def gtnhExcludeMods = providers.gradleProperty('gtnhExcludeMods').orElse('')
-def gtnhResyncConfig = providers.gradleProperty('gtnhResyncConfig').map { it.toBoolean() }.orElse(false)
-def gtnhRunDir = file('run/gtnh')
-
-// The plugin's classes aren't visible to the IDE when it analyses this script, so they are looked up
-// through the classloader that loaded GTNHGradle instead of being imported.
-def gtnhExtensionClass = project.gtnhGradle.getClass()
-while (gtnhExtensionClass.name.endsWith('_Decorated')) gtnhExtensionClass = gtnhExtensionClass.superclass
-def gtnhClassLoader = gtnhExtensionClass.classLoader
-def runTaskType = Class.forName('com.gtnewhorizons.gtnhgradle.tasks.RunHotswappableMinecraftTask', true, gtnhClassLoader)
-def distributionType = Class.forName('com.gtnewhorizons.retrofuturagradle.util.Distribution', true, gtnhClassLoader)
-
-tasks.register('runClientGTNH', runTaskType, Enum.valueOf(distributionType, 'CLIENT'), 'runClient').configure { t ->
-    t.description = 'Runs the client like runClient25, with the mods and configs of a full GTNH instance (see addon.late.gradle)'
-    t.dependsOn('setupHotswapAgent25')
-    t.targetJvmVersion.set(25)
-    t.setup(project, project.gtnhGradle)
-    t.javaLauncher.set(javaToolchains.launcherFor(project.java25Toolchain))
-    t.workingDir = gtnhRunDir
-    t.extraJvmArgs.add(gtnhMaxHeap.map { "-Xmx${it}".toString() })
-
-    def runClasspath = t.classpath
-    t.doFirst {
-        if (!gtnhPackDir.present) {
-            throw new GradleException('runClientGTNH: set gtnhPackDir in ~/.gradle/gradle.properties '
-                + '(or the GTNH_PACK_DIR environment variable) to the .minecraft folder of a GTNH instance')
-        }
-        List<String> excludes = gtnhExcludeMods.get().split(',')
-            .collect { it.trim().toLowerCase(Locale.ROOT) }
-            .findAll { !it.isEmpty() }
-        GtnhPackSync.sync(new File(gtnhPackDir.get()), gtnhRunDir, runClasspath.files, excludes, gtnhResyncConfig.get())
-    }
-}
-
-// installToGTNH: puts the built (reobfuscated) jar of this mod into the pack's mods folder, replacing the
-// previous build, so the mod can be tried and debugged in the real launcher instance (e.g. Prism).
+def defaultPrismDataDir = (System.getenv('XDG_DATA_HOME') ?: "${System.getProperty('user.home')}/.local/share") + '/PrismLauncher'
+def prismInstance = providers.gradleProperty('prismInstance')
+def prismDataDir = providers.gradleProperty('prismDataDir').orElse(defaultPrismDataDir.toString())
+def prismCommand = providers.gradleProperty('prismCommand').orElse('prismlauncher')
+def prismDebugPort = providers.gradleProperty('prismDebugPort').orElse('5005')
+def prismDebugSuspend = providers.gradleProperty('prismDebugSuspend').map { it.toBoolean() }.orElse(false)
+def prismDebugListen = providers.gradleProperty('prismDebugListen').map { it.toBoolean() }.orElse(false)
 def ownModId = project.gtnhGradle.configuration.modId.toLowerCase(Locale.ROOT)
 def reobfJarFile = tasks.named('reobfJar').flatMap { it.archiveFile }
 
-tasks.register('installToGTNH') { t ->
-    t.group = 'Modded Minecraft'
-    t.description = 'Copies the built mod jar into the mods folder of the GTNH instance set by gtnhPackDir'
-    t.dependsOn('reobfJar')
-    t.doLast {
-        if (!gtnhPackDir.present) {
-            throw new GradleException('installToGTNH: set gtnhPackDir in ~/.gradle/gradle.properties '
-                + '(or the GTNH_PACK_DIR environment variable) to the .minecraft folder of a GTNH instance')
-        }
-        File mods = new File(gtnhPackDir.get(), 'mods')
-        File built = reobfJarFile.get().asFile
-        mods.listFiles()?.each { File f ->
-            if (f.isFile() && f.name.endsWith('.jar') && f.name != built.name
-                && GtnhPackSync.readModIds(f).contains(ownModId)) {
-                f.delete()
-                println "GTNH pack: removed old ${f.name}"
+[runPrism: false, debugPrism: true].each { String taskName, boolean debug ->
+    tasks.register(taskName) { t ->
+        t.group = 'Modded Minecraft'
+        t.description = debug
+            ? 'Builds the mod, installs it into the Prism instance and launches it with the JDWP debug agent'
+            : 'Builds the mod, installs it into the Prism instance and launches it'
+        t.dependsOn('reobfJar')
+        t.doLast {
+            if (!prismInstance.present) {
+                throw new GradleException("${taskName}: set prismInstance in ~/.gradle/gradle.properties "
+                    + 'to the folder name of the Prism instance')
             }
+            String jdwpArg = null
+            if (debug) {
+                // listen: the game connects to IDEA; otherwise IDEA attaches to the game on this port.
+                String server = prismDebugListen.get() ? 'n' : 'y'
+                String suspend = prismDebugSuspend.get() ? 'y' : 'n'
+                jdwpArg = "${PrismLaunch.JDWP_PREFIX}transport=dt_socket,server=${server},suspend=${suspend},".toString() +
+                    "address=localhost:${prismDebugPort.get()}"
+            }
+            PrismLaunch.run(reobfJarFile.get().asFile, ownModId, new File(prismDataDir.get()), prismInstance.get(),
+                prismCommand.get().trim().split(/\s+/).toList(), jdwpArg)
         }
-        Files.copy(built.toPath(), new File(mods, built.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
-        println "GTNH pack: installed ${built.name} into ${mods}"
     }
 }
