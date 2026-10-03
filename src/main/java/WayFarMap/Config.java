@@ -989,11 +989,6 @@ public class Config {
         save();
     }
 
-    public static void setRecord3d(boolean record) {
-        record3d = record;
-        save();
-    }
-
     public static void setShowPlants(boolean show) {
         showPlants = show;
         save();
