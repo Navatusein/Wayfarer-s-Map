@@ -16,8 +16,6 @@
 [Team map](#-team-map) •
 [Building](#%EF%B8%8F-building-from-source)
 
-🇷🇺 [Русская версия](README.ru.md)
-
 </div>
 
 ---
