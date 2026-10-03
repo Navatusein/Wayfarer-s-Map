@@ -7,6 +7,7 @@ import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 
 import WayFarMap.client.InspectCommand;
+import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.Teleport;
@@ -70,6 +71,7 @@ public class ClientProxy extends CommonProxy {
         // Report of how a block gets onto the 3D map, to send when it looks wrong there.
         ClientCommandHandler.instance.registerCommand(new InspectCommand());
 
+        MinecraftForge.EVENT_BUS.register(new IsoEntityDrawer.NameTags());
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());
         MinecraftForge.EVENT_BUS.register(new WaypointRenderer());
     }

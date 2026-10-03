@@ -808,13 +808,29 @@ public final class MapDrawer {
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // 1.7.10 skins are 64x32: the face is at (8, 8), the hat layer at (40, 8), both 8x8.
-        drawSkinPart(tessellator, sx, sy, half, 8, 8);
-        drawSkinPart(tessellator, sx, sy, half, 40, 8);
+        // The face is at (8, 8), the hat layer at (40, 8), both 8x8, in a skin 64 wide. 1.7.10 skins are 64x32, but
+        // mods (and GTNH) load the newer 64x64 ones: the height is taken from the texture, or the face would be
+        // read from the body below it.
+        double height = skinHeight();
+        drawSkinPart(tessellator, sx, sy, half, 8, 8, height);
+        drawSkinPart(tessellator, sx, sy, half, 40, 8, height);
     }
 
-    private static void drawSkinPart(Tessellator tessellator, double sx, double sy, double half, int u, int v) {
-        double u0 = u / 64.0, u1 = (u + 8) / 64.0, v0 = v / 32.0, v1 = (v + 8) / 32.0;
+    /** Height of the bound skin in skin pixels (64 wide): 32 or 64, also for HD skins. */
+    private static double skinHeight() {
+        try {
+            int width = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
+            int height = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
+            if (width > 0 && height > 0) {
+                return height * 64.0 / width;
+            }
+        } catch (RuntimeException ignored) {}
+        return 32.0;
+    }
+
+    private static void drawSkinPart(Tessellator tessellator, double sx, double sy, double half, int u, int v,
+        double skinHeight) {
+        double u0 = u / 64.0, u1 = (u + 8) / 64.0, v0 = v / skinHeight, v1 = (v + 8) / skinHeight;
         tessellator.startDrawingQuads();
         tessellator.addVertexWithUV(sx - half, sy + half, 0, u0, v1);
         tessellator.addVertexWithUV(sx + half, sy + half, 0, u1, v1);

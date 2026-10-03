@@ -21,6 +21,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
+import net.minecraftforge.client.event.RenderLivingEvent;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
@@ -31,6 +32,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.map.iso.IsoProjection;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
  * Draws the player and the mobs on the 3D world map as the game's own 3D models (skin, armor, walking, where they
@@ -72,6 +74,23 @@ public final class IsoEntityDrawer {
     private static boolean playerFailed;
 
     private IsoEntityDrawer() {}
+
+    /** While the map draws the models: the game's own name tags over players are left out (the map names them). */
+    private static boolean drawingModels;
+
+    /**
+     * Leaves out the game's name tag over the players the map draws: the map writes their name itself (a teammate's
+     * in the team color), and both showed one over the other. Registered on the Forge bus.
+     */
+    public static final class NameTags {
+
+        @SubscribeEvent
+        public void onSpecials(RenderLivingEvent.Specials.Pre event) {
+            if (drawingModels && event.entity instanceof EntityPlayer && event.isCancelable()) {
+                event.setCanceled(true);
+            }
+        }
+    }
 
     private static final class Item {
 
@@ -163,6 +182,7 @@ public final class IsoEntityDrawer {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         int dimension = mc.theWorld.provider.dimensionId;
         int factor = ScaledScreen.currentFactor();
+        drawingModels = true;
         try {
             for (Item item : items) {
                 // Each model only hides itself (its own back parts): the order above does the rest.
@@ -184,6 +204,7 @@ public final class IsoEntityDrawer {
                 }
             }
         } finally {
+            drawingModels = false;
             manager.playerViewY = viewY;
             manager.playerViewX = viewX;
             // Back as the inventory screen leaves it.
