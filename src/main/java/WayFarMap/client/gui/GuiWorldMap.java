@@ -46,8 +46,8 @@ import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
 import WayFarMap.client.map.FlatExport;
-import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapCleaner;
+import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
 import WayFarMap.client.map.Topography;
@@ -2165,9 +2165,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         File directory = new File(world, "dim" + dimension);
         ChunkLoadView.clearPending(dimension);
-        MapManager.INSTANCE.resetMaps(
-            (with3d ? "2D and 3D map" : "2D map") + " of dim" + dimension + " (area loading view)",
-            () -> {
+        MapManager.INSTANCE
+            .resetMaps((with3d ? "2D and 3D map" : "2D map") + " of dim" + dimension + " (area loading view)", () -> {
                 MapCleaner.delete2d(directory);
                 if (with3d) {
                     MapCleaner.delete3d(directory);

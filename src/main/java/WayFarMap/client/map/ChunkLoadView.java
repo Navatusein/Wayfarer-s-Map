@@ -147,10 +147,10 @@ public final class ChunkLoadView {
     /**
      * Draws the view over the flat map.
      *
-     * @param selection chunks of the drag going on, or null
-     * @param removing  the drag takes chunks off the queue
-     * @param regions   the chunks saved in the world are shown (in grey)
-     * @param caves     the drag picks the chunks with their cave layers
+     * @param selection  chunks of the drag going on, or null
+     * @param removing   the drag takes chunks off the queue
+     * @param regions    the chunks saved in the world are shown (in grey)
+     * @param caves      the drag picks the chunks with their cave layers
      * @param savedOnly  the drag takes only chunks saved in the world: the others in it are drawn faint
      * @param cancelling the drag takes chunks off the queue: only the queued ones in it are marked
      */
