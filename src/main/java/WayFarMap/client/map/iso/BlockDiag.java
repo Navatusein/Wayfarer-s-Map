@@ -158,8 +158,7 @@ final class BlockDiag {
     static String describe(int key, BlockLooks.Look look) {
         int id = ChunkBlocks.blockId(key), meta = (key >>> 16) & 15;
         Block block = Block.getBlockById(id);
-        StringBuilder b = new StringBuilder(name(block))
-            .append(':')
+        StringBuilder b = new StringBuilder(name(block)).append(':')
             .append(meta)
             .append(" id=")
             .append(id)

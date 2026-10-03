@@ -369,12 +369,33 @@ final class IsoTracer {
                         int spriteId = look.opaque || look.noPictures ? 0 : pictureId(blocks, projection.rotation);
                         if (debug != null) {
                             debug(
-                                "  cell " + x + "," + y + "," + z + " " + BlockDiag.name(key)
-                                    + " entered through " + SIDE_NAMES[side] + String.format(Locale.ROOT, " t=%.4f", t)
-                                    + " look[opaque=" + look.opaque + " fullCube=" + look.fullCube + " translucent="
-                                    + look.translucent + " complex=" + look.complex + " skipSame=" + look.skipSame
-                                    + "] sprite=" + spriteId + (spriteId == FacePalette.EMPTY ? "(EMPTY)" : "")
-                                    + " sameRun=" + sameRun + " light=" + Integer.toHexString(lightOf(cell)));
+                                "  cell " + x
+                                    + ","
+                                    + y
+                                    + ","
+                                    + z
+                                    + " "
+                                    + BlockDiag.name(key)
+                                    + " entered through "
+                                    + SIDE_NAMES[side]
+                                    + String.format(Locale.ROOT, " t=%.4f", t)
+                                    + " look[opaque="
+                                    + look.opaque
+                                    + " fullCube="
+                                    + look.fullCube
+                                    + " translucent="
+                                    + look.translucent
+                                    + " complex="
+                                    + look.complex
+                                    + " skipSame="
+                                    + look.skipSame
+                                    + "] sprite="
+                                    + spriteId
+                                    + (spriteId == FacePalette.EMPTY ? "(EMPTY)" : "")
+                                    + " sameRun="
+                                    + sameRun
+                                    + " light="
+                                    + Integer.toHexString(lightOf(cell)));
                         }
                         // Some blocks say light passes them while the world keeps none in their cell (GregTech
                         // machines): the brighter of the cell and the light in front of it.
@@ -447,10 +468,14 @@ final class IsoTracer {
         }
         if (debug != null) {
             debug(
-                String.format(Locale.ROOT,
+                String.format(
+                    Locale.ROOT,
                     "  END after %s: first surface %s at y=%.3f, solid (hides mobs) at y=%s, light left %.2f",
-                    steps(t), hitSide < 0 ? "none" : SIDE_NAMES[hitSide], hitY,
-                    Double.isNaN(solidY) ? "none" : String.format(Locale.ROOT, "%.3f", solidY), transmit));
+                    steps(t),
+                    hitSide < 0 ? "none" : SIDE_NAMES[hitSide],
+                    hitY,
+                    Double.isNaN(solidY) ? "none" : String.format(Locale.ROOT, "%.3f", solidY),
+                    transmit));
         }
         double reached = projection.toward(ox + dx * t, oz + dz * t);
         if (reached < minToward) {
@@ -671,10 +696,19 @@ final class IsoTracer {
         int exactAlpha = exact >>> 24;
         if (debug != null) {
             debug(
-                String.format(Locale.ROOT,
+                String.format(
+                    Locale.ROOT,
                     "    sprite %d of %d,%d,%d%s at pixel %d,%d of %d: argb=%08x (needs alpha >= %d)",
-                    id, x, y, z, ownCell ? "" : " (reaching into this cell)", (int) (su * sprite.size),
-                    (int) (sv * sprite.size), sprite.size, exact, minAlpha));
+                    id,
+                    x,
+                    y,
+                    z,
+                    ownCell ? "" : " (reaching into this cell)",
+                    (int) (su * sprite.size),
+                    (int) (sv * sprite.size),
+                    sprite.size,
+                    exact,
+                    minAlpha));
         }
         if (exactAlpha < minAlpha) {
             if (!ownCell) {
@@ -974,8 +1008,13 @@ final class IsoTracer {
             }
             if (debug != null) {
                 debug(
-                    String.format(Locale.ROOT,
-                        "    solid cube side %s at %.3f,%.3f: picture %d%s", SIDE_NAMES[side], texU, texV, id,
+                    String.format(
+                        Locale.ROOT,
+                        "    solid cube side %s at %.3f,%.3f: picture %d%s",
+                        SIDE_NAMES[side],
+                        texU,
+                        texV,
+                        id,
                         picture == null ? " (none: drawn from its icon)"
                             : String.format(Locale.ROOT, " argb=%08x", picture.texel(texU, texV, 0))));
             }
@@ -1201,9 +1240,14 @@ final class IsoTracer {
     private void add(int rgb, float dayShade, float nightShade, float warmth, float alpha) {
         if (debug != null) {
             debug(
-                String.format(Locale.ROOT,
-                    "    ADDED rgb=%06x alpha=%.2f shade=%.2f (light left before: %.2f, after: %.2f)", rgb & 0xFFFFFF,
-                    alpha, dayShade, transmit, transmit * (1 - alpha)));
+                String.format(
+                    Locale.ROOT,
+                    "    ADDED rgb=%06x alpha=%.2f shade=%.2f (light left before: %.2f, after: %.2f)",
+                    rgb & 0xFFFFFF,
+                    alpha,
+                    dayShade,
+                    transmit,
+                    transmit * (1 - alpha)));
         }
         int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
         double weight = transmit * alpha;

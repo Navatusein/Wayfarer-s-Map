@@ -266,7 +266,15 @@ final class FaceRenderer {
             return result;
         }
         for (int v = 0; v < VARIANTS.length; v++) {
-            Pending pending = new Pending(-1, x, y, z, block, tileEntity, result.surroundings, look.opaque,
+            Pending pending = new Pending(
+                -1,
+                x,
+                y,
+                z,
+                block,
+                tileEntity,
+                result.surroundings,
+                look.opaque,
                 ownRenderer);
             pending.lookKey = key;
             pending.why = "inspect";
@@ -1325,7 +1333,15 @@ final class FaceRenderer {
                 } catch (RuntimeException e) {
                     ownRenderer = false;
                 }
-                Pending probe = new Pending(-1, nx, ny, nz, world.getBlock(nx, ny, nz), tileEntity, 0, false,
+                Pending probe = new Pending(
+                    -1,
+                    nx,
+                    ny,
+                    nz,
+                    world.getBlock(nx, ny, nz),
+                    tileEntity,
+                    0,
+                    false,
                     ownRenderer);
                 probe.lookKey = key;
                 probe.why = "probe";
@@ -1559,8 +1575,7 @@ final class FaceRenderer {
      * farther (a stargate's base under a block of its ring) that draw in the render pass.
      */
     private static void drawTileEntities(Pending pending, int pass) {
-        World world = pending.tileEntity != null ? pending.tileEntity.getWorldObj()
-            : Minecraft.getMinecraft().theWorld;
+        World world = pending.tileEntity != null ? pending.tileEntity.getWorldObj() : Minecraft.getMinecraft().theWorld;
         List<TileEntity> big = world == null ? new ArrayList<>() : bigTileEntities(world);
         for (int n = -1; n < 4 + big.size(); n++) {
             TileEntity tileEntity;

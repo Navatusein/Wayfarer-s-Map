@@ -294,8 +294,7 @@ public final class IsoEntityDrawer {
      *
      * @return false if all of the model is hidden (nothing to draw)
      */
-    private static boolean hideBehindMap(Item item, IsoProjection projection, double scale, int dimension,
-        int factor) {
+    private static boolean hideBehindMap(Item item, IsoProjection projection, double scale, int dimension, int factor) {
         EntityLivingBase entity = item.entity;
         double radius = Math.max(0.2, entity.width / 2), height = Math.max(0.3, entity.height);
         double sin = IsoProjection.SIN, cos = IsoProjection.COS;
@@ -303,8 +302,7 @@ public final class IsoEntityDrawer {
         double left = item.sx - (radius * 1.5 + 0.5) * scale, right = item.sx + (radius * 1.5 + 0.5) * scale;
         double top = item.sy - (height * cos + radius * sin + 0.5) * scale;
         double bottom = item.sy + (radius * 1.5 * sin + 0.3) * scale;
-        double step = Math.max(1.0 / Math.max(1, factor),
-            Math.sqrt((right - left) * (bottom - top) / HIDING_SAMPLES));
+        double step = Math.max(1.0 / Math.max(1, factor), Math.sqrt((right - left) * (bottom - top) / HIDING_SAMPLES));
         int columns = Math.max(1, (int) Math.ceil((right - left) / step));
         int rows = Math.max(1, (int) Math.ceil((bottom - top) / step));
         if (hidingGrid.length < columns * rows) {

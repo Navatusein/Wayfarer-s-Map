@@ -392,9 +392,8 @@ public final class BlockInspect {
         BufferedImage picture = new BufferedImage(pixels, pixels, BufferedImage.TYPE_INT_RGB);
         for (int py = 0; py < pixels; py++) {
             for (int px = 0; px < pixels; px++) {
-                int color = tracer.trace(
-                    u0 + (px + 0.5) / PICTURE_PIXELS_PER_BLOCK,
-                    v0 + (py + 0.5) / PICTURE_PIXELS_PER_BLOCK);
+                int color = tracer
+                    .trace(u0 + (px + 0.5) / PICTURE_PIXELS_PER_BLOCK, v0 + (py + 0.5) / PICTURE_PIXELS_PER_BLOCK);
                 int alpha = color >>> 24;
                 int checker = ((px >> 3) + (py >> 3) & 1) == 0 ? 0x30 : 0x20;
                 int red = ((color >> 16 & 0xFF) * alpha + checker * (255 - alpha)) / 255;
@@ -418,11 +417,7 @@ public final class BlockInspect {
         double[][] corners = outline(projection, x, y, z);
         for (int i = 0; i < corners.length; i++) {
             double[] a = corners[i], b = corners[(i + 1) % corners.length];
-            g.drawLine(
-                screen(a[0], u0),
-                screen(a[1], v0),
-                screen(b[0], u0),
-                screen(b[1], v0));
+            g.drawLine(screen(a[0], u0), screen(a[1], v0), screen(b[0], u0), screen(b[1], v0));
         }
         r.append("Rays on a grid over the block's outline on the screen, named by row A-")
             .append((char) ('A' + RAY_GRID - 1))
