@@ -197,6 +197,11 @@ final class IsoTracer {
             if (blocks != null) {
                 data = blocks;
                 top = blocks.yMax;
+                // Models reaching up past their block (a DHD's top, a banner) show in the air above the highest
+                // block: rays don't skip that air. Sprites reach two blocks at most.
+                for (int cell : overhangs(blocks)) {
+                    top = Math.max(top, blocks.yMin + (cell >> 8) + 2);
+                }
                 if (!blocks.looksReady) {
                     // All the chunk's blocks at once: one wait for the render thread, not one per block.
                     blocks.looksReady = BlockLooks.prepare(blocks.lookKeys());
@@ -277,7 +282,17 @@ final class IsoTracer {
             double exit = Math.min(maxX, Math.min(maxY, maxZ));
             if (y <= currentTop) {
                 Object data = currentData;
-                if (data instanceof ChunkBlocks) {
+                if (data instanceof ChunkBlocks && y > ((ChunkBlocks) data).yMax) {
+                    // Above the copy's blocks, under the top of a model reaching up past them (see enterChunk): only
+                    // such models are there.
+                    ChunkBlocks blocks = (ChunkBlocks) data;
+                    cellIndex = -1;
+                    if (reachingOut(blocks, overhangs(blocks), x, y, z, side, t, OPEN) == SPRITE_STOP) {
+                        break;
+                    }
+                    previousLight = OPEN;
+                    previousKey = 0;
+                } else if (data instanceof ChunkBlocks) {
                     ChunkBlocks blocks = (ChunkBlocks) data;
                     int lx = x & 15, lz = z & 15;
                     if (y < blocks.yMin) {
