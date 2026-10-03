@@ -49,7 +49,7 @@ public class Config {
             CATEGORY_LOGS));
 
     /** Minimap zoom levels, in GUI pixels per block. */
-    public static final double[] MINIMAP_ZOOMS = { 0.5, 1.0, 2.0, 4.0 };
+    public static final double[] MINIMAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0 };
     /** Fullscreen map zoom levels, in GUI pixels per block. */
     public static final double[] MAP_ZOOMS = { 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0 };
 
@@ -68,7 +68,7 @@ public class Config {
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
     public static int minimapCorner = 1;
-    public static int minimapZoom = 1;
+    public static int minimapZoom = 3;
     public static boolean minimapShowCoordinates = true;
     public static boolean minimapShowBiome = true;
     public static final int SHAPE_SQUARE = 0, SHAPE_ROUND = 1;
@@ -227,10 +227,10 @@ public class Config {
             v -> minimapShape = v);
         choice(
             c,
-            "zoom",
-            "Minimap zoom level index (0 = farthest).",
-            1,
-            new String[] { "z0", "z1", "z2", "z3" },
+            "zoomLevel",
+            "Minimap zoom level index (0 = farthest: 1 pixel for 8 blocks).",
+            3,
+            new String[] { "z8", "z4", "z0", "z1", "z2", "z3" },
             () -> minimapZoom,
             v -> minimapZoom = v);
         bool(
@@ -846,6 +846,15 @@ public class Config {
 
     public static void synchronizeConfiguration(File configFile) {
         configuration = new Configuration(configFile);
+        // The minimap zoom was "zoom", an index into 4 levels; two farther ones came before them as "zoomLevel".
+        if (configuration.hasKey(CATEGORY_MINIMAP, "zoom") && !configuration.hasKey(CATEGORY_MINIMAP, "zoomLevel")) {
+            int old = configuration.get(CATEGORY_MINIMAP, "zoom", 1)
+                .getInt(1);
+            configuration.get(CATEGORY_MINIMAP, "zoomLevel", 3)
+                .set(Math.max(0, Math.min(3, old)) + 2);
+        }
+        configuration.getCategory(CATEGORY_MINIMAP)
+            .remove("zoom");
         for (Option option : OPTIONS) {
             option.load(configuration);
         }
