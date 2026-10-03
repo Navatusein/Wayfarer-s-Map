@@ -455,6 +455,22 @@ public final class ChunkLoadView {
     }
 
     /** Picked chunks still waiting, for the footer. */
+    /**
+     * Forgets the chunks picked in a dimension: a new loading of the whole area ({@code /wf regionload full}) takes
+     * the place of the one they were in.
+     */
+    public static void clearPending(int dimension) {
+        Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
+        if (pending != null) {
+            for (long chunk : pending.keySet()) {
+                WITH_3D.remove(chunk);
+                WITH_CAVES.remove(chunk);
+            }
+            pending.clear();
+        }
+        REGION_STATES.clear();
+    }
+
     public static int pendingCount(int dimension) {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
         return pending == null ? 0 : pending.size();

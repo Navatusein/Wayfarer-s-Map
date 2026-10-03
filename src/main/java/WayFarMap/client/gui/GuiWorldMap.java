@@ -771,8 +771,11 @@ public class GuiWorldMap extends ScaledScreen {
      * generated); true, every chunk, generating those never made.
      */
     private static boolean generateNew;
-    /** The switch between the two under the header of the area loading view, and its legend. */
-    private static final int LOAD_BAR_WIDTH = 240, LOAD_BAR_HEIGHT = 14;
+    /**
+     * The switch between the two under the header of the area loading view, its legend and the button loading every
+     * chunk saved in the world.
+     */
+    private static final int LOAD_BAR_WIDTH = 240, LOAD_BAR_HEIGHT = 14, LOAD_LEGEND_HEIGHT = 12;
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -1990,7 +1993,12 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         if (chunkloadShown() && button == 0 && loadBarSegment(mouseX, mouseY) >= 0) {
-            generateNew = loadBarSegment(mouseX, mouseY) == 1;
+            int segment = loadBarSegment(mouseX, mouseY);
+            if (segment == 2) {
+                confirmLoadAllSaved(mouseX, mouseY);
+            } else {
+                generateNew = segment == 1;
+            }
             return;
         }
         if (chunkloadShown() && (button == 0 || button == 1) && startPick(mouseX, mouseY, button)) {
@@ -2065,13 +2073,39 @@ public class GuiWorldMap extends ScaledScreen {
         MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView);
     }
 
-    /** Which half of the area loading switch is under the mouse: 0 saved only, 1 generate new, -1 neither. */
+    /** Top of the button loading every saved chunk, under the switch and the legend. */
+    private static int loadAllY() {
+        return HEADER_HEIGHT + 4 + LOAD_BAR_HEIGHT + 4 + LOAD_LEGEND_HEIGHT + 2;
+    }
+
+    /**
+     * What of the area loading bar is under the mouse: 0 saved only, 1 generate new, 2 the button loading every saved
+     * chunk, -1 none.
+     */
     private int loadBarSegment(int mouseX, int mouseY) {
         int x0 = width / 2 - LOAD_BAR_WIDTH / 2, y0 = HEADER_HEIGHT + 4;
+        if (Theme.inside(mouseX, mouseY, x0, loadAllY(), x0 + LOAD_BAR_WIDTH, loadAllY() + LOAD_BAR_HEIGHT)) {
+            return 2;
+        }
         if (!Theme.inside(mouseX, mouseY, x0, y0, x0 + LOAD_BAR_WIDTH, y0 + LOAD_BAR_HEIGHT)) {
             return -1;
         }
         return mouseX < x0 + LOAD_BAR_WIDTH / 2 ? 0 : 1;
+    }
+
+    /**
+     * Asks before mapping every chunk saved in the world's region files of this dimension ({@code /wf regionload
+     * full}): it can be a lot, and it takes the place of the chunks queued so far.
+     */
+    private void confirmLoadAllSaved(int mouseX, int mouseY) {
+        int dimension = mc.theWorld.provider.dimensionId;
+        List<MenuEntry> entries = new ArrayList<>();
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.load_all_saved_yes"), true, () -> {
+            ChunkLoadView.clearPending(dimension);
+            mc.thePlayer.sendChatMessage("/wf regionload " + (Config.record3d ? "3d" : "2d") + " full");
+        }));
+        entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
+        showMenu(entries, MENU_CONFIRM, mouseX, mouseY + 4);
     }
 
     /**
@@ -2080,9 +2114,9 @@ public class GuiWorldMap extends ScaledScreen {
      */
     private void drawLoadBar(int mouseX, int mouseY) {
         int x0 = width / 2 - LOAD_BAR_WIDTH / 2, y0 = HEADER_HEIGHT + 4, half = LOAD_BAR_WIDTH / 2;
-        int legendHeight = 12;
-        Theme.fill(x0 - 3, y0 - 3, x0 + LOAD_BAR_WIDTH + 3, y0 + LOAD_BAR_HEIGHT + legendHeight + 4, Theme.PANEL);
-        Theme.outline(x0 - 3, y0 - 3, x0 + LOAD_BAR_WIDTH + 3, y0 + LOAD_BAR_HEIGHT + legendHeight + 4, Theme.BORDER);
+        int bottom = loadAllY() + LOAD_BAR_HEIGHT + 3;
+        Theme.fill(x0 - 3, y0 - 3, x0 + LOAD_BAR_WIDTH + 3, bottom, Theme.PANEL);
+        Theme.outline(x0 - 3, y0 - 3, x0 + LOAD_BAR_WIDTH + 3, bottom, Theme.BORDER);
         int hovered = menu == null && dimensionList == null ? loadBarSegment(mouseX, mouseY) : -1;
         String[] labels = { I18n.format("wayfarmap.gui.load_saved"), I18n.format("wayfarmap.gui.load_generate") };
         for (int i = 0; i < 2; i++) {
@@ -2112,11 +2146,21 @@ public class GuiWorldMap extends ScaledScreen {
             Theme.fill(ix, ly + 1, ix + 6, ly + 7, colors[i]);
             Theme.text(fontRendererObj, word, ix + 9, ly, Theme.TEXT_MUTED);
         }
+        // Every chunk saved in the world, at once.
+        int by = loadAllY();
+        boolean overAll = hovered == 2;
+        Theme.fill(x0, by, x0 + LOAD_BAR_WIDTH, by + LOAD_BAR_HEIGHT, overAll ? Theme.CONTROL_HOVER : Theme.CONTROL);
+        Theme.outline(x0, by, x0 + LOAD_BAR_WIDTH, by + LOAD_BAR_HEIGHT, overAll ? Theme.ACCENT : Theme.BORDER);
+        String all = Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.gui.load_all_saved"), LOAD_BAR_WIDTH - 20);
+        int allWidth = 9 + fontRendererObj.getStringWidth(all);
+        int ax = x0 + (LOAD_BAR_WIDTH - allWidth) / 2;
+        Theme.fill(ax, by + 4, ax + 6, by + 10, ChunkLoadView.LEGEND_SAVED);
+        Theme.text(fontRendererObj, all, ax + 9, by + 3, overAll ? Theme.TEXT : Theme.TEXT_MUTED);
         if (hovered >= 0) {
+            String[] descriptions = { "wayfarmap.gui.load_saved.desc", "wayfarmap.gui.load_generate.desc",
+                "wayfarmap.gui.load_all_saved.desc" };
             drawHoveringText(
-                fontRendererObj.listFormattedStringToWidth(
-                    I18n.format(hovered == 0 ? "wayfarmap.gui.load_saved.desc" : "wayfarmap.gui.load_generate.desc"),
-                    220),
+                fontRendererObj.listFormattedStringToWidth(I18n.format(descriptions[hovered]), 220),
                 mouseX,
                 mouseY,
                 fontRendererObj);
