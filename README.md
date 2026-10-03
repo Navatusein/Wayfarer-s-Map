@@ -1,65 +1,193 @@
-# Wayfarer's Map (WayFarMap)
+<div align="center">
 
-Клиентский мод-карта для Minecraft 1.7.10 (Forge) в стиле FTB Chunks — **только отображение карты**, без привата чанков.
+# 🗺️ Wayfarer's Map
 
-## Возможности
+**A fast, modern minimap and world map for Minecraft 1.7.10 — built for GT New Horizons.**
 
-- **Миникарта** в углу экрана: карта местности, стрелка игрока, другие игроки, координаты и биом. Может быть квадратной или круглой и поворачиваться по направлению взгляда (взгляд всегда вверху); по краю белым подписаны стороны света N, E, S, W — настройки «Форма» и «Поворот по взгляду».
-- **Полноэкранная карта мира** (клавиша `M`): перетаскивание мышью, масштаб колесом (от 1:8 до 32:1), `Пробел` — вернуться к игроку, координаты блока под курсором. Карта открывается там, где её закрыли (центр, масштаб и просматриваемое измерение запоминаются отдельно для каждого измерения, где стоит игрок, в `map-view.properties`).
-- Карта строится из загруженных клиентом чанков, поэтому мод работает на любом сервере (ставить на сервер не нужно).
-- Цвета берутся из средних цветов текстур блоков (поддержка ресурспаков и модов) с биомным оттенком травы/листвы/воды, рельефное затенение, глубина воды. Если текстура недоступна — ванильный цвет карты.
-- **Детальная карта как в JourneyMap** (тот же алгоритм, что в JourneyMap 1.7.10): наклон считается по соседям с севера, северо-запада и запада (отношение высот), подъёмы усиливаются ×1.2, спуски ×0.65 с синеватой тенью, на ровных местах учитываются соседи через блок (сглаживание), дневная подсветка ×1.06; цветы, трава, посевы, саженцы, рельсы, редстоун и факелы рисуются своим цветом вместо блока под ними, вода без наклона.
-- В Незере карта строится под потолком.
-- **Режим пещер**: под землёй (над головой 3+ твёрдых блока) и в Незере карта и миникарта показывают пол пещеры в вашем слое высотой 16 блоков; сплошной камень не рисуется. Пещерные слои исследуются и сохраняются отдельно (`dim<id>/caves/<слой>/`). Режим Авто/Выкл/Вкл — клавиша `K`, кнопка на карте мира или настройки. На карте мира справа — ползунок слоя: «A» — слой игрока, либо любой слой Y 0–255.
-- **VisualProspecting (форк GTNH)**: если мод установлен, на карте и миникарте видны разведанные рудные жилы GregTech (иконка руды на камне измерения, название, состав в подсказке, отметка «выработана» и отслеживание по ПКМ — отслеживаемая жила видна в мире с расстоянием) и поля подземных жидкостей (рамка поля, заливка чанков по объёму, объёмы в L/Op) — как в интеграции VisualProspecting с JourneyMap. Кнопки «Руды» и «Жидкости» на карте мира.
-- **Поиск на карте мира**: в режиме биомов, руд или жидкостей под шапкой появляется поле поиска. Всё несовпадающее становится серым: найденные биомы остаются в цвете и обводятся по краям, найденные жилы (поиск VisualProspecting по жилам и рудам) и поля жидкостей выделяются жёлтой рамкой. Esc очищает поиск. «Руды» и «Жидкости» включаются по одному.
-- **Приваты ServerUtilities** (если установлены ServerUtilities и Navigator, как в GTNH): кнопка «Приваты» на карте мира показывает приваты: свои голубым, загруженные чанки зелёным, чужие цветом их команды; подсказка при наведении, счётчики «приват/лимит, загрузка/лимит». Выделение прямоугольником мышью: с Ctrl — заприватить, с Shift — чанклоад своих приватов, с Ctrl+Shift — заприватить и загрузить; правой кнопкой: Ctrl — снять приват, Shift — выгрузить, Ctrl+Shift — выгрузить и снять приват. Права и лимиты проверяет сервер. Приваты видны и меняются только в измерении, где стоит игрок: ServerUtilities всегда берёт измерение игрока, выбрать другое сервер не позволяет.
-- **Сбои питания GregTech** (GT5-Unofficial с PowerFail): кнопка «Сбои питания» показывает на карте мира и миникарте машины, у которых кончилась энергия (как слой GregTech для JourneyMap/Xaero через Navigator): иконка в красной рамке, подсказка (машина, координаты, число сбоев, время последнего), подпись при приближении, поиск по названию машины; ПКМ — убрать отметку (пакет сброса GregTech) или поставить метку. Данные берутся из клиента GregTech через рефлексию, поэтому на версиях без PowerFail кнопки просто нет.
-- **Общая карта команды** (если мод стоит и на сервере вместе с ServerUtilities): у каждого игрока своя карта, а в команде она ещё и общая. Сервер сообщает клиенту его команду (и следит, когда игрок создаёт, вступает или выходит); в команде клиент в фоне отправляет всю свою уже исследованную карту (все измерения и пещерные слои — только то, что этой команде ещё не отдавал, прогресс в `team-<id>.dat`), а дальше — каждый новый чанк. У каждого чанка хранится время исследования (`r.X.Z.time`; для старых карт — дата файла), поэтому при объединении и на сервере, и у клиентов побеждает более свежий. Сервер хранит карту команды в `<мир>/wayfarmap/teams/<команда>/`, сразу пересылает новое всем товарищам онлайн (в каком бы измерении они ни были), а зашедшему досылает всё, что пришло с его прошлой синхронизации, по всем измерениям команды: сначала текущее измерение (ближние регионы первыми), потом остальные. Чанки других измерений клиент записывает прямо в их карты, поэтому всё, что разведала команда, сразу видно в списке измерений под заголовком карты без посещения. Настройка «Общая карта команды». Игрок без команды ничего чужого не получает; на серверах без мода всё работает как раньше.
-- **Товарищи по команде на карте** (сервер с модом и ServerUtilities): сервер дважды в секунду сообщает позиции товарищей онлайн, поэтому они всегда видны на карте и миникарте — голова со скином в синей рамке и имя, даже за пределами прорисовки и в другом измерении (при его просмотре); движение сглаживается, а рядом берётся точная позиция. Иконка «Команда онлайн» справа в шапке открывает список товарищей с их измерением; клик переносит карту к товарищу, переключая измерение при необходимости.
-- **Ноды Таумкрафта (TCNodeTracker)**: ноды, записанные TCNodeTracker, на карте и миникарте — как в его слое для JourneyMap/Xaero: значок ноды в цвете сильнейшего аспекта с этим аспектом внутри, подсказка (тип, модификатор, аспекты, координаты), подпись аспектов при приближении, поиск по аспектам; ПКМ — отслеживать (метка ноды в мире с расстоянием, как у отслеживаемой жилы, сквозь блоки) или удалить ноду (из списка TCNodeTracker). Галочка в меню «Слои аддонов».
-- **3D-карта (изометрия как в Dynmap)**: кнопка с кубиком в шапке карты мира. Как HD-карты Dynmap (вид с юго-востока, 30° над горизонтом, тайлы 128×128 на 8 уровнях детализации — от 16 пикселей на блок до 1 пикселя на 8 блоков), мир рисуется трассировкой лучей по самим блокам: текстуры граней (с ресурспаками и модами), трава, листва и вода в цвет биома, затенение сторон как в игре, свет неба и факелов (тень под деревьями и навесами, тёмное глубокое дно), вода как единая толща (мелководье показывает дно, глубина уходит в синий; высота потока как в игре), цветное стекло, растения крестом, посевы, рельсы, полублоки, снег, ступени, заборы, панели, лианы. Блоки, которые игра рисует по-особому, — соединённые текстуры Chisel, тайл-энтити (сундуки, таблички, головы, модовые машины с TESR), трубы и кабели GregTech, кропы на палках, кровати, рельсы, редстоун, заборы, модовые рендеры, лицевые стороны машин — рисуются самим игровым рендером в невидимый буфер прямо на месте (с соседями, поэтому CTM и трубы соединяются) в той же изометрии, что и карта, по спрайту на каждую сторону обзора; одинаковые спрайты хранятся один раз (`iso-sprites.dat`). Ночью 3D-карта темнеет и показывает свет факелов, ламп и лавы тёплыми пятнами (каждый тайл рисуется для дня и для ночи, между ними плавный переход). Пока вы ходите, блоки исследованной поверхности запоминаются в фоне (`dim<id>/blocks/r.X.Z.wfb`, все загруженные чанки по очереди — не только рядом с игроком, только изменившиеся, настройка «Запоминать блоки для 3D-карты»). На 3D-карте видны только чанки, блоки которых запомнены: места, исследованные раньше или командой, появятся, когда вы там побываете. Тайлы рисуются в фоновых потоках, ближние к центру — первыми; дальние уровни кэшируются на диск (`dim<id>/iso/`) и перерисовываются, только когда меняются показанные на них чанки. Q / E или кнопка со стрелкой поворачивают вид на 4 стороны. Под курсором — координаты X/Y/Z увиденного блока; метки, игрок и команда стоят на своей высоте. Биомы и пещеры остаются плоскими; слои аддонов, сетка и мобы — только на плоской карте.
-- **Качество 3D-карты**: ползунок справа на 3D-карте (и в настройках) — 8, 16, 32 или 64 пикселя на блок при приближении. Все блоки, включая тайл-энтити, трубы и модовые блоки, снимаются игрой в полной чёткости: тайл-энтити и модели — 64 пикселя на блок, как и сама карта (снимки хранятся сжатыми в `iso-sprites.dat`, в памяти — только недавние).
-- **Снимок всей карты**: кнопка с фотоаппаратом в шапке карты мира (слева, после вейпоинтов) сохраняет всю разведанную карту (2D — как она показана, с пещерами или биомами, от 1 до 16 пикселей на блок; 3D — от 2 до 64 пикселей на блок, днём или ночью) в папку `screenshots/wayfarmap/`. Сохранение идёт в фоне, по окончании в чате появляется ссылка. В папке — `index.html`: карта открывается в любом браузере без интернета, колесом или щипком приближается от всей карты до отдельных блоков (как Dynmap, только без сервера), на 2D под курсором видны координаты. Там же `overview.png` — вся карта одной картинкой в полном выбранном разрешении (пишется построчно, поэтому может быть любого размера) и маленький `preview.png`.
-- **Сетка чанков**: кнопка «Сетка» на карте мира (или настройки) — границы чанков и регионов на карте и миникарте.
-- **Режим биомов**: кнопка «Биомы» на карте мира — каждый биом своим цветом, при наведении название биома. Работает в любом измерении, в том числе в Незере и под землёй (биомы важнее режима пещер).
-- **Телепорт** (если у игрока есть право на `/tp` — мод спрашивает у сервера автодополнение команды): ПКМ по карте открывает меню «Телепорт сюда» (на самую высокую свободную точку; если высота неизвестна — например, область не исследована, — мод спросит, на какой Y телепортировать) / «Создать вейпоинт»; ПКМ по вейпоинту сразу открывает его редактор. Кнопка телепорта есть и в списке вейпоинтов и в редакторе.
-- **День/ночь**: карта и миникарта темнеют ночью вместе с игровым временем, а места, освещённые факелами, лампами и лавой, светятся тёплым светом. Кнопки «День» и «Ночь» на карте мира фиксируют режим (включение одной выключает другую; обе выключены — как в игре).
-- **Игроки и мобы** на миникарте и карте мира: игроки — лицом со скина, мобы — 2D-иконкой своего лица (вырезается из текстуры моба, работает и для модовых) в цветной рамке (красная — враждебные, зелёная — животные, жёлтая — остальные). Ближайшие мобы рисуются иконками, остальные — точками.
-- **Кнопка «Мобы»** на карте мира — меню: показать всех, только мирных (животные, жители, големы), только враждебных или скрыть всех; действует на карту и миникарту, игроков не скрывает.
-- **Настройки** всего мода — кнопка «Настройки» на карте мира: разделы Миникарта / Карта мира / Сущности / Вейпоинты, с описанием каждой опции.
-- Минималистичный плоский интерфейс в духе GuideME. Шапка карты — минималистичные пиксельные иконки с подсказками (настройки, метки, слои аддонов; мобы, сетка, биомы, пещеры, день, ночь), состояние показано подсветкой и цветной точкой; руды, жидкости, приваты и сбои питания включаются галочками в выпадающем меню «Слои аддонов». Карта мира и окна мода имеют собственный масштаб и выглядят одинаково при любом «Интерфейсе» Minecraft: «Авто» подбирает целый масштаб так, чтобы оставалось не меньше 800×450 пикселей интерфейса (настройка «Масштаб интерфейса»).
-- **Другие измерения**: нажатие на заголовок «[id] Измерение ▾» открывает список всех измерений, сохранённых в карте этого мира/сервера; выбранное показывается без перехода туда (координаты пересчитываются для Незера 1:8, метки, руды и жидкости — выбранного измерения). В чужом измерении нельзя телепортироваться и менять приваты. `Пробел` — вернуться к своему измерению. Название измерения сохраняется в `dim<id>/dimension.txt`.
-- **Справка**: кнопка «? Справка» в правом нижнем углу карты мира — описание всех функций по разделам, с цветными клавишами, важными замечаниями и советами. Текст справки лежит в `assets/wayfarmap/help/<язык>.txt`.
-- **Вейпоинты**: название, координаты, цвет обводки (или без неё), иконка любого предмета из игры (с поиском), группа (по умолчанию — «Без группы»). Видны на карте, на миникарте (прилипают к краю, если вне обзора) и в мире (иконка, название, расстояние).
-- **Луч маяка** у вейпоинта: переключатель «Луч» в редакторе (по умолчанию выключен) — над меткой в мире встаёт луч как у маяка в цвете обводки (текстура и прокрутка ванильного маяка, скрывается за блоками).
-- **Поделиться вейпоинтом в чат**: кнопка «В чат» в редакторе отправляет строку `[WFM]|имя|x|y|z|dim|цвет|иконка|группа|луч` (до 100 символов — предел чата, работает на любом сервере). У игроков с модом она показывается как «поделился меткой Имя (x, y, z) [Добавить]»; клик по [Добавить] (клиентская команда `/wayfarmap_add`) добавляет метку вместе с группой, создавая её при необходимости.
-- **Группы вейпоинтов**: например, группа «Руды» — все её вейпоинты скрываются/показываются одной галочкой. Вейпоинты перетаскиваются в группу мышью (ЛКМ) в списке вейпоинтов. Группы можно создавать, переименовывать, сворачивать, переставлять и удалять (вейпоинты при этом переходят в «Без группы»).
-- У каждого аккаунта своя карта и свои вейпоинты (папка `player-<UUID>`): если с одного компьютера или из одной сборки лаунчера играют разные аккаунты, они не видят исследованное друг другом. Карта, сохранённая раньше без этой папки, переносится к первому аккаунту, который зайдёт в этот мир.
-- Вейпоинты хранятся в `.minecraft/wayfarmap/<singleplayer|multiplayer>/<мир или сервер>/player-<UUID аккаунта>/waypoints.json`.
-- **Производительность на больших картах**: при сильном отдалении карта рисуется из уменьшенных копий регионов (1 пиксель на 4×4 блока, в 16 раз меньше памяти); регионы, ушедшие с экрана, выгружаются из памяти каждые полсекунды; файлы регионов читаются в фоне (в том числе при исследовании — игра не подвисает на границе региона); новые текстуры и подсветка поиска создаются понемногу за кадр; руды, жидкости и приваты рисуются пачками.
-- Исследованная область сохраняется в `.minecraft/wayfarmap/<singleplayer|multiplayer>/<мир или сервер>/player-<UUID аккаунта>/dim<id>/r.X.Z.png` (регионы 512×512 блоков).
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.7.10-62B47A?style=for-the-badge&logo=minecraft&logoColor=white)](#-installation)
+[![Forge](https://img.shields.io/badge/Forge-10.13.4.1614-E04E14?style=for-the-badge)](https://files.minecraftforge.net/)
+[![Build](https://img.shields.io/github/actions/workflow/status/evgengoldwar/Wayfarer-s-Map/build-and-test.yml?style=for-the-badge&label=build)](https://github.com/evgengoldwar/Wayfarer-s-Map/actions/workflows/build-and-test.yml)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](src/main/resources/LICENSE)
 
-## Клавиши (меняются в настройках управления)
+[Features](#-features) •
+[Installation](#-installation) •
+[Controls](#%EF%B8%8F-controls) •
+[Integrations](#-mod-integrations) •
+[Team map](#-team-map) •
+[Building](#%EF%B8%8F-building-from-source)
 
-| Клавиша | Действие |
+🇷🇺 [Русская версия](README.ru.md)
+
+</div>
+
+---
+
+Wayfarer's Map draws everything you have **already seen**: a minimap in the corner of the screen, a fullscreen world map, an isometric **3D map like Dynmap**, waypoints, caves, biomes and topography — plus first-class layers for **GregTech ore veins, underground fluids, power failures, ServerUtilities claims and Thaumcraft nodes**.
+
+It is **client-side**: the map is built from the chunks your client loads, so it works on any server. Install it on the server as well to unlock the shared **team map**, live teammate positions and `/wf chunkload`.
+
+## ✨ Features
+
+### 🧭 Minimap & world map
+
+- **Minimap** — terrain, player arrow, players and mobs, coordinates and biome. Square or round, optionally **rotating with your view** with N / E / S / W on its edge.
+- **Fullscreen world map** (`M`) — drag to pan, scroll to zoom from **1:8 to 32:1** towards the cursor, `Space` to jump back to the player. It reopens exactly where you left it.
+- **JourneyMap-style shading** — colors come from the average of the block textures (resource packs and modded blocks included), tinted by biome, with relief shading, water depth and see-through glass.
+- **Four map modes** — 🟩 2D, 🧊 3D, ⛰️ Topography (height bands with contour lines) and 🌳 Biomes.
+- **Caves** — underground and in the Nether the map shows the cave floor in your 16-block layer. Auto / on / off with `K`, plus a slider to browse any layer from Y 0 to 255.
+- **Day & night** — the map darkens with the game clock, and torches, lamps and lava glow warm. Can be locked to always day or always night.
+- **Other dimensions** — browse any saved dimension without going there (Nether coordinates are converted 1:8).
+- **Search** — in biome, ore or fluid view, type to grey out everything else and outline the matches.
+- **Players & mobs** — shown with their face icon (cut from the mob texture, modded mobs too) in a colored frame: 🔴 hostile, 🟢 animals, 🟡 others. Filters per category.
+- **Chunk grid**, **right-click teleport** (when you have `/tp` permission) and a built-in **help screen** (`?` on the map).
+
+### 🧊 3D map
+
+An isometric view of the world in the style of **Dynmap HD**, ray-traced from the real blocks:
+
+- Block textures with resource packs and mods, biome-tinted grass, leaves and water, sky light and torch light, shade under trees.
+- Water as one body — shallows show the floor, depth fades to blue.
+- Blocks the game draws specially — **Chisel connected textures, chests, signs, modded machines, GregTech pipes and cables**, crops, beds, rails, redstone — are captured from the game's own renderer, so they look exactly like in game.
+- A day **and** a night version of every tile, with a smooth transition.
+- Turn the view to all four sides with `Q` / `E`, and pick a quality of **8, 16, 32 or 64 px per block**.
+- Tiles render in background threads, nearest first; far zoom levels are cached on disk.
+
+### 📍 Waypoints
+
+- Name, coordinates, **outline color** (full color picker) and **any item as an icon**, drawn as in the inventory.
+- Visible on the map, on the minimap (sticking to its edge when out of view) and in the world with distance.
+- Optional **beacon beam** in the waypoint's color.
+- **Groups** — drag waypoints into groups and hide or show a whole group with one toggle.
+- **Death markers** — a skull waypoint where you died, kept in a *Deaths* group.
+- **Share to chat** — players with the mod get a clickable **[Add]** button that imports the waypoint together with its group. Works on any server.
+
+### 📸 Map export
+
+The camera button saves the whole explored map — 2D (1–16 px/block) or 3D (2–64 px/block, day or night) — to `screenshots/wayfarmap/`:
+
+- `index.html` — an **offline, Dynmap-like web viewer**: zoom from the whole map down to single blocks in any browser, no server needed.
+- `overview.png` — the entire map as one image at full resolution (streamed row by row, so any size works).
+- `preview.png` — a small thumbnail.
+
+### ⚡ Performance
+
+- Zoomed far out, the map draws from downscaled region copies (16× less memory).
+- Off-screen regions are unloaded, region files are read in the background — no stutter at region borders.
+- New textures and search highlights are built a little per frame; layers are drawn in batches.
+
+## 🔌 Mod integrations
+
+All integrations are **optional** — buttons appear only when the mod is installed. Turn them on from the **Add-on layers** menu on the world map.
+
+| Mod | What you get |
 |---|---|
-| `M` | Открыть/закрыть карту мира |
-| `N` | Показать/скрыть миникарту |
-| `=` / `-` | Приблизить/отдалить миникарту |
-| `B` | Новый вейпоинт на месте игрока |
-| `U` | Список вейпоинтов и групп |
-| `K` | Режим пещер: авто / выкл / вкл |
-| ПКМ по карте мира | Создать вейпоинт в этой точке / изменить вейпоинт под курсором |
+| ⛏️ **[VisualProspecting](https://github.com/GTNewHorizons/VisualProspecting)** | Prospected GregTech **ore veins** (ore icon, contents tooltip, *depleted* mark, **track** a vein in the world with distance) and **underground fluid** fields with amounts. Searchable by ore or fluid name. |
+| 🏰 **[ServerUtilities](https://github.com/GTNewHorizons/ServerUtilities)** | **Claims** in their team colors and **chunk loading**. Drag a rectangle with `Ctrl` to claim, `Shift` to chunk-load, `Ctrl+Shift` for both; right-drag to undo. Limits shown in the corner. |
+| ⚡ **[GregTech 5 Unofficial](https://github.com/GTNewHorizons/GT5-Unofficial)** | **Power failures** — machines that ran out of energy, with a red frame, details on hover and right-click to clear or set a waypoint. |
+| 🔮 **[TCNodeTracker](https://github.com/GTNewHorizons/TCNodeTracker)** + Thaumcraft | **Aura nodes** in the color of their strongest aspect, searchable by aspect (`ignis`, `aer ordo`…), trackable in the world. |
 
-## Настройки
+## 👥 Team map
 
-Все настройки доступны в игре (карта мира → «Настройки») и хранятся в `config/wayfarmap.cfg`: размер и угол миникарты, масштаб, показ координат/биома/игроков, цвета по текстурам, скорость сканирования чанков, интервал автосохранения.
+With the mod on the **server** together with **ServerUtilities**, every team shares one map:
 
-## Сборка
+- 🔄 Join a team and your whole explored map (all dimensions and cave layers) syncs in the background — and you receive the team's.
+- 🕒 Every chunk is timestamped, so the **most recently mapped** version always wins when maps merge.
+- 🌍 Dimensions your team explored are browsable right away — without visiting them.
+- 🧑‍🤝‍🧑 **Teammates are always visible** on the map and minimap, even far away or in another dimension; click one in the team list to jump to them.
+- 🔒 Without a team, your map stays yours only. Servers without the mod keep working as before.
+
+### `/wf chunkload`
+
+Map a large area without walking it — the server loads (and generates, if needed) the chunks and your map draws them. Requires operator rights.
 
 ```
+/wf chunkload 2d <radius>   # flat map, radius in chunks
+/wf chunkload 3d <radius>   # flat + 3D map (slower)
+/wf chunkload status        # progress
+/wf chunkload stop          # stop
+```
+
+## 📦 Installation
+
+1. Install **Minecraft Forge 1.7.10** (or play the [GT New Horizons](https://www.gtnewhorizons.com/) pack).
+2. Download the latest jar from [**Releases**](https://github.com/evgengoldwar/Wayfarer-s-Map/releases).
+3. Drop it into your `mods/` folder.
+4. *(Optional)* Put it into the server's `mods/` folder too, for the team map and `/wf chunkload`.
+
+## ⌨️ Controls
+
+All keys can be rebound in **Options → Controls → Wayfarer's Map**.
+
+| Key | Action |
+|:---:|---|
+| `M` | Open / close the world map |
+| `N` | Show / hide the minimap |
+| `=` / `-` | Minimap zoom in / out |
+| `B` | New waypoint where you stand |
+| `U` | Waypoint list and groups |
+| `K` | Cave mode: auto / off / on |
+| `Space` | *(world map)* Back to the player |
+| `Q` / `E` | *(3D map)* Rotate the view |
+| `Right click` | *(world map)* Teleport, new waypoint, edit a waypoint |
+
+<details>
+<summary><b>Unbound by default</b> — bind them to toggle things without opening the map</summary>
+
+<br>
+
+Map view (2D, 2D without plants, topography, biomes) · ore veins · underground fluids · claims · power failures · Thaumcraft nodes · chunk grid · hostile / neutral / friendly mobs · pets · players · lighting (auto / day / night).
+
+</details>
+
+## ⚙️ Configuration
+
+Every option is available in game from the **gear button** on the world map, grouped into *Minimap*, *World map*, *2D map*, *3D map*, *Entities*, *Waypoints*, *Commands* and *Logs* — hover any option for a full description. Settings are stored in `config/wayfarmap.cfg`.
+
+<details>
+<summary><b>Where is my data stored?</b></summary>
+
+<br>
+
+```
+.minecraft/wayfarmap/<singleplayer|multiplayer>/<world or server>/player-<UUID>/
+├── waypoints.json
+└── dim<id>/
+    ├── r.X.Z.png          # 2D map regions, 512×512 blocks each
+    ├── caves/<layer>/     # cave layers
+    ├── blocks/r.X.Z.wfb   # recorded blocks for the 3D map
+    └── iso/               # cached 3D tiles
+```
+
+Each account has its own map and waypoints, so several accounts on one PC never see each other's exploration. The team map is kept on the server in `<world>/wayfarmap/teams/<team>/`.
+
+The **Stats** and **Bin** buttons on the world map show disk usage and clean up old maps.
+
+</details>
+
+## 🛠️ Building from source
+
+Requires **JDK 25** (see `.java-version`).
+
+```bash
+git clone https://github.com/evgengoldwar/Wayfarer-s-Map.git
+cd Wayfarer-s-Map
 ./gradlew build
 ```
 
-Готовый jar — в `build/libs/`. Перед коммитом можно выполнить `./gradlew spotlessApply` для форматирования кода.
+The jar is written to `build/libs/`. Run `./gradlew spotlessApply` before committing to format the code.
+
+## 🤝 Contributing
+
+Bug reports, ideas and pull requests are welcome! Please open an [issue](https://github.com/evgengoldwar/Wayfarer-s-Map/issues) describing what you saw — and, for map glitches, the logs from **Settings → Logs**.
+
+## 📄 License
+
+Released under the [MIT License](src/main/resources/LICENSE).
+
+<div align="center">
+
+<br>
+
+Made with ❤️ by [**evgengoldwar**](https://github.com/evgengoldwar)
+
+</div>
