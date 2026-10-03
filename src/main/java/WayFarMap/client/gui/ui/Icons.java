@@ -91,6 +91,50 @@ public final class Icons {
         "..#####..", ".##...##.", ".......##", "......##.", "....###..", "....##...", ".........", "....##...",
         "....##..." };
 
+    public static final String[] ABOUT = { // a letter i
+        "....##...", "....##...", ".........", "...###...", "....##...", "....##...", "....##...", "....##...",
+        "...####.." };
+
+    public static final String[] GITHUB = { // the octocat's head
+        "..#.....#..", "..##...##..", ".#########.", "###########", "###.###.###", "###.###.###", "###########",
+        ".#########.", "..#######..", "...##.##...", "...##.##..." };
+
+    public static final String[] BOOSTY = { // a bold B
+        "#######..", "###..###.", "###..###.", "###..###.", "#######..", "###...###", "###...###", "###...###",
+        "########." };
+
+    public static final String[] TELEGRAM = { // a paper plane
+        "..........#", "........###", "......##.##", "....##..#.#", "..##...#..#", "###...#...#", "..##.#...#.",
+        "....##..#..", ".....#.#...", ".....##....", ".....#....." };
+
+    /** The mod's logo, a compass rose: layers of one color each, drawn together by {@link #drawLogo}. */
+    private static final String[] LOGO_RING = { ".....#####.....", "...##.....##...", "..#.........#..",
+        ".#...........#.", ".#...........#.", "#.............#", "#.............#", "#.............#",
+        "#.............#", "#.............#", ".#...........#.", ".#...........#.", "..#.........#..",
+        "...##.....##...", ".....#####....." };
+
+    private static final String[] LOGO_TICKS = { "", "", "", "", "", "", "", "..##.......##..", "", "", "", "", "", "",
+        "" };
+
+    private static final String[] LOGO_NORTH = { "", "", ".......#.......", ".......#.......", "......###......",
+        "......###......", ".....#####.....", ".....##.##....." };
+
+    private static final String[] LOGO_SOUTH = { "", "", "", "", "", "", "", "", ".....#####.....", "......###......",
+        "......###......", ".......#.......", ".......#......." };
+
+    private static final String[] LOGO_PIVOT = { "", "", "", "", "", "", "", ".......#......." };
+
+    public static final int LOGO_SIZE = 15;
+
+    /** Draws the logo with its top left corner at (x, y), one GUI pixel per dot. */
+    public static void drawLogo(int x, int y) {
+        draw(LOGO_RING, x, y, Theme.ACCENT);
+        draw(LOGO_TICKS, x, y, Theme.TEXT_MUTED);
+        draw(LOGO_NORTH, x, y, Theme.DANGER);
+        draw(LOGO_SOUTH, x, y, Theme.TEXT);
+        draw(LOGO_PIVOT, x, y, 0xFFF2C14E);
+    }
+
     public static int width(String[] icon) {
         int width = 0;
         for (String row : icon) {

@@ -383,6 +383,46 @@ public final class BlockStore {
         listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax));
     }
 
+    /**
+     * Forgets the chunk's blocks (writer thread of IsoMap): the 3D map shows it empty, as a chunk never recorded.
+     *
+     * @return whether there were blocks of it
+     */
+    boolean remove(int chunkX, int chunkZ) {
+        Region region = region(chunkX >> 5, chunkZ >> 5);
+        int index = (chunkZ & 31) * CHUNKS + (chunkX & 31);
+        int oldTop;
+        boolean loaded;
+        synchronized (region) {
+            oldTop = region.yMax[index];
+            if (oldTop < 0) {
+                return false;
+            }
+            loaded = loadBlobs(region);
+            int oldLength = region.lengths[index];
+            region.blobs[index] = null;
+            region.yMin[index] = 0;
+            region.yMax[index] = -1;
+            region.lengths[index] = 0;
+            region.times[index] = 0;
+            region.dirty = true;
+            synchronized (this) {
+                blobBytes -= oldLength;
+            }
+        }
+        if (loaded) {
+            trimBlobs(region);
+        }
+        synchronized (decoded) {
+            ChunkBlocks old = decoded.remove(key(chunkX, chunkZ));
+            if (old != null) {
+                decodedWeight -= old.weight();
+            }
+        }
+        listener.chunkChanged(this, chunkX, chunkZ, oldTop);
+        return true;
+    }
+
     /** Writes every changed region (saver thread of IsoMap, while its writer keeps storing chunks). */
     void save() {
         for (Region region : regions.values()) {

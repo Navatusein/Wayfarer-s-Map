@@ -389,10 +389,10 @@ public class WaypointRenderer {
             }
         }
         if (Mods.isVisualProspectingLoaded()) {
-            ProspectingLayer.renderTrackedInWorld(mc, dimension);
+            Mods.draw(Mods.Addon.VISUAL_PROSPECTING, () -> ProspectingLayer.renderTrackedInWorld(mc, dimension));
         }
         if (Mods.isThaumcraftNodesAvailable()) {
-            ThaumcraftNodes.renderTrackedInWorld(mc, dimension);
+            Mods.draw(Mods.Addon.THAUMCRAFT_NODES, () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension));
         }
     }
 

@@ -5,6 +5,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
@@ -15,6 +17,7 @@ import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
+import WayFarMap.client.KeyHandler;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
@@ -25,7 +28,8 @@ import WayFarMap.client.gui.ui.Theme;
  * <p>
  * The text comes from {@code assets/wayfarmap/help/<language>.txt} (falling back to en_US): "# Title" starts a
  * section, "! " marks an important note, "> " a tip, "- " a list item, an empty line a gap. Minecraft color codes
- * (§) can be used anywhere.
+ * (§) can be used anywhere. {@code {key:open_map}} is the key the mod's binding of that name is set to now (from
+ * Minecraft's controls, so a key changed there shows changed here), or "not set".
  */
 public class GuiHelp extends ScaledScreen {
 
@@ -147,7 +151,7 @@ public class GuiHelp extends ScaledScreen {
             to--;
         }
         for (int n = from; n < to; n++) {
-            String text = raw.get(n);
+            String text = withKeys(raw.get(n));
             if (text.trim()
                 .isEmpty()) {
                 lines.add(new Line("", 3, false, false, false, false));
@@ -182,6 +186,24 @@ public class GuiHelp extends ScaledScreen {
                         i == wrapped.size() - 1));
             }
         }
+    }
+
+    private static final Pattern KEY = Pattern.compile("\\{key:([a-z_]+)\\}");
+
+    /** The text with each {@code {key:name}} put as the key set now, a gray "not set" for a binding without one. */
+    private static String withKeys(String text) {
+        if (text.indexOf('{') < 0) {
+            return text;
+        }
+        Matcher matcher = KEY.matcher(text);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String key = KeyHandler.keyName(matcher.group(1));
+            String shown = key != null ? key : "\u00A77" + I18n.format("wayfarmap.help.key_none") + "\u00A7e";
+            matcher.appendReplacement(out, Matcher.quoteReplacement(shown));
+        }
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     private static List<Section> load() {

@@ -16,14 +16,13 @@ import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.share.ShareNetwork;
 
 /**
- * The world map's chunk loading view: the chunks on the map in green, the chunks picked to be loaded in red until the
- * map has them (then they turn green and join the rest), each area with one border around it like claims. Chunks
- * are picked by dragging with Ctrl; the server loads them (generating those not made yet) through
- * {@code /wf chunkload}'s batches.
+ * The world map's area loading view: the chunks on the map in green, the chunks saved in the world (its region files)
+ * that the map doesn't have in grey, as the server tells, and the chunks picked to be loaded in red until the map has
+ * them (then they turn green and join the rest), each area with one border around it like claims. Chunks are picked
+ * by dragging with Ctrl; the server loads them through {@code /wf chunkload}'s batches.
  * <p>
- * Its region loading variant also shows in grey the chunks saved in the world (its region files) that the map
- * doesn't have, as the server tells; only those can be picked, and they are loaded from the world as they are,
- * nothing generated ({@code /wf regionload}'s way).
+ * Picked "saved only", only the grey chunks are taken, loaded from the world as they are, nothing generated
+ * ({@code /wf regionload}'s way); picked "generate new", chunks never made are generated too.
  * <p>
  * Picked with Shift too, every cave layer of the chunks is mapped as well, not only the surface.
  */
@@ -47,6 +46,8 @@ public final class ChunkLoadView {
     /** Picked chunks whose cave layers are mapped too: red until the loading has mapped them all. */
     private static final Set<Long> WITH_CAVES = new java.util.HashSet<>();
     private static final int CAVES_BORDER = 0x58A6FF;
+    /** Border of the chunks of a drag deleting them from the map. */
+    private static final int DELETE_BORDER = 0xF85149;
 
     /** Region loading view: which chunks of each region are saved in the world, by dimension and region key. */
     private static final Map<Integer, Map<Long, long[]>> SAVED_CHUNKS = new HashMap<>();
@@ -57,6 +58,10 @@ public final class ChunkLoadView {
     private static long lastAsk;
     /** Whether the server lets the player load chunks from the map (it says so; servers without the mod never do). */
     private static boolean allowed;
+
+    /** Colors of the view's legend: on the map, saved in the world, picked. */
+    public static final int LEGEND_MAPPED = 0xFF000000 | MAPPED_FILL, LEGEND_SAVED = 0xFF000000 | SAVED_FILL,
+        LEGEND_PENDING = 0xFF000000 | PENDING_FILL;
 
     public static boolean isAllowed() {
         return allowed;
@@ -142,13 +147,16 @@ public final class ChunkLoadView {
     /**
      * Draws the view over the flat map.
      *
-     * @param selection chunks of the drag going on, or null
-     * @param removing  the drag takes chunks off the queue
-     * @param regions   the region loading view (saved chunks in grey)
-     * @param caves     the drag picks the chunks with their cave layers
+     * @param selection  chunks of the drag going on, or null
+     * @param removing   the drag takes chunks off the queue
+     * @param regions    the chunks saved in the world are shown (in grey)
+     * @param caves      the drag picks the chunks with their cave layers
+     * @param savedOnly  the drag takes only chunks saved in the world: the others in it are drawn faint
+     * @param cancelling the drag takes chunks off the queue: only the queued ones in it are marked
      */
     public static void draw(MapDimension surface, int dimension, double centerX, double centerZ, double scale, int x,
-        int y, int width, int height, Set<Long> selection, boolean removing, boolean regions, boolean caves) {
+        int y, int width, int height, Set<Long> selection, boolean removing, boolean regions, boolean caves,
+        boolean savedOnly, boolean cancelling) {
         if (regions != regionsMode) {
             regionsMode = regions;
             REGION_STATES.clear();
@@ -284,9 +292,30 @@ public final class ChunkLoadView {
             }
         }
         if (selection != null && !selection.isEmpty()) {
-            int color = removing ? 0xA0A0A0 : caves ? CAVES_BORDER : PENDING_BORDER;
+            int color = removing ? DELETE_BORDER : caves ? CAVES_BORDER : PENDING_BORDER;
             for (long chunk : selection) {
                 double sx = x + (unpackX(chunk) * 16 - left) * scale, sy = y + (unpackZ(chunk) * 16 - top) * scale;
+                if (cancelling) {
+                    // Taking off the queue: the queued (red) chunks it covers are outlined in white.
+                    if (pending.containsKey(chunk)) {
+                        rect(sx, sy, cell, cell, 0xFFFFFF, 60, x, y, width, height);
+                        hollowRect(sx, sy, cell, cell, pixel, 0xFFFFFF, 0xFF, x, y, width, height);
+                    } else {
+                        rect(sx, sy, cell, cell, 0xFFFFFF, 10, x, y, width, height);
+                    }
+                    continue;
+                }
+                if (removing) {
+                    // Deleting: the chunks darkened, as if wiped off.
+                    rect(sx, sy, cell, cell, 0x0C0E11, 150, x, y, width, height);
+                    hollowRect(sx, sy, cell, cell, pixel, color, 0xFF, x, y, width, height);
+                    continue;
+                }
+                if (savedOnly && !removing && !isSaved(dimension, unpackX(chunk), unpackZ(chunk))) {
+                    // Not saved in the world: left out of a "saved only" pick.
+                    rect(sx, sy, cell, cell, 0xFFFFFF, 10, x, y, width, height);
+                    continue;
+                }
                 rect(sx, sy, cell, cell, 0xFFFFFF, 33, x, y, width, height);
                 hollowRect(sx, sy, cell, cell, pixel, color, 0xFF, x, y, width, height);
             }
@@ -445,6 +474,55 @@ public final class ChunkLoadView {
     }
 
     /** Picked chunks still waiting, for the footer. */
+    /**
+     * Forgets the chunks picked in a dimension: a new loading of the whole area ({@code /wf regionload full}) takes
+     * the place of the one they were in.
+     */
+    public static void clearPending(int dimension) {
+        Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
+        if (pending != null) {
+            for (long chunk : pending.keySet()) {
+                WITH_3D.remove(chunk);
+                WITH_CAVES.remove(chunk);
+            }
+            pending.clear();
+        }
+        REGION_STATES.clear();
+    }
+
+    /** Whether any of the chunks is queued to be loaded. */
+    public static boolean anyPending(int dimension, Set<Long> chunks) {
+        Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
+        if (pending == null || pending.isEmpty()) {
+            return false;
+        }
+        for (long chunk : chunks) {
+            if (pending.containsKey(chunk)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** How many of the chunks are on the map (or may be: their region isn't read yet). */
+    public static int countOnMap(MapDimension surface, Set<Long> chunks) {
+        if (surface == null) {
+            return 0;
+        }
+        int count = 0;
+        for (long chunk : chunks) {
+            if (surface.chunkTimeInMemory(unpackX(chunk), unpackZ(chunk)) != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Shows changes to the map at once in the far view (chunks deleted from it). */
+    public static void refresh() {
+        REGION_STATES.clear();
+    }
+
     public static int pendingCount(int dimension) {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
         return pending == null ? 0 : pending.size();

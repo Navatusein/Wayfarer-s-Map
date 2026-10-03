@@ -5,10 +5,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -940,6 +942,84 @@ public class MapManager implements IResourceManagerReloadListener {
     }
 
     /**
+     * Deletes chunks from the flat map of the player's dimension: surface, the map without plants, biomes and every
+     * cave layer (those not in memory are read for it), in memory; the regions are saved as usual. Chunks still loaded
+     * around the player are mapped again right away, from what the game has now. Render thread.
+     *
+     * @param chunks packed as {@code x << 32 | z & 0xFFFFFFFF}
+     * @return how many of them were on the map
+     */
+    public int deleteFlatChunks(int dimensionId, Collection<Long> chunks) {
+        if (worldDirectory == null || surface == null || dimensionId != surface.dimensionId || chunks.isEmpty()) {
+            return 0;
+        }
+        List<MapDimension> maps = new ArrayList<>();
+        maps.add(surface);
+        maps.add(surface.plantless());
+        maps.add(biomes);
+        File caves = new File(dimensionDirectory, "caves");
+        File[] layers = caves.listFiles(File::isDirectory);
+        if (layers != null) {
+            for (File layer : layers) {
+                try {
+                    maps.add(getCaveLayer(Integer.parseInt(layer.getName())));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        for (MapDimension cave : caveLayers.values()) {
+            if (!maps.contains(cave)) {
+                maps.add(cave);
+            }
+        }
+        // By region, so each region is read once.
+        Map<Long, List<Long>> byRegion = new LinkedHashMap<>();
+        for (long chunk : chunks) {
+            int cx = (int) (chunk >> 32), cz = (int) chunk;
+            long region = ((long) (cx >> 5) << 32) | ((cz >> 5) & 0xFFFFFFFFL);
+            byRegion.computeIfAbsent(region, k -> new ArrayList<>())
+                .add(chunk);
+        }
+        Set<Long> found = new HashSet<>();
+        long start = System.nanoTime();
+        for (Map.Entry<Long, List<Long>> entry : byRegion.entrySet()) {
+            int rx = (int) (entry.getKey() >> 32), rz = (int) (long) entry.getKey();
+            for (MapDimension map : maps) {
+                if (map == null) {
+                    continue;
+                }
+                MapRegion region = map.getRegion(rx, rz, false);
+                if (region == null) {
+                    continue;
+                }
+                for (long chunk : entry.getValue()) {
+                    if (region.clearChunk((int) (chunk >> 32) & 31, (int) chunk & 31) && map == surface) {
+                        found.add(chunk);
+                    }
+                }
+            }
+        }
+        // Those still loaded around the player are mapped again at once, as new chunks, nearest first: otherwise only
+        // the scanner's slow check now and then brought them back, a few every few seconds, in a patchwork.
+        for (long chunk : chunks) {
+            surfaceTracker.forget((int) (chunk >> 32), (int) (long) chunk);
+            caveTracker.forget((int) (chunk >> 32), (int) (long) chunk);
+        }
+        surfaceTracker.requeue();
+        caveTracker.requeue();
+        FlatLog.log(
+            "DELETE_CHUNKS dim=" + dimensionId
+                + " asked="
+                + chunks.size()
+                + " onMap="
+                + found.size()
+                + " maps="
+                + maps.size()
+                + " ms="
+                + FlatLog.ms(System.nanoTime() - start));
+        return found.size();
+    }
+
+    /**
      * Deletes saved map data safely while in a world: the maps are saved and closed (with the logs), {@code delete}
      * runs, and they are opened again on the next tick, from what is left on disk. Without closing, the regions in
      * memory would be saved back over what was deleted. Render thread.
@@ -1150,6 +1230,11 @@ public class MapManager implements IResourceManagerReloadListener {
             incomplete.remove(chunkKey(chunkX, chunkZ));
             Integer last = lastScanTick.remove(chunkKey(chunkX, chunkZ));
             return last == null ? -1 : last;
+        }
+
+        /** Builds the queue again on the next tick (chunks were forgotten and are to be mapped at once). */
+        void requeue() {
+            queuedAround = Long.MIN_VALUE;
         }
 
         void reset() {

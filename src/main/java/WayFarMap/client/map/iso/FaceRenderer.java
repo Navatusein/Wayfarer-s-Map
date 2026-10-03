@@ -1234,14 +1234,22 @@ final class FaceRenderer {
      * side and a seen one meet on their edge, the hidden one drew lines along the seams of a wall.
      */
     private static void clipColumn(Pending pending, double margin, boolean hideCovered) {
+        clipColumn(pending, margin, hideCovered, 0);
+    }
+
+    /**
+     * As {@link #clipColumn(Pending, double, boolean)}, with only the small {@link #CLIP_MARGIN} on the sides in
+     * {@code tight} (bits by side, like {@code covered}).
+     */
+    private static void clipColumn(Pending pending, double margin, boolean hideCovered, int tight) {
         if (!clipPlanesWork()) {
             return;
         }
         int covered = hideCovered ? pending.covered : 0;
-        clip(0, 1, 0, 0, -(pending.x - side(covered, 4, margin)));
-        clip(1, -1, 0, 0, pending.x + 1 + side(covered, 5, margin));
-        clip(2, 0, 0, 1, -(pending.z - side(covered, 2, margin)));
-        clip(3, 0, 0, -1, pending.z + 1 + side(covered, 3, margin));
+        clip(0, 1, 0, 0, -(pending.x - side(covered, 4, margin(tight, 4, margin))));
+        clip(1, -1, 0, 0, pending.x + 1 + side(covered, 5, margin(tight, 5, margin)));
+        clip(2, 0, 0, 1, -(pending.z - side(covered, 2, margin(tight, 2, margin))));
+        clip(3, 0, 0, -1, pending.z + 1 + side(covered, 3, margin(tight, 3, margin)));
         if ((covered & 1) != 0) {
             clip(4, 0, 1, 0, -(pending.y + COVERED_INSET));
         } else {
@@ -1252,6 +1260,37 @@ final class FaceRenderer {
         } else {
             GL11.glDisable(GL11.GL_CLIP_PLANE0 + 5);
         }
+    }
+
+    private static double margin(int tight, int side, double margin) {
+        return (tight & 1 << side) != 0 ? Math.min(margin, CLIP_MARGIN) : margin;
+    }
+
+    /**
+     * Sides (bits as in {@code covered}) with a tile entity drawing a model next to the block: a double chest's other
+     * half, a fridge beside another. That place takes its own picture of what is drawn there (the other half of the
+     * chest comes from this one's model), so this block's own model is cut right at its outline on those sides. With
+     * the wider margin of its own model, a quarter of the chest's other half was in this block's picture too and was
+     * drawn over the other half: dark seams, latches twice and dark bands along rows of chests.
+     */
+    private static int modelNeighbours(Pending pending) {
+        World world = pending.tileEntity != null ? pending.tileEntity.getWorldObj() : null;
+        if (world == null) {
+            return 0;
+        }
+        int sides = 0;
+        for (int side = 2; side < 6; side++) {
+            try {
+                TileEntity next = world.getTileEntity(
+                    pending.x + OFFSETS[side][0],
+                    pending.y + OFFSETS[side][1],
+                    pending.z + OFFSETS[side][2]);
+                if (next != null && TileEntityRendererDispatcher.instance.hasSpecialRenderer(next)) {
+                    sides |= 1 << side;
+                }
+            } catch (RuntimeException ignored) {}
+        }
+        return sides;
     }
 
     /** How far outside the block its column is kept on a side: the margin, or inside it if the side is hidden. */
@@ -1688,7 +1727,11 @@ final class FaceRenderer {
                 if (variant != 1) {
                     // Its own model with room around; one next to it (a double chest's other half) only in this
                     // column. Not cut at its hidden sides: what they draw (a panel's text) reaches past them.
-                    clipColumn(pending, n < 0 ? OWN_MODEL_MARGIN : CLIP_MARGIN, false);
+                    if (n < 0) {
+                        clipColumn(pending, OWN_MODEL_MARGIN, false, modelNeighbours(pending));
+                    } else {
+                        clipColumn(pending, CLIP_MARGIN, false);
+                    }
                     if (n >= 4) {
                         // Of a model drawn from farther, only what is in this block's place: the blocks above and
                         // below take their own part.

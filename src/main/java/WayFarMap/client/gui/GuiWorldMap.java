@@ -16,6 +16,7 @@ import java.util.Set;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
 
@@ -45,6 +46,7 @@ import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
 import WayFarMap.client.map.FlatExport;
+import WayFarMap.client.map.MapCleaner;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
@@ -73,7 +75,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21;
+        ID_CLOSE = 21, ID_ABOUT = 22;
     /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
         MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -121,6 +123,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static String searchText = "";
     private FlatTextField searchField;
     private IconButton helpButton;
+    private IconButton aboutButton;
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
     private final Set<Long> claimSelection = new LinkedHashSet<>();
@@ -250,10 +253,20 @@ public class GuiWorldMap extends ScaledScreen {
         // Top right corner: closes the map, like Esc.
         buttonList.add(new IconButton(ID_CLOSE, width - 24, 4, Icons.CLOSE, I18n.format("wayfarmap.gui.close")));
 
-        // Bottom right: the help screen with every feature explained.
+        // Bottom right corner: about the mod, its author and links.
+        aboutButton = new IconButton(
+            ID_ABOUT,
+            width - 22,
+            height - FOOTER_HEIGHT + 1,
+            Icons.ABOUT,
+            I18n.format("wayfarmap.gui.about_button"));
+        aboutButton.setHeight(13);
+        aboutButton.visible = Config.isMapButtonShown("about");
+        buttonList.add(aboutButton);
+        // Next to it: the help screen with every feature explained.
         helpButton = new IconButton(
             ID_HELP,
-            width - 22,
+            aboutButton.visible ? width - 44 : width - 22,
             height - FOOTER_HEIGHT + 1,
             Icons.HELP,
             I18n.format("wayfarmap.gui.help_button"));
@@ -370,7 +383,9 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** The search field shows up in biome view and with the ore vein or fluid layer (not in 3D). */
     private boolean searchAvailable() {
-        return !isoShown() && (biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown());
+        // Not in the area loading view: it shows no layers, and its switch is where the field would be.
+        return !isoShown() && !chunkloadShown()
+            && (biomeViewShown() || prospectingLayerShown() || powerfailsShown() || nodesShown());
     }
 
     private static boolean nodesShown() {
@@ -685,6 +700,8 @@ public class GuiWorldMap extends ScaledScreen {
             mc.displayGuiScreen(null);
         } else if (button.id == ID_HELP) {
             mc.displayGuiScreen(new GuiHelp(this));
+        } else if (button.id == ID_ABOUT) {
+            mc.displayGuiScreen(new GuiAbout(this));
         } else if (button.id == ID_LIGHT) {
             // Auto -> day -> night -> auto.
             Config.setMapLightMode(
@@ -743,14 +760,17 @@ public class GuiWorldMap extends ScaledScreen {
      * topography, biomes.
      */
     private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
-        MODE_CHUNKLOAD = 5, MODE_REGIONLOAD = 6;
-    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload", "regionload" };
+        MODE_CHUNKLOAD = 5;
+    private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
     private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
-        Icons.CHUNKLOAD, Icons.REGIONLOAD };
-    /** The chunk loading view: the flat map with the chunks on it and those picked to be loaded. */
+        Icons.CHUNKLOAD };
+    /**
+     * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
+     * loaded.
+     */
     private static boolean chunkloadView;
-    /** Its region loading variant: also the chunks saved in the world, loaded from it as they are. */
-    private static boolean regionloadView;
+    /** Height of the buttons of the area loading toolbar. */
+    private static final int LOAD_BAR_HEIGHT = 14;
 
     private static int currentMode() {
         if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
@@ -761,9 +781,6 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Config.isometric) {
             return MODE_ISO;
-        }
-        if (regionloadView) {
-            return MODE_REGIONLOAD;
         }
         return chunkloadView ? MODE_CHUNKLOAD : Config.showPlants ? MODE_FLAT : MODE_BARE;
     }
@@ -776,8 +793,8 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         int current = currentMode();
         for (int mode = 0; mode < MODE_KEYS.length; mode++) {
-            if ((mode == MODE_CHUNKLOAD || mode == MODE_REGIONLOAD) && !ChunkLoadView.isAllowed()) {
-                // Loading from the map is for operators: the modes aren't offered to others.
+            if (mode == MODE_CHUNKLOAD && !ChunkLoadView.isAllowed()) {
+                // Loading from the map is for operators: the mode isn't offered to others.
                 continue;
             }
             final int value = mode;
@@ -801,7 +818,6 @@ public class GuiWorldMap extends ScaledScreen {
         // The map without grass and flowers is kept along with the surface: switching only picks the one drawn.
         Config.setShowPlants(mode != MODE_BARE);
         chunkloadView = mode == MODE_CHUNKLOAD;
-        regionloadView = mode == MODE_REGIONLOAD;
         updateSurfaceView();
         centerOn(middle[0], middle[1], middle[2]);
         zooming = false;
@@ -1029,9 +1045,11 @@ public class GuiWorldMap extends ScaledScreen {
                 width,
                 height,
                 pickSelection,
-                pickRemove,
-                regionloadView,
-                pickCaves);
+                pickMode == PICK_DELETE,
+                true,
+                pickMode == PICK_GENERATE_CAVES,
+                pickMode == PICK_SAVED,
+                pickMode == PICK_CANCEL);
             return;
         }
         if (Topography.isShown()) {
@@ -1049,20 +1067,33 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
-            ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
+            Mods.draw(
+                Mods.Addon.CLAIMS,
+                () -> ClaimsLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction));
         }
         if (prospecting && Config.showUndergroundFluids) {
-            ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false));
         }
-        if (prospecting && Config.showOreVeins) {
-            ProspectingLayer
-                .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        if (prospecting && Config.showOreVeins && Mods.isVisualProspectingLoaded()) {
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer
+                    .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (nodesShown()) {
-            ThaumcraftNodes.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+            Mods.draw(
+                Mods.Addon.THAUMCRAFT_NODES,
+                () -> ThaumcraftNodes
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (powerfailsShown()) {
-            PowerfailLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+            Mods.draw(
+                Mods.Addon.POWERFAILS,
+                () -> PowerfailLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (!otherDimension) {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
@@ -1118,10 +1149,11 @@ public class GuiWorldMap extends ScaledScreen {
                 + I18n.format("wayfarmap.gui.waypoint_hint");
         }
         if (chunkloadShown()) {
+            // The keys are listed in the toolbar at the top; here only how many chunks wait.
             int queued = ChunkLoadView.pendingCount(dimensionId);
-            cursorText += "  |  "
-                + I18n.format(regionloadView ? "wayfarmap.gui.regionload_hint" : "wayfarmap.gui.chunkload_hint")
-                + (queued > 0 ? "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued) : "");
+            if (queued > 0) {
+                cursorText += "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued);
+            }
         }
         String exportStatus = MapExport.statusText();
         exportButton.active = exportStatus != null;
@@ -1146,7 +1178,7 @@ public class GuiWorldMap extends ScaledScreen {
             right = I18n.format("wayfarmap.claims.other_dimension");
             rightColor = Theme.DANGER;
         }
-        int rightEdge = helpButton.xPosition - 8;
+        int rightEdge = (helpButton.visible ? helpButton : aboutButton).xPosition - 8;
         int rightX = rightEdge;
         if (right != null && !right.isEmpty()) {
             // Never more than half the footer, so the left text keeps room too.
@@ -1165,6 +1197,9 @@ public class GuiWorldMap extends ScaledScreen {
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScaled(mouseX, mouseY, partialTicks);
 
+        if (chunkloadShown()) {
+            drawLoadBar(mouseX, mouseY);
+        }
         if (caveLayer >= 0) {
             drawCaveSlider(mouseX, mouseY);
         }
@@ -1954,6 +1989,18 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
+        if (chunkloadShown() && button == 0 && loadBarSegment(mouseX, mouseY) >= 0) {
+            int segment = loadBarSegment(mouseX, mouseY);
+            if (segment == LOAD_ALL) {
+                confirmLoadAllSaved(mouseX, mouseY);
+            } else if (segment == LOAD_WIPE) {
+                confirmWipeDimension(mouseX, mouseY);
+            }
+            return;
+        }
+        if (chunkloadShown() && overLoadPanel(mouseX, mouseY)) {
+            return;
+        }
         if (chunkloadShown() && (button == 0 || button == 1) && startPick(mouseX, mouseY, button)) {
             return;
         }
@@ -2009,13 +2056,17 @@ public class GuiWorldMap extends ScaledScreen {
 
     // ---------------------------------------------------------------- chunk loading view
 
-    /** Chunks picked by the drag going on (Ctrl held) in the chunk loading view. */
+    /** Chunks picked by the drag going on in the area loading view. */
     private final Set<Long> pickSelection = new LinkedHashSet<>();
     private int pickButton = -1;
-    /** Right button: the picked chunks are taken off the queue. */
-    private boolean pickRemove;
-    /** Shift held with Ctrl: the picked chunks are loaded with every cave layer. */
-    private boolean pickCaves;
+    /**
+     * What the drag going on does, set by the keys held when it started: Ctrl+LMB loads the chunks saved in the world,
+     * Shift+LMB generates the chunks, Ctrl+Shift+LMB generates them with every cave layer, Ctrl+RMB deletes them from
+     * the map, Shift+RMB takes them off the queue.
+     */
+    private int pickMode = -1;
+    private static final int PICK_SAVED = 0, PICK_GENERATE = 1, PICK_GENERATE_CAVES = 2, PICK_DELETE = 3,
+        PICK_CANCEL = 4;
     private int pickStartX, pickStartZ, pickEndX = Integer.MIN_VALUE, pickEndZ;
 
     /**
@@ -2023,32 +2074,224 @@ public class GuiWorldMap extends ScaledScreen {
      * cave mode is for the flat map only.
      */
     private static void updateSurfaceView() {
-        MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView || regionloadView);
+        MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView);
     }
 
-    /** The chunk loading view: the flat map of the player's own dimension. */
-    private boolean chunkloadShown() {
-        if ((chunkloadView || regionloadView) && !ChunkLoadView.isAllowed()) {
-            // No longer allowed (or another server): back to the flat map.
-            chunkloadView = false;
-            regionloadView = false;
-            updateSurfaceView();
+    /** The area loading toolbar under the header: its row of buttons, then the lines of hints under it. */
+    private static final int LOAD_ROW = HEADER_HEIGHT + 5, LOAD_HINT_ROW = LOAD_ROW + LOAD_BAR_HEIGHT + 5,
+        LOAD_HINT_LINES = 3, LOAD_PANEL_BOTTOM = LOAD_HINT_ROW + LOAD_HINT_LINES * 11 + 1;
+    /** Buttons of the area loading toolbar, as {@link #loadBarSegment} tells them. */
+    private static final int LOAD_ALL = 0, LOAD_WIPE = 1;
+    private static final int LOAD_GAP = 8;
+
+    /** Labels of the toolbar's buttons, by {@code LOAD_*}. */
+    private String[] loadLabels() {
+        return new String[] { I18n.format("wayfarmap.gui.load_all_saved"), I18n.format("wayfarmap.gui.load_wipe") };
+    }
+
+    /** Left and right edges of the toolbar's buttons ({@code LOAD_*} twice: x0, x1), centered. */
+    private int[] loadLayout() {
+        String[] labels = loadLabels();
+        int[] widths = new int[labels.length];
+        int total = LOAD_GAP * (labels.length - 1);
+        for (int i = 0; i < labels.length; i++) {
+            widths[i] = fontRendererObj.getStringWidth(labels[i]) + 22;
+            total += widths[i];
         }
-        // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
-        return (chunkloadView || regionloadView) && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
+        int[] edges = new int[labels.length * 2];
+        int x = width / 2 - total / 2;
+        for (int i = 0; i < labels.length; i++) {
+            edges[2 * i] = x;
+            edges[2 * i + 1] = x + widths[i];
+            x += widths[i] + LOAD_GAP;
+        }
+        return edges;
+    }
+
+    /** What of the area loading toolbar is under the mouse ({@code LOAD_*}), -1 none. */
+    private int loadBarSegment(int mouseX, int mouseY) {
+        if (mouseY < LOAD_ROW || mouseY >= LOAD_ROW + LOAD_BAR_HEIGHT) {
+            return -1;
+        }
+        int[] edges = loadLayout();
+        for (int i = 0; i < edges.length / 2; i++) {
+            if (mouseX >= edges[2 * i] && mouseX < edges[2 * i + 1]) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Left and right edges of the whole toolbar: its buttons and the hints under them. */
+    private int[] loadPanelEdges() {
+        int[] edges = loadLayout();
+        int x0 = edges[0], x1 = edges[edges.length - 1];
+        for (String line : loadHintLines()) {
+            int w = fontRendererObj.getStringWidth(line);
+            x0 = Math.min(x0, width / 2 - w / 2);
+            x1 = Math.max(x1, width / 2 + w / 2);
+        }
+        int legend = legendWidth();
+        return new int[] { Math.min(x0, width / 2 - legend / 2), Math.max(x1, width / 2 + legend / 2) };
+    }
+
+    /** Whether the mouse is over the area loading toolbar (a drag there doesn't start). */
+    private boolean overLoadPanel(int mouseX, int mouseY) {
+        int[] edges = loadPanelEdges();
+        return Theme.inside(mouseX, mouseY, edges[0] - 5, LOAD_ROW - 4, edges[1] + 5, LOAD_PANEL_BOTTOM);
     }
 
     /**
-     * Ctrl and a drag: left picks the rectangle of chunks to be loaded, right takes them off the queue. With Shift too,
-     * the chunks are loaded with every cave layer.
+     * Asks before deleting the whole map of the player's dimension: the 2D map, and the 3D map with it while blocks
+     * are recorded. The maps are saved and closed first and opened again empty (as the map data screen does).
+     */
+    private void confirmWipeDimension(int mouseX, int mouseY) {
+        int dimension = mc.theWorld.provider.dimensionId;
+        boolean with3d = Config.record3d;
+        List<MenuEntry> entries = new ArrayList<>();
+        entries.add(
+            new MenuEntry(
+                I18n.format(with3d ? "wayfarmap.gui.load_wipe_3d" : "wayfarmap.gui.load_wipe_2d"),
+                true,
+                () -> wipeDimension(dimension, with3d)));
+        entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
+        showMenu(entries, MENU_CONFIRM, mouseX, mouseY + 4);
+    }
+
+    private void wipeDimension(int dimension, boolean with3d) {
+        File world = MapManager.INSTANCE.getWorldDirectory();
+        if (world == null) {
+            return;
+        }
+        File directory = new File(world, "dim" + dimension);
+        ChunkLoadView.clearPending(dimension);
+        MapManager.INSTANCE
+            .resetMaps((with3d ? "2D and 3D map" : "2D map") + " of dim" + dimension + " (area loading view)", () -> {
+                MapCleaner.delete2d(directory);
+                if (with3d) {
+                    MapCleaner.delete3d(directory);
+                }
+            });
+        ChunkLoadView.refresh();
+        mc.thePlayer.addChatMessage(
+            new ChatComponentTranslation(with3d ? "wayfarmap.chunkload.wiped_3d" : "wayfarmap.chunkload.wiped_2d"));
+    }
+
+    /**
+     * Asks before mapping every chunk saved in the world's region files of this dimension ({@code /wf regionload
+     * full}, for the 3D map too while blocks are recorded): it can be a lot, and it takes the place of the chunks
+     * queued so far.
+     */
+    private void confirmLoadAllSaved(int mouseX, int mouseY) {
+        int dimension = mc.theWorld.provider.dimensionId;
+        List<MenuEntry> entries = new ArrayList<>();
+        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.load_all_saved_yes"), true, () -> {
+            ChunkLoadView.clearPending(dimension);
+            mc.thePlayer.sendChatMessage("/wf regionload " + (Config.record3d ? "3d" : "2d") + " full");
+        }));
+        entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
+        showMenu(entries, MENU_CONFIRM, mouseX, mouseY + 4);
+    }
+
+    /** The lines of keys under the legend: loading on the first, deleting and cancelling on the second. */
+    private String[] loadHintLines() {
+        return new String[] { I18n.format("wayfarmap.gui.load_keys_load"),
+            I18n.format("wayfarmap.gui.load_keys_remove") };
+    }
+
+    private String[] legendWords() {
+        return new String[] { I18n.format("wayfarmap.gui.load_legend_mapped"),
+            I18n.format("wayfarmap.gui.load_legend_saved"), I18n.format("wayfarmap.gui.load_legend_pending") };
+    }
+
+    /** Width of the legend line: a square before each color's word. */
+    private int legendWidth() {
+        int w = 0;
+        String[] words = legendWords();
+        for (int i = 0; i < words.length; i++) {
+            w += 9 + fontRendererObj.getStringWidth(words[i]) + (i < words.length - 1 ? 16 : 0);
+        }
+        return w;
+    }
+
+    /**
+     * The toolbar under the header of the area loading view: loading every saved chunk, deleting the dimension's
+     * whole map; under it the colors and the mouse keys.
+     */
+    private void drawLoadBar(int mouseX, int mouseY) {
+        int[] edges = loadLayout();
+        String[] labels = loadLabels();
+        int[] panel = loadPanelEdges();
+        Theme.fill(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, LOAD_PANEL_BOTTOM, Theme.PANEL);
+        Theme.outline(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, LOAD_PANEL_BOTTOM, Theme.BORDER);
+        int hovered = menu == null && dimensionList == null ? loadBarSegment(mouseX, mouseY) : -1;
+        int y0 = LOAD_ROW, y1 = LOAD_ROW + LOAD_BAR_HEIGHT;
+
+        for (int i = 0; i < labels.length; i++) {
+            int sx = edges[2 * i], ex = edges[2 * i + 1];
+            boolean over = hovered == i;
+            int line = i == LOAD_WIPE ? Theme.DANGER : Theme.ACCENT;
+            Theme.fill(sx, y0, ex, y1, over ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(sx, y0, ex, y1, over ? line : Theme.BORDER);
+            // A mark in the color of what it does: gray like the saved chunks, red for deleting.
+            Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
+            int color = i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A) : over ? Theme.TEXT : Theme.TEXT_MUTED;
+            Theme.text(fontRendererObj, labels[i], sx + 17, y0 + 3, color);
+        }
+
+        // The colors: each word after a square of it.
+        String[] words = legendWords();
+        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING };
+        int hx = width / 2 - legendWidth() / 2;
+        for (int i = 0; i < words.length; i++) {
+            Theme.fill(hx, LOAD_HINT_ROW + 1, hx + 6, LOAD_HINT_ROW + 7, squares[i]);
+            hx += 9;
+            Theme.text(fontRendererObj, words[i], hx, LOAD_HINT_ROW, Theme.TEXT_MUTED);
+            hx += fontRendererObj.getStringWidth(words[i]) + 16;
+        }
+        // The mouse keys.
+        String[] lines = loadHintLines();
+        for (int i = 0; i < lines.length; i++) {
+            Theme.centered(fontRendererObj, lines[i], width / 2, LOAD_HINT_ROW + 11 * (i + 1), Theme.TEXT_MUTED);
+        }
+
+        if (hovered >= 0) {
+            String[] descriptions = { "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_wipe.desc" };
+            drawHoveringText(
+                fontRendererObj.listFormattedStringToWidth(I18n.format(descriptions[hovered]), 240),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
+    }
+
+    /** The area loading view: the flat map of the player's own dimension. */
+    private boolean chunkloadShown() {
+        if (chunkloadView && !ChunkLoadView.isAllowed()) {
+            // No longer allowed (or another server): back to the flat map.
+            chunkloadView = false;
+            updateSurfaceView();
+        }
+        // The surface even in caves (MapManager's surface view): only another dimension or 3D leave it out.
+        return chunkloadView && !isoShown() && !MapManager.INSTANCE.isViewingOtherDimension();
+    }
+
+    /**
+     * A drag with Ctrl or Shift picks a rectangle of chunks; what it does depends on the button and the keys held when
+     * it starts (see {@link #pickMode}).
      */
     private boolean startPick(int mouseX, int mouseY, int button) {
-        if (!Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) && !Keyboard.isKeyDown(Keyboard.KEY_RCONTROL)) {
+        boolean ctrl = Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
+        boolean shift = isShiftDown();
+        if (button == 0) {
+            pickMode = ctrl && shift ? PICK_GENERATE_CAVES : ctrl ? PICK_SAVED : shift ? PICK_GENERATE : -1;
+        } else {
+            pickMode = ctrl ? PICK_DELETE : shift ? PICK_CANCEL : -1;
+        }
+        if (pickMode < 0) {
             return false;
         }
         pickButton = button;
-        pickRemove = button == 1;
-        pickCaves = isShiftDown();
         pickStartX = MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4;
         pickStartZ = MathHelper.floor_double(centerZ + (mouseY - height / 2.0) / scale) >> 4;
         pickEndX = Integer.MIN_VALUE;
@@ -2063,9 +2306,6 @@ public class GuiWorldMap extends ScaledScreen {
         if (!Mouse.isButtonDown(pickButton)) {
             finishPick();
             return;
-        }
-        if (isShiftDown()) {
-            pickCaves = true;
         }
         updatePickRectangle(
             MathHelper.floor_double(centerX + (mouseX - width / 2.0) / scale) >> 4,
@@ -2082,14 +2322,57 @@ public class GuiWorldMap extends ScaledScreen {
         pickSelection.addAll(ChunkLoadView.rectangle(pickStartX, pickStartZ, endX, endZ));
     }
 
+    /**
+     * The drag ends and does its work at once: loads, deletes from the map (both for the 3D map too while blocks are
+     * recorded) or takes the chunks off the queue.
+     */
     private void finishPick() {
         if (pickButton < 0) {
             return;
         }
         pickButton = -1;
-        ChunkLoadView.pick(mc.theWorld.provider.dimensionId, pickSelection, pickRemove, regionloadView, pickCaves);
+        int dimension = mc.theWorld.provider.dimensionId;
+        int mode = pickMode;
+        pickMode = -1;
+        switch (mode) {
+            case PICK_SAVED:
+                ChunkLoadView.pick(dimension, pickSelection, false, true, false);
+                break;
+            case PICK_GENERATE:
+                ChunkLoadView.pick(dimension, pickSelection, false, false, false);
+                break;
+            case PICK_GENERATE_CAVES:
+                ChunkLoadView.pick(dimension, pickSelection, false, false, true);
+                break;
+            case PICK_CANCEL:
+                if (ChunkLoadView.anyPending(dimension, pickSelection)) {
+                    ChunkLoadView.pick(dimension, pickSelection, true, true, false);
+                }
+                break;
+            case PICK_DELETE:
+                if (ChunkLoadView.anyPending(dimension, pickSelection)) {
+                    ChunkLoadView.pick(dimension, pickSelection, true, true, false);
+                }
+                if (ChunkLoadView.countOnMap(MapManager.INSTANCE.getViewMap(), pickSelection) > 0) {
+                    deleteChunks(dimension, new ArrayList<>(pickSelection), Config.record3d);
+                }
+                break;
+            default:
+                break;
+        }
         pickSelection.clear();
-        pickCaves = false;
+    }
+
+    private void deleteChunks(int dimension, List<Long> chunks, boolean with3d) {
+        int deleted = MapManager.INSTANCE.deleteFlatChunks(dimension, chunks);
+        if (with3d) {
+            IsoMap.INSTANCE.deleteChunks(dimension, chunks);
+        }
+        ChunkLoadView.refresh();
+        mc.thePlayer.addChatMessage(
+            new ChatComponentTranslation(
+                with3d ? "wayfarmap.chunkload.deleted_3d" : "wayfarmap.chunkload.deleted_2d",
+                deleted));
     }
 
     private static boolean isShiftDown() {

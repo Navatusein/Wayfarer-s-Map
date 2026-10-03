@@ -203,22 +203,36 @@ public class MinimapRenderer {
             }
             if (Config.showClaims && Mods.isClaimsAvailable()) {
                 // Claims as on the world map, when they are shown there.
-                ClaimsLayer.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, null, 0);
+                Mods.draw(
+                    Mods.Addon.CLAIMS,
+                    () -> ClaimsLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, null, 0));
             }
             if (Mods.isVisualProspectingLoaded()) {
                 int dimensionId = mc.theWorld.provider.dimensionId;
                 if (Config.showUndergroundFluids) {
-                    ProspectingLayer.drawFluids(dimensionId, px, pz, scale, 0, 0, inner, inner, true);
+                    Mods.draw(
+                        Mods.Addon.VISUAL_PROSPECTING,
+                        () -> ProspectingLayer.drawFluids(dimensionId, px, pz, scale, 0, 0, inner, inner, true));
                 }
-                if (Config.showOreVeins) {
-                    ProspectingLayer.drawOreVeins(dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
+                if (Config.showOreVeins && Mods.isVisualProspectingLoaded()) {
+                    Mods.draw(
+                        Mods.Addon.VISUAL_PROSPECTING,
+                        () -> ProspectingLayer
+                            .drawOreVeins(dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
                 }
             }
             if (Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable()) {
-                ThaumcraftNodes.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
+                Mods.draw(
+                    Mods.Addon.THAUMCRAFT_NODES,
+                    () -> ThaumcraftNodes
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
             if (Config.showPowerfails && Mods.isPowerfailsAvailable()) {
-                PowerfailLayer.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0);
+                Mods.draw(
+                    Mods.Addon.POWERFAILS,
+                    () -> PowerfailLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
             MapDrawer.drawTeammates(
