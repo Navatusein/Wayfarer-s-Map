@@ -562,22 +562,6 @@ final class IsoTracer {
     }
 
     /**
-     * Whether a sprite is drawn a little farther out from its block's center than the point (du, dv) just past its
-     * outline: a model reaching out there, not only the edge of its block.
-     */
-    private boolean reachesOn(int id, double du, double dv) {
-        FacePalette.Sprite sprite = id == FacePalette.EMPTY ? null : palette.sprite(id);
-        double length = Math.sqrt(du * du + dv * dv);
-        if (sprite == null || length < 1e-9) {
-            return false;
-        }
-        double extent = extent(sprite);
-        double out = 1 + 2 * OUTLINE_MARGIN / length;
-        double su = (du * out / extent + 1) / 2, sv = (dv * out / extent + 1) / 2;
-        return (sprite.texel(su, sv, 0) >>> 24) >= 8;
-    }
-
-    /**
      * Blocks of the projection plane a sprite covers on each side of its block's center: 1, or 2 for the wide
      * sprites of models reaching far (as sharp, twice the pixels).
      */
@@ -633,18 +617,14 @@ final class IsoTracer {
             double du = rayU - projection.u(ox + 0.5, oz + 0.5);
             double dv = rayV - projection.v(ox + 0.5, oy + 0.5, oz + 0.5);
             if (withinCell(du, dv, 0)) {
-                // That part is drawn by rays through the model's own cell.
+                // That part is drawn by rays through the model's own cell. Right from its outline on: a margin left
+                // a see-through stripe along it over models reaching out only a little (the rim of a DHD). The
+                // edges of hidden sides that drew dotted lines there (the top of a panel under another) are no
+                // longer in the sprites.
                 continue;
             }
             int id = blocks.pictureId(cell, projection.rotation);
             if (id <= 0) {
-                continue;
-            }
-            if (withinCell(du, dv, OUTLINE_MARGIN) && !reachesOn(id, du, dv)) {
-                // Just past the outline: the sprite's pixels on its edge stick out a little, and drew the edges of
-                // blocks (the top of a panel below) as dotted lines over the block in front. Taken only where the
-                // model goes on farther out (a banner's upper half, a DHD's top): skipping those left a see-through
-                // stripe along the block's outline.
                 continue;
             }
             int blockCell = blocks.cells[cell];
