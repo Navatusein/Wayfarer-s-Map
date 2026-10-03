@@ -28,6 +28,8 @@ import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.map.iso.IsoProjection;
 
 /**
@@ -36,7 +38,8 @@ import WayFarMap.client.map.iso.IsoProjection;
  * screen draws the player, with the map's view instead of the inventory's.
  * <p>
  * Mobs are drawn only where the map shows them: in sight of the map's viewer (not in caves, under roofs or trees) and
- * big enough to make out; anywhere else they are simply not there.
+ * big enough to make out; anywhere else they are simply not there. The parts of a model behind what the map shows
+ * (a wall in front of the player, a roof) are hidden, pixel by pixel, by the depth of the map's tiles.
  */
 public final class IsoEntityDrawer {
 
@@ -52,6 +55,14 @@ public final class IsoEntityDrawer {
     private static final int SIGHT_TICKS = 4;
     /** How far along the line of sight blocks are looked for, in blocks. */
     private static final double SIGHT_DISTANCE = 96;
+
+    /** Depth of the parts of the map hiding a model: in front of every model (they are drawn at {@link #DEPTH}). */
+    private static final float HIDING_DEPTH = 700f;
+    /** Points of the map looked at per model at most, for hiding its parts behind the map. */
+    private static final int HIDING_SAMPLES = 40_000;
+    /** How far (blocks toward the viewer) the map must be in front of a model to hide it. */
+    private static final double HIDING_MARGIN = 0.1;
+    private static float[] hidingGrid = new float[0];
 
     /** Kinds of mobs whose renderer failed here: not drawn from then on. */
     private static final Set<Class<?>> BROKEN = new HashSet<>();
@@ -70,6 +81,8 @@ public final class IsoEntityDrawer {
         int nameColor;
         final double sx, sy, depth;
         final float scale;
+        /** Where it stands in the world. */
+        double x, y, z;
 
         Item(EntityLivingBase entity, double sx, double sy, double depth, float scale) {
             this.entity = entity;
@@ -148,10 +161,20 @@ public final class IsoEntityDrawer {
         manager.playerViewX = (float) Math.toDegrees(IsoProjection.ELEVATION);
         GL11.glEnable(GL11.GL_COLOR_MATERIAL);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
+        int dimension = mc.theWorld.provider.dimensionId;
+        int factor = ScaledScreen.currentFactor();
         try {
             for (Item item : items) {
                 // Each model only hides itself (its own back parts): the order above does the rest.
                 GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+                if (!hideBehindMap(item, projection, pixelsPerBlock, dimension, factor)) {
+                    // Wholly behind what the map shows: the player is shown by the arrow, others not at all (a
+                    // teammate keeps the name).
+                    if (item.entity == mc.thePlayer) {
+                        playerDrawn = false;
+                    }
+                    continue;
+                }
                 boolean drawn = drawModel(item, azimuth, partialTicks, light(mc.theWorld, item.entity, night, tint));
                 if (item.entity == mc.thePlayer) {
                     playerDrawn = drawn;
@@ -256,7 +279,116 @@ public final class IsoEntityDrawer {
         double[] at = screen.toScreen(x, y, z);
         // Nearer to the viewer: toward it on the ground, and higher.
         double depth = projection.toward(x, z) * IsoProjection.COS + y * IsoProjection.SIN;
-        return new Item(entity, at[0], at[1], depth, scale);
+        Item item = new Item(entity, at[0], at[1], depth, scale);
+        item.x = x;
+        item.y = y;
+        item.z = z;
+        return item;
+    }
+
+    /**
+     * Fills the depth buffer in front of the model wherever the map shows something solid nearer to the viewer than
+     * the model (a wall in front of it, a roof over it), so those parts of the model aren't drawn. The model is taken
+     * as an upright cylinder of its width and height: where a line of sight passes through it, the map must be in
+     * front of where the line enters it; elsewhere (arms, a big head) in front of its outermost point.
+     *
+     * @return false if all of the model is hidden (nothing to draw)
+     */
+    private static boolean hideBehindMap(Item item, IsoProjection projection, double scale, int dimension, int factor) {
+        EntityLivingBase entity = item.entity;
+        double radius = Math.max(0.2, entity.width / 2), height = Math.max(0.3, entity.height);
+        double sin = IsoProjection.SIN, cos = IsoProjection.COS;
+        // The screen rectangle the model can cover, in GUI pixels.
+        double left = item.sx - (radius * 1.5 + 0.5) * scale, right = item.sx + (radius * 1.5 + 0.5) * scale;
+        double top = item.sy - (height * cos + radius * sin + 0.5) * scale;
+        double bottom = item.sy + (radius * 1.5 * sin + 0.3) * scale;
+        double step = Math.max(1.0 / Math.max(1, factor), Math.sqrt((right - left) * (bottom - top) / HIDING_SAMPLES));
+        int columns = Math.max(1, (int) Math.ceil((right - left) / step));
+        int rows = Math.max(1, (int) Math.ceil((bottom - top) / step));
+        if (hidingGrid.length < columns * rows) {
+            hidingGrid = new float[columns * rows];
+        }
+        float[] grid = hidingGrid;
+        double um = projection.u(item.x, item.z), vm = projection.v(item.x, item.y, item.z);
+        double tm = projection.toward(item.x, item.z);
+        // The plane's point at the middle of the rectangle's first cell, and the cells' size in blocks.
+        double u0 = um + (left + step / 2 - item.sx) / scale, v0 = vm + (top + step / 2 - item.sy) / scale;
+        double blockStep = step / scale;
+        if (!IsoMap.INSTANCE
+            .solidToward(dimension, projection.rotation, scale, factor, u0, v0, blockStep, columns, rows, grid)) {
+            return true;
+        }
+        int body = 0, bodySeen = 0;
+        boolean anyHidden = false;
+        boolean[] hidden = new boolean[columns * rows];
+        for (int j = 0; j < rows; j++) {
+            double v = v0 + j * blockStep;
+            // Toward the viewer of this line of sight at the model's feet and at its top.
+            double feet = (v + item.y * cos) / sin, head = (v + (item.y + height) * cos) / sin;
+            for (int i = 0; i < columns; i++) {
+                double du = u0 + i * blockStep - um;
+                double front = tm + radius;
+                boolean through = false;
+                if (Math.abs(du) < radius) {
+                    double half = Math.sqrt(radius * radius - du * du);
+                    if (head >= tm - half && feet <= tm + half) {
+                        through = true;
+                        front = Math.min(tm + half, head);
+                    }
+                }
+                float solid = grid[j * columns + i];
+                boolean behind = !Float.isNaN(solid) && solid > front + HIDING_MARGIN;
+                hidden[j * columns + i] = behind;
+                anyHidden |= behind;
+                if (through) {
+                    body++;
+                    if (!behind) {
+                        bodySeen++;
+                    }
+                }
+            }
+        }
+        if (body > 0 && bodySeen == 0) {
+            return false;
+        }
+        if (!anyHidden) {
+            return true;
+        }
+        // Only depth: the map stays as drawn, the model's parts behind these cells fail the depth test.
+        // Model renderers leave back faces culled; these cells must not be.
+        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glColorMask(false, false, false, false);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDepthMask(true);
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int j = 0; j < rows; j++) {
+            double y0 = top + j * step, y1 = y0 + step;
+            int i = 0;
+            while (i < columns) {
+                if (!hidden[j * columns + i]) {
+                    i++;
+                    continue;
+                }
+                int start = i;
+                while (i < columns && hidden[j * columns + i]) {
+                    i++;
+                }
+                double x0 = left + start * step, x1 = left + i * step;
+                GL11.glVertex3d(x0, y0, HIDING_DEPTH);
+                GL11.glVertex3d(x0, y1, HIDING_DEPTH);
+                GL11.glVertex3d(x1, y1, HIDING_DEPTH);
+                GL11.glVertex3d(x1, y0, HIDING_DEPTH);
+            }
+        }
+        GL11.glEnd();
+        GL11.glColorMask(true, true, true, true);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        if (cull) {
+            GL11.glEnable(GL11.GL_CULL_FACE);
+        }
+        return true;
     }
 
     /** Draws one model standing with its feet on its screen point; false if its renderer failed. */
