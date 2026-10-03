@@ -197,7 +197,7 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §eShift+RMB drag§r — cancel: the queued (red) chunks of the rectangle are taken off the queue
 - §bLoad all from regions§r — every chunk saved in this dimension, at once (asks first; nothing generated)
 - §bDelete dimension map§r — the whole map of this dimension (asks first; waypoints stay)
-- §b3D: on§r — everything above is done for the 3D map too (the same option as §bRecord blocks§r)
+- With §bSettings → 3D map → Record blocks§r on, everything above is done for the 3D map too
 
 - The world map shows it at the bottom: chunks done and §fseconds elapsed§r
 - Leave the world or go to another dimension — it pauses and goes on when you are back

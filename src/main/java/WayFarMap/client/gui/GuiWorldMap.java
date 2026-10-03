@@ -1994,8 +1994,6 @@ public class GuiWorldMap extends ScaledScreen {
                 confirmLoadAllSaved(mouseX, mouseY);
             } else if (segment == LOAD_WIPE) {
                 confirmWipeDimension(mouseX, mouseY);
-            } else if (segment == LOAD_3D) {
-                Config.setRecord3d(!Config.record3d);
             }
             return;
         }
@@ -2082,13 +2080,12 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int LOAD_ROW = HEADER_HEIGHT + 5, LOAD_HINT_ROW = LOAD_ROW + LOAD_BAR_HEIGHT + 5,
         LOAD_HINT_LINES = 3, LOAD_PANEL_BOTTOM = LOAD_HINT_ROW + LOAD_HINT_LINES * 11 + 1;
     /** Buttons of the area loading toolbar, as {@link #loadBarSegment} tells them. */
-    private static final int LOAD_ALL = 0, LOAD_WIPE = 1, LOAD_3D = 2;
+    private static final int LOAD_ALL = 0, LOAD_WIPE = 1;
     private static final int LOAD_GAP = 8;
 
     /** Labels of the toolbar's buttons, by {@code LOAD_*}. */
     private String[] loadLabels() {
-        return new String[] { I18n.format("wayfarmap.gui.load_all_saved"), I18n.format("wayfarmap.gui.load_wipe"),
-            I18n.format(Config.record3d ? "wayfarmap.gui.load_3d_on" : "wayfarmap.gui.load_3d_off") };
+        return new String[] { I18n.format("wayfarmap.gui.load_all_saved"), I18n.format("wayfarmap.gui.load_wipe") };
     }
 
     /** Left and right edges of the toolbar's buttons ({@code LOAD_*} twice: x0, x1), centered. */
@@ -2144,8 +2141,8 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /**
-     * Asks before deleting the whole map of the player's dimension: the 2D map, and the 3D map with it while 3D is on.
-     * The maps are saved and closed first and opened again empty (as the map data screen does).
+     * Asks before deleting the whole map of the player's dimension: the 2D map, and the 3D map with it while blocks
+     * are recorded. The maps are saved and closed first and opened again empty (as the map data screen does).
      */
     private void confirmWipeDimension(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
@@ -2182,7 +2179,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /**
      * Asks before mapping every chunk saved in the world's region files of this dimension ({@code /wf regionload
-     * full}, for the 3D map too while 3D is on): it can be a lot, and it takes the place of the chunks queued so far.
+     * full}, for the 3D map too while blocks are recorded): it can be a lot, and it takes the place of the chunks
+     * queued so far.
      */
     private void confirmLoadAllSaved(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
@@ -2218,7 +2216,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /**
      * The toolbar under the header of the area loading view: loading every saved chunk, deleting the dimension's
-     * whole map, 3D on or off; under it the colors and the mouse keys.
+     * whole map; under it the colors and the mouse keys.
      */
     private void drawLoadBar(int mouseX, int mouseY) {
         int[] edges = loadLayout();
@@ -2232,22 +2230,12 @@ public class GuiWorldMap extends ScaledScreen {
         for (int i = 0; i < labels.length; i++) {
             int sx = edges[2 * i], ex = edges[2 * i + 1];
             boolean over = hovered == i;
-            boolean on = i == LOAD_3D && Config.record3d;
             int line = i == LOAD_WIPE ? Theme.DANGER : Theme.ACCENT;
-            Theme.fill(sx, y0, ex, y1, over ? Theme.CONTROL_HOVER : on ? Theme.ACCENT_DIM : Theme.CONTROL);
-            Theme.outline(sx, y0, ex, y1, over || on ? line : Theme.BORDER);
-            if (i == LOAD_3D) {
-                // A check box.
-                Theme.outline(sx + 5, y0 + 3, sx + 13, y0 + 11, on ? Theme.TEXT : Theme.TEXT_MUTED);
-                if (on) {
-                    Theme.fill(sx + 7, y0 + 5, sx + 11, y0 + 9, Theme.TEXT);
-                }
-            } else {
-                // A mark in the color of what it does: gray like the saved chunks, red for deleting.
-                Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
-            }
-            int color = i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A)
-                : over || on ? Theme.TEXT : Theme.TEXT_MUTED;
+            Theme.fill(sx, y0, ex, y1, over ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(sx, y0, ex, y1, over ? line : Theme.BORDER);
+            // A mark in the color of what it does: gray like the saved chunks, red for deleting.
+            Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
+            int color = i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A) : over ? Theme.TEXT : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, labels[i], sx + 17, y0 + 3, color);
         }
 
@@ -2268,8 +2256,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
 
         if (hovered >= 0) {
-            String[] descriptions = { "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_wipe.desc",
-                "wayfarmap.gui.load_3d.desc" };
+            String[] descriptions = { "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_wipe.desc" };
             drawHoveringText(
                 fontRendererObj.listFormattedStringToWidth(I18n.format(descriptions[hovered]), 240),
                 mouseX,
@@ -2336,8 +2323,8 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /**
-     * The drag ends and does its work at once: loads (for the 3D map too while 3D is on), deletes from the map (the 3D
-     * map too while 3D is on) or takes the chunks off the queue.
+     * The drag ends and does its work at once: loads, deletes from the map (both for the 3D map too while blocks are
+     * recorded) or takes the chunks off the queue.
      */
     private void finishPick() {
         if (pickButton < 0) {
