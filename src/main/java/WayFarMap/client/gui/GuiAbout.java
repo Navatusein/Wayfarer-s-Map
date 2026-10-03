@@ -22,7 +22,7 @@ import WayFarMap.client.gui.ui.Theme;
 /** About the mod: its name and version, who made and tested it, and links to the author's pages. */
 public class GuiAbout extends ScaledScreen {
 
-    private static final int WIDTH = 260, HEIGHT = 186;
+    private static final int WIDTH = 260, HEIGHT = 220;
     private static final int ID_CLOSE = 0, ID_GITHUB = 1, ID_BOOSTY = 2, ID_TELEGRAM = 3;
 
     private static final String AUTHOR = "EvgenWarGold";
@@ -84,7 +84,7 @@ public class GuiAbout extends ScaledScreen {
         buttonList.clear();
         int gap = 6;
         int linkWidth = (WIDTH - 20 - 2 * gap) / 3;
-        int linkY = top + 132;
+        int linkY = top + 166;
         buttonList.add(
             new LinkButton(
                 ID_GITHUB,
@@ -116,7 +116,7 @@ public class GuiAbout extends ScaledScreen {
                 Icons.TELEGRAM,
                 0xFF2AABEE));
         buttonList
-            .add(new FlatButton(ID_CLOSE, left + 10, top + 159, WIDTH - 20, 18, I18n.format("wayfarmap.help.close")));
+            .add(new FlatButton(ID_CLOSE, left + 10, top + 193, WIDTH - 20, 18, I18n.format("wayfarmap.help.close")));
     }
 
     @Override
@@ -162,32 +162,33 @@ public class GuiAbout extends ScaledScreen {
         Theme.fill(left + 1, top + 1, left + WIDTH - 1, top + 3, Theme.ACCENT);
         int centerX = left + WIDTH / 2;
 
-        // Title twice the text size, with the map icon before it.
-        String title = "Wayfarer's Map";
-        int titleWidth = fontRendererObj.getStringWidth(title) * 2;
-        int iconWidth = Icons.width(Icons.FLAT) * 2;
-        int titleX = centerX - (iconWidth + 8 + titleWidth) / 2;
+        // The compass logo and the title, both twice the size.
         GL11.glPushMatrix();
-        GL11.glTranslatef(titleX, top + 14, 0f);
+        GL11.glTranslatef(centerX - Icons.LOGO_SIZE, top + 12, 0f);
         GL11.glScalef(2f, 2f, 1f);
-        Icons.draw(Icons.FLAT, 0, 0, Theme.ACCENT);
-        Theme.text(fontRendererObj, title, (iconWidth + 8) / 2, 0, Theme.TEXT);
+        Icons.drawLogo(0, 0);
+        GL11.glPopMatrix();
+        String title = "Wayfarer's Map";
+        GL11.glPushMatrix();
+        GL11.glTranslatef(centerX - fontRendererObj.getStringWidth(title), top + 48, 0f);
+        GL11.glScalef(2f, 2f, 1f);
+        Theme.text(fontRendererObj, title, 0, 0, Theme.TEXT);
         GL11.glPopMatrix();
         // A long version (a dev build's git description) is cut to the panel; the full one shows on hover.
         String version = I18n.format("wayfarmap.about.version", Tags.VERSION);
         String shownVersion = Theme.ellipsize(fontRendererObj, version, WIDTH - 20);
-        Theme.centered(fontRendererObj, shownVersion, centerX, top + 36, Theme.TEXT_MUTED);
+        Theme.centered(fontRendererObj, shownVersion, centerX, top + 70, Theme.TEXT_MUTED);
         int versionWidth = fontRendererObj.getStringWidth(shownVersion);
         boolean versionHovered = !shownVersion.equals(version) && Theme
-            .inside(mouseX, mouseY, centerX - versionWidth / 2, top + 35, centerX + versionWidth / 2 + 1, top + 45);
+            .inside(mouseX, mouseY, centerX - versionWidth / 2, top + 69, centerX + versionWidth / 2 + 1, top + 79);
 
-        divider(top + 50);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.author"), centerX, top + 58, Theme.TEXT_MUTED);
-        Theme.centered(fontRendererObj, AUTHOR, centerX, top + 69, Theme.ACCENT);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.testers"), centerX, top + 86, Theme.TEXT_MUTED);
-        Theme.centered(fontRendererObj, TESTER, centerX, top + 97, Theme.TEXT);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.tester_chat"), centerX, top + 108, Theme.TEXT);
-        divider(top + 124);
+        divider(top + 84);
+        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.author"), centerX, top + 92, Theme.TEXT_MUTED);
+        Theme.centered(fontRendererObj, AUTHOR, centerX, top + 103, Theme.ACCENT);
+        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.testers"), centerX, top + 120, Theme.TEXT_MUTED);
+        Theme.centered(fontRendererObj, TESTER, centerX, top + 131, Theme.TEXT);
+        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.tester_chat"), centerX, top + 142, Theme.TEXT);
+        divider(top + 158);
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 

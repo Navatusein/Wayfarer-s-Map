@@ -251,26 +251,26 @@ public class GuiWorldMap extends ScaledScreen {
         // Top right corner: closes the map, like Esc.
         buttonList.add(new IconButton(ID_CLOSE, width - 24, 4, Icons.CLOSE, I18n.format("wayfarmap.gui.close")));
 
-        // Bottom right: the help screen with every feature explained.
-        helpButton = new IconButton(
-            ID_HELP,
-            width - 22,
-            height - FOOTER_HEIGHT + 1,
-            Icons.HELP,
-            I18n.format("wayfarmap.gui.help_button"));
-        helpButton.setHeight(13);
-        helpButton.visible = Config.isMapButtonShown("help");
-        buttonList.add(helpButton);
-        // Next to it: about the mod, its author and links.
+        // Bottom right corner: about the mod, its author and links.
         aboutButton = new IconButton(
             ID_ABOUT,
-            helpButton.visible ? width - 44 : width - 22,
+            width - 22,
             height - FOOTER_HEIGHT + 1,
             Icons.ABOUT,
             I18n.format("wayfarmap.gui.about_button"));
         aboutButton.setHeight(13);
         aboutButton.visible = Config.isMapButtonShown("about");
         buttonList.add(aboutButton);
+        // Next to it: the help screen with every feature explained.
+        helpButton = new IconButton(
+            ID_HELP,
+            aboutButton.visible ? width - 44 : width - 22,
+            height - FOOTER_HEIGHT + 1,
+            Icons.HELP,
+            I18n.format("wayfarmap.gui.help_button"));
+        helpButton.setHeight(13);
+        helpButton.visible = Config.isMapButtonShown("help");
+        buttonList.add(helpButton);
 
         Keyboard.enableRepeatEvents(true);
         searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
@@ -1172,7 +1172,7 @@ public class GuiWorldMap extends ScaledScreen {
             right = I18n.format("wayfarmap.claims.other_dimension");
             rightColor = Theme.DANGER;
         }
-        int rightEdge = (aboutButton.visible ? aboutButton : helpButton).xPosition - 8;
+        int rightEdge = (helpButton.visible ? helpButton : aboutButton).xPosition - 8;
         int rightX = rightEdge;
         if (right != null && !right.isEmpty()) {
             // Never more than half the footer, so the left text keeps room too.

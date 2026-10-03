@@ -9,6 +9,9 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/evgengoldwar/Wayfarer-s-Map/build-and-test.yml?style=for-the-badge&label=build)](https://github.com/evgengoldwar/Wayfarer-s-Map/actions/workflows/build-and-test.yml)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](src/main/resources/LICENSE)
 
+[![Boosty](https://img.shields.io/badge/Support_on-Boosty-F15F2C?style=for-the-badge&logo=boosty&logoColor=white)](https://boosty.to/evgenwargold)
+[![Telegram](https://img.shields.io/badge/Telegram-Channel-2AABEE?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Shaterplay4)
+
 [Features](#-features) •
 [Installation](#-installation) •
 [Controls](#%EF%B8%8F-controls) •
