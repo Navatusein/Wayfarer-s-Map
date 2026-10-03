@@ -1049,20 +1049,33 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (claimsShown()) {
             updateClaimPaint(mouseX, mouseY);
-            ClaimsLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction);
+            Mods.draw(
+                Mods.Addon.CLAIMS,
+                () -> ClaimsLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, claimSelection, claimAction));
         }
         if (prospecting && Config.showUndergroundFluids) {
-            ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false);
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer.drawFluids(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false));
         }
-        if (prospecting && Config.showOreVeins) {
-            ProspectingLayer
-                .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+        if (prospecting && Config.showOreVeins && Mods.isVisualProspectingLoaded()) {
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer
+                    .drawOreVeins(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (nodesShown()) {
-            ThaumcraftNodes.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+            Mods.draw(
+                Mods.Addon.THAUMCRAFT_NODES,
+                () -> ThaumcraftNodes
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (powerfailsShown()) {
-            PowerfailLayer.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY);
+            Mods.draw(
+                Mods.Addon.POWERFAILS,
+                () -> PowerfailLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (!otherDimension) {
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);

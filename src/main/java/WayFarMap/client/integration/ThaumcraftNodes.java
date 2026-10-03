@@ -417,7 +417,7 @@ public final class ThaumcraftNodes {
         if (node.tracked()) {
             tracked = null;
         }
-        if (TCNodeTracker.isNavigatorLoaded) {
+        if (TCNodeTracker.isNavigatorLoaded && Mods.hasNodeLayerDelete()) {
             // Also updates its own map layers.
             ThaumcraftNodeLayerManager.instance.deleteNode(node.source);
         } else if (TCNodeTracker.nodelist != null) {
