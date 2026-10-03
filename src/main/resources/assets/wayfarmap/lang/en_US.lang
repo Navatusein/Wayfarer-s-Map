@@ -13,6 +13,7 @@ wayfarmap.about.author=Created by
 wayfarmap.about.testers=Tested by
 wayfarmap.about.tester_chat=RU GTNH chat
 wayfarmap.help.close=Close
+wayfarmap.help.key_none=not set
 wayfarmap.welcome.text=A handy map of the world and a minimap: waypoints, caves, a 3D view, topography and more. All the tips about the mod are in its help: the question mark button at the bottom right.
 wayfarmap.welcome.ok=Got it
 wayfarmap.gui.dimension_here=you are here

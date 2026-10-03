@@ -1,14 +1,34 @@
 # Basics
 §fWayfarer's Map§r draws everything you have §aalready seen§r. New places appear on the map as you explore.
 
-- §eM§r — open / close the world map
-- §eN§r — show / hide the minimap
-- §e=§r and §e-§r — minimap zoom
-- §eB§r — new waypoint where you stand
-- §eU§r — waypoint list
-- §eK§r — cave mode (auto / off / on)
+- §e{key:open_map}§r — open / close the world map
+- §e{key:toggle_minimap}§r — show / hide the minimap
+- §e{key:new_waypoint}§r — new waypoint where you stand
 
-> All keys can be changed in Minecraft's §bOptions → Controls§r.
+> Every key, and how to change them — the §bKeys§r section.
+
+# Keys
+All keys of the mod are set in Minecraft's §bOptions → Controls§r (category §fWayfarer's Map§r); this list shows them as they are set now.
+
+- §e{key:open_map}§r — open / close the world map
+- §e{key:toggle_minimap}§r — show / hide the minimap
+- §e{key:zoom_in}§r / §e{key:zoom_out}§r — minimap zoom in / out
+- §e{key:new_waypoint}§r — new waypoint where you stand
+- §e{key:waypoint_list}§r — waypoint list
+- §e{key:cave_mode}§r — cave mode (auto / off / on)
+
+§fWithout a key at first§r (set one to switch these without opening the map; works for the minimap too):
+- §e{key:mode_blocks}§r — 2D map, §e{key:mode_plantless}§r — 2D map without plants
+- §e{key:mode_topo}§r — topography, §e{key:mode_biomes}§r — biomes
+- §e{key:light}§r — lighting (auto / day / night), §e{key:chunk_grid}§r — chunk grid
+- §e{key:ores}§r — ore veins, §e{key:fluids}§r — underground fluids, §e{key:claims}§r — claims
+- §e{key:powerfails}§r — power failures, §e{key:nodes}§r — Thaumcraft nodes
+- §e{key:hostile_mobs}§r — hostile mobs, §e{key:passive_mobs}§r — neutral mobs, §e{key:friendly_mobs}§r — friendly mobs
+- §e{key:pets}§r — pets, §e{key:players}§r — players
+
+§fOn the world map (fixed):§r
+- §eSpace§r — back to the player, §eEsc§r — close
+- §eQ§r / §eE§r — turn the 3D view
 
 # Map buttons
 The top of the map has §ficons§r; hover one to see its name.
@@ -23,9 +43,9 @@ The top of the map has §ficons§r; hover one to see its name.
 
 §fRight:§r
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
-- §bCreeper§r — mobs: checkboxes for §afriendly mobs§r, §chostile mobs§r and §fplayers§r (the menu stays open); all off shows none. A §agreen§r dot means friendly mobs only, §cred§r hostile only, a dim icon nothing shown
+- §bCreeper§r — mobs: checkboxes for §fneutral mobs§r, §afriendly mobs§r, §fpets§r, §chostile mobs§r and §fplayers§r (the menu stays open); all off shows none. A §agreen§r dot means friendly mobs only, §cred§r hostile only, a dim icon nothing shown
 - §bGrid§r — chunk grid
-- §bModes§r — a list: §f2D map§r, §f3D map§r (isometric, like Dynmap), §fTopography§r (colored by height with contour lines) or §fBiomes§r; the icon shows the mode. In 3D §eQ§r / §eE§r turn the view, and on its right the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
+- §bModes§r — a list: §f2D map§r, §f3D map§r (isometric, like Dynmap), §f2D map without plants§r, §fTopography§r (colored by height with contour lines), §fBiomes§r and, for operators, §fArea loading§r; the icon shows the mode. In 3D §eQ§r / §eE§r turn the view, and on its right the §bquality slider§r: 8, 16, 32 or 64 px per block (more is sharper, less is quicker)
 - §bHill with a tunnel§r — caves: highlighted on, with a dot auto, dim off
 - §bSun§r / §bMoon§r — lighting, click to switch: §bhalf dark circle§r with a dot — auto (follows the time of day), §bsun§r — always day, §bmoon§r — always night
 - §bTwo people§r — teammates online (shown while there are some)
@@ -57,8 +77,8 @@ The bottom left shows the coordinates under the cursor. §7(?)§r means the plac
 # Waypoints
 A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem icon§r. It shows on the map, the minimap and in the world.
 
-- Create: §eB§r, §eRight click → New waypoint§r or the button in the list
-- Edit: §eright click§r it on the map or in the list §b(§eU§b)
+- Create: §e{key:new_waypoint}§r, §eRight click → New waypoint§r or the button in the list
+- Edit: §eright click§r it on the map or in the list §b(§e{key:waypoint_list}§b)
 - Pick the color in the color picker: color swatch → hue, saturation, brightness
 - The icon can be any item; to search, §fclick the search field§r. It is drawn §fas in the inventory§r: blocks in 3D, modded items as they look (Tinkers' tools with their parts)
 - The map shows the §fdistance§r next to the name
@@ -75,7 +95,7 @@ A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem i
 # Waypoint groups
 Groups hide waypoints in bulk, for example §f"Ores"§r or §f"Bases"§r.
 
-- Create a group in the waypoint list §b(§eU§b)
+- Create a group in the waypoint list §b(§e{key:waypoint_list}§b)
 - §eDrag a waypoint with the left button§r onto a group to move it
 - The toggle next to a group hides / shows §fall its waypoints at once§r
 
@@ -89,7 +109,7 @@ Groups hide waypoints in bulk, for example §f"Ores"§r or §f"Bases"§r.
 # Caves
 Cave mode shows §fa layer underground§r instead of the surface.
 
-- §bCaves§r / §eK§r: §fauto§r — on while you are underground; §fon§r / §foff§r — always
+- §bCaves§r / §e{key:cave_mode}§r: §fauto§r — on while you are underground; §fon§r / §foff§r — always
 - The §fslider§r on the right picks the height layer (16 blocks each)
 - Layers are remembered: explored caves stay on the map
 - Caves are §fdark§r at any time of day: only §ftorches§r and other lights show them (unless lighting is fixed to day; Nether caves stay lit)
@@ -113,7 +133,7 @@ Cave mode shows §fa layer underground§r instead of the surface.
 - §bLighting§r (sun / moon) — one button, round and round: §fauto§r (the map §ffollows the time of day§r) → §falways day§r → §falways night§r; at night places lit by torches, lamps and lava glow
 - §bGrid§r — the 16×16 chunk grid
 - §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Under roofs and overhangs the real floor shows, not solid stone (how deep to look — §bSettings → 3D map → Look under roofs§r). Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
-- §bMobs§r — a menu: §fshow all§r, §fshow friendly only§r, §fshow hostile only§r or §fhide all§r. The button shows who is shown now
+- §bMobs§r — a menu of checkboxes: neutral, friendly, pets, hostile, players. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
 # Ores and fluids
@@ -188,8 +208,9 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §e/wf chunkload 3d <radius>§r — the flat and the 3D map (slower)
 - §e/wf chunkload status§r — how far it got
 - §e/wf chunkload stop§r — stop it
+- §e/wf regionload 2d|3d <radius>§r — only the chunks saved in the world, nothing generated; §efull§r instead of the radius — every region file of the dimension
 
-§fFrom the map:§r §bModes → Area loading§r shows the chunks §aon the map§r (green), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red).
+§fFrom the map:§r §bModes → Area loading§r (operators only) shows the chunks §aon the map§r (green), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red).
 - §eCtrl+LMB drag§r — load the gray chunks of the rectangle from the regions, as they are (nothing generated)
 - §eShift+LMB drag§r — generate the chunks of the rectangle (those never made too)
 - §eCtrl+Shift+LMB drag§r — generate them with every cave layer

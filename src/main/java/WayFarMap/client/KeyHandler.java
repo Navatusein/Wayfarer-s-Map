@@ -2,6 +2,7 @@ package WayFarMap.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.IChatComponent;
@@ -65,6 +66,24 @@ public class KeyHandler {
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
     /** Chat line of these keys: each message replaces the one before instead of filling the chat. */
     private static final int CHAT_LINE = 0x57466D70;
+
+    /**
+     * The key (or mouse button) one of the mod's bindings is set to now, as the controls screen names it; null if it
+     * has none. {@code name} is the binding's name without {@code key.wayfarmap.} ({@code open_map}).
+     */
+    public static String keyName(String name) {
+        String description = "key.wayfarmap." + name;
+        KeyBinding[] all = Minecraft.getMinecraft().gameSettings.keyBindings;
+        if (all != null) {
+            for (KeyBinding binding : all) {
+                if (binding != null && description.equals(binding.getKeyDescription())) {
+                    int code = binding.getKeyCode();
+                    return code == Keyboard.KEY_NONE ? null : GameSettings.getKeyDisplayString(code);
+                }
+            }
+        }
+        return null;
+    }
 
     private static KeyBinding unbound(String name) {
         return new KeyBinding("key.wayfarmap." + name, Keyboard.KEY_NONE, CATEGORY);

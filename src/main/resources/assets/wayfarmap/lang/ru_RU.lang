@@ -13,6 +13,7 @@ wayfarmap.about.author=Создатель мода
 wayfarmap.about.testers=Тестеры мода
 wayfarmap.about.tester_chat=RU GTNH чат
 wayfarmap.help.close=Закрыть
+wayfarmap.help.key_none=не назначена
 wayfarmap.welcome.text=Удобная карта мира и миникарта: метки, пещеры, 3D-вид, топография и многое другое. Все подсказки по моду — в справке: кнопка со знаком вопроса внизу справа.
 wayfarmap.welcome.ok=Понятно
 wayfarmap.gui.dimension_here=вы здесь
