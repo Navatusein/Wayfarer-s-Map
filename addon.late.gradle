@@ -1,7 +1,5 @@
 // Loaded by GTNHGradle after ModernJavaModule, so runClient25's helpers (java25Toolchain, modernJvmArgs, ...) exist.
 
-import com.gtnewhorizons.gtnhgradle.tasks.RunHotswappableMinecraftTask
-import com.gtnewhorizons.retrofuturagradle.util.Distribution
 import groovy.json.JsonSlurper
 
 import java.nio.file.Files
@@ -112,7 +110,15 @@ def gtnhExcludeMods = providers.gradleProperty('gtnhExcludeMods').orElse('')
 def gtnhResyncConfig = providers.gradleProperty('gtnhResyncConfig').map { it.toBoolean() }.orElse(false)
 def gtnhRunDir = file('run/gtnh')
 
-tasks.register('runClientGTNH', RunHotswappableMinecraftTask, Distribution.CLIENT, 'runClient').configure { t ->
+// The plugin's classes aren't visible to the IDE when it analyses this script, so they are looked up
+// through the classloader that loaded GTNHGradle instead of being imported.
+def gtnhExtensionClass = project.gtnhGradle.getClass()
+while (gtnhExtensionClass.name.endsWith('_Decorated')) gtnhExtensionClass = gtnhExtensionClass.superclass
+def gtnhClassLoader = gtnhExtensionClass.classLoader
+def runTaskType = Class.forName('com.gtnewhorizons.gtnhgradle.tasks.RunHotswappableMinecraftTask', true, gtnhClassLoader)
+def distributionType = Class.forName('com.gtnewhorizons.retrofuturagradle.util.Distribution', true, gtnhClassLoader)
+
+tasks.register('runClientGTNH', runTaskType, Enum.valueOf(distributionType, 'CLIENT'), 'runClient').configure { t ->
     t.description = 'Runs the client like runClient25, with the mods and configs of a full GTNH instance (see addon.late.gradle)'
     t.dependsOn('setupHotswapAgent25')
     t.targetJvmVersion.set(25)
@@ -131,5 +137,33 @@ tasks.register('runClientGTNH', RunHotswappableMinecraftTask, Distribution.CLIEN
             .collect { it.trim().toLowerCase(Locale.ROOT) }
             .findAll { !it.isEmpty() }
         GtnhPackSync.sync(new File(gtnhPackDir.get()), gtnhRunDir, runClasspath.files, excludes, gtnhResyncConfig.get())
+    }
+}
+
+// installToGTNH: puts the built (reobfuscated) jar of this mod into the pack's mods folder, replacing the
+// previous build, so the mod can be tried and debugged in the real launcher instance (e.g. Prism).
+def ownModId = project.gtnhGradle.configuration.modId.toLowerCase(Locale.ROOT)
+def reobfJarFile = tasks.named('reobfJar').flatMap { it.archiveFile }
+
+tasks.register('installToGTNH') { t ->
+    t.group = 'Modded Minecraft'
+    t.description = 'Copies the built mod jar into the mods folder of the GTNH instance set by gtnhPackDir'
+    t.dependsOn('reobfJar')
+    t.doLast {
+        if (!gtnhPackDir.present) {
+            throw new GradleException('installToGTNH: set gtnhPackDir in ~/.gradle/gradle.properties '
+                + '(or the GTNH_PACK_DIR environment variable) to the .minecraft folder of a GTNH instance')
+        }
+        File mods = new File(gtnhPackDir.get(), 'mods')
+        File built = reobfJarFile.get().asFile
+        mods.listFiles()?.each { File f ->
+            if (f.isFile() && f.name.endsWith('.jar') && f.name != built.name
+                && GtnhPackSync.readModIds(f).contains(ownModId)) {
+                f.delete()
+                println "GTNH pack: removed old ${f.name}"
+            }
+        }
+        Files.copy(built.toPath(), new File(mods, built.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
+        println "GTNH pack: installed ${built.name} into ${mods}"
     }
 }
