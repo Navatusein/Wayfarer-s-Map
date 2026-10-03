@@ -173,12 +173,13 @@ public class GuiAbout extends ScaledScreen {
         Icons.draw(Icons.FLAT, 0, 0, Theme.ACCENT);
         Theme.text(fontRendererObj, title, (iconWidth + 8) / 2, 0, Theme.TEXT);
         GL11.glPopMatrix();
-        Theme.centered(
-            fontRendererObj,
-            I18n.format("wayfarmap.about.version", Tags.VERSION),
-            centerX,
-            top + 36,
-            Theme.TEXT_MUTED);
+        // A long version (a dev build's git description) is cut to the panel; the full one shows on hover.
+        String version = I18n.format("wayfarmap.about.version", Tags.VERSION);
+        String shownVersion = Theme.ellipsize(fontRendererObj, version, WIDTH - 20);
+        Theme.centered(fontRendererObj, shownVersion, centerX, top + 36, Theme.TEXT_MUTED);
+        int versionWidth = fontRendererObj.getStringWidth(shownVersion);
+        boolean versionHovered = !shownVersion.equals(version) && Theme
+            .inside(mouseX, mouseY, centerX - versionWidth / 2, top + 35, centerX + versionWidth / 2 + 1, top + 45);
 
         divider(top + 50);
         Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.author"), centerX, top + 58, Theme.TEXT_MUTED);
@@ -190,6 +191,9 @@ public class GuiAbout extends ScaledScreen {
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 
+        if (versionHovered) {
+            drawHoveringText(Collections.singletonList(version), mouseX, mouseY, fontRendererObj);
+        }
         for (Object o : buttonList) {
             if (o instanceof LinkButton && ((LinkButton) o).isMouseOver(mouseX, mouseY)) {
                 drawHoveringText(Collections.singletonList(((LinkButton) o).url), mouseX, mouseY, fontRendererObj);
