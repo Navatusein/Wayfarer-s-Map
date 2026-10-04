@@ -109,6 +109,14 @@ public class GuiWorldMap extends ScaledScreen {
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
 
+    /** Longest glide of the view to a point, and how far (in screens) it starts from at most. */
+    private static final int FLIGHT_MAX_MS = 650;
+    private static final double FLIGHT_MAX_SCREENS = 1.5;
+    /** Glide of the view to a point: from where it was to where it goes; flightStart is 0 when not gliding. */
+    private double flightFromX, flightFromZ, flightToX, flightToZ;
+    private long flightStart;
+    private int flightMillis;
+
     /** Map lighting: auto, day or night, switched in turn. */
     private IconButton lightButton;
     private IconButton caveButton;
@@ -430,6 +438,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Puts a world point in the middle of the screen (in 3D the point itself, not the ground below it). */
     private void centerOn(double x, double y, double z) {
+        flightStart = 0;
         if (isoShown()) {
             IsoProjection p = isoProjection();
             double toward = p.toward(x, z) + (IsoProjection.REFERENCE_Y - y) * IsoProjection.COS / IsoProjection.SIN;
@@ -440,6 +449,35 @@ public class GuiWorldMap extends ScaledScreen {
             centerX = x;
             centerZ = z;
         }
+    }
+
+    /**
+     * Glides the view to a world point, like {@link #centerOn} but over a moment: quicker for short ways, eased at
+     * both ends. From far away it starts a screen and a half off, so the way there isn't a blur of maps to load.
+     */
+    private void flyTo(double x, double y, double z) {
+        double fromX = centerX, fromZ = centerZ;
+        centerOn(x, y, z);
+        double toX = centerX, toZ = centerZ;
+        double pixels = Math.hypot(toX - fromX, toZ - fromZ) * scale;
+        if (!Config.mapSmoothCamera || pixels < 1) {
+            return;
+        }
+        double far = FLIGHT_MAX_SCREENS * Math.max(width, height);
+        if (pixels > far) {
+            double part = far / pixels;
+            fromX = toX + (fromX - toX) * part;
+            fromZ = toZ + (fromZ - toZ) * part;
+            pixels = far;
+        }
+        flightFromX = fromX;
+        flightFromZ = fromZ;
+        flightToX = toX;
+        flightToZ = toZ;
+        flightMillis = (int) Math.min(FLIGHT_MAX_MS, 200 + Math.sqrt(pixels) * 14);
+        flightStart = System.currentTimeMillis();
+        centerX = fromX;
+        centerZ = fromZ;
     }
 
     /** The search field shows up in biome view and with the ore vein or fluid layer (not in 3D). */
@@ -780,7 +818,7 @@ public class GuiWorldMap extends ScaledScreen {
             if (Config.mapFollowPlayer) {
                 // Turned on: show the player now, as the map will be every time it opens.
                 showDimension(mc.theWorld.provider.dimensionId);
-                centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+                flyTo(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
                 zooming = false;
             }
         } else if (button.id == ID_GRID) {
@@ -817,6 +855,17 @@ public class GuiWorldMap extends ScaledScreen {
         long now = System.nanoTime();
         double seconds = Math.min(0.1, (now - lastFrameNanos) / 1.0e9);
         lastFrameNanos = now;
+
+        if (flightStart != 0) {
+            float t = Math.min(1f, (System.currentTimeMillis() - flightStart) / (float) flightMillis);
+            // Eased in and out: sets off softly and comes to rest softly.
+            double eased = t < 0.5f ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            centerX = flightFromX + (flightToX - flightFromX) * eased;
+            centerZ = flightFromZ + (flightToZ - flightFromZ) * eased;
+            if (t >= 1f) {
+                flightStart = 0;
+            }
+        }
 
         if (dragging) {
             if (!Mouse.isButtonDown(0)) {
@@ -1715,11 +1764,14 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Centers the map on the teammate, switching to their dimension if needed. */
     private void goToTeammate(TeamMates.Mate mate) {
-        if (mate.dimension != viewDimension()) {
-            showDimension(mate.dimension);
-        }
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
-        centerOn(position[0], position[1], position[2]);
+        if (mate.dimension != viewDimension()) {
+            // Another dimension's map: no way to glide there from here.
+            showDimension(mate.dimension);
+            centerOn(position[0], position[1], position[2]);
+        } else {
+            flyTo(position[0], position[1], position[2]);
+        }
         zooming = false;
     }
 
@@ -2290,6 +2342,8 @@ public class GuiWorldMap extends ScaledScreen {
         anchorWorldZ = centerZ + offset[1];
         zoomIndex = newIndex;
         zooming = true;
+        // Zooming takes the view over from a glide.
+        flightStart = 0;
     }
 
     @Override
@@ -2371,6 +2425,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (button == 0) {
             dragging = true;
+            // Grabbing the map stops a glide where it is.
+            flightStart = 0;
             lastRawMouseX = Mouse.getX();
             lastRawMouseY = Mouse.getY();
         }
@@ -2840,9 +2896,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
             MapManager.INSTANCE.stopViewing();
             applySearch();
-            centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            // At the zoom it settles on, so the glide is measured at the scale it ends at.
             zooming = false;
             scale = Config.MAP_ZOOMS[zoomIndex];
+            flyTo(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
             return;
         }
         super.keyTyped(typedChar, keyCode);

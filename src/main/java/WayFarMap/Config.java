@@ -145,6 +145,8 @@ public class Config {
     public static int gridChunkOpacity = 20, gridRegionOpacity = 45;
     /** The world map always opens at the player instead of where it was closed. */
     public static boolean mapFollowPlayer = false;
+    /** Centering the world map on the player or a teammate glides there instead of jumping. */
+    public static boolean mapSmoothCamera = true;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
     /** On the 3D map the player is drawn as its 3D model instead of the arrow. */
@@ -560,6 +562,13 @@ public class Config {
             false,
             () -> mapFollowPlayer,
             v -> mapFollowPlayer = v);
+        bool(
+            c,
+            "smoothCamera",
+            "Centering the map on the player or a teammate glides there instead of jumping.",
+            true,
+            () -> mapSmoothCamera,
+            v -> mapSmoothCamera = v);
         bool(
             c,
             "useTextureColors",
