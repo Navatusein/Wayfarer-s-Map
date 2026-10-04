@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import net.minecraft.block.Block;
@@ -178,10 +179,14 @@ final class FaceRenderer {
     /**
      * How far apart pictures of a block that can't reach its neighbours may be and still count as the same: plants
      * the game moves a little from place to place (tall grass, Biomes O' Plenty's foliage), so no two places give the
-     * very same picture. Share of the picture covered (relative) and average color (per channel, 0-255).
+     * very same picture. Share of the picture covered (relative) and average color (per channel, 0-255): loose, as
+     * the part of a moved plant reaching past its cell is cut off.
      */
-    private static final float ALIKE_COVERAGE = 0.3f, ALIKE_COLOR = 20f;
-    /** Coverage and average color of sprites by id, for {@link #alike} (cleared with the other caches). */
+    private static final float ALIKE_COVERAGE = 0.5f, ALIKE_COLOR = 32f;
+    /**
+     * Coverage and average color of sprites by id, for {@link #alike}: worked out when they are drawn (reading a
+     * sprite back from the palette waited for its saving and made ticks of 200 ms). Cleared with the other caches.
+     */
     private static final Map<Integer, float[]> LOOKS_OF_SPRITES = new HashMap<>();
     /** Look keys a kind was found unreliable for, logged only the first few times. */
     private static final Map<Integer, Integer> UNRELIABLE_LOGGED = new HashMap<>();
@@ -255,7 +260,7 @@ final class FaceRenderer {
      * Whether two blocks' pictures look the same: the very same, or (for a block that can't reach its neighbours)
      * each view covering about as much with about the same color, as a plant moved a little does.
      */
-    private static boolean alike(int[] a, int[] b, boolean detached, FacePalette palette) {
+    private static boolean alike(int[] a, int[] b, boolean detached) {
         if (Arrays.equals(a, b)) {
             return true;
         }
@@ -269,7 +274,7 @@ final class FaceRenderer {
             if (a[view] <= 0 || b[view] <= 0) {
                 return false;
             }
-            float[] la = spriteLook(a[view], palette), lb = spriteLook(b[view], palette);
+            float[] la = LOOKS_OF_SPRITES.get(a[view]), lb = LOOKS_OF_SPRITES.get(b[view]);
             if (la == null || lb == null) {
                 return false;
             }
@@ -285,33 +290,30 @@ final class FaceRenderer {
         return true;
     }
 
-    /** A sprite's coverage (0-1) and average red, green and blue, from a 16 pixel copy; null if it can't be read. */
-    private static float[] spriteLook(int id, FacePalette palette) {
-        float[] look = LOOKS_OF_SPRITES.get(id);
-        if (look != null) {
-            return look;
+    /** Remembers a just drawn sprite's coverage (0-1) and average red, green and blue (every other pixel). */
+    private static void rememberLook(int id, int[] pixels, int side) {
+        if (id <= 0 || LOOKS_OF_SPRITES.containsKey(id)) {
+            return;
         }
-        FacePalette.Sprite sprite = palette.sprite(id);
-        if (sprite == null) {
-            return null;
-        }
-        int mip = Math.max(0, Math.min(sprite.mips.length - 1, Integer.numberOfTrailingZeros(sprite.size) - 4));
-        int[] pixels = sprite.mips[mip];
         long alpha = 0, r = 0, g = 0, b = 0;
-        for (int c : pixels) {
-            int a = c >>> 24;
-            alpha += a;
-            r += (c >> 16 & 0xFF) * a;
-            g += (c >> 8 & 0xFF) * a;
-            b += (c & 0xFF) * a;
+        int count = 0;
+        for (int y = 0; y < side; y += 2) {
+            for (int x = 0; x < side; x += 2) {
+                int c = pixels[y * side + x], a = c >>> 24;
+                alpha += a;
+                r += (c >> 16 & 0xFF) * a;
+                g += (c >> 8 & 0xFF) * a;
+                b += (c & 0xFF) * a;
+                count++;
+            }
         }
-        look = alpha == 0 ? new float[] { 0, 0, 0, 0 }
-            : new float[] { alpha / (255f * pixels.length), r / (float) alpha, g / (float) alpha, b / (float) alpha };
-        if (LOOKS_OF_SPRITES.size() > 100_000) {
+        if (LOOKS_OF_SPRITES.size() > 200_000) {
             LOOKS_OF_SPRITES.clear();
         }
-        LOOKS_OF_SPRITES.put(id, look);
-        return look;
+        LOOKS_OF_SPRITES.put(
+            id,
+            alpha == 0 ? new float[] { 0, 0, 0, 0 }
+                : new float[] { alpha / (255f * count), r / (float) alpha, g / (float) alpha, b / (float) alpha });
     }
 
     /** The kind of a block for {@link #BY_KIND}: its look, open sides, width and the six blocks next to it. */
@@ -370,7 +372,7 @@ final class FaceRenderer {
      * other ones make it be drawn every time. Not from a block at the edge of what is loaded (its pictures may be
      * wrong).
      */
-    private static void learn(Pending pending, FacePalette palette) {
+    private static void learn(Pending pending) {
         boolean empty = true;
         for (int view = 0; view < pending.views(); view++) {
             empty &= pending.ids[view] == FacePalette.EMPTY;
@@ -389,7 +391,7 @@ final class FaceRenderer {
             if (Arrays.equals(learned.ids, pending.ids)) {
                 learned.confirmed++;
                 kindStat(pending.lookKey, 3);
-            } else if (alike(learned.ids, pending.ids, pending.detached, palette)) {
+            } else if (alike(learned.ids, pending.ids, pending.detached)) {
                 learned.confirmed++;
                 kindStat(pending.lookKey, 5);
             } else {
@@ -405,7 +407,7 @@ final class FaceRenderer {
             byBlock.place(pending.kindKey);
             BY_BLOCK.put(pending.blockKey, byBlock);
         } else if (!byBlock.unreliable) {
-            if (alike(byBlock.ids, pending.ids, pending.detached, palette)) {
+            if (alike(byBlock.ids, pending.ids, pending.detached)) {
                 byBlock.confirmed++;
                 byBlock.place(pending.kindKey);
             } else {
@@ -439,7 +441,23 @@ final class FaceRenderer {
                 + Arrays.toString(learned.ids)
                 + " now "
                 + Arrays.toString(pending.ids)
+                + (pending.detached ? " looks[coverage,r,g,b] " + looks(learned.ids) + " now " + looks(pending.ids)
+                    : "")
                 + " (drawn every time from now on; logged 3 times per block at most)");
+    }
+
+    /** For the log: each picture's coverage and average color, as {@link #alike} compares them. */
+    private static String looks(int[] ids) {
+        StringBuilder b = new StringBuilder("[");
+        for (int view = 0; view < ChunkBlocks.VIEWS; view++) {
+            float[] look = LOOKS_OF_SPRITES.get(ids[view]);
+            b.append(view == 0 ? "" : " ")
+                .append(
+                    look == null ? "-"
+                        : String.format(Locale.ROOT, "%.2f,%.0f,%.0f,%.0f", look[0], look[1], look[2], look[3]));
+        }
+        return b.append(']')
+            .toString();
     }
 
     private static int cacheGeneration;
@@ -669,6 +687,8 @@ final class FaceRenderer {
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
+    /** Time remembering the pictures taken for their kinds ({@link #learn}). */
+    static long learnNanos;
     /**
      * Pictures of tile entities by block and surroundings (and with their data), to tell whether pictures could be
      * shared between places; for the log only.
@@ -684,7 +704,7 @@ final class FaceRenderer {
         progressDone = progressTotal = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
-        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
+        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = learnNanos = 0;
     }
 
     /** Resource packs changed: sprites are taken again. */
@@ -804,7 +824,9 @@ final class FaceRenderer {
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
                 } else {
-                    learn(pending, palette);
+                    long learnStart = System.nanoTime();
+                    learn(pending);
+                    learnNanos += System.nanoTime() - learnStart;
                     if (BY_SURROUNDINGS.size() > 200_000) {
                         // A long game: start over rather than grow without end.
                         BY_SURROUNDINGS.clear();
@@ -1378,6 +1400,9 @@ final class FaceRenderer {
                         continue;
                     }
                     pending.ids[view] = palette.idOf(image);
+                    if (pending.detached) {
+                        rememberLook(pending.ids[view], image, pixels);
+                    }
                     unshadeNanos += u1 - u0;
                     idNanos += System.nanoTime() - u1;
                 }

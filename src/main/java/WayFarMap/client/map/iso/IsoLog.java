@@ -588,6 +588,8 @@ public final class IsoLog {
                     + ms(FaceRenderer.unshadeNanos)
                     + " idMs="
                     + ms(FaceRenderer.idNanos)
+                    + " learnMs="
+                    + ms(FaceRenderer.learnNanos)
                     + "] skippable[expiredSame="
                     + FaceRenderer.expiredSame
                     + " expiredDiffer="
