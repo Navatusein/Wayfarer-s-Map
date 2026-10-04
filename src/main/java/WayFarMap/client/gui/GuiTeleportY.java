@@ -10,13 +10,15 @@ import org.lwjgl.input.Keyboard;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 
 /** Asks for the height to teleport to when the ground at the target isn't known (unexplored, not loaded). */
 public class GuiTeleportY extends ScaledScreen {
 
-    private static final int WIDTH = 220, HEIGHT = 78;
+    private static final int WIDTH = 220, HEIGHT = WindowHeader.HEIGHT + 54;
     private static final int ID_TELEPORT = 0, ID_CANCEL = 1;
 
     private final GuiScreen parent;
@@ -38,17 +40,19 @@ public class GuiTeleportY extends ScaledScreen {
         top = (height - HEIGHT) / 2;
         String text = yField != null ? yField.getText()
             : String.valueOf(mc.thePlayer != null ? MathHelper.floor_double(mc.thePlayer.boundingBox.minY) : 64);
-        yField = new FlatTextField(fontRendererObj, left + 10, top + 30, WIDTH - 20, 16);
+        yField = new FlatTextField(fontRendererObj, left + 10, top + WindowHeader.HEIGHT + 6, WIDTH - 20, 16);
         yField.setMaxStringLength(4);
         yField.setText(text);
         yField.setFocused(true);
 
         buttonList.clear();
         int w = (WIDTH - 24) / 2;
-        teleportButton = new FlatButton(ID_TELEPORT, left + 10, top + 52, w, 18, I18n.format("wayfarmap.gui.teleport"));
+        int buttonY = top + WindowHeader.HEIGHT + 28;
+        teleportButton = new FlatButton(ID_TELEPORT, left + 10, buttonY, w, 18, I18n.format("wayfarmap.gui.teleport"));
         teleportButton.active = true;
         buttonList.add(teleportButton);
-        buttonList.add(new FlatButton(ID_CANCEL, left + WIDTH - 10 - w, top + 52, w, 18, I18n.format("gui.cancel")));
+        buttonList.add(new FlatButton(ID_CANCEL, left + WIDTH - 10 - w, buttonY, w, 18, I18n.format("gui.cancel")));
+        buttonList.add(WindowHeader.closeButton(ID_CANCEL, left + WIDTH, top));
         validate();
     }
 
@@ -123,13 +127,17 @@ public class GuiTeleportY extends ScaledScreen {
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, left + WIDTH, top + HEIGHT);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.teleport_y_title"), left + 10, top + 8, Theme.ACCENT);
-        Theme.text(
+        WindowHeader.draw(
             fontRendererObj,
-            Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.gui.teleport_y_hint", x, z), WIDTH - 20),
-            left + 10,
-            top + 19,
-            Theme.TEXT_MUTED);
+            left,
+            top,
+            left + WIDTH,
+            left + WIDTH - WindowHeader.CLOSE_ROOM,
+            Icons.MARKER,
+            I18n.format("wayfarmap.gui.teleport_y_title"),
+            I18n.format("wayfarmap.gui.teleport_y_hint", x, z),
+            Theme.TEXT_MUTED,
+            null);
         yField.drawTextBox();
         super.drawScaled(mouseX, mouseY, partialTicks);
     }

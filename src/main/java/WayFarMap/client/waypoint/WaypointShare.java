@@ -45,7 +45,9 @@ public final class WaypointShare {
     static String encode(Waypoint waypoint) {
         String name = cut(clean(waypoint.name), 32);
         String group = waypoint.group == null ? "" : cut(clean(waypoint.group), 24);
-        String icon = waypoint.iconItem == null ? "" : waypoint.iconItem + "@" + waypoint.iconMeta;
+        // An item as "name@meta", one of the icons as "#name" (left out by versions without them).
+        String icon = waypoint.symbol != null ? "#" + waypoint.symbol
+            : waypoint.iconItem == null ? "" : waypoint.iconItem + "@" + waypoint.iconMeta;
         String text = build(name, waypoint, icon, group);
         if (text.length() > CHAT_LIMIT) {
             icon = "";
@@ -126,7 +128,9 @@ public final class WaypointShare {
             }
             String icon = parts[6].trim();
             int at = icon.lastIndexOf('@');
-            if (at > 0) {
+            if (icon.startsWith("#") && icon.length() > 1) {
+                waypoint.symbol = icon.substring(1);
+            } else if (at > 0) {
                 waypoint.iconItem = icon.substring(0, at);
                 waypoint.iconMeta = Integer.parseInt(icon.substring(at + 1));
             }

@@ -17,11 +17,67 @@ import WayFarMap.Config;
 public abstract class ScaledScreen extends GuiScreen {
 
     private static final int MIN_WIDTH = 800, MIN_HEIGHT = 450;
+    /** How long a screen takes to slide into place when it opens, and how far it comes from (GUI pixels). */
+    private static final long OPEN_MS = 180;
+    private static final int OPEN_DISTANCE = 8;
+    /** Not drawn for this long: the screen is being opened (again), not just drawn the next frame. */
+    private static final long REOPEN_MS = 250;
 
     /** Scale the screen being drawn uses (screen pixels per GUI pixel), 0 when none of ours is drawing. */
     private static int activeFactor;
+    /** How far down the screen being drawn is moved while it slides in (GUI pixels). */
+    private static int activeOffset;
+
+    /** A screen behind this one is being drawn: it gets no mouse, so nothing on it lights up. */
+    private static boolean drawingBehind;
+    /** Screens drawn behind each other at most: a guard against a screen ending up behind itself. */
+    private static final int MAX_BEHIND = 4;
+    private static int behindDepth;
 
     private int appliedFactor;
+    /** When the screen was opened, and when it was last drawn (milliseconds). */
+    private long openedAt, lastDrawn;
+    /**
+     * The mod's screen that was open when this one was made (e.g. the world map under its settings): it stays
+     * drawn under this one, dimmed by it, instead of the game. Null when this one was opened from the game.
+     */
+    private final ScaledScreen behind;
+
+    /** The screen a new one was last opened over, and when: it closes only to stay drawn under it. */
+    private static ScaledScreen lastCovered;
+    private static long lastCoveredAt;
+
+    protected ScaledScreen() {
+        GuiScreen open = Minecraft.getMinecraft().currentScreen;
+        behind = open instanceof ScaledScreen && open != this ? (ScaledScreen) open : null;
+        if (behind != null) {
+            lastCovered = behind;
+            lastCoveredAt = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * Whether the screen is being closed only because another of the mod's screens is opening over it, which keeps
+     * it drawn behind (for {@link GuiScreen#onGuiClosed}: it should not let go of what it shows).
+     */
+    public static boolean isBeingCovered(ScaledScreen screen) {
+        return lastCovered == screen && System.currentTimeMillis() - lastCoveredAt < 2000;
+    }
+
+    /** Whether a screen of the type is drawn behind this one (directly or further back). */
+    public boolean showsBehind(Class<?> type) {
+        for (ScaledScreen screen = behind; screen != null; screen = screen.behind) {
+            if (type.isInstance(screen)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the screen is drawn now only as the background of another one, and gets no input. */
+    protected static boolean isDrawnBehind() {
+        return drawingBehind;
+    }
 
     /** Screen pixels per GUI pixel of the mod's screens. */
     public static int factor(Minecraft mc) {
@@ -44,6 +100,21 @@ public abstract class ScaledScreen extends GuiScreen {
         return new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
     }
 
+    /** How far down the screen being drawn is moved while it slides in, for drawing that uses screen pixels. */
+    public static int currentOffset() {
+        return activeOffset;
+    }
+
+    /** Whether the screen slides in when it opens; not for screens covering the whole window. */
+    protected boolean slidesIn() {
+        return true;
+    }
+
+    /** Whether the screen it was opened over is drawn behind it; not for screens covering the whole window. */
+    protected boolean showsScreenBehind() {
+        return true;
+    }
+
     @Override
     public void setWorldAndResolution(Minecraft mc, int width, int height) {
         appliedFactor = factor(mc);
@@ -55,22 +126,55 @@ public abstract class ScaledScreen extends GuiScreen {
 
     @Override
     public final void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        if (factor(mc) != appliedFactor) {
-            // The scale option changed (or the window): lay the screen out again.
+        int expectedWidth = (mc.displayWidth + appliedFactor - 1) / Math.max(1, appliedFactor);
+        if (factor(mc) != appliedFactor || width != expectedWidth) {
+            // The scale option changed, or the window: lay the screen out again.
             setWorldAndResolution(mc, 0, 0);
+        }
+        if (behind != null && showsScreenBehind() && behind.mc != null && behindDepth < MAX_BEHIND) {
+            // The screen this one was opened over, as it is now, under this one's dimmed background.
+            boolean was = drawingBehind;
+            drawingBehind = true;
+            behindDepth++;
+            try {
+                behind.drawScreen(mouseX, mouseY, partialTicks);
+            } finally {
+                drawingBehind = was;
+                behindDepth--;
+            }
         }
         int minecraftFactor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
         float scale = (float) appliedFactor / minecraftFactor;
-        // Minecraft passes the mouse in its own GUI pixels; ours are different.
-        int x = Mouse.getX() * width / mc.displayWidth;
-        int y = height - Mouse.getY() * height / mc.displayHeight - 1;
+        // Minecraft passes the mouse in its own GUI pixels; ours are different. A screen drawn behind another one
+        // gets it far away.
+        int x = drawingBehind ? -10000 : Mouse.getX() * width / mc.displayWidth;
+        int y = drawingBehind ? -10000 : height - Mouse.getY() * height / mc.displayHeight - 1;
+        long now = System.currentTimeMillis();
+        if (now - lastDrawn > REOPEN_MS) {
+            // Opened, or back from another screen.
+            openedAt = now;
+        }
+        lastDrawn = now;
+        int offset = 0;
+        if (slidesIn()) {
+            // Eases out: fast at first, settling into place.
+            double t = Math.min(1, (now - openedAt) / (double) OPEN_MS);
+            offset = (int) Math.round(Math.pow(1 - t, 3) * OPEN_DISTANCE);
+        }
         GL11.glPushMatrix();
         GL11.glScalef(scale, scale, 1f);
+        if (offset > 0) {
+            // The strip the screen leaves at the top while lower down is dimmed like the rest.
+            Theme.fill(0, 0, width, offset, Theme.SCREEN_DIM);
+            GL11.glTranslatef(0f, offset, 0f);
+        }
         activeFactor = appliedFactor;
+        activeOffset = offset;
         try {
-            drawScaled(x, y, partialTicks);
+            drawScaled(x, y - offset, partialTicks);
         } finally {
             activeFactor = 0;
+            activeOffset = 0;
             GL11.glPopMatrix();
         }
     }

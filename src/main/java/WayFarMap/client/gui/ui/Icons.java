@@ -80,9 +80,9 @@ public final class Icons {
         ".....#.....", "...#####...", "..#..#..#..", ".#...#...#.", ".#..###..#.", "#####.#####", ".#..###..#.",
         ".#...#...#.", "..#..#..#..", "...#####...", ".....#....." };
 
-    public static final String[] FLAT = { // a folded map
-        "##..##..##.", "#.##.##.##.", "#..#..#..#.", "#..#..#..#.", "#..#..#..#.", "#..#..#..#.", "#.##.##.##.",
-        "##..##..##." };
+    public static final String[] FLAT = { // a place marker standing on the ground: the 2D map
+        "...#####...", "..##...##..", "..#.###.#..", "..#.###.#..", "..##...##..", "...##.##...", "....###....",
+        ".##..#..##.", "#.........#", ".#########." };
 
     public static final String[] CLOSE = { // a cross
         "##.....##", ".##...##.", "..##.##..", "...###...", "...###...", "..##.##..", ".##...##.", "##.....##" };
@@ -106,6 +106,91 @@ public final class Icons {
     public static final String[] TELEGRAM = { // a paper plane
         "..........#", "........###", "......##.##", "....##..#.#", "..##...#..#", "###...#...#", "..##.#...#.",
         "....##..#..", ".....#.#...", ".....##....", ".....#....." };
+
+    public static final String[] MINIMAP = { // a round map with the player's arrow
+        "...#####...", ".##.....##.", ".#.......#.", "#....#....#", "#...###...#", "#..#####..#", "#....#....#",
+        "#.........#", ".#.......#.", ".##.....##.", "...#####..." };
+
+    public static final String[] MARKER = { // the player's arrow
+        "....#....", "...###...", "...###...", "..#####..", "..#####..", ".#######.", ".###.###.", "###...###",
+        "##.....##" };
+
+    public static final String[] LOGS = { // a page of text
+        "#######..", "#.....##.", "#.###..##", "#.......#", "#.#####.#", "#.......#", "#.####..#", "#.......#",
+        "#.#####.#", "#.......#", "#########" };
+
+    public static final String[] PALETTE = { // a painter's palette
+        "...####....", ".##....##..", "#..##....#.", "#..##.##..#", "#......##.#", "#.##......#", "#.##...##.#",
+        ".#....#..#.", "..####..#..", "......##..." };
+
+    public static final String[] MAP2D = { // a square of flat map seen from above: land, a lake, a path
+        "###########", "#.........#", "#.###.....#", "#.###..##.#", "#.....###.#", "#..#..###.#", "#.###.....#",
+        "#.........#", "###########" };
+
+    public static final String[] NO_PLANTS = { // a flower and a cross: the map without grass and flowers
+        "..###..#..#", ".#.#.#..##.", "..###...##.", "...#...#..#", "#..#..#....", ".#.#.#.....", "#.#.#.#....",
+        ".#####....." };
+
+    public static final String[] KEYS = { // a keyboard
+        "###########", "#.........#", "#.#.#.#.#.#", "#.........#", "#.#.#####.#", "#.........#", "###########" };
+
+    public static final String[] ORE = { // a cut gem
+        "..#####..", ".#.#.#.#.", "#########", ".#.....#.", "..#...#..", "...#.#...", "....#...." };
+
+    public static final String[] POWER = { // a lightning bolt
+        "....###", "...###.", "..###..", ".######", "######.", "..###..", ".###...", "###....", "#......" };
+
+    public static final String[] NODE = { // a sparkle
+        "....#....", "....#....", "...###...", "..#####..", "#########", "..#####..", "...###...", "....#....",
+        "....#...." };
+
+    public static final String[] CLAIM = { // a shield
+        "#########", "#.......#", "#.......#", "#.......#", ".#.....#.", ".#.....#.", "..#...#..", "...#.#...",
+        "....#...." };
+
+    /** Marks of the help's notes: an exclamation mark for an important one, a light bulb for a tip. */
+    public static final String[] NOTE = { "##", "##", "##", "##", "##", "..", "##" };
+    public static final String[] TIP = { ".###.", "#...#", "#...#", "#...#", ".#.#.", ".###.", "..#.." };
+    /** A list item's mark. */
+    public static final String[] BULLET = { ".#.", "###", ".#." };
+
+    /** Small icons (7x7) for the map's bottom bar and its menus. */
+    public static final String[] SMALL_CURSOR = { "...#...", ".#####.", ".#...#.", "##.#.##", ".#...#.", ".#####.",
+        "...#..." };
+    public static final String[] SMALL_TREE = { "..###..", ".#####.", "#######", ".#####.", "...#...", "...#...",
+        "..###.." };
+    public static final String[] SMALL_CAVE = { "..###..", ".#####.", "##...##", "#.....#", "#.....#", "#######" };
+    public static final String[] SMALL_FLAG = { "##.....", "#####..", "######.", "#####..", "#......", "#......",
+        "#......" };
+    public static final String[] SMALL_QUEUE = { "...#...", "...#...", ".#####.", "..###..", "...#...", "#.....#",
+        "#######" };
+    public static final String[] SMALL_UP = { "...#...", "..###..", ".#####.", "...#...", "...#...", "...#...",
+        "..###.." };
+    public static final String[] SMALL_PLUS = { "...#...", "...#...", "...#...", "#######", "...#...", "...#...",
+        "...#..." };
+    public static final String[] SMALL_TRASH = { ".#####.", "#######", ".#...#.", ".#.#.#.", ".#.#.#.", ".#...#.",
+        ".#####." };
+    public static final String[] SMALL_PENCIL = { ".....##", "....###", "...###.", "..###..", ".###...", "##.....",
+        "#......" };
+    public static final String[] SMALL_CHAT = { "#######", "#.....#", "#.###.#", "#.....#", "#######", ".##....",
+        "#......" };
+    public static final String[] SMALL_EYE = { "..###..", ".#...#.", "#..#..#", ".#...#.", "..###.." };
+    public static final String[] SMALL_DROP = { "...#...", "..###..", ".#####.", "#######", "#######", ".#####.",
+        "..###.." };
+
+    /** Small icons (7x7) of the kinds of mobs, for the mobs menu. */
+    public static final String[] SMALL_NEUTRAL = { "#.....#", ".#####.", ".#.#.#.", ".#####.", "..###..", "..#.#.." };
+    public static final String[] SMALL_HEART = { ".##.##.", "#######", "#######", ".#####.", "..###..", "...#..." };
+    public static final String[] SMALL_PAW = { "..#.#..", ".#####.", ".#####.", "..###..", ".......", ".#.#.#.",
+        ".#.#.#." };
+    public static final String[] SMALL_CREEPER = { "#######", "#..#..#", "#..#..#", "###.###", "##...##", "##.#.##",
+        "#######" };
+    public static final String[] SMALL_PERSON = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..",
+        ".#...#." };
+
+    /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
+    public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
+    public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
 
     /** The mod's logo, a compass rose: layers of one color each, drawn together by {@link #drawLogo}. */
     private static final String[] LOGO_RING = { ".....#####.....", "...##.....##...", "..#.........#..",

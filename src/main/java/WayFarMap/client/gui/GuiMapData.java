@@ -18,8 +18,10 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.gui.ui.FlatButton;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
@@ -133,11 +135,11 @@ public class GuiMapData extends ScaledScreen {
     // ---------------------------------------------------------------- layout
 
     private int tilesY() {
-        return top + 40;
+        return top + WindowHeader.HEIGHT + 18;
     }
 
     private int worldY() {
-        return top + 76;
+        return top + WindowHeader.HEIGHT + 54;
     }
 
     private int barY() {
@@ -160,7 +162,7 @@ public class GuiMapData extends ScaledScreen {
     @Override
     public void initGui() {
         int panelWidth = Math.min(width - 16, 400);
-        int panelHeight = Math.min(height - 16, 300);
+        int panelHeight = Math.min(height - 16, 308);
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         right = left + panelWidth;
@@ -168,8 +170,11 @@ public class GuiMapData extends ScaledScreen {
         buttonList.clear();
         String refresh = I18n.format("wayfarmap.data.refresh");
         int refreshWidth = fontRendererObj.getStringWidth(refresh) + 14;
-        refreshButton = new FlatButton(ID_REFRESH, right - 10 - refreshWidth, top + 6, refreshWidth, 14, refresh);
+        // In the header, left of the close button.
+        int refreshX = right - WindowHeader.CLOSE_ROOM - refreshWidth;
+        refreshButton = new FlatButton(ID_REFRESH, refreshX, top + 7, refreshWidth, 16, refresh);
         buttonList.add(refreshButton);
+        buttonList.add(WindowHeader.closeButton(ID_DONE, right, top));
         // The picked dimension, after the section's title; a click opens the list of them under it.
         int pickerX = left + 16 + fontRendererObj.getStringWidth(I18n.format("wayfarmap.stats.this_world"));
         dimensionButton = new FlatButton(ID_DIMENSION, pickerX, worldY() - 4, right - 10 - pickerX, 16, "");
@@ -637,8 +642,7 @@ public class GuiMapData extends ScaledScreen {
 
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, right, bottom);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.data.title"), left + 10, top + 10, Theme.ACCENT);
-        // Header, right: counting now, or when the numbers were counted.
+        // Under the title: counting now, or when the numbers were counted.
         String counted;
         int countedColor;
         if (updating) {
@@ -654,16 +658,21 @@ public class GuiMapData extends ScaledScreen {
             counted = I18n.format("wayfarmap.stats.none");
             countedColor = Theme.TEXT_MUTED;
         }
-        Theme.text(
+        WindowHeader.draw(
             fontRendererObj,
+            left,
+            top,
+            right,
+            refreshButton.xPosition,
+            Icons.STATS,
+            I18n.format("wayfarmap.data.title"),
             counted,
-            refreshButton.xPosition - 8 - fontRendererObj.getStringWidth(counted),
-            top + 10,
-            countedColor);
-        Theme.fill(left + 10, top + 23, right - 10, top + 24, Theme.ACCENT_DIM);
+            countedColor,
+            null);
 
         // All worlds.
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.stats.all_worlds"), left + 10, top + 29, Theme.TEXT_MUTED);
+        int allWorldsY = top + WindowHeader.HEIGHT + 7;
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.stats.all_worlds"), left + 10, allWorldsY, Theme.TEXT_MUTED);
         tiles(
             tilesY(),
             new String[] { I18n.format("wayfarmap.stats.worlds"), I18n.format("wayfarmap.stats.flat"),
@@ -717,30 +726,38 @@ public class GuiMapData extends ScaledScreen {
         Theme.fill(left + 10, logsY() - 10, right - 10, logsY() - 9, Theme.BORDER);
         sizeRow(0, rowLabel(ID_LOGS), "", data == null ? unknown : bytes(data.logs), logsY(), value);
 
-        // Footer: the confirmation asked, or what the last cleaning did; and what is kept.
+        // Footer: what is kept, on up to two lines beside the Done button; over it the confirmation asked, or what
+        // the last cleaning did.
         int textWidth = right - left - 110;
+        List<String> note = new ArrayList<>();
+        for (Object line : fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.data.note"), textWidth)) {
+            note.add((String) line);
+        }
+        if (note.size() > 2) {
+            note.set(1, Theme.ellipsize(fontRendererObj, note.get(1) + "...", textWidth));
+            note = note.subList(0, 2);
+        }
+        int noteY = note.size() > 1 ? bottom - 26 : bottom - 21;
+        int messageY = note.size() > 1 ? bottom - 38 : bottom - 34;
         if (armed != -1) {
             String what = armed == ID_LOGS ? rowLabel(armed) : rowLabel(armed) + " · " + scopeName();
             Theme.text(
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.data.confirm", what), textWidth),
                 left + 10,
-                bottom - 34,
+                messageY,
                 Theme.DANGER);
         } else if (!status.isEmpty()) {
             Theme.text(
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, status, textWidth),
                 left + 10,
-                bottom - 34,
+                messageY,
                 Theme.SUCCESS);
         }
-        Theme.text(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.data.note"), textWidth),
-            left + 10,
-            bottom - 21,
-            Theme.TEXT_MUTED);
+        for (int i = 0; i < note.size(); i++) {
+            Theme.text(fontRendererObj, note.get(i), left + 10, noteY + i * 10, Theme.TEXT_MUTED);
+        }
         super.drawScaled(mouseX, mouseY, partialTicks);
         if (listOpen) {
             // Over everything else.

@@ -94,6 +94,11 @@ public final class MapDrawer {
         int rx1 = floor(right) >> MapRegion.SHIFT;
         int rz1 = floor(bottom) >> MapRegion.SHIFT;
 
+        if (Config.unexploredPattern != Config.UNEXPLORED_NONE) {
+            // Under the map: it only shows where nothing was explored (the map is transparent there).
+            drawUnexploredPattern(left, top, scale, x, y, width, height);
+        }
+
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -185,6 +190,18 @@ public final class MapDrawer {
                     tessellator.draw();
                     GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
                 }
+                if (!lod && Config.edgeShadow) {
+                    // Over the map: a soft shadow along the edge of the explored land.
+                    region.bindShadowTexture(missingNeighbors(dimension, rx, rz));
+                    GL11.glColor4f(1f, 1f, 1f, 1f);
+                    tessellator.startDrawingQuads();
+                    tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
+                    tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
+                    tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
+                    tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
+                    tessellator.draw();
+                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                }
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -199,6 +216,73 @@ public final class MapDrawer {
                 textureLimited,
                 System.nanoTime() - frameStart);
         }
+    }
+
+    /** Which neighbors of the region don't exist (bits 1 west, 2 east, 4 north, 8 south), for its edge shadow. */
+    private static int missingNeighbors(MapDimension dimension, int rx, int rz) {
+        int missing = 0;
+        if (dimension.isKnownMissing(rx - 1, rz)) {
+            missing |= 1;
+        }
+        if (dimension.isKnownMissing(rx + 1, rz)) {
+            missing |= 2;
+        }
+        if (dimension.isKnownMissing(rx, rz - 1)) {
+            missing |= 4;
+        }
+        if (dimension.isKnownMissing(rx, rz + 1)) {
+            missing |= 8;
+        }
+        return missing;
+    }
+
+    /** Room between two lines or dots of the unexplored land's pattern, in GUI pixels. */
+    private static final int PATTERN_LINE_STEP = 7, PATTERN_DOT_STEP = 8;
+    private static final int PATTERN_LINE_COLOR = 0xFF181D24, PATTERN_DOT_COLOR = 0xFF222933;
+
+    /**
+     * The pattern of the unexplored land ({@link Config#unexploredPattern}) over the map rectangle: diagonal lines or
+     * dots, lined up with the world's origin so they move with the map instead of sliding under it.
+     */
+    private static void drawUnexploredPattern(double left, double top, double scale, int x, int y, int width,
+        int height) {
+        // Where the world's origin is on screen: the pattern starts there.
+        double originX = x - left * scale, originY = y - top * scale;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        if (Config.unexploredPattern == Config.UNEXPLORED_LINES) {
+            // Lines where screen x + y is the same, one every few pixels.
+            int step = PATTERN_LINE_STEP;
+            double first = originX + originY + Math.ceil((x + y - originX - originY) / step) * step;
+            tessellator.setColorRGBA_I(PATTERN_LINE_COLOR & 0xFFFFFF, PATTERN_LINE_COLOR >>> 24);
+            for (double c = first; c < x + width + y + height; c += step) {
+                // Where the line enters the rectangle at the bottom or left, and leaves it at the top or right.
+                double fromX = Math.max(x, c - (y + height)), toX = Math.min(x + width, c - y);
+                if (toX <= fromX) {
+                    continue;
+                }
+                // One GUI pixel wide, as a thin parallelogram along the line.
+                tessellator.addVertex(fromX, c - fromX, 0);
+                tessellator.addVertex(Math.min(fromX + 1, x + width), c - fromX, 0);
+                tessellator.addVertex(Math.min(toX + 1, x + width), c - toX, 0);
+                tessellator.addVertex(toX, c - toX, 0);
+            }
+        } else {
+            int step = PATTERN_DOT_STEP;
+            double firstX = originX + Math.ceil((x - originX) / step) * step;
+            double firstY = originY + Math.ceil((y - originY) / step) * step;
+            for (double dy = firstY; dy < y + height; dy += step) {
+                for (double dx = firstX; dx < x + width; dx += step) {
+                    addRect(tessellator, dx, dy, dx + 1, dy + 1, PATTERN_DOT_COLOR);
+                }
+            }
+        }
+        tessellator.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
@@ -421,10 +505,10 @@ public final class MapDrawer {
     }
 
     /** Frame colors of the kinds of mobs. */
-    private static final int HOSTILE_COLOR = 0xFFFF4040;
-    private static final int NEUTRAL_COLOR = 0xFFA8ADB4;
-    private static final int FRIENDLY_COLOR = 0xFF50D050;
-    private static final int PET_COLOR = 0xFF4C9AFF;
+    static final int HOSTILE_COLOR = 0xFFFF4040;
+    static final int NEUTRAL_COLOR = 0xFFA8ADB4;
+    static final int FRIENDLY_COLOR = 0xFF50D050;
+    static final int PET_COLOR = 0xFF4C9AFF;
     /** Mobs this many blocks below the player are drawn in full; lower ones fade out down to the height range. */
     private static final double FADE_START = 2;
 
@@ -472,7 +556,7 @@ public final class MapDrawer {
         int firstIcon = Config.entityIcons ? Math.max(0, mobs.size() - Config.entityIconLimit) : mobs.size();
         // Icons shrink when zooming out (like waypoints) so they don't cover the map, down to half their size.
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
-        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor);
+        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor * Config.mobIconScale / 100f);
         playerSize = Math.max(4f, playerSize * zoomFactor);
         FontRenderer font = mc.fontRenderer;
         for (int i = 0; i < mobs.size(); i++) {
@@ -494,7 +578,7 @@ public final class MapDrawer {
                 }
                 pushUpright(sx, sy);
                 drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
-                String name = petName(entity);
+                String name = mobName(entity);
                 if (name != null) {
                     drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, playerSize / 10f, alpha);
                 }
@@ -547,6 +631,15 @@ public final class MapDrawer {
         double t = Math.min(1, below / range);
         // Eased: fades slowly at first, then quicker.
         return (float) (1 - t * t * (3 - 2 * t));
+    }
+
+    /** The square band between two half sizes around (sx, sy), in four pieces that don't overlap. */
+    private static void frameBand(Tessellator tessellator, double sx, double sy, double inner, double outer,
+        int color) {
+        fillRect(tessellator, sx - outer, sy - outer, sx + outer, sy - inner, color);
+        fillRect(tessellator, sx - outer, sy + inner, sx + outer, sy + outer, color);
+        fillRect(tessellator, sx - outer, sy - inner, sx - inner, sy + inner, color);
+        fillRect(tessellator, sx + inner, sy - inner, sx + outer, sy + inner, color);
     }
 
     private static int withAlpha(int color, float alpha) {
@@ -603,13 +696,23 @@ public final class MapDrawer {
         return friendly;
     }
 
-    /** Name given to a pet with a name tag, or null (not a pet, no name, or pet names are off). */
-    private static String petName(EntityLivingBase entity) {
-        if (!Config.petNames || !(entity instanceof EntityLiving) || !isPet(entity)) {
+    /** Name given to the mob with a name tag, or null: none, or the names of its kind are off. */
+    private static String mobName(EntityLivingBase entity) {
+        if (!(entity instanceof EntityLiving) || !((EntityLiving) entity).hasCustomNameTag() || !namesShown(entity)) {
             return null;
         }
-        EntityLiving living = (EntityLiving) entity;
-        return living.hasCustomNameTag() ? living.getCustomNameTag() : null;
+        return ((EntityLiving) entity).getCustomNameTag();
+    }
+
+    /** Whether names are shown for the mob's kind, told apart as for its frame color. */
+    private static boolean namesShown(EntityLivingBase entity) {
+        if (isPet(entity)) {
+            return Config.petNames;
+        }
+        if (entity instanceof IMob) {
+            return Config.hostileNames;
+        }
+        return isFriendly(entity) ? Config.friendlyNames : Config.neutralNames;
     }
 
     /** Small name centered under an icon, at {@code textScale} of the normal text size. */
@@ -651,39 +754,53 @@ public final class MapDrawer {
     }
 
     /**
+     * One mob drawn the way the maps draw it, for the settings' preview: its icon with the arrow where it looks and a
+     * pet's name, or a dot while icons are off. With no mob (no world to make one in) the tile is drawn with a dot.
+     */
+    static void drawMob(FontRenderer font, EntityLivingBase entity, double sx, double sy, float iconSize, int color,
+        float alpha, float textScale) {
+        if (!Config.entityIcons) {
+            drawDot(sx, sy, 1.5f, withAlpha(color, alpha), alpha);
+            return;
+        }
+        float half = iconSize / 2f;
+        if (Config.mobFacing && entity != null) {
+            drawFacing(entity, sx, sy, half, color, alpha, 1f);
+        }
+        drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
+        String name = entity == null ? null : mobName(entity);
+        if (name != null) {
+            drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, textScale, alpha);
+        }
+    }
+
+    /**
      * Draws the mob as a flat icon: its face on a small tile framed in the color of its kind (pet, hostile, friendly,
      * neutral). Falls back to a dot when the mob's face can't be found.
      */
     private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color,
         float alpha) {
         double half = size / 2.0;
-        int frame = Math.max(1, Config.mobFrameWidth);
+        // 0 = no frame: the face alone on its dark tile.
+        int frame = Math.max(0, Config.mobFrameWidth);
+        float frameAlpha = alpha * Config.mobFrameOpacity / 100f;
         Tessellator tessellator = Tessellator.instance;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         if (frame > 1) {
             // A dark line around a wide frame, so it shows on its own color.
-            fillRect(
-                tessellator,
-                sx - half - frame - 0.5,
-                sy - half - frame - 0.5,
-                sx + half + frame + 0.5,
-                sy + half + frame + 0.5,
-                withAlpha(0xA0000000, alpha));
+            frameBand(tessellator, sx, sy, half + frame, half + frame + 0.5, withAlpha(0xA0000000, frameAlpha));
         }
-        fillRect(
-            tessellator,
-            sx - half - frame,
-            sy - half - frame,
-            sx + half + frame,
-            sy + half + frame,
-            withAlpha(color, alpha));
+        if (frame > 0) {
+            // A band around the tile, not a square under it: see-through, it must not darken the face.
+            frameBand(tessellator, sx, sy, half, half + frame, withAlpha(color, frameAlpha));
+        }
         fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, withAlpha(0xFF101418, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
         // one side.
-        if (!EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
+        if (entity == null || !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
             drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

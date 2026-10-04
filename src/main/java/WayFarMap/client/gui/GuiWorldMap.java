@@ -13,9 +13,11 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
-import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
@@ -29,6 +31,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MapDrawer;
+import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.TeamMates;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
@@ -36,6 +39,7 @@ import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.IconButton;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
@@ -45,15 +49,12 @@ import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
-import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapCleaner;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
 import WayFarMap.client.map.Topography;
 import WayFarMap.client.map.export.MapExport;
-import WayFarMap.client.map.export.TilePyramid;
-import WayFarMap.client.map.iso.IsoExport;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.map.iso.IsoProjection;
 import WayFarMap.client.waypoint.Waypoint;
@@ -76,14 +77,9 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
         ID_CLOSE = 21, ID_ABOUT = 22;
-    /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
-        MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
-    private static final int EXPORT_MENU_WIDTH = 250;
-    /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
-    private static final double EXPORT_SECONDS_PER_TILE = 0.2;
-    /** Export the 3D map as it looks at night. */
-    private static boolean exportNight;
+    /** What the open menu is: the right click map menu, the mob filter, the add-on layers or teammates. */
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_MODES = 5,
+        MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -102,6 +98,14 @@ public class GuiWorldMap extends ScaledScreen {
     /** World point that stays under {@link #anchorScreenX}/{@link #anchorScreenY} while the zoom animates. */
     private double anchorWorldX, anchorWorldZ, anchorScreenX, anchorScreenY;
     private boolean zooming;
+
+    /** Longest glide of the view to a point, and how far (in screens) it starts from at most. */
+    private static final int FLIGHT_MAX_MS = 650;
+    private static final double FLIGHT_MAX_SCREENS = 1.5;
+    /** Glide of the view to a point: from where it was to where it goes; flightStart is 0 when not gliding. */
+    private double flightFromX, flightFromZ, flightToX, flightToZ;
+    private long flightStart;
+    private int flightMillis;
 
     /** Map lighting: auto, day or night, switched in turn. */
     private IconButton lightButton;
@@ -153,6 +157,16 @@ public class GuiWorldMap extends ScaledScreen {
         final Runnable action;
         /** Checkbox state for a toggle (the menu then stays open), null for a plain entry. */
         final Boolean checked;
+        /** Small icon before the label, or null. */
+        String[] icon;
+        /** Muted text on the right: the key that does the same, or null. */
+        String hint;
+        /** Destructive (deleting): red, with a line above it when it follows other entries. */
+        boolean danger;
+        /** The current choice of a list (e.g. the map's mode): marked with the accent bar and color. */
+        boolean selected;
+        /** Color of the icon (ARGB), 0 for the usual muted one. */
+        int iconColor;
 
         MenuEntry(String label, boolean enabled, Runnable action) {
             this(label, enabled, action, null);
@@ -163,6 +177,32 @@ public class GuiWorldMap extends ScaledScreen {
             this.enabled = enabled;
             this.action = action;
             this.checked = checked;
+        }
+
+        MenuEntry icon(String[] icon) {
+            this.icon = icon;
+            return this;
+        }
+
+        /** The key bound to the mod's binding of that name, shown on the right; nothing if it has none. */
+        MenuEntry key(String binding) {
+            this.hint = KeyHandler.keyName(binding);
+            return this;
+        }
+
+        MenuEntry danger() {
+            this.danger = true;
+            return this;
+        }
+
+        MenuEntry selected(boolean selected) {
+            this.selected = selected;
+            return this;
+        }
+
+        MenuEntry iconColor(int color) {
+            this.iconColor = color;
+            return this;
         }
     }
 
@@ -207,17 +247,28 @@ public class GuiWorldMap extends ScaledScreen {
         // Header: icons with tooltips. Left: settings, waypoints, add-on layers; right (before the zoom text):
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
-        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
+        String settingsName = I18n.format("wayfarmap.gui.settings");
+        IconButton settingsButton = new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, settingsName);
+        settingsButton.iconColor = COLOR_SETTINGS;
+        x = addIconButton(settingsButton, x);
         // The others can be hidden in the settings; the settings button and the dimension title always stay.
         if (Config.isMapButtonShown("waypoints")) {
-            x = addIconButton(
-                new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
-                x);
+            IconButton waypointsButton = new IconButton(
+                ID_WAYPOINTS,
+                x,
+                4,
+                Icons.WAYPOINTS,
+                I18n.format("wayfarmap.gui.waypoints"));
+            waypointsButton.iconColor = COLOR_WAYPOINTS;
+            x = addIconButton(waypointsButton, x);
         }
         if (Config.isMapButtonShown("stats")) {
-            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data")), x);
+            IconButton statsButton = new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data"));
+            statsButton.iconColor = COLOR_STATS;
+            x = addIconButton(statsButton, x);
         }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
+        exportButton.iconColor = COLOR_EXPORT;
         if (Config.isMapButtonShown("export")) {
             x = addIconButton(exportButton, x);
         }
@@ -226,16 +277,22 @@ public class GuiWorldMap extends ScaledScreen {
             || Mods.isPowerfailsAvailable()
             || Mods.isThaumcraftNodesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
+            addonsButton.iconColor = COLOR_ADDONS;
             addIconButton(addonsButton, x);
         }
 
         lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
-        modesButton = new IconButton(ID_MODES, 0, 4, Icons.FLAT, "");
+        modesButton = new IconButton(ID_MODES, 0, 4, Icons.MAP2D, "");
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
+        caveButton.iconColor = COLOR_CAVES;
+        gridButton.iconColor = COLOR_GRID;
+        followButton.iconColor = COLOR_FOLLOW;
+        mobsButton.iconColor = COLOR_MOBS;
+        teamButton.iconColor = COLOR_TEAM;
         teamButton.visible = teamShown();
         followButton.visible = Config.isMapButtonShown("follow");
         lightButton.visible = Config.isMapButtonShown("light");
@@ -261,6 +318,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.ABOUT,
             I18n.format("wayfarmap.gui.about_button"));
         aboutButton.setHeight(13);
+        aboutButton.iconColor = COLOR_HELP;
         aboutButton.visible = Config.isMapButtonShown("about");
         buttonList.add(aboutButton);
         // Next to it: the help screen with every feature explained.
@@ -271,6 +329,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.HELP,
             I18n.format("wayfarmap.gui.help_button"));
         helpButton.setHeight(13);
+        helpButton.iconColor = COLOR_HELP;
         helpButton.visible = Config.isMapButtonShown("help");
         buttonList.add(helpButton);
 
@@ -369,6 +428,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Puts a world point in the middle of the screen (in 3D the point itself, not the ground below it). */
     private void centerOn(double x, double y, double z) {
+        flightStart = 0;
         if (isoShown()) {
             IsoProjection p = isoProjection();
             double toward = p.toward(x, z) + (IsoProjection.REFERENCE_Y - y) * IsoProjection.COS / IsoProjection.SIN;
@@ -379,6 +439,35 @@ public class GuiWorldMap extends ScaledScreen {
             centerX = x;
             centerZ = z;
         }
+    }
+
+    /**
+     * Glides the view to a world point, like {@link #centerOn} but over a moment: quicker for short ways, eased at
+     * both ends. From far away it starts a screen and a half off, so the way there isn't a blur of maps to load.
+     */
+    private void flyTo(double x, double y, double z) {
+        double fromX = centerX, fromZ = centerZ;
+        centerOn(x, y, z);
+        double toX = centerX, toZ = centerZ;
+        double pixels = Math.hypot(toX - fromX, toZ - fromZ) * scale;
+        if (!Config.mapSmoothCamera || pixels < 1) {
+            return;
+        }
+        double far = FLIGHT_MAX_SCREENS * Math.max(width, height);
+        if (pixels > far) {
+            double part = far / pixels;
+            fromX = toX + (fromX - toX) * part;
+            fromZ = toZ + (fromZ - toZ) * part;
+            pixels = far;
+        }
+        flightFromX = fromX;
+        flightFromZ = fromZ;
+        flightToX = toX;
+        flightToZ = toZ;
+        flightMillis = (int) Math.min(FLIGHT_MAX_MS, 200 + Math.sqrt(pixels) * 14);
+        flightStart = System.currentTimeMillis();
+        centerX = fromX;
+        centerZ = fromZ;
     }
 
     /** The search field shows up in biome view and with the ore vein or fluid layer (not in 3D). */
@@ -433,9 +522,15 @@ public class GuiWorldMap extends ScaledScreen {
     private void openAddonsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
         if (Mods.isVisualProspectingLoaded()) {
-            entries.add(addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins));
             entries.add(
-                addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids));
+                addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins).icon(Icons.ORE)
+                    .iconColor(0xFF5BD6E0)
+                    .key("ores"));
+            entries.add(
+                addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids)
+                    .icon(Icons.SMALL_DROP)
+                    .iconColor(0xFF3F8FE8)
+                    .key("fluids"));
         }
         if (Mods.isClaimsAvailable()) {
             entries.add(addonToggle("wayfarmap.gui.claims", Config.showClaims, () -> {
@@ -443,18 +538,29 @@ public class GuiWorldMap extends ScaledScreen {
                 if (Config.showClaims) {
                     ClaimsLayer.onShow();
                 }
-            }));
+            }).icon(Icons.CLAIM)
+                .iconColor(0xFFF2C14E)
+                .key("claims"));
         }
         if (Mods.isPowerfailsAvailable()) {
-            entries.add(addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails));
+            entries.add(
+                addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails)
+                    .icon(Icons.POWER)
+                    .iconColor(0xFFFFD23F)
+                    .key("powerfails"));
         }
         if (Mods.isThaumcraftNodesAvailable()) {
-            entries.add(addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes));
+            entries.add(
+                addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes)
+                    .icon(Icons.NODE)
+                    .iconColor(0xFFC08CFF)
+                    .key("nodes"));
         }
         menu = entries;
         menuKind = MENU_ADDONS;
-        menuWidth = MENU_WIDTH;
-        menuX = Math.max(2, Math.min(addonsButton.xPosition, width - MENU_WIDTH - 2));
+        menuShown();
+        menuWidth = menuWidthFor(entries, MENU_WIDTH);
+        menuX = Math.max(2, Math.min(addonsButton.xPosition, width - menuWidth - 2));
         menuY = addonsButton.yPosition + 18;
     }
 
@@ -490,89 +596,40 @@ public class GuiWorldMap extends ScaledScreen {
     /** Menu under the "Mobs" button: a checkbox for each kind of mob and for players; all off shows none. */
     private void openMobsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
-        entries.add(addonToggle("wayfarmap.gui.mobs.menu.neutral", Config.showPassiveMobs, Config::toggleNeutralMobs));
-        entries
-            .add(addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs));
-        entries.add(addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets));
-        entries.add(addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs));
-        entries
-            .add(addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.neutral", Config.showPassiveMobs, Config::toggleNeutralMobs)
+                .icon(Icons.SMALL_NEUTRAL)
+                .iconColor(Theme.TEXT)
+                .key("passive_mobs"));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs)
+                .icon(Icons.SMALL_HEART)
+                .iconColor(Theme.SUCCESS)
+                .key("friendly_mobs"));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets).icon(Icons.SMALL_PAW)
+                .iconColor(0xFFF2C14E)
+                .key("pets"));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs)
+                .icon(Icons.SMALL_CREEPER)
+                .iconColor(Theme.DANGER)
+                .key("hostile_mobs"));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers)
+                .icon(Icons.SMALL_PERSON)
+                .iconColor(Theme.ACCENT)
+                .key("players"));
         menu = entries;
         menuKind = MENU_MOBS;
-        menuWidth = MENU_WIDTH;
-        menuX = Math.max(2, Math.min(mobsButton.xPosition, width - MENU_WIDTH - 2));
+        menuShown();
+        menuWidth = menuWidthFor(entries, MENU_WIDTH);
+        menuX = Math.max(2, Math.min(mobsButton.xPosition, width - menuWidth - 2));
         menuY = mobsButton.yPosition + 18;
     }
 
-    /**
-     * Menu under the export button: saves the whole map as it is shown (flat, or 3D at a chosen detail) into a folder
-     * a browser opens zoomable down to single blocks; while an export runs, stops it.
-     */
-    private void openExportMenu() {
-        List<MenuEntry> entries = new ArrayList<>();
-        if (MapExport.running()) {
-            String status = MapExport.statusText();
-            entries.add(new MenuEntry(status == null ? "" : status, false, () -> {}));
-            entries.add(new MenuEntry(I18n.format("wayfarmap.export.cancel"), true, MapExport::cancel));
-        } else if (isoShown()) {
-            int dimensionId = viewDimension();
-            for (int level = 0; level <= IsoExport.MAX_LEVEL; level++) {
-                IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
-                if (export == null) {
-                    continue;
-                }
-                Set<Long> tiles = export.tiles();
-                // Drawing time grows with the pixels: a tile of 256x256 takes about the same at any detail.
-                double minutes = tiles.size() * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
-                String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
-                    : I18n.format("wayfarmap.export.minutes", (int) Math.ceil(minutes));
-                long[] picture = TilePyramid.pictureSize(tiles, export.tileSize());
-                String label = I18n.format(
-                    "wayfarmap.export.iso_level",
-                    (int) export.pixelsPerBlock(),
-                    picture[0] + "\u00D7" + picture[1],
-                    time);
-                final int chosen = level;
-                entries.add(new MenuEntry(label, !tiles.isEmpty(), () -> startIsoExport(dimensionId, chosen)));
-            }
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.export.night"),
-                    true,
-                    () -> { exportNight = !exportNight; },
-                    exportNight));
-        } else {
-            MapDimension map = MapManager.INSTANCE.getViewMap();
-            Set<Long> regions = map == null ? Collections.<Long>emptySet() : new FlatExport(map, 1).tiles();
-            long[] picture = TilePyramid.pictureSize(regions, MapRegion.SIZE);
-            for (int blockPixels = 1; blockPixels <= 16; blockPixels *= 2) {
-                final int chosen = blockPixels;
-                String label = I18n.format(
-                    "wayfarmap.export.flat_scale",
-                    blockPixels,
-                    picture[0] * blockPixels + "\u00D7" + picture[1] * blockPixels);
-                entries.add(new MenuEntry(label, !regions.isEmpty(), () -> startFlatExport(chosen)));
-            }
-        }
-        menu = entries;
-        menuKind = MENU_EXPORT;
-        menuWidth = EXPORT_MENU_WIDTH;
-        menuX = Math.max(2, Math.min(exportButton.xPosition, width - EXPORT_MENU_WIDTH - 2));
-        menuY = exportButton.yPosition + 18;
-    }
-
-    /** Name of the export: world and dimension. */
-    private String exportName() {
-        File world = MapManager.INSTANCE.getWorldDirectory();
-        return (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
-    }
-
-    /** @param blockPixels pixels per block of the saved map */
-    private void startFlatExport(int blockPixels) {
-        MapDimension map = MapManager.INSTANCE.getViewMap();
-        if (map == null) {
-            return;
-        }
+    /** Opens the pictures of the map: making one of what the map shows, and the ones made so far. */
+    private void openPictures() {
         String what;
         int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
         if (biomeViewShown()) {
@@ -582,37 +639,16 @@ public class GuiWorldMap extends ScaledScreen {
         } else {
             what = "2d";
         }
-        what += "_" + blockPixels + "px";
-        TilePyramid.Info info = new TilePyramid.Info();
-        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (" + what + ")";
-        info.mode = "2d";
-        info.pixelsPerBlock = blockPixels;
-        // Up to 64 screen pixels per block, like the closest zoom of the map.
-        info.maxZoom = Math.max(4, 64.0 / blockPixels);
-        MapExport.start(new FlatExport(map, blockPixels), info, exportName() + "_" + what);
-        chatExportStarted();
-    }
-
-    private void startIsoExport(int dimensionId, int level) {
-        IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
-        if (export == null) {
-            return;
-        }
-        String what = "3d_" + (int) export.pixelsPerBlock() + "px" + (exportNight ? "_night" : "");
-        TilePyramid.Info info = new TilePyramid.Info();
-        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (3D)";
-        info.mode = "3d";
-        info.pixelsPerBlock = export.pixelsPerBlock();
-        // Up to 128 screen pixels per block, and always a few times closer than the picture itself.
-        info.maxZoom = Math.max(4, 128 / export.pixelsPerBlock());
-        MapExport.start(export, info, exportName() + "_" + what);
-        chatExportStarted();
-    }
-
-    private void chatExportStarted() {
-        if (mc.thePlayer != null) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(I18n.format("wayfarmap.export.started")));
-        }
+        File world = MapManager.INSTANCE.getWorldDirectory();
+        String name = (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
+        mc.displayGuiScreen(
+            new GuiMapPictures(
+                this,
+                viewDimension(),
+                isoShown(),
+                what,
+                name,
+                MapManager.INSTANCE.getViewedDimensionName()));
     }
 
     private static String caveButtonText() {
@@ -631,6 +667,7 @@ public class GuiWorldMap extends ScaledScreen {
             : Config.LIGHT_AUTO;
         lightButton.icon = light == Config.LIGHT_DAY ? Icons.DAY
             : light == Config.LIGHT_NIGHT ? Icons.NIGHT : Icons.DAY_NIGHT;
+        lightButton.iconColor = light == Config.LIGHT_NIGHT ? COLOR_MOON : COLOR_SUN;
         lightButton.active = light != Config.LIGHT_AUTO;
         lightButton.badge = light == Config.LIGHT_AUTO ? Theme.ACCENT : 0;
         lightButton.tooltip = I18n.format("wayfarmap.option.map.lightMode") + ": "
@@ -642,6 +679,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.tooltip = caveButtonText();
         int mode = currentMode();
         modesButton.icon = MODE_ICONS[mode];
+        modesButton.iconColor = MODE_COLORS[mode];
         modesButton.active = mode != MODE_FLAT;
         modesButton.tooltip = I18n.format("wayfarmap.gui.modes") + ": "
             + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
@@ -679,7 +717,7 @@ public class GuiWorldMap extends ScaledScreen {
             if (Config.mapFollowPlayer) {
                 // Turned on: show the player now, as the map will be every time it opens.
                 showDimension(mc.theWorld.provider.dimensionId);
-                centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+                flyTo(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
                 zooming = false;
             }
         } else if (button.id == ID_GRID) {
@@ -688,7 +726,7 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_MODES) {
             openModesMenu();
         } else if (button.id == ID_EXPORT) {
-            openExportMenu();
+            openPictures();
         } else if (button.id == ID_CAVES) {
             Config.cycleCaveMode();
             updateLightButtons();
@@ -716,6 +754,17 @@ public class GuiWorldMap extends ScaledScreen {
         long now = System.nanoTime();
         double seconds = Math.min(0.1, (now - lastFrameNanos) / 1.0e9);
         lastFrameNanos = now;
+
+        if (flightStart != 0) {
+            float t = Math.min(1f, (System.currentTimeMillis() - flightStart) / (float) flightMillis);
+            // Eased in and out: sets off softly and comes to rest softly.
+            double eased = t < 0.5f ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            centerX = flightFromX + (flightToX - flightFromX) * eased;
+            centerZ = flightFromZ + (flightToZ - flightFromZ) * eased;
+            if (t >= 1f) {
+                flightStart = 0;
+            }
+        }
 
         if (dragging) {
             if (!Mouse.isButtonDown(0)) {
@@ -762,8 +811,15 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
         MODE_CHUNKLOAD = 5;
     private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
-    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
+    private static final String[][] MODE_ICONS = { Icons.MAP2D, Icons.ISO, Icons.NO_PLANTS, Icons.TOPO, Icons.BIOMES,
         Icons.CHUNKLOAD };
+    /** Each mode's color, on its icon in the modes menu and on the modes button. */
+    private static final int[] MODE_COLORS = { 0xFF5BD6E0, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
+    /** Colors of the header's icons. */
+    private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
+        COLOR_EXPORT = 0xFFF2C14E, COLOR_ADDONS = 0xFF5BD6E0, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
+        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F,
+        COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
     /**
      * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
      * loaded.
@@ -798,14 +854,17 @@ public class GuiWorldMap extends ScaledScreen {
                 continue;
             }
             final int value = mode;
-            String label = (mode == current ? "\u25CF " : "   ")
-                + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
-            entries.add(new MenuEntry(label, true, () -> setMode(value)));
+            String label = I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
+            entries.add(
+                new MenuEntry(label, true, () -> setMode(value)).icon(MODE_ICONS[mode])
+                    .iconColor(MODE_COLORS[mode])
+                    .selected(mode == current));
         }
         menu = entries;
         menuKind = MENU_MODES;
-        menuWidth = MENU_WIDTH;
-        menuX = Math.max(2, Math.min(modesButton.xPosition, width - MENU_WIDTH - 2));
+        menuShown();
+        menuWidth = menuWidthFor(entries, MENU_WIDTH);
+        menuX = Math.max(2, Math.min(modesButton.xPosition, width - menuWidth - 2));
         menuY = modesButton.yPosition + 18;
     }
 
@@ -854,9 +913,9 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Written once the welcome window is closed: it is never shown again. */
     private static final String WELCOME_FILE = "welcome-shown";
-    private static final int WELCOME_WIDTH = 240, WELCOME_HEIGHT = 124;
     /** The welcome window is open: the map takes no input until it is closed. */
     private boolean welcome;
+    private WelcomeWindow welcomeWindow;
 
     private File welcomeFile() {
         return new File(new File(mc.mcDataDir, "wayfarmap"), WELCOME_FILE);
@@ -865,6 +924,9 @@ public class GuiWorldMap extends ScaledScreen {
     /** Opens the welcome window the first time the map is opened after installing the mod. */
     private void checkWelcome() {
         welcome = !welcomeFile().exists();
+        if (welcome && welcomeWindow == null) {
+            welcomeWindow = new WelcomeWindow(fontRendererObj);
+        }
     }
 
     private void closeWelcome() {
@@ -881,49 +943,41 @@ public class GuiWorldMap extends ScaledScreen {
         }
     }
 
-    private int welcomeLeft() {
-        return (width - WELCOME_WIDTH) / 2;
-    }
-
-    private int welcomeTop() {
-        return (height - WELCOME_HEIGHT) / 2;
-    }
-
-    /** The window's button: {x0, y0, x1, y1}. */
-    private int[] welcomeButton() {
-        int x0 = welcomeLeft() + WELCOME_WIDTH / 2 - 40, y0 = welcomeTop() + WELCOME_HEIGHT - 26;
-        return new int[] { x0, y0, x0 + 80, y0 + 18 };
-    }
-
-    /** The mod's name, what it is, and where its help is; the help button is outlined meanwhile. */
+    /** The welcome window over the dimmed map; the help button it points to is outlined meanwhile. */
     private void drawWelcome(int mouseX, int mouseY) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         if (helpButton != null && helpButton.visible) {
-            // Pulsing outline around the help button the text points to.
+            // Pulsing outline around the help button the window points to.
             float pulse = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 250.0);
             int alpha = 0x60 + (int) (0x9F * pulse);
             int x0 = helpButton.xPosition - 2, y0 = helpButton.yPosition - 2;
             int color = alpha << 24 | (Theme.ACCENT & 0xFFFFFF);
             Theme.outline(x0, y0, x0 + helpButton.getWidth() + 4, y0 + 13 + 4, color);
         }
-        int left = welcomeLeft(), top = welcomeTop();
-        Theme.panel(left, top, left + WELCOME_WIDTH, top + WELCOME_HEIGHT);
-        Theme.centered(fontRendererObj, "Wayfarer's Map", left + WELCOME_WIDTH / 2, top + 10, Theme.ACCENT);
-        Theme.fill(left + 10, top + 22, left + WELCOME_WIDTH - 10, top + 23, Theme.ACCENT_DIM);
-        String text = I18n.format("wayfarmap.welcome.text");
-        List<?> lines = fontRendererObj.listFormattedStringToWidth(text, WELCOME_WIDTH - 24);
-        for (int i = 0; i < lines.size(); i++) {
-            Theme.text(fontRendererObj, String.valueOf(lines.get(i)), left + 12, top + 30 + i * 10, Theme.TEXT);
-        }
-        int[] b = welcomeButton();
-        boolean hovered = Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3]);
-        Theme.fill(b[0], b[1], b[2], b[3], hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
-        Theme.outline(b[0], b[1], b[2], b[3], hovered ? Theme.ACCENT : Theme.BORDER);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.welcome.ok"), (b[0] + b[2]) / 2, b[1] + 5, Theme.TEXT);
+        welcomeWindow.draw(width, height, mouseX, mouseY);
+    }
+
+    /** Whether the world map is on screen: open, or drawn behind one of the mod's screens opened over it. */
+    public static boolean isVisible(Minecraft mc) {
+        GuiScreen screen = mc.currentScreen;
+        return screen instanceof GuiWorldMap
+            || screen instanceof ScaledScreen && ((ScaledScreen) screen).showsBehind(GuiWorldMap.class);
     }
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        if (isDrawnBehind()) {
+            // Behind another screen: drawn as when open (the surface view it sets then), and never dragged.
+            dragging = false;
+            boolean surface = MapManager.INSTANCE.isSurfaceView();
+            updateSurfaceView();
+            try {
+                drawMap(mouseX, mouseY, partialTicks);
+            } finally {
+                MapManager.INSTANCE.setSurfaceView(surface);
+            }
+            return;
+        }
         drawMap(mouseX, mouseY, partialTicks);
         if (welcome) {
             drawWelcome(mouseX, mouseY);
@@ -1096,6 +1150,9 @@ public class GuiWorldMap extends ScaledScreen {
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
         if (!otherDimension) {
+            double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
+            double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
+            PlayerTrail.draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, px, pz);
             MapDrawer.drawEntities(mc, centerX, centerZ, scale, 0, 0, width, height, partialTicks, 8f, true);
         }
     }
@@ -1121,38 +1178,42 @@ public class GuiWorldMap extends ScaledScreen {
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
         int[] hovered = blockAt(mouseX, mouseY);
         int hoverX = hovered[0], hoverZ = hovered[2];
-        String cursorText = hovered[1] >= 0 ? "X: " + hoverX + "  Y: " + hovered[1] + "  Z: " + hoverZ
-            : "X: " + hoverX + "  Z: " + hoverZ;
-        if (iso ? hovered[1] < 0 : !isExplored(dimension, hoverX, hoverZ)) {
-            cursorText += "  (?)";
+        // The bar's parts, left to right: an icon and a text each, set apart by thin lines.
+        List<FooterPart> parts = new ArrayList<>();
+        Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
+        if (hoveredWaypoint != null) {
+            String where = hoveredWaypoint.x + ", " + hoveredWaypoint.y + ", " + hoveredWaypoint.z;
+            String name = hoveredWaypoint.name + "  " + where + WaypointRenderer.ageSuffix(hoveredWaypoint);
+            parts.add(new FooterPart(Icons.SMALL_FLAG, name, Theme.TEXT));
+            parts.add(new FooterPart(null, I18n.format("wayfarmap.gui.waypoint_hint"), Theme.TEXT_MUTED));
+        } else {
+            String cursorText = hovered[1] >= 0 ? "X: " + hoverX + "  Y: " + hovered[1] + "  Z: " + hoverZ
+                : "X: " + hoverX + "  Z: " + hoverZ;
+            // Not explored there: the coordinates are dimmed, with a question mark.
+            boolean unknown = iso ? hovered[1] < 0 : !isExplored(dimension, hoverX, hoverZ);
+            if (unknown) {
+                cursorText += "  ?";
+            }
+            parts.add(new FooterPart(Icons.SMALL_CURSOR, cursorText, unknown ? Theme.TEXT_MUTED : Theme.TEXT));
         }
         // Biome view shows biomes of whole columns, so there is no cave layer to pick.
         int caveLayer = columnViewShown() ? -1 : MapManager.INSTANCE.getViewCaveLayer();
-        if (caveLayer >= 0) {
-            cursorText += "  |  " + I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
+        if (caveLayer >= 0 && hoveredWaypoint == null) {
+            String layer = I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
+            parts.add(new FooterPart(Icons.SMALL_CAVE, layer, Theme.TEXT));
         }
-        if (biomeViewShown()) {
+        if (biomeViewShown() && hoveredWaypoint == null) {
             BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
             if (biome != null) {
-                cursorText += "  |  " + biome.biomeName;
+                parts.add(new FooterPart(Icons.SMALL_TREE, biome.biomeName, Theme.TEXT));
             }
-        }
-        Waypoint hoveredWaypoint = waypointAt(mouseX, mouseY);
-        if (hoveredWaypoint != null) {
-            cursorText = hoveredWaypoint.name + "  ("
-                + hoveredWaypoint.x
-                + ", "
-                + hoveredWaypoint.y
-                + ", "
-                + hoveredWaypoint.z
-                + ")  |  "
-                + I18n.format("wayfarmap.gui.waypoint_hint");
         }
         if (chunkloadShown()) {
             // The keys are listed in the toolbar at the top; here only how many chunks wait.
             int queued = ChunkLoadView.pendingCount(dimensionId);
             if (queued > 0) {
-                cursorText += "  |  " + I18n.format("wayfarmap.gui.chunkload_queued", queued);
+                String text = I18n.format("wayfarmap.gui.chunkload_queued", queued);
+                parts.add(new FooterPart(Icons.SMALL_QUEUE, text, Theme.ACCENT));
             }
         }
         String exportStatus = MapExport.statusText();
@@ -1186,13 +1247,11 @@ public class GuiWorldMap extends ScaledScreen {
             rightX = rightEdge - fontRendererObj.getStringWidth(right);
             Theme.text(fontRendererObj, right, rightX, height - 10, rightColor);
         }
-        // The left text takes the room left, cut short with an ellipsis rather than running into the right one.
-        Theme.text(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, cursorText, Math.max(20, rightX - 12 - 6)),
-            6,
-            height - 10,
-            Theme.TEXT);
+        // The parts on the left take the room left, the last one cut short rather than running into the right text.
+        drawFooterParts(parts, Math.max(26, rightX - 12));
+        if (iso) {
+            drawCompass();
+        }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         super.drawScaled(mouseX, mouseY, partialTicks);
@@ -1248,6 +1307,96 @@ public class GuiWorldMap extends ScaledScreen {
                     drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
                 }
             }
+    }
+
+    /** Where the compass's needle points (radians clockwise from up), turning to the view after Q / E. */
+    private final Smooth compassAngle = new Smooth(Double.NaN);
+    private static final int COMPASS_RADIUS = 15;
+
+    /**
+     * In 3D, which turns with Q / E: a compass in the lower left corner, its red needle pointing north on the screen.
+     */
+    private void drawCompass() {
+        double[] center = toScreen(centerX, IsoProjection.REFERENCE_Y, centerZ);
+        double[] north = toScreen(centerX, IsoProjection.REFERENCE_Y, centerZ - 16);
+        double target = Math.atan2(north[0] - center[0], -(north[1] - center[1]));
+        double shown = compassAngle.get();
+        if (Double.isNaN(shown)) {
+            compassAngle.set(target);
+        } else {
+            // The shortest way round: never a full turn back.
+            double turn = Math.IEEEremainder(target - shown, 2 * Math.PI);
+            compassAngle.set(shown);
+            compassAngle.update(shown + turn, 12);
+        }
+        double angle = compassAngle.get();
+        double cx = 8 + COMPASS_RADIUS, cy = height - FOOTER_HEIGHT - 8 - COMPASS_RADIUS;
+        Theme.disc(cx, cy, COMPASS_RADIUS + 1, Theme.BORDER);
+        Theme.disc(cx, cy, COMPASS_RADIUS, Theme.PANEL);
+        double ux = Math.sin(angle), uy = -Math.cos(angle);
+        // Small marks for east, south and west.
+        for (int i = 1; i < 4; i++) {
+            double a = angle + i * Math.PI / 2;
+            int mx = (int) Math.round(cx + Math.sin(a) * (COMPASS_RADIUS - 3));
+            int my = (int) Math.round(cy - Math.cos(a) * (COMPASS_RADIUS - 3));
+            Theme.fill(mx - 1, my - 1, mx + 1, my + 1, Theme.TEXT_DISABLED);
+        }
+        // The needle: red half to the north, light half to the south.
+        double length = COMPASS_RADIUS - 8, half = 2.5;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawing(GL11.GL_TRIANGLES);
+        tessellator.setColorOpaque_I(Theme.DANGER & 0xFFFFFF);
+        tessellator.addVertex(cx + ux * length, cy + uy * length, 0);
+        tessellator.addVertex(cx - uy * half, cy + ux * half, 0);
+        tessellator.addVertex(cx + uy * half, cy - ux * half, 0);
+        tessellator.setColorOpaque_I(Theme.TEXT_MUTED & 0xFFFFFF);
+        tessellator.addVertex(cx - ux * length, cy - uy * length, 0);
+        tessellator.addVertex(cx + uy * half, cy - ux * half, 0);
+        tessellator.addVertex(cx - uy * half, cy + ux * half, 0);
+        tessellator.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        // "N" just past the needle's tip, inside the rim.
+        double reach = COMPASS_RADIUS - 4;
+        int letterX = (int) Math.round(cx + ux * reach) - fontRendererObj.getStringWidth("N") / 2 + 1;
+        int letterY = (int) Math.round(cy + uy * reach) - 4;
+        fontRendererObj.drawStringWithShadow("N", letterX, letterY, Theme.TEXT);
+    }
+
+    /** A part of the bar at the bottom of the map: a small icon (or none) and a text. */
+    private static final class FooterPart {
+
+        final String[] icon;
+        final String text;
+        final int color;
+
+        FooterPart(String[] icon, String text, int color) {
+            this.icon = icon;
+            this.text = text;
+            this.color = color;
+        }
+    }
+
+    /** The bottom bar's parts from the left, set apart by thin lines, ending before {@code right}. */
+    private void drawFooterParts(List<FooterPart> parts, int right) {
+        int x = 6, y = height - 10;
+        for (int i = 0; i < parts.size() && x < right - 10; i++) {
+            FooterPart part = parts.get(i);
+            if (i > 0) {
+                Theme.fill(x, height - FOOTER_HEIGHT + 4, x + 1, height - 3, Theme.BORDER);
+                x += 7;
+            }
+            if (part.icon != null) {
+                Icons.draw(part.icon, x, height - FOOTER_HEIGHT / 2 - part.icon.length / 2, Theme.TEXT_MUTED);
+                x += Icons.width(part.icon) + 4;
+            }
+            String text = Theme.ellipsize(fontRendererObj, part.text, Math.max(0, right - x));
+            Theme.text(fontRendererObj, text, x, y, part.color);
+            x += fontRendererObj.getStringWidth(text) + 7;
+        }
     }
 
     private int headerLeftEnd() {
@@ -1506,6 +1655,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         menu = entries;
         menuKind = MENU_TEAM;
+        menuShown();
         menuWidth = TEAM_MENU_WIDTH;
         menuX = Math.max(2, Math.min(teamButton.xPosition, width - TEAM_MENU_WIDTH - 2));
         menuY = teamButton.yPosition + 18;
@@ -1513,11 +1663,14 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Centers the map on the teammate, switching to their dimension if needed. */
     private void goToTeammate(TeamMates.Mate mate) {
-        if (mate.dimension != viewDimension()) {
-            showDimension(mate.dimension);
-        }
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
-        centerOn(position[0], position[1], position[2]);
+        if (mate.dimension != viewDimension()) {
+            // Another dimension's map: no way to glide there from here.
+            showDimension(mate.dimension);
+            centerOn(position[0], position[1], position[2]);
+        } else {
+            flyTo(position[0], position[1], position[2]);
+        }
         zooming = false;
     }
 
@@ -1626,14 +1779,16 @@ public class GuiWorldMap extends ScaledScreen {
                 // Unexplored or unknown height: ask which Y to go to.
                 mc.displayGuiScreen(new GuiTeleportY(this, bx, bz));
             }
-        }));
+        }).icon(Icons.SMALL_UP));
         entries.add(
             new MenuEntry(
                 I18n.format("wayfarmap.gui.new_waypoint"),
                 true,
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint
-                        .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension))));
+                        .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension)))
+                            .icon(Icons.SMALL_PLUS)
+                            .key("new_waypoint"));
         // A waypoint at once, without its editor: named by its coordinates, no icon.
         final int markY = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
         entries.add(
@@ -1641,14 +1796,16 @@ public class GuiWorldMap extends ScaledScreen {
                 I18n.format("wayfarmap.gui.quick_waypoint"),
                 true,
                 () -> WaypointManager.INSTANCE
-                    .addWaypoint(new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension))));
+                    .addWaypoint(new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension)))
+                        .icon(Icons.SMALL_FLAG));
         if (flat) {
             final int rx = bx >> MapRegion.SHIFT, rz = bz >> MapRegion.SHIFT;
             entries.add(
                 new MenuEntry(
                     I18n.format("wayfarmap.gui.delete_region"),
                     true,
-                    () -> confirmDeleteRegion(dimension, rx, rz)));
+                    () -> confirmDeleteRegion(dimension, rx, rz)).icon(Icons.SMALL_TRASH)
+                        .danger());
         }
         showMenu(entries, MENU_MAP, mouseX, mouseY);
     }
@@ -1656,41 +1813,43 @@ public class GuiWorldMap extends ScaledScreen {
     /** Menu of a waypoint on the map: share it in chat, teleport to it, edit, remove or disable it. */
     private void openWaypointMenu(Waypoint waypoint, int mouseX, int mouseY) {
         List<MenuEntry> entries = new ArrayList<>();
-        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.share"), true, () -> WaypointShare.share(waypoint)));
+        entries.add(
+            new MenuEntry(I18n.format("wayfarmap.gui.share"), true, () -> WaypointShare.share(waypoint))
+                .icon(Icons.SMALL_CHAT));
         // Teleporting needs /tp permission and the same dimension.
         boolean canTeleport = Teleport.isAllowed() && mc.theWorld != null
             && waypoint.dimension == mc.theWorld.provider.dimensionId;
         entries.add(new MenuEntry(I18n.format("wayfarmap.gui.teleport"), canTeleport, () -> {
             mc.displayGuiScreen(null);
             Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
-        }));
+        }).icon(Icons.SMALL_UP));
         entries.add(
             new MenuEntry(
                 I18n.format("wayfarmap.gui.edit"),
                 true,
-                () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint))));
-        entries.add(
-            new MenuEntry(
-                I18n.format("wayfarmap.gui.remove"),
-                true,
-                () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)));
+                () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint))).icon(Icons.SMALL_PENCIL));
         // Disabled: gone from the world and the minimap, faded on this map.
         String toggle = I18n.format(waypoint.enabled ? "wayfarmap.gui.disable" : "wayfarmap.gui.enable");
         entries.add(new MenuEntry(toggle, true, () -> {
             waypoint.enabled = !waypoint.enabled;
             WaypointManager.INSTANCE.waypointChanged();
-        }));
+        }).icon(Icons.SMALL_EYE));
+        // Removing comes last, set apart.
+        entries.add(
+            new MenuEntry(
+                I18n.format("wayfarmap.gui.remove"),
+                true,
+                () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)).icon(Icons.SMALL_TRASH)
+                    .danger());
         showMenu(entries, MENU_WAYPOINT, mouseX, mouseY);
     }
 
     /** Opens a menu at the point, as wide as its longest entry. */
     private void showMenu(List<MenuEntry> entries, int kind, int x, int y) {
-        int widest = MENU_WIDTH;
-        for (MenuEntry entry : entries) {
-            widest = Math.max(widest, fontRendererObj.getStringWidth(entry.label) + 14);
-        }
+        int widest = menuWidthFor(entries, MENU_WIDTH);
         menu = entries;
         menuKind = kind;
+        menuShown();
         menuWidth = widest;
         menuX = Math.max(2, Math.min(x, width - widest - 2));
         menuY = Math.min(y, height - entries.size() * MENU_ROW - 6);
@@ -1703,20 +1862,90 @@ public class GuiWorldMap extends ScaledScreen {
             new MenuEntry(
                 I18n.format("wayfarmap.gui.delete_region_yes"),
                 true,
-                () -> MapManager.INSTANCE.deleteFlatRegion(dimension, rx, rz)));
+                () -> MapManager.INSTANCE.deleteFlatRegion(dimension, rx, rz)).icon(Icons.SMALL_TRASH)
+                    .danger());
         entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
         showMenu(entries, MENU_CONFIRM, menuX, menuY);
     }
 
+    /** How long a menu takes to drop open, in milliseconds. */
+    private static final long MENU_OPEN_MS = 120;
+    /** When the open menu was opened, and the kind and time of the last one closed by a click. */
+    private long menuOpenedAt, menuClosedAt;
+    private int menuClosedKind = -1;
+    /** How lit each row of the open menu is by the mouse, for the entries it was made for. */
+    private Smooth[] menuLight = new Smooth[0];
+    private List<MenuEntry> menuLightFor;
+
+    /**
+     * A menu was just put up: it drops open, unless it is the same menu opened again right after a click in it (a
+     * toggle that keeps the menu open, showing the new state).
+     */
+    private void menuShown() {
+        long now = System.currentTimeMillis();
+        if (menuKind != menuClosedKind || now - menuClosedAt > 200) {
+            menuOpenedAt = now;
+        }
+    }
+
+    /** Width of a menu: its longest label, with room for icons or checkboxes and for the key hints. */
+    private int menuWidthFor(List<MenuEntry> entries, int minimum) {
+        int widest = minimum;
+        int iconColumn = iconColumn(entries);
+        for (MenuEntry entry : entries) {
+            int w = fontRendererObj.getStringWidth(entry.label) + 14;
+            if (entry.checked != null) {
+                w += 12;
+            }
+            if (entry.icon != null) {
+                w += iconColumn + 5;
+            }
+            if (entry.hint != null) {
+                w += fontRendererObj.getStringWidth(entry.hint) + 12;
+            }
+            widest = Math.max(widest, w);
+        }
+        return widest;
+    }
+
     private void drawMenu(int mouseX, int mouseY) {
         int h = menu.size() * MENU_ROW + 4;
-        Theme.panel(menuX, menuY, menuX + menuWidth, menuY + h);
+        if (menuLightFor != menu) {
+            menuLightFor = menu;
+            menuLight = new Smooth[menu.size()];
+            for (int i = 0; i < menuLight.length; i++) {
+                menuLight[i] = new Smooth(0);
+            }
+        }
+        // Drops open: cut to a growing part of its height, coming down a little.
+        double t = Math.min(1, (System.currentTimeMillis() - menuOpenedAt) / (double) MENU_OPEN_MS);
+        double open = 1 - Math.pow(1 - t, 3);
+        int shownHeight = (int) Math.ceil(h * (0.35 + 0.65 * open));
+        int drop = (int) Math.round((1 - open) * 4);
+        int top = menuY - drop;
+        Theme.clip(menuX, top, menuX + menuWidth, top + shownHeight);
+        Theme.panel(menuX, top, menuX + menuWidth, top + h);
         for (int i = 0; i < menu.size(); i++) {
             MenuEntry entry = menu.get(i);
-            int y = menuY + 2 + i * MENU_ROW;
-            if (entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW)) {
-                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
+            int y = top + 2 + i * MENU_ROW;
+            boolean hovered = entry.enabled && Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW);
+            double lit = menuLight[i].update(hovered ? 1 : 0, 22);
+            if (entry.danger && i > 0 && !menu.get(i - 1).danger) {
+                // Destructive entries are set apart by a line.
+                Theme.fill(menuX + 4, y, menuX + menuWidth - 4, y + 1, Theme.BORDER);
             }
+            if (entry.selected) {
+                // The current choice: always marked, a little lit.
+                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, 0x60000000 | Theme.ACCENT_DIM & 0xFFFFFF);
+                Theme.fill(menuX + 1, y, menuX + 3, y + MENU_ROW, Theme.ACCENT);
+            }
+            if (lit > 0.02) {
+                int light = Theme.blend(Theme.CONTROL_HOVER & 0xFFFFFF, Theme.CONTROL_HOVER, lit);
+                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, light);
+                int bar = entry.danger ? Theme.DANGER : Theme.ACCENT;
+                Theme.fill(menuX + 1, y, menuX + 3, y + MENU_ROW, Theme.blend(bar & 0xFFFFFF, bar, lit));
+            }
+            int color = !entry.enabled ? Theme.TEXT_DISABLED : entry.danger ? Theme.DANGER : Theme.TEXT;
             int textX = menuX + 6;
             if (entry.checked != null) {
                 // Checkbox.
@@ -1725,13 +1954,66 @@ public class GuiWorldMap extends ScaledScreen {
                     Theme.fill(menuX + 7, y + 5, menuX + 11, y + 9, Theme.ACCENT);
                 }
                 textX = menuX + 18;
+                if (entry.icon != null) {
+                    textX = drawMenuIcon(entry, textX, y, hovered) + 4;
+                }
+            } else if (entry.icon != null) {
+                textX = drawMenuIcon(entry, menuX + 6, y, hovered) + 5;
             }
-            Theme.text(fontRendererObj, entry.label, textX, y + 3, entry.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
+            Theme.text(fontRendererObj, entry.label, textX, y + 3, color);
+            if (entry.hint != null) {
+                int hintX = menuX + menuWidth - 6 - fontRendererObj.getStringWidth(entry.hint);
+                Theme.text(fontRendererObj, entry.hint, hintX, y + 3, Theme.TEXT_DISABLED);
+            }
         }
-        if (menuKind == MENU_MAP && !Teleport.isAllowed()) {
+        Theme.unclip();
+        if (menuKind == MENU_MAP && !Teleport.isAllowed() && open >= 1) {
             String note = I18n.format("wayfarmap.gui.no_teleport_permission");
             Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
         }
+    }
+
+    /** Whether the menu is a list of choices (one of its entries is the current one), like the modes. */
+    private static boolean isChoiceMenu(List<MenuEntry> entries) {
+        for (MenuEntry entry : entries) {
+            if (entry.selected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Width of the column the menu's icons are centered in: its widest icon, so the labels line up. */
+    private static int iconColumn(List<MenuEntry> entries) {
+        int widest = 7;
+        for (MenuEntry entry : entries) {
+            if (entry.icon != null) {
+                widest = Math.max(widest, Icons.width(entry.icon));
+            }
+        }
+        return widest;
+    }
+
+    /** The entry's icon, centered in its row and in the menu's icon column; returns where the column ends. */
+    private int drawMenuIcon(MenuEntry entry, int x, int y, boolean hovered) {
+        int color;
+        if (!entry.enabled) {
+            color = Theme.TEXT_DISABLED;
+        } else if (entry.danger) {
+            color = Theme.DANGER;
+        } else if (entry.iconColor != 0) {
+            // Its own color: darker while its toggle is off, or in a list of choices while it isn't the one chosen.
+            boolean on = entry.checked != null ? entry.checked : !isChoiceMenu(menu) || entry.selected;
+            color = Theme.iconShade(entry.iconColor, hovered, false, !on);
+        } else if (entry.selected || hovered) {
+            color = Theme.ACCENT;
+        } else {
+            color = Theme.TEXT_MUTED;
+        }
+        int column = iconColumn(menu);
+        int iconX = x + (column - Icons.width(entry.icon)) / 2;
+        Icons.draw(entry.icon, iconX, y + (MENU_ROW - entry.icon.length) / 2, color);
+        return x + column;
     }
 
     /** @return true if the click was taken by the menu (which then closes) */
@@ -1741,6 +2023,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         List<MenuEntry> entries = menu;
         menu = null;
+        menuClosedKind = menuKind;
+        menuClosedAt = System.currentTimeMillis();
         for (int i = 0; i < entries.size(); i++) {
             int y = menuY + 2 + i * MENU_ROW;
             MenuEntry entry = entries.get(i);
@@ -1751,8 +2035,6 @@ public class GuiWorldMap extends ScaledScreen {
                     openAddonsMenu();
                 } else if (entry.checked != null && menuKind == MENU_MOBS) {
                     openMobsMenu();
-                } else if (entry.checked != null && menuKind == MENU_EXPORT) {
-                    openExportMenu();
                 }
             }
         }
@@ -1852,6 +2134,10 @@ public class GuiWorldMap extends ScaledScreen {
             int[] rect = WaypointRenderer
                 .getLabelRect(waypoint, screenX(waypoint), screenY(waypoint), labelSize, textScale);
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
+                continue;
+            }
+            if (waypoint != hovered && Config.waypointMapLabels == Config.LABELS_HOVER) {
+                // Names only under the mouse.
                 continue;
             }
             labelled.add(waypoint);
@@ -1957,15 +2243,20 @@ public class GuiWorldMap extends ScaledScreen {
         anchorWorldZ = centerZ + offset[1];
         zoomIndex = newIndex;
         zooming = true;
+        // Zooming takes the view over from a glide.
+        flightStart = 0;
     }
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         if (welcome) {
-            // Only its button closes it; the map waits.
-            int[] b = welcomeButton();
-            if (button == 0 && Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3])) {
+            // Only its buttons close it; the map waits.
+            WelcomeWindow.Click click = button == 0 ? welcomeWindow.click(mouseX, mouseY) : WelcomeWindow.Click.NONE;
+            if (click != WelcomeWindow.Click.NONE) {
                 closeWelcome();
+            }
+            if (click == WelcomeWindow.Click.HELP) {
+                mc.displayGuiScreen(new GuiHelp(this));
             }
             return;
         }
@@ -2035,6 +2326,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (button == 0) {
             dragging = true;
+            // Grabbing the map stops a glide where it is.
+            flightStart = 0;
             lastRawMouseX = Mouse.getX();
             lastRawMouseY = Mouse.getY();
         }
@@ -2153,7 +2446,8 @@ public class GuiWorldMap extends ScaledScreen {
             new MenuEntry(
                 I18n.format(with3d ? "wayfarmap.gui.load_wipe_3d" : "wayfarmap.gui.load_wipe_2d"),
                 true,
-                () -> wipeDimension(dimension, with3d)));
+                () -> wipeDimension(dimension, with3d)).icon(Icons.SMALL_TRASH)
+                    .danger());
         entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
         showMenu(entries, MENU_CONFIRM, mouseX, mouseY + 4);
     }
@@ -2503,9 +2797,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (keyCode == Keyboard.KEY_SPACE && mc.thePlayer != null) {
             MapManager.INSTANCE.stopViewing();
             applySearch();
-            centerOn(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            // At the zoom it settles on, so the glide is measured at the scale it ends at.
             zooming = false;
             scale = Config.MAP_ZOOMS[zoomIndex];
+            flyTo(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
             return;
         }
         super.keyTyped(typedChar, keyCode);
@@ -2527,7 +2822,10 @@ public class GuiWorldMap extends ScaledScreen {
             ThaumcraftNodes.setSearch("");
         }
         saveView();
-        MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+        if (!ScaledScreen.isBeingCovered(this)) {
+            // Only when really closed: under a screen opened over it, it is still shown.
+            MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+        }
     }
 
     // ---------------------------------------------------------------- where the map was left
@@ -2644,6 +2942,18 @@ public class GuiWorldMap extends ScaledScreen {
             }
         }
         return box;
+    }
+
+    /** The map fills the window: it is there at once. */
+    @Override
+    protected boolean slidesIn() {
+        return false;
+    }
+
+    /** The map fills the window: nothing behind it would show. */
+    @Override
+    protected boolean showsScreenBehind() {
+        return false;
     }
 
     @Override

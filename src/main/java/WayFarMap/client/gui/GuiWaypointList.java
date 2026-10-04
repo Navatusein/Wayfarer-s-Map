@@ -1,9 +1,14 @@
 package WayFarMap.client.gui;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
@@ -16,18 +21,27 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
+import WayFarMap.client.map.MapManager;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 
-/** All waypoints sorted into their groups; groups can be hidden, collapsed, renamed, reordered and deleted. */
+/**
+ * All waypoints sorted into their groups; groups can be hidden, collapsed, renamed, reordered and deleted. Shown for
+ * one dimension at a time (this one at first) or all of them, and narrowed down by searching names and coordinates.
+ */
 public class GuiWaypointList extends ScaledScreen {
 
     private static final int ROW_HEIGHT = 20;
-    private static final int ID_GROUP_ACTION = 0, ID_NEW_WAYPOINT = 1, ID_DONE = 2;
+    private static final int ID_GROUP_ACTION = 0, ID_NEW_WAYPOINT = 1, ID_DONE = 2, ID_DIMENSION = 3;
+    /** Height of a line of the dimension list, and how many show at once. */
+    private static final int CHOICE_ROW = 14, CHOICES_SHOWN = 10;
     private static final long CONFIRM_MS = 3000;
     /** Width taken by the "on the map" button in a waypoint row. */
     private static final int SHOW_ON_MAP_ROOM = 56;
@@ -35,6 +49,10 @@ public class GuiWaypointList extends ScaledScreen {
 
     /** Collapsed groups (by name) stay collapsed while the game runs. */
     private static final Set<String> collapsed = new HashSet<>();
+    /** The dimension picked, kept while the game runs: null for the player's own, {@link #ALL} for every one. */
+    private static Integer pickedDimension;
+    private static final int ALL = Integer.MIN_VALUE;
+    private static String searchText = "";
 
     private final GuiScreen parent;
 
@@ -44,6 +62,8 @@ public class GuiWaypointList extends ScaledScreen {
         final WaypointGroup group;
         final boolean ungrouped;
         final Waypoint waypoint;
+        /** A group's waypoints that the filter lets through. */
+        int count;
 
         Row(WaypointGroup group, boolean ungrouped, Waypoint waypoint) {
             this.group = group;
@@ -70,10 +90,21 @@ public class GuiWaypointList extends ScaledScreen {
     private final List<Row> rows = new ArrayList<>();
     private final List<Hit> hits = new ArrayList<>();
     private int listLeft, listRight, listTop, listBottom;
+    /** First row at the top of the list; where the list is drawn while it eases there (in rows). */
     private int scroll;
+    private final Smooth shownScroll = new Smooth(0);
+    /** How lit each waypoint's row is by the mouse. */
+    private final Map<Waypoint, Smooth> rowLight = new IdentityHashMap<>();
 
-    private FlatTextField groupField;
-    private FlatButton groupActionButton;
+    private FlatTextField groupField, searchField;
+    private FlatButton groupActionButton, dimensionButton;
+    /** The list of dimensions is open under its button, and how far it is scrolled. */
+    private boolean choicesOpen;
+    private int choicesScroll;
+    /** Names of the dimensions, looked up once (some are read from their maps' files). */
+    private final Map<Integer, String> dimensionNames = new HashMap<>();
+    /** Waypoints the filter lets through, out of all of them. */
+    private int shownCount;
     private WaypointGroup renamingGroup;
     /** Waypoint under the mouse when the left button went down; becomes a drag once the mouse moves. */
     private Waypoint pressedWaypoint;
@@ -94,10 +125,22 @@ public class GuiWaypointList extends ScaledScreen {
         int panelWidth = Math.min(width - 20, 420);
         listLeft = (width - panelWidth) / 2;
         listRight = listLeft + panelWidth;
-        listTop = 28;
+        int filterY = 6 + WindowHeader.HEIGHT + 6;
+        listTop = filterY + 22;
         listBottom = height - 58;
 
         buttonList.clear();
+        // Which dimension, and searching: over the list.
+        int pickerWidth = Math.min(200, panelWidth / 2);
+        dimensionButton = new FlatButton(ID_DIMENSION, listLeft, filterY, pickerWidth, 16, "");
+        buttonList.add(dimensionButton);
+        String oldSearch = searchField != null ? searchField.getText() : searchText;
+        int searchX = listLeft + pickerWidth + 6;
+        searchField = new FlatTextField(fontRendererObj, searchX, filterY, listRight - searchX, 16)
+            .setHint(I18n.format("wayfarmap.gui.search_waypoints"));
+        searchField.setMaxStringLength(48);
+        searchField.setText(oldSearch);
+        choicesOpen = false;
         int bottom = height - 50;
         String oldText = groupField != null ? groupField.getText() : "";
         groupField = new FlatTextField(fontRendererObj, listLeft, bottom, panelWidth - 124, 18)
@@ -117,6 +160,7 @@ public class GuiWaypointList extends ScaledScreen {
         newWaypoint.active = true;
         buttonList.add(newWaypoint);
         buttonList.add(new FlatButton(ID_DONE, listRight - half, bottom + 24, half, 18, I18n.format("gui.done")));
+        buttonList.add(WindowHeader.closeButton(ID_DONE, listRight + 8, 6));
         updateGroupButton();
         rebuildRows();
     }
@@ -128,22 +172,105 @@ public class GuiWaypointList extends ScaledScreen {
 
     private void rebuildRows() {
         rows.clear();
+        shownCount = 0;
         WaypointManager manager = WaypointManager.INSTANCE;
         for (WaypointGroup group : manager.getGroups()) {
-            rows.add(new Row(group, false, null));
-            if (!collapsed.contains(group.name)) {
-                for (Waypoint waypoint : manager.getWaypointsInGroup(group.name)) {
-                    rows.add(new Row(group, false, waypoint));
-                }
-            }
+            addGroup(group, false, group.name, manager.getWaypointsInGroup(group.name));
         }
-        rows.add(new Row(null, true, null));
-        if (!collapsed.contains(UNGROUPED_KEY)) {
-            for (Waypoint waypoint : manager.getWaypointsInGroup(null)) {
-                rows.add(new Row(null, true, waypoint));
-            }
-        }
+        addGroup(null, true, UNGROUPED_KEY, manager.getWaypointsInGroup(null));
         scroll = Math.max(0, Math.min(scroll, maxScroll()));
+    }
+
+    /** A group's header and its waypoints the filter lets through; while searching, no group with none of them. */
+    private void addGroup(WaypointGroup group, boolean ungrouped, String key, List<Waypoint> waypoints) {
+        List<Waypoint> matching = new ArrayList<>();
+        for (Waypoint waypoint : waypoints) {
+            if (matches(waypoint)) {
+                matching.add(waypoint);
+            }
+        }
+        shownCount += matching.size();
+        if (matching.isEmpty() && !searchText.isEmpty()) {
+            return;
+        }
+        Row header = new Row(group, ungrouped, null);
+        header.count = matching.size();
+        rows.add(header);
+        // Searching opens the groups: what was found shows.
+        if (!collapsed.contains(key) || !searchText.isEmpty()) {
+            for (Waypoint waypoint : matching) {
+                rows.add(new Row(group, ungrouped, waypoint));
+            }
+        }
+    }
+
+    /** The dimension shown: the picked one, the player's own, or {@link #ALL}. */
+    private int shownDimension() {
+        if (pickedDimension != null) {
+            return pickedDimension;
+        }
+        return mc != null && mc.theWorld != null ? mc.theWorld.provider.dimensionId : ALL;
+    }
+
+    private boolean matches(Waypoint waypoint) {
+        int dimension = shownDimension();
+        if (dimension != ALL && waypoint.dimension != dimension) {
+            return false;
+        }
+        if (searchText.isEmpty()) {
+            return true;
+        }
+        String query = searchText.toLowerCase(Locale.ROOT);
+        String coordinates = waypoint.x + " " + waypoint.y + " " + waypoint.z;
+        return waypoint.name.toLowerCase(Locale.ROOT)
+            .contains(query) || coordinates.contains(query);
+    }
+
+    private String dimensionName(int id) {
+        return dimensionNames.computeIfAbsent(id, i -> MapManager.INSTANCE.getDimensionName(i));
+    }
+
+    /** The choices of the dimension list: every dimension, then each one with waypoints, the player's own first. */
+    private List<Integer> dimensionChoices() {
+        Set<Integer> ids = new TreeSet<>();
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getWaypoints()) {
+            ids.add(waypoint.dimension);
+        }
+        List<Integer> choices = new ArrayList<>();
+        choices.add(ALL);
+        if (mc.theWorld != null) {
+            int own = mc.theWorld.provider.dimensionId;
+            choices.add(own);
+            ids.remove(own);
+        }
+        choices.addAll(ids);
+        return choices;
+    }
+
+    private int countIn(int dimension) {
+        int count = 0;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getWaypoints()) {
+            if (dimension == ALL || waypoint.dimension == dimension) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String choiceLabel(int dimension) {
+        String name = dimension == ALL ? I18n.format("wayfarmap.gui.all_dimensions") : dimensionName(dimension);
+        return name + " (" + countIn(dimension) + ")";
+    }
+
+    /** The open dimension list's line under the mouse, or -1. */
+    private int choiceAt(int mouseX, int mouseY) {
+        int x0 = dimensionButton.xPosition, y0 = dimensionButton.yPosition + 17;
+        if (!choicesOpen || mouseX < x0 || mouseX >= x0 + dimensionButton.getWidth() || mouseY < y0) {
+            return -1;
+        }
+        int line = (mouseY - y0) / CHOICE_ROW;
+        int shown = Math.min(CHOICES_SHOWN, dimensionChoices().size());
+        return line < shown ? line + choicesScroll : -1;
     }
 
     private int maxScroll() {
@@ -170,6 +297,10 @@ public class GuiWaypointList extends ScaledScreen {
                 break;
             case ID_DONE:
                 mc.displayGuiScreen(parent);
+                break;
+            case ID_DIMENSION:
+                choicesOpen = !choicesOpen;
+                choicesScroll = 0;
                 break;
             default:
                 break;
@@ -215,6 +346,24 @@ public class GuiWaypointList extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (keyCode == Keyboard.KEY_ESCAPE && choicesOpen) {
+            choicesOpen = false;
+            return;
+        }
+        if (searchField.isFocused()) {
+            if (keyCode == Keyboard.KEY_ESCAPE) {
+                searchField.setFocused(false);
+                return;
+            }
+            searchField.textboxKeyTyped(typedChar, keyCode);
+            if (!searchField.getText()
+                .equals(searchText)) {
+                searchText = searchField.getText();
+                scroll = 0;
+                rebuildRows();
+            }
+            return;
+        }
         if (keyCode == Keyboard.KEY_ESCAPE) {
             if (renamingGroup != null) {
                 renamingGroup = null;
@@ -236,19 +385,45 @@ public class GuiWaypointList extends ScaledScreen {
     public void handleMouseInput() {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
-        if (wheel != 0) {
+        if (wheel != 0 && choicesOpen) {
+            int most = Math.max(0, dimensionChoices().size() - CHOICES_SHOWN);
+            choicesScroll = Math.max(0, Math.min(most, choicesScroll + (wheel > 0 ? -1 : 1)));
+        } else if (wheel != 0) {
             scroll = Math.max(0, Math.min(maxScroll(), scroll + (wheel > 0 ? -1 : 1)));
         }
     }
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (choicesOpen) {
+            // While it is open, a click picks from the list or closes it.
+            int index = choiceAt(mouseX, mouseY);
+            List<Integer> choices = dimensionChoices();
+            if (index >= 0 && index < choices.size() && button == 0) {
+                int picked = choices.get(index);
+                boolean own = mc.theWorld != null && picked == mc.theWorld.provider.dimensionId;
+                // The player's own stays "the player's own", wherever they go next.
+                pickedDimension = own ? null : picked;
+                scroll = 0;
+                rebuildRows();
+            }
+            if (index >= 0 || !dimensionButton.isMouseOver(mouseX, mouseY)) {
+                choicesOpen = false;
+                return;
+            }
+        }
         super.mouseClicked(mouseX, mouseY, button);
         groupField.mouseClicked(mouseX, mouseY, button);
+        searchField.mouseClicked(mouseX, mouseY, button);
         if (button != 0) {
             return;
         }
+        boolean inList = mouseX >= listLeft && mouseX < listRight && mouseY >= listTop && mouseY < listBottom;
         for (Hit hit : new ArrayList<>(hits)) {
+            if (!inList) {
+                // Rows cut at the list's edges still register their buttons; only the visible part counts.
+                break;
+            }
             if (mouseX >= hit.x0 && mouseX < hit.x1 && mouseY >= hit.y0 && mouseY < hit.y1) {
                 hit.action.run();
                 return;
@@ -293,7 +468,7 @@ public class GuiWaypointList extends ScaledScreen {
         if (mouseX < listLeft || mouseX >= listRight || mouseY < listTop || mouseY >= listBottom) {
             return null;
         }
-        int index = scroll + (mouseY - listTop) / ROW_HEIGHT;
+        int index = (int) Math.floor(shownScroll.get() + (mouseY - listTop) / (double) ROW_HEIGHT);
         return index >= 0 && index < rows.size() ? rows.get(index) : null;
     }
 
@@ -329,6 +504,7 @@ public class GuiWaypointList extends ScaledScreen {
     @Override
     public void updateScreen() {
         groupField.updateCursorCounter();
+        searchField.updateCursorCounter();
     }
 
     @Override
@@ -340,29 +516,47 @@ public class GuiWaypointList extends ScaledScreen {
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(listLeft - 8, 6, listRight + 8, height - 6);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.waypoints"), listLeft, 14, Theme.ACCENT);
+        int total = WaypointManager.INSTANCE.getWaypoints()
+            .size();
+        // How many the filter shows, out of all of them.
+        String count = shownCount == total ? String.valueOf(total) : shownCount + " / " + total;
+        // The hint goes away while a waypoint is being dragged: it is being done.
+        String hint = draggingWaypoint ? null : I18n.format("wayfarmap.gui.drag_hint");
+        WindowHeader.draw(
+            fontRendererObj,
+            listLeft - 8,
+            6,
+            listRight + 8,
+            listRight + 8 - WindowHeader.CLOSE_ROOM,
+            Icons.WAYPOINTS,
+            I18n.format("wayfarmap.gui.waypoints"),
+            hint,
+            Theme.TEXT_MUTED,
+            count);
         Theme.fill(listLeft, listTop - 1, listRight, listBottom + 1, 0xFF0F1216);
         Theme.outline(listLeft - 1, listTop - 2, listRight + 1, listBottom + 2, Theme.BORDER);
 
         updateDrag(mouseX, mouseY);
-        if (!draggingWaypoint) {
-            String hint = I18n.format("wayfarmap.gui.drag_hint");
-            Theme
-                .text(fontRendererObj, hint, listRight - fontRendererObj.getStringWidth(hint), 14, Theme.TEXT_DISABLED);
-        }
         Row dropTarget = draggingWaypoint ? rowAt(mouseX, mouseY) : null;
 
         hits.clear();
         int visibleRows = (listBottom - listTop) / ROW_HEIGHT;
-        for (int i = 0; i < visibleRows && scroll + i < rows.size(); i++) {
-            Row row = rows.get(scroll + i);
-            int y = listTop + i * ROW_HEIGHT;
+        double shown = shownScroll.update(scroll, 16);
+        int first = (int) Math.floor(shown);
+        boolean mouseInList = mouseY >= listTop && mouseY < listBottom;
+        Theme.clip(listLeft, listTop - 1, listRight, listBottom + 1);
+        for (int i = first; i <= first + visibleRows && i < rows.size(); i++) {
+            Row row = rows.get(i);
+            int y = listTop + (int) Math.round((i - shown) * ROW_HEIGHT);
             boolean hovered = mouseX >= listLeft && mouseX < listRight && mouseY >= y && mouseY < y + ROW_HEIGHT;
+            hovered &= mouseInList && !draggingWaypoint;
             if (row.waypoint == null) {
                 drawGroupRow(row, y, mouseX, mouseY);
             } else {
-                if (hovered && !draggingWaypoint) {
-                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.ROW_HOVER);
+                Smooth light = rowLight.computeIfAbsent(row.waypoint, w -> new Smooth(0));
+                double lit = light.update(hovered ? 1 : 0, 20);
+                if (lit > 0.02) {
+                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
                 }
                 drawWaypointRow(row.waypoint, y, mouseX, mouseY);
                 if (draggingWaypoint && row.waypoint == pressedWaypoint) {
@@ -377,16 +571,29 @@ public class GuiWaypointList extends ScaledScreen {
                 }
             }
         }
+        Theme.unclip();
+        if (shownCount == 0 && rowsWithoutWaypoints()) {
+            String none = I18n
+                .format(searchText.isEmpty() ? "wayfarmap.gui.no_waypoints_here" : "wayfarmap.gui.nothing_found");
+            int middleY = (listTop + listBottom) / 2;
+            Theme.centered(fontRendererObj, none, (listLeft + listRight) / 2, middleY, Theme.TEXT_MUTED);
+        }
         if (rows.size() > visibleRows) {
-            // Scroll bar.
-            int trackHeight = listBottom - listTop;
-            int barHeight = Math.max(10, trackHeight * visibleRows / rows.size());
-            int barY = listTop + (trackHeight - barHeight) * scroll / Math.max(1, maxScroll());
-            drawRect(listRight - 3, barY, listRight - 1, barY + barHeight, Theme.BORDER);
+            boolean lit = Theme.inside(mouseX, mouseY, listLeft, listTop, listRight, listBottom);
+            double position = shown / Math.max(1, maxScroll());
+            Theme.scrollbar(listRight - 3, listTop, listBottom, visibleRows, rows.size(), position, lit);
         }
 
         groupField.drawTextBox();
+        searchField.drawTextBox();
+        dimensionButton.displayString = Theme
+            .ellipsize(fontRendererObj, choiceLabel(shownDimension()), dimensionButton.getWidth() - 20)
+            + (choicesOpen ? " \u25B4" : " \u25BE");
+        dimensionButton.active = choicesOpen;
         super.drawScaled(mouseX, mouseY, partialTicks);
+        if (choicesOpen) {
+            drawChoices(mouseX, mouseY);
+        }
 
         if (draggingWaypoint) {
             // The dragged waypoint follows the mouse.
@@ -398,6 +605,50 @@ public class GuiWaypointList extends ScaledScreen {
             Theme.outline(x, y, x + w, y + 14, Theme.ACCENT);
             WaypointRenderer.drawMapMarker(pressedWaypoint, x + 8, y + 7, 9f, false);
             Theme.text(fontRendererObj, name, x + 17, y + 3, Theme.TEXT);
+        }
+    }
+
+    /** Whether only group headers are left (or nothing): nothing matched. */
+    private boolean rowsWithoutWaypoints() {
+        for (Row row : rows) {
+            if (row.waypoint != null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The open list of dimensions under its button, over everything; the one shown is marked. */
+    private void drawChoices(int mouseX, int mouseY) {
+        List<Integer> choices = dimensionChoices();
+        int x0 = dimensionButton.xPosition, x1 = x0 + dimensionButton.getWidth();
+        int y0 = dimensionButton.yPosition + 17;
+        int shown = Math.min(CHOICES_SHOWN, choices.size());
+        int y1 = y0 + shown * CHOICE_ROW;
+        Theme.fill(x0, y0, x1, y1, Theme.PANEL | 0xFF000000);
+        Theme.outline(x0 - 1, y0 - 1, x1 + 1, y1 + 1, Theme.BORDER);
+        int current = shownDimension(), hovered = choiceAt(mouseX, mouseY);
+        int own = mc.theWorld != null ? mc.theWorld.provider.dimensionId : ALL;
+        for (int line = 0; line < shown; line++) {
+            int index = line + choicesScroll;
+            int dimension = choices.get(index);
+            int y = y0 + line * CHOICE_ROW;
+            if (dimension == current) {
+                Theme.fill(x0, y, x1, y + CHOICE_ROW, 0x334C9AFF);
+                Theme.fill(x0, y, x0 + 2, y + CHOICE_ROW, Theme.ACCENT);
+            } else if (index == hovered) {
+                Theme.fill(x0, y, x1, y + CHOICE_ROW, Theme.ROW_HOVER);
+            }
+            String label = Theme.ellipsize(fontRendererObj, choiceLabel(dimension), x1 - x0 - 18);
+            Theme.text(fontRendererObj, label, x0 + 6, y + 3, dimension == current ? Theme.ACCENT : Theme.TEXT);
+            if (dimension == own) {
+                // Where the player is.
+                Theme.disc(x1 - 7, y + CHOICE_ROW / 2.0, 2, Theme.SUCCESS);
+            }
+        }
+        if (choices.size() > CHOICES_SHOWN) {
+            double position = choicesScroll / (double) (choices.size() - CHOICES_SHOWN);
+            Theme.scrollbar(x1 - 3, y0, y1, CHOICES_SHOWN, choices.size(), position, false);
         }
     }
 
@@ -420,14 +671,13 @@ public class GuiWaypointList extends ScaledScreen {
         x += 14;
 
         boolean isCollapsed = collapsed.contains(key);
-        String title = (isCollapsed ? "+ " : "- ")
-            + (row.ungrouped ? I18n.format("wayfarmap.gui.no_group") : group.name)
-            + " ("
-            + manager.getWaypointsInGroup(row.ungrouped ? null : group.name)
-                .size()
-            + ")";
-        int titleWidth = fontRendererObj.getStringWidth(title);
-        fontRendererObj.drawString(title, x, y + 6, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
+        String title = (row.ungrouped ? I18n.format("wayfarmap.gui.no_group") : group.name) + " (" + row.count + ")";
+        int titleWidth = 9 + fontRendererObj.getStringWidth(title);
+        // An arrow before the title, which opens and closes the group.
+        String[] arrow = isCollapsed ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
+        boolean titleHovered = Theme.inside(mouseX, mouseY, x, y, x + titleWidth, y + ROW_HEIGHT);
+        Icons.draw(arrow, x, y + 7 + (5 - arrow.length) / 2, titleHovered ? Theme.TEXT : Theme.ACCENT_DIM);
+        fontRendererObj.drawString(title, x + 9, y + 6, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
         hits.add(new Hit(x, y, x + titleWidth, y + ROW_HEIGHT, () -> {
             if (!collapsed.remove(key)) {
                 collapsed.add(key);
@@ -481,7 +731,7 @@ public class GuiWaypointList extends ScaledScreen {
 
         String info = waypoint.x + " " + waypoint.y + " " + waypoint.z;
         if (mc.theWorld != null && waypoint.dimension != mc.theWorld.provider.dimensionId) {
-            info += "  [DIM " + waypoint.dimension + "]";
+            info += "  [" + dimensionName(waypoint.dimension) + "]";
         } else if (mc.thePlayer != null) {
             double dx = waypoint.x + 0.5 - mc.thePlayer.posX;
             double dz = waypoint.z + 0.5 - mc.thePlayer.posZ;

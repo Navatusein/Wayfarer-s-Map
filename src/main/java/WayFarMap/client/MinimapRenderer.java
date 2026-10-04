@@ -19,7 +19,6 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
-import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
@@ -41,10 +40,26 @@ public class MinimapRenderer {
     private static final int LINE_HEIGHT = 10;
     /** Lines of text under the minimap the last time it was drawn. */
     private static int shownLines = 2;
+    /** How fast the zoom eases to a new level (higher is faster), as on the world map. */
+    private static final double ZOOM_SPEED = 12;
+    /** How long the new zoom is shown on the minimap after it changes, and how long it takes to fade (ms). */
+    private static final long ZOOM_LABEL_MS = 1500, ZOOM_LABEL_FADE_MS = 300;
+    /** Scale the minimap is drawn at while it eases to its zoom level; 0 before the first frame. */
+    private static double shownScale;
+    private static long lastZoomFrame;
+    /** Zoom level the label was last shown for, and when it changed. */
+    private static int labelZoom = -1;
+    private static long zoomChangedAt;
 
     /** Height of the minimap with the lines of text under it. */
     public static int boxHeight() {
-        return Config.minimapSize + shownLines * LINE_HEIGHT;
+        // The text starts its gap under the map; the last line's height is its font's, not a whole line's.
+        return Config.minimapSize + (shownLines > 0 ? Config.minimapTextGap + shownLines * lineHeight() - 3 : 0);
+    }
+
+    /** Height of a line of text under the minimap, at its size. */
+    private static int lineHeight() {
+        return Math.max(1, (int) Math.round(LINE_HEIGHT * Config.minimapTextScale));
     }
 
     /** Left of the minimap on a screen this wide (GUI pixels of the HUD). */
@@ -104,7 +119,13 @@ public class MinimapRenderer {
         shownLines = lines.size();
         int x = left(screenWidth);
         int y = top(screenHeight);
-        double scale = Config.MINIMAP_ZOOMS[Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom))];
+        int zoom = Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom));
+        double scale = easedScale(Config.MINIMAP_ZOOMS[zoom]);
+        if (zoom != labelZoom) {
+            // Not on the first frame: the minimap only just appeared, nothing was changed.
+            zoomChangedAt = labelZoom < 0 ? 0 : System.currentTimeMillis();
+            labelZoom = zoom;
+        }
 
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;
         float yaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
@@ -114,17 +135,24 @@ public class MinimapRenderer {
         double centerX = x + half, centerY = y + half;
 
         GL11.glPushMatrix();
-        int frameColor = 0xFF000000 | Config.minimapFrameColor;
+        // The frame: a line of its color right around the map, as see-through and thick as it is set.
+        float opacity = Config.minimapFrameOpacity / 100f;
+        int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
+        int frameWidth = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillCircle(centerX, centerY, half + 2, frameColor);
-                fillCircle(centerX, centerY, half + 1, Theme.PANEL);
+                fillRing(centerX, centerY, half, half + frameWidth, frameColor);
             }
             fillCircle(centerX, centerY, half, 0xFF0C0E11);
         } else {
             if (Config.minimapFrame) {
-                Gui.drawRect(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
-                Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, frameColor);
+                frameRect(
+                    x - frameWidth,
+                    y - frameWidth,
+                    x + size + frameWidth,
+                    y + size + frameWidth,
+                    frameWidth,
+                    frameColor);
             }
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
         }
@@ -183,15 +211,60 @@ public class MinimapRenderer {
             drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
         }
 
-        int textY = y + size + 3;
+        drawZoomLabel(mc.fontRenderer, x, y, size, Config.MINIMAP_ZOOMS[zoom]);
+
+        int textY = y + size + Config.minimapTextGap;
+        double textScale = Config.minimapTextScale;
         for (String line : lines) {
-            mc.fontRenderer
-                .drawStringWithShadow(line, x + size / 2 - mc.fontRenderer.getStringWidth(line) / 2, textY, 0xFFFFFF);
-            textY += LINE_HEIGHT;
+            // Centered under the map at its size.
+            GL11.glPushMatrix();
+            GL11.glTranslated(x + size / 2.0 - mc.fontRenderer.getStringWidth(line) * textScale / 2, textY, 0);
+            GL11.glScaled(textScale, textScale, 1);
+            mc.fontRenderer.drawStringWithShadow(line, 0, 0, 0xFFFFFF);
+            GL11.glPopMatrix();
+            textY += lineHeight();
         }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glPopMatrix();
+    }
+
+    /** Moves the drawn scale toward {@code target}, in log space so every zoom step feels equally fast. */
+    private static double easedScale(double target) {
+        long now = System.nanoTime();
+        double seconds = lastZoomFrame == 0 ? 0 : Math.min(0.1, (now - lastZoomFrame) / 1.0e9);
+        lastZoomFrame = now;
+        if (shownScale <= 0) {
+            shownScale = target;
+        }
+        double t = 1.0 - Math.exp(-ZOOM_SPEED * seconds);
+        shownScale = Math.exp(Math.log(shownScale) + (Math.log(target) - Math.log(shownScale)) * t);
+        if (Math.abs(shownScale - target) < target * 0.002) {
+            shownScale = target;
+        }
+        return shownScale;
+    }
+
+    /** For a moment after the zoom changes: the new zoom ("1:4", "2:1") at the bottom of the minimap, fading out. */
+    private static void drawZoomLabel(FontRenderer font, int x, int y, int size, double scale) {
+        long shown = System.currentTimeMillis() - zoomChangedAt;
+        if (shown >= ZOOM_LABEL_MS) {
+            return;
+        }
+        double fade = Math.min(1, (ZOOM_LABEL_MS - shown) / (double) ZOOM_LABEL_FADE_MS);
+        String text = scale >= 1 ? Math.round(scale) + ":1" : "1:" + Math.round(1 / scale);
+        int textWidth = font.getStringWidth(text);
+        int left = x + (size - textWidth) / 2 - 4, top = y + size - 16;
+        int background = (int) Math.round(fade * 0xC0) << 24 | 0x101418;
+        Gui.drawRect(left, top, left + textWidth + 8, top + 12, background);
+        int alpha = (int) Math.round(fade * 0xFF);
+        // Text below 4 alpha would be drawn opaque by the font renderer.
+        if (alpha >= 4) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            font.drawStringWithShadow(text, left + 4, top + 2, alpha << 24 | 0xFFFFFF);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Turns the offset (dx, dz) by the map's rotation in degrees, like glRotatef does on screen. */
@@ -258,6 +331,7 @@ public class MinimapRenderer {
                     () -> PowerfailLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, px, pz);
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
             MapDrawer.drawTeammates(
                 mc,
@@ -316,7 +390,9 @@ public class MinimapRenderer {
     /** N, E, S and W on the edge of the minimap, in white, turning with it. */
     private static void drawCompass(FontRenderer font, double cx, double cy, double half, boolean round,
         float rotation) {
-        double edge = half - 5;
+        double scale = Config.minimapCompassScale;
+        // Bigger letters sit further in from the edge.
+        double edge = half - 5 * scale;
         for (int i = 0; i < COMPASS_LETTERS.length; i++) {
             double[] direction = rotate(COMPASS_DIRECTIONS[i][0], COMPASS_DIRECTIONS[i][1], rotation);
             // On a square the letter slides along the border, on a circle along the rim.
@@ -325,9 +401,10 @@ public class MinimapRenderer {
             // Placed at sub-pixel positions: rounding to GUI pixels made the letters jump while turning.
             GL11.glPushMatrix();
             GL11.glTranslated(
-                cx + direction[0] * reach - font.getStringWidth(letter) / 2.0 + 1,
-                cy + direction[1] * reach - 3,
+                cx + direction[0] * reach - (font.getStringWidth(letter) / 2.0 - 1) * scale,
+                cy + direction[1] * reach - 3 * scale,
                 0);
+            GL11.glScaled(scale, scale, 1);
             font.drawStringWithShadow(letter, 0, 0, 0xFFFFFF);
             GL11.glPopMatrix();
         }
@@ -335,6 +412,36 @@ public class MinimapRenderer {
     }
 
     private static final int CIRCLE_SEGMENTS = 64;
+
+    /** A band {@code thickness} wide inside the rectangle's edges, in four pieces that don't overlap. */
+    private static void frameRect(int x0, int y0, int x1, int y1, int thickness, int color) {
+        Gui.drawRect(x0, y0, x1, y0 + thickness, color);
+        Gui.drawRect(x0, y1 - thickness, x1, y1, color);
+        Gui.drawRect(x0, y0 + thickness, x0 + thickness, y1 - thickness, color);
+        Gui.drawRect(x1 - thickness, y0 + thickness, x1, y1 - thickness, color);
+    }
+
+    /**
+     * A ring between two radii. Wound the same way as {@link #fillCircle}: the HUD culls back faces, and a ring wound
+     * the other way wasn't drawn at all.
+     */
+    private static void fillRing(double cx, double cy, double inner, double outer, int color) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawing(GL11.GL_TRIANGLE_STRIP);
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
+            double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
+            double cos = Math.cos(a), sin = Math.sin(a);
+            tessellator.addVertex(cx + cos * inner, cy + sin * inner, 0);
+            tessellator.addVertex(cx + cos * outer, cy + sin * outer, 0);
+        }
+        tessellator.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
 
     private static void fillCircle(double cx, double cy, double radius, int color) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -357,7 +464,9 @@ public class MinimapRenderer {
     private static void drawWaypoints(Minecraft mc, double px, double pz, double scale, int x, int y, int size,
         boolean round, float rotation) {
         double half = size / 2.0;
-        double limit = half - 5;
+        float markerSize = Config.minimapWaypointSize;
+        // Markers at the edge stay whole inside it, with their outline.
+        double limit = half - markerSize / 2 - 1;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
             double[] offset = rotate((waypoint.x + 0.5 - px) * scale, (waypoint.z + 0.5 - pz) * scale, rotation);
             double dx = offset[0], dz = offset[1];
@@ -366,7 +475,7 @@ public class MinimapRenderer {
                 dx *= limit / outside;
                 dz *= limit / outside;
             }
-            WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, 8f, false);
+            WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, markerSize, false);
         }
     }
 }

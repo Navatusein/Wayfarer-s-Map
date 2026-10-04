@@ -28,6 +28,8 @@ public class Waypoint {
      * are made of their parts in it, and without it they are invisible).
      */
     public String iconNbt;
+    /** Name of one of the {@link Symbols} shown instead of an item, or null: one or the other. */
+    public String symbol;
     /** Name of the group, or null when the waypoint is in no group. */
     public String group;
     public boolean enabled = true;
@@ -35,6 +37,8 @@ public class Waypoint {
     public boolean beam;
     /** Placed automatically where the player died; only the latest few are kept. */
     public boolean death;
+    /** When the player died there (milliseconds since 1970), 0 if unknown: shown as "5 min ago". */
+    public long diedAt;
 
     private transient ItemStack cachedIcon;
     private transient boolean iconResolved;
@@ -55,10 +59,12 @@ public class Waypoint {
         copy.iconItem = iconItem;
         copy.iconMeta = iconMeta;
         copy.iconNbt = iconNbt;
+        copy.symbol = symbol;
         copy.group = group;
         copy.enabled = enabled;
         copy.beam = beam;
         copy.death = death;
+        copy.diedAt = diedAt;
         return copy;
     }
 
@@ -72,10 +78,12 @@ public class Waypoint {
         iconItem = other.iconItem;
         iconMeta = other.iconMeta;
         iconNbt = other.iconNbt;
+        symbol = other.symbol;
         group = other.group;
         enabled = other.enabled;
         beam = other.beam;
         death = other.death;
+        diedAt = other.diedAt;
         iconResolved = false;
     }
 
@@ -97,6 +105,7 @@ public class Waypoint {
     }
 
     public void setIcon(ItemStack stack) {
+        symbol = null;
         if (stack == null || stack.getItem() == null) {
             iconItem = null;
             iconMeta = 0;
@@ -108,6 +117,17 @@ public class Waypoint {
             iconNbt = writeNbt(stack.getTagCompound());
         }
         iconResolved = false;
+    }
+
+    /** Shows one of the {@link Symbols} instead of an item (null for neither). */
+    public void setSymbol(String name) {
+        setIcon(null);
+        symbol = name;
+    }
+
+    /** The icon from {@link Symbols} it shows, or null for none (or one this version doesn't have). */
+    public String getSymbol() {
+        return symbol != null && Symbols.exists(symbol) ? symbol : null;
     }
 
     /** The tag compressed and in Base64, null for none or if it can't be written. */

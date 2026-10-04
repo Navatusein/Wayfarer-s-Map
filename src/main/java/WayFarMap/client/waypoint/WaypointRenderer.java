@@ -3,7 +3,9 @@ package WayFarMap.client.waypoint;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -14,6 +16,7 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -27,6 +30,7 @@ import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -41,6 +45,10 @@ public class WaypointRenderer {
     private static final RenderItem RENDER_ITEM = new RenderItem();
     /** Marker color of waypoints that have neither an icon nor an outline. */
     public static final int DEFAULT_COLOR = 0xFFFFFF;
+    /** Background of a death marker's label on the map: the label's dark, tinted red. */
+    private static final int DEATH_LABEL_BG = 0xC0401216;
+    /** The age line under a death marker's name: a light red. */
+    private static final int DEATH_AGE_COLOR = 0xFFE59A96;
     /** Up to this distance, in-world waypoints keep their full size on screen. */
     private static final double NEAR_DISTANCE = 12.0;
 
@@ -177,6 +185,31 @@ public class WaypointRenderer {
      *
      * @param label draw the name below the marker
      */
+    /** How much of a marker one of the {@link Symbols} takes, and its shadow's opacity. */
+    private static final float SYMBOL_SCALE = 0.85f;
+    private static final float SYMBOL_SHADOW = 0.6f;
+
+    /**
+     * One of the {@link Symbols}, white, with a soft dark shadow a little down and right of it so it shows on light
+     * ground too (as the game's text does), at the given opacity.
+     */
+    private static boolean drawSymbol(String symbol, double cx, double cy, double size, float alpha) {
+        double offset = Math.max(0.5, size / 16);
+        int shadow = Math.round(255 * SYMBOL_SHADOW * alpha) << 24;
+        if (!Symbols.draw(symbol, cx + offset, cy + offset, size, shadow)) {
+            return false;
+        }
+        return Symbols.draw(symbol, cx, cy, size, Math.round(255 * alpha) << 24 | 0xFFFFFF);
+    }
+
+    /** A one pixel frame just inside the rectangle, its middle left open. */
+    private static void frame(int x0, int y0, int x1, int y1, int color) {
+        Gui.drawRect(x0, y0, x1, y0 + 1, color);
+        Gui.drawRect(x0, y1 - 1, x1, y1, color);
+        Gui.drawRect(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        Gui.drawRect(x1 - 1, y0 + 1, x1, y1 - 1, color);
+    }
+
     /** Laid over the marker of a disabled waypoint on the world map. */
     private static final int DISABLED_VEIL = 0xB0181A1E;
 
@@ -192,14 +225,22 @@ public class WaypointRenderer {
         int x1 = x0 + half * 2;
         int y1 = y0 + half * 2;
         ItemStack icon = waypoint.getIcon();
+        String symbol = waypoint.getSymbol();
 
-        if (waypoint.outlineColor != null) {
+        if (waypoint.outlineColor != null && symbol != null) {
+            // Only the frame: the white icon on the map itself.
+            int color = 0xFF000000 | waypoint.outlineColor;
+            frame(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
+            frame(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
+        } else if (waypoint.outlineColor != null) {
             int color = 0xFF000000 | waypoint.outlineColor;
             Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
             Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
         }
-        if (icon != null) {
+        if (symbol != null) {
+            drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, 1f);
+        } else if (icon != null) {
             drawItem(icon, cx, cy, size);
         } else if (waypoint.outlineColor == null) {
             int inset = Math.max(1, half / 3);
@@ -240,14 +281,19 @@ public class WaypointRenderer {
      */
     public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, float textScale) {
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        String name = mapLabelName(waypoint);
-        String distance = labelDistance(waypoint);
-        if (name.isEmpty() && distance.isEmpty()) {
+        String[] lines = labelLines(waypoint);
+        if (lines[0].isEmpty() && lines[1].isEmpty()) {
             return null;
         }
-        int textWidth = font.getStringWidth(name) + font.getStringWidth(distance);
+        int textWidth = 0, count = 0;
+        for (String line : lines) {
+            if (!line.isEmpty()) {
+                textWidth = Math.max(textWidth, font.getStringWidth(line));
+                count++;
+            }
+        }
         int width = (int) Math.ceil((textWidth + 4) * textScale);
-        int height = (int) Math.ceil(10 * textScale);
+        int height = (int) Math.ceil((count * 9 + 1) * textScale);
         int x0 = (int) Math.round(sx) - width / 2;
         int y0 = (int) Math.round(sy) + Math.round(size / 2f) + 2;
         return new int[] { x0, y0, x0 + width, y0 + height };
@@ -257,45 +303,67 @@ public class WaypointRenderer {
         drawMapLabel(waypoint, rect, 1f);
     }
 
-    /** Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}. */
+    /**
+     * Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}: as in the
+     * world, the name with the distance on its own line under it (and a death marker's age under that), centered.
+     */
     public static void drawMapLabel(Waypoint waypoint, int[] rect, float textScale) {
-        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], Theme.LABEL_BG);
+        // A death marker's label is tinted red, so it is never taken for an ordinary waypoint.
+        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], waypoint.death ? DEATH_LABEL_BG : Theme.LABEL_BG);
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        String name = mapLabelName(waypoint);
+        String[] lines = labelLines(waypoint);
+        int[] colors = { Theme.TEXT, Theme.TEXT_MUTED, DEATH_AGE_COLOR };
         GL11.glPushMatrix();
-        GL11.glTranslatef(rect[0] + 2 * textScale, rect[1] + textScale, 0f);
+        GL11.glTranslatef((rect[0] + rect[2]) / 2f, rect[1] + textScale, 0f);
         GL11.glScalef(textScale, textScale, 1f);
-        font.drawString(name, 0, 0, waypoint.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
-        font.drawString(
-            labelDistance(waypoint),
-            font.getStringWidth(name),
-            0,
-            waypoint.enabled ? Theme.TEXT_MUTED : Theme.TEXT_DISABLED);
+        int y = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].isEmpty()) {
+                continue;
+            }
+            int color = waypoint.enabled ? colors[i] : Theme.TEXT_DISABLED;
+            font.drawString(lines[i], -font.getStringWidth(lines[i]) / 2, y, color);
+            y += 9;
+        }
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
-     * Name for the world map label: name and distance together always fit in {@link Config#waypointLabelMaxWidth},
-     * so the name is cut shorter to leave room for the distance. The full name of the hovered waypoint is shown in
-     * the map's bottom bar instead.
+     * The lines of a waypoint's map label, each "" when it has none: its name (cut to
+     * {@link Config#waypointLabelMaxWidth}; the hovered one's full name is in the map's bottom bar), the distance,
+     * and a death marker's age.
      */
-    private static String mapLabelName(Waypoint waypoint) {
-        if (waypoint.name.isEmpty()) {
+    private static String[] labelLines(Waypoint waypoint) {
+        String name = labelText(waypoint, false);
+        return new String[] { name, distanceSuffix(waypoint).trim(), ageLine(waypoint) };
+    }
+
+    /** A death marker's age for the line under its map label ("12 min ago"), or "" for none. */
+    private static String ageLine(Waypoint waypoint) {
+        return ageSuffix(waypoint).trim();
+    }
+
+    /** " 5 min ago" for a death marker that knows when the player died; "" otherwise. */
+    public static String ageSuffix(Waypoint waypoint) {
+        if (!waypoint.death || waypoint.diedAt <= 0) {
             return "";
         }
-        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int room = Config.waypointLabelMaxWidth - font.getStringWidth(distanceSuffix(waypoint));
-        return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));
+        long minutes = Math.max(0, (System.currentTimeMillis() - waypoint.diedAt) / 60_000);
+        String age;
+        if (minutes < 1) {
+            age = I18n.format("wayfarmap.death.just_now");
+        } else if (minutes < 60) {
+            age = I18n.format("wayfarmap.death.minutes_ago", minutes);
+        } else if (minutes < 60 * 24) {
+            age = I18n.format("wayfarmap.death.hours_ago", minutes / 60);
+        } else {
+            age = I18n.format("wayfarmap.death.days_ago", minutes / (60 * 24));
+        }
+        return "  " + age;
     }
 
-    /** The distance part of the map label: without a name it stands alone, so no gap before it. */
-    private static String labelDistance(Waypoint waypoint) {
-        String distance = distanceSuffix(waypoint);
-        return waypoint.name.isEmpty() ? distance.trim() : distance;
-    }
-
-    /** " 123m": distance from the player, shown after the name on the world map. */
+    /** " 123m": distance from the player, for the line under the name on the world map. */
     public static String distanceSuffix(Waypoint waypoint) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null || player.dimension != waypoint.dimension) {
@@ -319,14 +387,14 @@ public class WaypointRenderer {
      *
      * @return false if the item has no usable icon (e.g. it only has a custom 3D renderer)
      */
-    private static boolean drawFlatItem(ItemStack stack, float centerX, float centerY, float size) {
+    private static boolean drawFlatItem(ItemStack stack, float centerX, float centerY, float size, float alpha) {
         Item item = stack.getItem();
         if (item == null) {
             return false;
         }
         // The whole item as in the inventory (a block's icon alone is one face; own renderers have none). Its
         // picture isn't taken here, while the world is drawn, but next time the HUD is.
-        if (ItemSprites.draw(stack, centerX, centerY, size, false)) {
+        if (ItemSprites.draw(stack, centerX, centerY, size, false, alpha)) {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             return true;
         }
@@ -345,7 +413,11 @@ public class WaypointRenderer {
                     continue;
                 }
                 int color = item.getColorFromItemStack(stack, pass);
-                GL11.glColor4f(((color >> 16) & 0xFF) / 255f, ((color >> 8) & 0xFF) / 255f, (color & 0xFF) / 255f, 1f);
+                GL11.glColor4f(
+                    ((color >> 16) & 0xFF) / 255f,
+                    ((color >> 8) & 0xFF) / 255f,
+                    (color & 0xFF) / 255f,
+                    alpha);
                 tessellator.startDrawingQuads();
                 tessellator.addVertexWithUV(x0, y1, 0, icon.getMinU(), icon.getMaxV());
                 tessellator.addVertexWithUV(x1, y1, 0, icon.getMaxU(), icon.getMaxV());
@@ -380,8 +452,9 @@ public class WaypointRenderer {
             List<Waypoint> waypoints = WaypointManager.INSTANCE.getVisibleWaypoints(dimension);
             // Beams first: the markers are drawn over everything.
             for (Waypoint waypoint : waypoints) {
-                if (waypoint.beam) {
-                    renderBeam(mc, waypoint, event.partialTicks);
+                float alpha = nearFade(waypoint);
+                if (waypoint.beam && alpha > 0f) {
+                    renderBeam(mc, waypoint, event.partialTicks, alpha);
                 }
             }
             for (Waypoint waypoint : waypoints) {
@@ -403,7 +476,7 @@ public class WaypointRenderer {
      * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
      * beacon. Hidden behind terrain like a real one.
      */
-    private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks) {
+    private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks, float alpha) {
         double x = waypoint.x - RenderManager.renderPosX;
         // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
         double y = -RenderManager.renderPosY;
@@ -419,6 +492,7 @@ public class WaypointRenderer {
         double scroll = -time * 0.2 - Math.floor(-time * 0.1);
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        boolean lightmap = disableLightmap();
         mc.getTextureManager()
             .bindTexture(BEAM_TEXTURE);
         GL11.glTexParameterf(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
@@ -452,8 +526,9 @@ public class WaypointRenderer {
             cz[i] = z + 0.5 + Math.sin(a) * radius;
         }
         double vTop = height * (0.5 / radius) + scroll - 1, vBottom = scroll - 1;
+        int beamAlpha = Math.round(32 * alpha);
         tessellator.startDrawingQuads();
-        tessellator.setColorRGBA(r, g, b, 32);
+        tessellator.setColorRGBA(r, g, b, beamAlpha);
         for (int i = 0; i < 4; i++) {
             int j = (i + 1) % 4;
             tessellator.addVertexWithUV(cx[i], y + height, cz[i], 1, vTop);
@@ -469,7 +544,7 @@ public class WaypointRenderer {
         double[][] corners = { { lo, lo }, { hi, lo }, { hi, hi }, { lo, hi } };
         double vTop2 = height + scroll - 1;
         tessellator.startDrawingQuads();
-        tessellator.setColorRGBA(r, g, b, 32);
+        tessellator.setColorRGBA(r, g, b, beamAlpha);
         for (int i = 0; i < 4; i++) {
             double[] a = corners[i], c = corners[(i + 1) % 4];
             tessellator.addVertexWithUV(x + a[0], y + height, z + a[1], 1, vTop2);
@@ -484,19 +559,90 @@ public class WaypointRenderer {
         }
         GL11.glDepthMask(true);
         GL11.glPopAttrib();
+        restoreLightmap(lightmap);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Turns off the light map, the second texture the world is drawn with: left on, it tinted the markers' text and
+     * the beams with the light of whatever was drawn last, which from some angles was black.
+     *
+     * @return whether it was on, for {@link #restoreLightmap}
+     */
+    private static boolean disableLightmap() {
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        boolean on = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        return on;
+    }
+
+    private static void restoreLightmap(boolean on) {
+        if (on) {
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        }
     }
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
         final ItemStack icon = waypoint.getIcon();
+        final String symbol = waypoint.getSymbol();
+        final float alpha = nearFade(waypoint);
+        if (alpha <= 0f) {
+            return;
+        }
+        BillboardIcon picture;
+        if (symbol != null) {
+            picture = (cx, cy, size) -> drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, alpha);
+        } else {
+            picture = icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha);
+        }
         renderBillboard(
             mc,
             waypoint.x + 0.5,
             waypoint.y,
             waypoint.z + 0.5,
-            labelText(waypoint, false),
+            labelText(waypoint, false) + ageSuffix(waypoint),
             waypoint.outlineColor,
-            icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size));
+            picture,
+            alpha,
+            Config.waypointWorldLabels == Config.LABELS_HOVER
+                ? LABEL_SHOWN.computeIfAbsent(waypoint, w -> new Smooth(0))
+                : null,
+            symbol != null);
+    }
+
+    /** How much of each waypoint's name shows in the world, eased in and out, while it shows only when looked at. */
+    private static final Map<Waypoint, Smooth> LABEL_SHOWN = new WeakHashMap<>();
+    /** Angle (radians) around a marker's icon within which the crosshair is on it, at the least. */
+    private static final double LOOK_ANGLE_MIN = 0.012;
+
+    /**
+     * How much of the waypoint shows in the world: all of it from {@link Config#waypointFadeStart} blocks away,
+     * fading out smoothly closer, gone at {@link Config#waypointFadeEnd}; always all of it with the fading off.
+     */
+    private static float nearFade(Waypoint waypoint) {
+        if (!Config.waypointFadeNear) {
+            return 1f;
+        }
+        double dx = waypoint.x + 0.5 - RenderManager.renderPosX;
+        double dy = waypoint.y + 1.5 - RenderManager.renderPosY;
+        double dz = waypoint.z + 0.5 - RenderManager.renderPosZ;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double end = Math.max(0, Config.waypointFadeEnd);
+        double start = Math.max(end + 1, Config.waypointFadeStart);
+        if (distance >= start) {
+            return 1f;
+        }
+        if (distance <= end) {
+            return 0f;
+        }
+        double t = (distance - end) / (start - end);
+        // Eased at both ends: it starts fading softly and is gone softly.
+        float alpha = (float) (t * t * (3 - 2 * t));
+        // The font draws text with almost no alpha as opaque: below that the marker is simply gone.
+        return alpha < 0.03f ? 0f : alpha;
     }
 
     /** Draws a 16x16 icon centered on (cx, cy) in the billboard's plane; returns false to use the colored square. */
@@ -514,6 +660,24 @@ public class WaypointRenderer {
      */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, 1f);
+    }
+
+    /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
+    public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false);
+    }
+
+    /**
+     * Same; with {@code label} the name and the distance show only while the crosshair is on the icon, coming and
+     * going with it (eased by {@code label}), the icon alone otherwise.
+     *
+     * @param openFrame the colored frame around the icon is left open in the middle (no dark tile), for one of the
+     *                  {@link Symbols}
+     */
+    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;
@@ -529,6 +693,10 @@ public class WaypointRenderer {
         double factor = viewDistance / distance;
         double apparentSize = Math.max(Config.waypointMinScale, Math.min(1.0, NEAR_DISTANCE / distance));
         float scale = (float) (0.0045 * Config.waypointScale * Math.max(viewDistance, 5.0) * apparentSize);
+        float labelAlpha = alpha;
+        if (label != null) {
+            labelAlpha *= (float) label.update(lookedAt(dx * factor, dy * factor, dz * factor, scale) ? 1 : 0, 14);
+        }
 
         int blocks = (int) Math.round(
             Math.sqrt(Math.pow(x - player.posX, 2) + Math.pow(y - player.posY, 2) + Math.pow(z - player.posZ, 2)));
@@ -542,6 +710,9 @@ public class WaypointRenderer {
         GL11.glRotatef(-renderManager.playerViewY, 0f, 1f, 0f);
         GL11.glRotatef(renderManager.playerViewX, 1f, 0f, 0f);
         GL11.glScalef(-scale, -scale, scale);
+        boolean lightmap = disableLightmap();
+        // Fog darkened the text with the distance it is drawn at, not the waypoint's.
+        GL11.glDisable(GL11.GL_FOG);
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
@@ -555,30 +726,83 @@ public class WaypointRenderer {
         int top = 0;
         int bottom = name.isEmpty() ? 11 : 21;
 
-        if (outlineColor != null) {
-            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, 0xFF000000 | outlineColor);
+        // The font draws text with almost no alpha as opaque: below that the box is left out.
+        if (labelAlpha >= 0.03f) {
+            // The box plain: the waypoint's color frames the icon, as on the maps.
+            fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, labelAlpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            int textY = top + 2;
+            if (!name.isEmpty()) {
+                font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
+                textY += 10;
+            }
+            font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
         }
-        fillRect(-boxHalf, top, boxHalf, bottom, 0xA0000000);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        int textY = top + 2;
-        if (!name.isEmpty()) {
-            font.drawString(name, -nameWidth / 2, textY, 0xFFFFFFFF);
-            textY += 10;
-        }
-        font.drawString(distanceText, -distanceWidth / 2, textY, 0xFFC0C0C0);
 
         GL11.glEnable(GL11.GL_ALPHA_TEST);
-        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
-        if (icon == null || !icon.draw(0f, top - 11f, 16f)) {
-            int color = 0xFF000000 | (outlineColor != null ? outlineColor : DEFAULT_COLOR);
-            fillRect(-4, top - 12, 4, top - 4, 0xFF000000);
-            fillRect(-3, top - 11, 3, top - 5, color);
+        // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
+        if (outlineColor != null && !openFrame) {
+            // As on the maps: a dark line, the waypoint's color around the icon, and a dark tile under it.
+            fillRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
+            fillRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
+            fillRect(-8, top - 19, 8, top - 3, faded(0xE0202020, alpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        } else if (outlineColor != null) {
+            // Only the frame, open in the middle, around an icon that needs no tile.
+            frameRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
+            frameRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        }
+        boolean drawn = icon != null && icon.draw(0f, top - 11f, 16f);
+        if (!drawn && outlineColor != null) {
+            // No icon: the frame filled with the color, as on the maps.
+            fillRect(-8, top - 19, 8, top - 3, faded(0xFF000000 | outlineColor, alpha));
+        } else if (!drawn) {
+            fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
+            fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | DEFAULT_COLOR, alpha));
         }
 
         GL11.glPopAttrib();
+        restoreLightmap(lightmap);
         GL11.glDepthMask(true);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Whether the crosshair is on a marker's icon: the angle between where the camera looks and the icon (drawn at
+     * (x, y, z) from the camera, scaled by {@code scale}) is within the icon's half size seen from there.
+     */
+    private static boolean lookedAt(double x, double y, double z, float scale) {
+        RenderManager view = RenderManager.instance;
+        double yaw = Math.toRadians(view.playerViewY), pitch = Math.toRadians(view.playerViewX);
+        double lookX = -Math.sin(yaw) * Math.cos(pitch), lookY = -Math.sin(pitch);
+        double lookZ = Math.cos(yaw) * Math.cos(pitch);
+        // The icon sits 11 units over the anchor (the box's top), half of it 8 units wide; a little more is allowed.
+        double iconY = y + 11 * scale;
+        double length = Math.sqrt(x * x + iconY * iconY + z * z);
+        if (length < 1e-6) {
+            return true;
+        }
+        double cos = (x * lookX + iconY * lookY + z * lookZ) / length;
+        double angle = Math.acos(Math.max(-1, Math.min(1, cos)));
+        // The icon itself, and around it as far as set: it needn't be aimed at exactly.
+        double zone = Math.toRadians(Math.max(0, Config.waypointLookZone));
+        return angle <= Math.max(LOOK_ANGLE_MIN, Math.atan(10 * scale / length)) + zone;
+    }
+
+    /** The color with its alpha times {@code alpha}. */
+    private static int faded(int color, float alpha) {
+        return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
+    }
+
+    /** A one unit frame just inside the rectangle, its middle left open. */
+    private static void frameRect(int x0, int y0, int x1, int y1, int color) {
+        fillRect(x0, y0, x1, y0 + 1, color);
+        fillRect(x0, y1 - 1, x1, y1, color);
+        fillRect(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        fillRect(x1 - 1, y0 + 1, x1, y1 - 1, color);
     }
 
     private static void fillRect(int x0, int y0, int x1, int y1, int color) {

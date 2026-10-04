@@ -74,6 +74,16 @@ public final class IsoExport implements TilePyramid.Source {
                     .availableProcessors() - 2));
     }
 
+    /**
+     * Whether the 3D map has blocks saved (whether or not it records now): without them there is nothing to draw.
+     * Only looks for the files, so it is quick.
+     */
+    public boolean hasBlocks() {
+        Set<Long> regions = new HashSet<>();
+        addRegions(new File(dimension.directory, "blocks"), regions);
+        return !regions.isEmpty();
+    }
+
     /** Tiles over every chunk with blocks, from the bottom of the world to its highest block. */
     @Override
     public Set<Long> tiles() {

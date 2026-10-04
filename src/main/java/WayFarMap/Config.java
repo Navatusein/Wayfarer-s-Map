@@ -81,10 +81,15 @@ public class Config {
     public static boolean minimapRotate = false;
     /** N, E, S and W on the edge of the minimap. */
     public static boolean minimapCompass = true;
+    /** Size of the compass letters, of the text under the minimap (1 = the game's font), and its room from the map. */
+    public static double minimapCompassScale = 1.0, minimapTextScale = 1.0;
+    public static int minimapTextGap = 3;
     /** Frame around the minimap, and the color of its line (RGB). */
     public static boolean minimapFrame = true;
     public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
     public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
+    /** How opaque the minimap's frame is, in percent, and how thick its colored line is, in pixels. */
+    public static int minimapFrameOpacity = 100, minimapFrameWidth = 1;
     /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
     public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
         MARKER_CIRCLE = 4, MARKER_DOT = 5;
@@ -109,6 +114,28 @@ public class Config {
     public static boolean topoContours = true;
     public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
+    /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
+    public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
+    public static int unexploredPattern = UNEXPLORED_NONE;
+    /** A soft shadow on the explored land along its edge, with a faint glow on the unexplored side. */
+    public static boolean edgeShadow = false;
+    /** A fading line on the maps along the way the player came, this many blocks long. */
+    public static boolean playerTrail = false;
+    public static int playerTrailLength = 400;
+    /** How the trail is colored: one color, a rainbow, by speed, by height, or like fire. */
+    public static final int TRAIL_SINGLE = 0, TRAIL_RAINBOW = 1, TRAIL_SPEED = 2, TRAIL_HEIGHT = 3, TRAIL_FIRE = 4;
+    public static int playerTrailColorMode = TRAIL_SINGLE;
+    public static final int TRAIL_COLOR = 0x4C9AFF;
+    public static int playerTrailColor = TRAIL_COLOR;
+    /** The trail as a line, a dashed line or dots. */
+    public static final int TRAIL_LINE = 0, TRAIL_DASHED = 1, TRAIL_DOTS = 2;
+    public static int playerTrailStyle = TRAIL_LINE;
+    /** Thickness of the trail, 1 to 4. */
+    public static int playerTrailWidth = 2;
+    /** The trail fades out toward its old end. */
+    public static boolean playerTrailFade = true;
+    /** Dashes and dots run toward the player and the rainbow shimmers along the trail. */
+    public static boolean playerTrailAnimated = true;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
@@ -118,6 +145,8 @@ public class Config {
     public static int gridChunkOpacity = 20, gridRegionOpacity = 45;
     /** The world map always opens at the player instead of where it was closed. */
     public static boolean mapFollowPlayer = false;
+    /** Centering the world map on the player or a teammate glides there instead of jumping. */
+    public static boolean mapSmoothCamera = true;
     /** World map drawn in 3D, as an isometric view like Dynmap's, instead of from above. */
     public static boolean isometric = false;
     /** On the 3D map the player is drawn as its 3D model instead of the arrow. */
@@ -179,10 +208,14 @@ public class Config {
     public static boolean showPets = true;
     /** Width of the colored frame around mob icons, in GUI pixels. */
     public static int mobFrameWidth = 1;
+    /** How opaque the frame around mob icons is, in percent, and the icons' size, in percent of the usual. */
+    public static int mobFrameOpacity = 100, mobIconScale = 100;
     /** A small arrow at the mob's icon pointing where it looks. */
     public static boolean mobFacing = true;
     /** Names of pets (given with a name tag) under their icon. */
     public static boolean petNames = true;
+    /** Names given with a name tag under the icons of hostile, neutral and friendly mobs. */
+    public static boolean hostileNames = true, neutralNames = true, friendlyNames = true;
 
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
@@ -190,9 +223,22 @@ public class Config {
 
     public static boolean waypointsInWorld = true;
     public static boolean waypointsOnMinimap = true;
+    /** Size of waypoint markers on the minimap, in GUI pixels. */
+    public static int minimapWaypointSize = 8;
+    /** When waypoint names show: always, or only for the one under the mouse (in the world: looked at). */
+    public static final int LABELS_ALWAYS = 0, LABELS_HOVER = 1;
+    /** Waypoint names on the world map (2D and 3D): always, or only the one under the mouse. */
+    public static int waypointMapLabels = LABELS_ALWAYS;
+    /** Waypoint names in the world: always, or only for the one the crosshair is on (the icon alone before). */
+    public static int waypointWorldLabels = LABELS_ALWAYS;
+    /** How far off a waypoint's icon the crosshair may be for its name to show, in degrees. */
+    public static int waypointLookZone = 4;
     public static int waypointMaxDistance = 0;
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
+    /** In-world waypoints fade out when the player comes near: in full from fadeStart blocks, gone at fadeEnd. */
+    public static boolean waypointFadeNear = true;
+    public static int waypointFadeStart = 12, waypointFadeEnd = 3;
     public static int waypointLabelMaxWidth = 100;
     public static boolean deathWaypoints = true;
     public static int deathWaypointsKeep = 3;
@@ -246,6 +292,18 @@ public class Config {
             true,
             () -> minimapCompass,
             v -> minimapCompass = v);
+        parent("compass");
+        decimal(
+            c,
+            "compassScale",
+            "Size of the N, E, S and W letters: 1.0 = the game's font.",
+            1.0,
+            0.5,
+            3.0,
+            0.1,
+            () -> minimapCompassScale,
+            v -> minimapCompassScale = v);
+        parent("enabled");
         bool(c, "frame", "Draw a frame around the minimap.", true, () -> minimapFrame, v -> minimapFrame = v);
         parent("frame");
         color(
@@ -255,6 +313,26 @@ public class Config {
             MINIMAP_FRAME_COLOR,
             () -> minimapFrameColor,
             v -> minimapFrameColor = v);
+        integer(
+            c,
+            "frameOpacity",
+            "How opaque the minimap frame is, in percent: lower lets the world show through it.",
+            100,
+            0,
+            100,
+            5,
+            () -> minimapFrameOpacity,
+            v -> minimapFrameOpacity = v);
+        integer(
+            c,
+            "frameWidth",
+            "Thickness of the minimap frame's colored line, in pixels.",
+            1,
+            1,
+            3,
+            1,
+            () -> minimapFrameWidth,
+            v -> minimapFrameWidth = v);
         group("info");
         parent("enabled");
         bool(
@@ -271,6 +349,26 @@ public class Config {
             true,
             () -> minimapShowBiome,
             v -> minimapShowBiome = v);
+        decimal(
+            c,
+            "textScale",
+            "Size of the coordinates and the biome under the minimap: 1.0 = the game's font.",
+            1.0,
+            0.5,
+            2.0,
+            0.25,
+            () -> minimapTextScale,
+            v -> minimapTextScale = v);
+        integer(
+            c,
+            "textGap",
+            "Room between the minimap and the text under it, in pixels.",
+            3,
+            0,
+            16,
+            1,
+            () -> minimapTextGap,
+            v -> minimapTextGap = v);
 
         c = CATEGORY_MAP;
         tab(TAB_MAP);
@@ -389,6 +487,87 @@ public class Config {
             () -> gridRegionOpacity,
             v -> gridRegionOpacity = v);
         parent(null);
+        choice(
+            c,
+            "unexploredPattern",
+            "Unexplored land on the 2D map and the minimap: 0 = plain, 1 = diagonal lines, 2 = dots.",
+            UNEXPLORED_NONE,
+            new String[] { "none", "lines", "dots" },
+            () -> unexploredPattern,
+            v -> unexploredPattern = v);
+        bool(
+            c,
+            "edgeShadow",
+            "A soft shadow along the edge of the explored land on the 2D map and the minimap.",
+            false,
+            () -> edgeShadow,
+            v -> edgeShadow = v);
+        bool(
+            c,
+            "playerTrail",
+            "A fading line on the 2D map and the minimap along the way the player came.",
+            false,
+            () -> playerTrail,
+            v -> playerTrail = v);
+        parent("playerTrail");
+        integer(
+            c,
+            "playerTrailLength",
+            "Length of the player's trail, in blocks.",
+            400,
+            100,
+            2000,
+            100,
+            () -> playerTrailLength,
+            v -> playerTrailLength = v);
+        choice(
+            c,
+            "playerTrailColorMode",
+            "Colors of the trail: 0 = one color, 1 = rainbow, 2 = by speed, 3 = by height, 4 = fire.",
+            TRAIL_SINGLE,
+            new String[] { "single", "rainbow", "speed", "height", "fire" },
+            () -> playerTrailColorMode,
+            v -> playerTrailColorMode = v);
+        color(
+            c,
+            "playerTrailColor",
+            "Color of the trail when it has one color, as #RRGGBB.",
+            TRAIL_COLOR,
+            () -> playerTrailColor,
+            v -> playerTrailColor = v);
+        choice(
+            c,
+            "playerTrailStyle",
+            "Look of the trail: 0 = line, 1 = dashed line, 2 = dots.",
+            TRAIL_LINE,
+            new String[] { "line", "dashed", "dots" },
+            () -> playerTrailStyle,
+            v -> playerTrailStyle = v);
+        integer(
+            c,
+            "playerTrailWidth",
+            "Thickness of the trail, 1 to 4.",
+            2,
+            1,
+            4,
+            1,
+            () -> playerTrailWidth,
+            v -> playerTrailWidth = v);
+        bool(
+            c,
+            "playerTrailFade",
+            "The trail fades out toward its old end.",
+            true,
+            () -> playerTrailFade,
+            v -> playerTrailFade = v);
+        bool(
+            c,
+            "playerTrailAnimated",
+            "Dashes and dots run toward the player, and the rainbow shimmers along the trail.",
+            true,
+            () -> playerTrailAnimated,
+            v -> playerTrailAnimated = v);
+        parent(null);
         bool(
             c,
             "followPlayer",
@@ -396,6 +575,13 @@ public class Config {
             false,
             () -> mapFollowPlayer,
             v -> mapFollowPlayer = v);
+        bool(
+            c,
+            "smoothCamera",
+            "Centering the map on the player or a teammate glides there instead of jumping.",
+            true,
+            () -> mapSmoothCamera,
+            v -> mapSmoothCamera = v);
         bool(
             c,
             "useTextureColors",
@@ -684,13 +870,33 @@ public class Config {
         integer(
             c,
             "frameWidth",
-            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels.",
+            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels; 0 = none.",
             1,
-            1,
+            0,
             3,
             1,
             () -> mobFrameWidth,
             v -> mobFrameWidth = v);
+        integer(
+            c,
+            "frameOpacity",
+            "How opaque the colored frame around mob icons is, in percent.",
+            100,
+            10,
+            100,
+            5,
+            () -> mobFrameOpacity,
+            v -> mobFrameOpacity = v);
+        integer(
+            c,
+            "iconScale",
+            "Size of mob icons, in percent of the usual size.",
+            100,
+            50,
+            250,
+            10,
+            () -> mobIconScale,
+            v -> mobIconScale = v);
         bool(
             c,
             "facing",
@@ -698,6 +904,30 @@ public class Config {
             true,
             () -> mobFacing,
             v -> mobFacing = v);
+        // Names given with a name tag, each kind of mob on its own.
+        group("names");
+        parent(null);
+        bool(
+            c,
+            "hostileNames",
+            "Names of hostile mobs (given with a name tag) under their icon.",
+            true,
+            () -> hostileNames,
+            v -> hostileNames = v);
+        bool(
+            c,
+            "neutralNames",
+            "Names of neutral mobs (given with a name tag) under their icon.",
+            true,
+            () -> neutralNames,
+            v -> neutralNames = v);
+        bool(
+            c,
+            "friendlyNames",
+            "Names of friendly mobs (given with a name tag) under their icon.",
+            true,
+            () -> friendlyNames,
+            v -> friendlyNames = v);
         bool(
             c,
             "petNames",
@@ -724,6 +954,18 @@ public class Config {
             true,
             () -> waypointsOnMinimap,
             v -> waypointsOnMinimap = v);
+        parent("showOnMinimap");
+        integer(
+            c,
+            "minimapSize",
+            "Size of waypoint markers on the minimap, in pixels.",
+            8,
+            4,
+            12,
+            2,
+            () -> minimapWaypointSize,
+            v -> minimapWaypointSize = v);
+        parent(null);
         integer(
             c,
             "maxDistance",
@@ -766,6 +1008,62 @@ public class Config {
             10,
             () -> waypointLabelMaxWidth,
             v -> waypointLabelMaxWidth = v);
+        choice(
+            c,
+            "mapLabels",
+            "Waypoint names on the world map (2D and 3D): always, or only for the waypoint under the mouse.",
+            0,
+            new String[] { "always", "hover" },
+            () -> waypointMapLabels,
+            v -> waypointMapLabels = v);
+        choice(
+            c,
+            "worldLabels",
+            "Waypoint names in the world: always, or only for the waypoint the crosshair is on (its icon alone "
+                + "before).",
+            0,
+            new String[] { "always", "look" },
+            () -> waypointWorldLabels,
+            v -> waypointWorldLabels = v);
+        integer(
+            c,
+            "lookZone",
+            "With names shown when looked at: how far off the waypoint's icon the crosshair may be, in degrees.",
+            4,
+            0,
+            20,
+            1,
+            () -> waypointLookZone,
+            v -> waypointLookZone = v);
+        bool(
+            c,
+            "fadeNear",
+            "In-world waypoints (marker and beam) fade out smoothly as you come near them.",
+            true,
+            () -> waypointFadeNear,
+            v -> waypointFadeNear = v);
+        parent("fadeNear");
+        integer(
+            c,
+            "fadeStart",
+            "In-world waypoints start fading this many blocks away.",
+            12,
+            2,
+            64,
+            1,
+            () -> waypointFadeStart,
+            v -> waypointFadeStart = v);
+        integer(
+            c,
+            "fadeEnd",
+            "In-world waypoints are gone this many blocks away (closer than where they start fading).",
+            3,
+            0,
+            32,
+            1,
+            () -> waypointFadeEnd,
+            v -> waypointFadeEnd = v);
+        parent(null);
         group("death");
         parent(null);
         bool(c, "deathPoints", "Place a waypoint where you die.", true, () -> deathWaypoints, v -> deathWaypoints = v);
@@ -1078,6 +1376,9 @@ public class Config {
         abstract void save(Configuration configuration);
 
         public abstract void reset();
+
+        /** Whether it is still set to its default value. */
+        public abstract boolean isDefault();
     }
 
     public static class BoolOption extends Option {
@@ -1116,6 +1417,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultValue);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return get() == defaultValue;
         }
     }
 
@@ -1158,6 +1464,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultValue);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return get() == defaultValue;
         }
     }
 
@@ -1217,6 +1528,12 @@ public class Config {
         public void reset() {
             set(defaultValue);
         }
+
+        @Override
+        public boolean isDefault() {
+            // Values are snapped to the step, the default may not be.
+            return Math.abs(get() - defaultValue) < step / 2;
+        }
     }
 
     /** An RGB color, saved as {@code #RRGGBB}. */
@@ -1268,6 +1585,11 @@ public class Config {
         public void reset() {
             set(defaultValue);
         }
+
+        @Override
+        public boolean isDefault() {
+            return get() == (defaultValue & 0xFFFFFF);
+        }
     }
 
     /**
@@ -1309,6 +1631,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultX, defaultY);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return Math.abs(minimapX - defaultX) < 1e-4 && Math.abs(minimapY - defaultY) < 1e-4;
         }
     }
 

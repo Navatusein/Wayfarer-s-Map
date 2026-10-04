@@ -760,7 +760,7 @@ public class MapManager implements IResourceManagerReloadListener {
                 logSaveAll("AUTOSAVE", maps, queued, System.nanoTime() - start);
             }
             IsoMap.INSTANCE.save();
-            if (!(mc.currentScreen instanceof GuiWorldMap)) {
+            if (!GuiWorldMap.isVisible(mc)) {
                 trimAroundPlayer(mc.thePlayer);
             }
         }

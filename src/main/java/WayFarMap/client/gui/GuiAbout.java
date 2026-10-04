@@ -17,6 +17,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 
 /** About the mod: its name and version, who made and tested it, and links to the author's pages. */
@@ -25,8 +26,11 @@ public class GuiAbout extends ScaledScreen {
     private static final int WIDTH = 260, HEIGHT = 220;
     private static final int ID_CLOSE = 0, ID_GITHUB = 1, ID_BOOSTY = 2, ID_TELEGRAM = 3;
 
-    private static final String AUTHOR = "EvgenWarGold";
-    private static final String TESTER = "Faotik";
+    /** Who made and who tested the mod, and the author's pages; the welcome window shows them too. */
+    static final String AUTHOR = "EvgenWarGold";
+    static final String TESTER = "Faotik";
+    static final String GITHUB_URL = "https://github.com/evgengoldwar", BOOSTY_URL = "https://boosty.to/evgenwargold",
+        TELEGRAM_URL = "https://t.me/Shaterplay4";
 
     private final GuiScreen parent;
     private int left, top;
@@ -39,8 +43,8 @@ public class GuiAbout extends ScaledScreen {
     private static final class LinkButton extends FlatButton {
 
         final String url;
-        final String[] icon;
         final int brand;
+        private final Smooth hover = new Smooth(0);
 
         LinkButton(int id, int x, int y, int width, String text, String url, String[] icon, int brand) {
             super(id, x, y, width, 20, text);
@@ -55,13 +59,11 @@ public class GuiAbout extends ScaledScreen {
                 return;
             }
             boolean hovered = isMouseOver(mouseX, mouseY);
-            Theme.fill(
-                xPosition,
-                yPosition,
-                xPosition + width,
-                yPosition + height,
-                hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
-            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, hovered ? brand : Theme.BORDER);
+            double lit = hover.update(hovered ? 1 : 0, 22);
+            int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+            Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
+            int border = Theme.blend(Theme.BORDER, brand, lit);
+            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, border);
             // The site's color as a strip along the bottom.
             Theme.fill(xPosition + 1, yPosition + height - 2, xPosition + width - 1, yPosition + height - 1, brand);
             int iconWidth = Icons.width(icon);
@@ -86,15 +88,7 @@ public class GuiAbout extends ScaledScreen {
         int linkWidth = (WIDTH - 20 - 2 * gap) / 3;
         int linkY = top + 166;
         buttonList.add(
-            new LinkButton(
-                ID_GITHUB,
-                left + 10,
-                linkY,
-                linkWidth,
-                "GitHub",
-                "https://github.com/evgengoldwar",
-                Icons.GITHUB,
-                0xFFE6EAF0));
+            new LinkButton(ID_GITHUB, left + 10, linkY, linkWidth, "GitHub", GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0));
         buttonList.add(
             new LinkButton(
                 ID_BOOSTY,
@@ -102,7 +96,7 @@ public class GuiAbout extends ScaledScreen {
                 linkY,
                 linkWidth,
                 "Boosty",
-                "https://boosty.to/evgenwargold",
+                BOOSTY_URL,
                 Icons.BOOSTY,
                 0xFFF15F2C));
         buttonList.add(
@@ -112,7 +106,7 @@ public class GuiAbout extends ScaledScreen {
                 linkY,
                 linkWidth,
                 "Telegram",
-                "https://t.me/Shaterplay4",
+                TELEGRAM_URL,
                 Icons.TELEGRAM,
                 0xFF2AABEE));
         buttonList
@@ -129,7 +123,7 @@ public class GuiAbout extends ScaledScreen {
     }
 
     /** Opens the page in the system browser. */
-    private static void openLink(String url) {
+    static void openLink(String url) {
         try {
             Class<?> desktopClass = Class.forName("java.awt.Desktop");
             Object desktop = desktopClass.getMethod("getDesktop")
