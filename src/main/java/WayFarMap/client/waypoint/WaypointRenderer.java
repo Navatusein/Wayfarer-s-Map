@@ -361,14 +361,14 @@ public class WaypointRenderer {
      *
      * @return false if the item has no usable icon (e.g. it only has a custom 3D renderer)
      */
-    private static boolean drawFlatItem(ItemStack stack, float centerX, float centerY, float size) {
+    private static boolean drawFlatItem(ItemStack stack, float centerX, float centerY, float size, float alpha) {
         Item item = stack.getItem();
         if (item == null) {
             return false;
         }
         // The whole item as in the inventory (a block's icon alone is one face; own renderers have none). Its
         // picture isn't taken here, while the world is drawn, but next time the HUD is.
-        if (ItemSprites.draw(stack, centerX, centerY, size, false)) {
+        if (ItemSprites.draw(stack, centerX, centerY, size, false, alpha)) {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             return true;
         }
@@ -387,7 +387,11 @@ public class WaypointRenderer {
                     continue;
                 }
                 int color = item.getColorFromItemStack(stack, pass);
-                GL11.glColor4f(((color >> 16) & 0xFF) / 255f, ((color >> 8) & 0xFF) / 255f, (color & 0xFF) / 255f, 1f);
+                GL11.glColor4f(
+                    ((color >> 16) & 0xFF) / 255f,
+                    ((color >> 8) & 0xFF) / 255f,
+                    (color & 0xFF) / 255f,
+                    alpha);
                 tessellator.startDrawingQuads();
                 tessellator.addVertexWithUV(x0, y1, 0, icon.getMinU(), icon.getMaxV());
                 tessellator.addVertexWithUV(x1, y1, 0, icon.getMaxU(), icon.getMaxV());
@@ -422,8 +426,9 @@ public class WaypointRenderer {
             List<Waypoint> waypoints = WaypointManager.INSTANCE.getVisibleWaypoints(dimension);
             // Beams first: the markers are drawn over everything.
             for (Waypoint waypoint : waypoints) {
-                if (waypoint.beam) {
-                    renderBeam(mc, waypoint, event.partialTicks);
+                float alpha = nearFade(waypoint);
+                if (waypoint.beam && alpha > 0f) {
+                    renderBeam(mc, waypoint, event.partialTicks, alpha);
                 }
             }
             for (Waypoint waypoint : waypoints) {
@@ -445,7 +450,7 @@ public class WaypointRenderer {
      * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
      * beacon. Hidden behind terrain like a real one.
      */
-    private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks) {
+    private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks, float alpha) {
         double x = waypoint.x - RenderManager.renderPosX;
         // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
         double y = -RenderManager.renderPosY;
@@ -494,8 +499,9 @@ public class WaypointRenderer {
             cz[i] = z + 0.5 + Math.sin(a) * radius;
         }
         double vTop = height * (0.5 / radius) + scroll - 1, vBottom = scroll - 1;
+        int beamAlpha = Math.round(32 * alpha);
         tessellator.startDrawingQuads();
-        tessellator.setColorRGBA(r, g, b, 32);
+        tessellator.setColorRGBA(r, g, b, beamAlpha);
         for (int i = 0; i < 4; i++) {
             int j = (i + 1) % 4;
             tessellator.addVertexWithUV(cx[i], y + height, cz[i], 1, vTop);
@@ -511,7 +517,7 @@ public class WaypointRenderer {
         double[][] corners = { { lo, lo }, { hi, lo }, { hi, hi }, { lo, hi } };
         double vTop2 = height + scroll - 1;
         tessellator.startDrawingQuads();
-        tessellator.setColorRGBA(r, g, b, 32);
+        tessellator.setColorRGBA(r, g, b, beamAlpha);
         for (int i = 0; i < 4; i++) {
             double[] a = corners[i], c = corners[(i + 1) % 4];
             tessellator.addVertexWithUV(x + a[0], y + height, z + a[1], 1, vTop2);
@@ -531,6 +537,10 @@ public class WaypointRenderer {
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
         final ItemStack icon = waypoint.getIcon();
+        final float alpha = nearFade(waypoint);
+        if (alpha <= 0f) {
+            return;
+        }
         renderBillboard(
             mc,
             waypoint.x + 0.5,
@@ -538,7 +548,35 @@ public class WaypointRenderer {
             waypoint.z + 0.5,
             labelText(waypoint, false) + ageSuffix(waypoint),
             waypoint.outlineColor,
-            icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size));
+            icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha),
+            alpha);
+    }
+
+    /**
+     * How much of the waypoint shows in the world: all of it from {@link Config#waypointFadeStart} blocks away,
+     * fading out smoothly closer, gone at {@link Config#waypointFadeEnd}; always all of it with the fading off.
+     */
+    private static float nearFade(Waypoint waypoint) {
+        if (!Config.waypointFadeNear) {
+            return 1f;
+        }
+        double dx = waypoint.x + 0.5 - RenderManager.renderPosX;
+        double dy = waypoint.y + 1.5 - RenderManager.renderPosY;
+        double dz = waypoint.z + 0.5 - RenderManager.renderPosZ;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double end = Math.max(0, Config.waypointFadeEnd);
+        double start = Math.max(end + 1, Config.waypointFadeStart);
+        if (distance >= start) {
+            return 1f;
+        }
+        if (distance <= end) {
+            return 0f;
+        }
+        double t = (distance - end) / (start - end);
+        // Eased at both ends: it starts fading softly and is gone softly.
+        float alpha = (float) (t * t * (3 - 2 * t));
+        // The font draws text with almost no alpha as opaque: below that the marker is simply gone.
+        return alpha < 0.03f ? 0f : alpha;
     }
 
     /** Draws a 16x16 icon centered on (cx, cy) in the billboard's plane; returns false to use the colored square. */
@@ -556,6 +594,12 @@ public class WaypointRenderer {
      */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, 1f);
+    }
+
+    /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
+    public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;
@@ -598,29 +642,35 @@ public class WaypointRenderer {
         int bottom = name.isEmpty() ? 11 : 21;
 
         if (outlineColor != null) {
-            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, 0xFF000000 | outlineColor);
+            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, faded(0xFF000000 | outlineColor, alpha));
         }
-        fillRect(-boxHalf, top, boxHalf, bottom, 0xA0000000);
+        fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         int textY = top + 2;
         if (!name.isEmpty()) {
-            font.drawString(name, -nameWidth / 2, textY, 0xFFFFFFFF);
+            font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, alpha));
             textY += 10;
         }
-        font.drawString(distanceText, -distanceWidth / 2, textY, 0xFFC0C0C0);
+        font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, alpha));
 
         GL11.glEnable(GL11.GL_ALPHA_TEST);
-        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f);
+        // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
+        GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
         if (icon == null || !icon.draw(0f, top - 11f, 16f)) {
             int color = 0xFF000000 | (outlineColor != null ? outlineColor : DEFAULT_COLOR);
-            fillRect(-4, top - 12, 4, top - 4, 0xFF000000);
-            fillRect(-3, top - 11, 3, top - 5, color);
+            fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
+            fillRect(-3, top - 11, 3, top - 5, faded(color, alpha));
         }
 
         GL11.glPopAttrib();
         GL11.glDepthMask(true);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** The color with its alpha times {@code alpha}. */
+    private static int faded(int color, float alpha) {
+        return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
     }
 
     private static void fillRect(int x0, int y0, int x1, int y1, int color) {

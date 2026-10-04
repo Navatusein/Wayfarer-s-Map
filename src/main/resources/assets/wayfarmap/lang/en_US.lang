@@ -221,6 +221,12 @@ wayfarmap.option.waypoints.maxDistance=View distance
 wayfarmap.option.waypoints.maxDistance.desc=Farther waypoints are not shown in the world. 0 = no limit.
 wayfarmap.option.waypoints.labelMaxWidth=Name width
 wayfarmap.option.waypoints.labelMaxWidth.desc=Longer names are cut with '...'. Hover a waypoint on the map to see its full name.
+wayfarmap.option.waypoints.fadeNear=Fade when near
+wayfarmap.option.waypoints.fadeNear.desc=In-world waypoints (marker and beam) fade out smoothly as you come near them.
+wayfarmap.option.waypoints.fadeStart=Start fading at, blocks
+wayfarmap.option.waypoints.fadeStart.desc=In-world waypoints start fading this many blocks away.
+wayfarmap.option.waypoints.fadeEnd=Gone at, blocks
+wayfarmap.option.waypoints.fadeEnd.desc=In-world waypoints are gone this many blocks away (closer than where they start fading).
 wayfarmap.option.waypoints.deathPoints=Death marker
 wayfarmap.option.waypoints.deathPoints.desc=Place a waypoint where you die.
 wayfarmap.option.waypoints.deathPointsKeep=Keep

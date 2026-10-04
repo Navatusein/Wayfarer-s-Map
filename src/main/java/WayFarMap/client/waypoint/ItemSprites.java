@@ -86,6 +86,11 @@ final class ItemSprites {
      * @return false if there is no picture of it (then it is drawn another way)
      */
     static boolean draw(ItemStack stack, double cx, double cy, double size, boolean mayTake) {
+        return draw(stack, cx, cy, size, mayTake, 1f);
+    }
+
+    /** Same, at the given opacity. */
+    static boolean draw(ItemStack stack, double cx, double cy, double size, boolean mayTake, float alpha) {
         DynamicTexture picture = picture(stack, mayTake);
         if (picture == null) {
             return false;
@@ -93,7 +98,7 @@ final class ItemSprites {
         double x0 = cx - size / 2, y0 = cy - size / 2, x1 = x0 + size, y1 = y0 + size;
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, picture.getGlTextureId());
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glColor4f(1f, 1f, 1f, alpha);
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glTexCoord2d(0, 1);
         GL11.glVertex3d(x0, y1, 0);
