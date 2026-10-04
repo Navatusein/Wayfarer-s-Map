@@ -27,7 +27,12 @@ public class IconButton extends FlatButton {
         }
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
         drawBackground(hovered);
-        int color = !enabled || dim && !hovered ? Theme.TEXT_MUTED : Theme.TEXT;
+        int color;
+        if (iconColor != 0 && enabled) {
+            color = Theme.iconShade(iconColor, hovered, active, dim);
+        } else {
+            color = !enabled || dim && !hovered ? Theme.TEXT_MUTED : Theme.TEXT;
+        }
         Icons.draw(icon, xPosition + (width - Icons.width(icon)) / 2, yPosition + (height - icon.length) / 2, color);
         if (badge != 0) {
             int bx = xPosition + width - 5, by = yPosition + height - 5;

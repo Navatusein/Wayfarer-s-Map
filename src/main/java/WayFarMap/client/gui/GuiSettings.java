@@ -171,6 +171,7 @@ public class GuiSettings extends ScaledScreen {
                 18,
                 I18n.format("wayfarmap.settings." + category));
             tab.icon = tabIcon(category);
+            tab.iconColor = tabColor(category);
             buttonList.add(tab);
         }
         buttonList.add(
@@ -215,7 +216,7 @@ public class GuiSettings extends ScaledScreen {
             case Config.CATEGORY_MINIMAP:
                 return Icons.MINIMAP;
             case Config.TAB_MAP_2D:
-                return Icons.GRID;
+                return Icons.MAP2D;
             case Config.TAB_MAP_3D:
                 return Icons.ISO;
             case Config.CATEGORY_PLAYER_MARKER:
@@ -232,6 +233,32 @@ public class GuiSettings extends ScaledScreen {
                 return Icons.LOGS;
             default:
                 return Icons.FLAT;
+        }
+    }
+
+    /** Each tab's color, on its icon in the sidebar. */
+    private static int tabColor(String category) {
+        switch (category) {
+            case Config.CATEGORY_MINIMAP:
+                return 0xFF4C9AFF;
+            case Config.TAB_MAP_2D:
+                return 0xFF5BD6E0;
+            case Config.TAB_MAP_3D:
+                return 0xFFE8A040;
+            case Config.CATEGORY_PLAYER_MARKER:
+                return 0xFFE6EAF0;
+            case Config.CATEGORY_ENTITIES:
+                return 0xFFF2C14E;
+            case Config.TAB_MOBS:
+                return 0xFF8BD450;
+            case Config.CATEGORY_WAYPOINTS:
+                return 0xFFE5534B;
+            case Config.CATEGORY_COMMANDS:
+                return 0xFFC08CFF;
+            case Config.CATEGORY_LOGS:
+                return 0xFFAAB4C3;
+            default:
+                return 0xFF6CC24A;
         }
     }
 

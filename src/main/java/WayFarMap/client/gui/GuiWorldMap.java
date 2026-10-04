@@ -247,17 +247,28 @@ public class GuiWorldMap extends ScaledScreen {
         // Header: icons with tooltips. Left: settings, waypoints, add-on layers; right (before the zoom text):
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
-        x = addIconButton(new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, I18n.format("wayfarmap.gui.settings")), x);
+        String settingsName = I18n.format("wayfarmap.gui.settings");
+        IconButton settingsButton = new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, settingsName);
+        settingsButton.iconColor = COLOR_SETTINGS;
+        x = addIconButton(settingsButton, x);
         // The others can be hidden in the settings; the settings button and the dimension title always stay.
         if (Config.isMapButtonShown("waypoints")) {
-            x = addIconButton(
-                new IconButton(ID_WAYPOINTS, x, 4, Icons.WAYPOINTS, I18n.format("wayfarmap.gui.waypoints")),
-                x);
+            IconButton waypointsButton = new IconButton(
+                ID_WAYPOINTS,
+                x,
+                4,
+                Icons.WAYPOINTS,
+                I18n.format("wayfarmap.gui.waypoints"));
+            waypointsButton.iconColor = COLOR_WAYPOINTS;
+            x = addIconButton(waypointsButton, x);
         }
         if (Config.isMapButtonShown("stats")) {
-            x = addIconButton(new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data")), x);
+            IconButton statsButton = new IconButton(ID_STATS, x, 4, Icons.STATS, I18n.format("wayfarmap.gui.data"));
+            statsButton.iconColor = COLOR_STATS;
+            x = addIconButton(statsButton, x);
         }
         exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, I18n.format("wayfarmap.gui.export"));
+        exportButton.iconColor = COLOR_EXPORT;
         if (Config.isMapButtonShown("export")) {
             x = addIconButton(exportButton, x);
         }
@@ -266,6 +277,7 @@ public class GuiWorldMap extends ScaledScreen {
             || Mods.isPowerfailsAvailable()
             || Mods.isThaumcraftNodesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, I18n.format("wayfarmap.gui.addons"));
+            addonsButton.iconColor = COLOR_ADDONS;
             addIconButton(addonsButton, x);
         }
 
@@ -276,6 +288,11 @@ public class GuiWorldMap extends ScaledScreen {
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
         teamButton = new IconButton(ID_TEAM, 0, 4, Icons.TEAM, I18n.format("wayfarmap.gui.team"));
+        caveButton.iconColor = COLOR_CAVES;
+        gridButton.iconColor = COLOR_GRID;
+        followButton.iconColor = COLOR_FOLLOW;
+        mobsButton.iconColor = COLOR_MOBS;
+        teamButton.iconColor = COLOR_TEAM;
         teamButton.visible = teamShown();
         followButton.visible = Config.isMapButtonShown("follow");
         lightButton.visible = Config.isMapButtonShown("light");
@@ -301,6 +318,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.ABOUT,
             I18n.format("wayfarmap.gui.about_button"));
         aboutButton.setHeight(13);
+        aboutButton.iconColor = COLOR_HELP;
         aboutButton.visible = Config.isMapButtonShown("about");
         buttonList.add(aboutButton);
         // Next to it: the help screen with every feature explained.
@@ -311,6 +329,7 @@ public class GuiWorldMap extends ScaledScreen {
             Icons.HELP,
             I18n.format("wayfarmap.gui.help_button"));
         helpButton.setHeight(13);
+        helpButton.iconColor = COLOR_HELP;
         helpButton.visible = Config.isMapButtonShown("help");
         buttonList.add(helpButton);
 
@@ -709,6 +728,7 @@ public class GuiWorldMap extends ScaledScreen {
             : Config.LIGHT_AUTO;
         lightButton.icon = light == Config.LIGHT_DAY ? Icons.DAY
             : light == Config.LIGHT_NIGHT ? Icons.NIGHT : Icons.DAY_NIGHT;
+        lightButton.iconColor = light == Config.LIGHT_NIGHT ? COLOR_MOON : COLOR_SUN;
         lightButton.active = light != Config.LIGHT_AUTO;
         lightButton.badge = light == Config.LIGHT_AUTO ? Theme.ACCENT : 0;
         lightButton.tooltip = I18n.format("wayfarmap.option.map.lightMode") + ": "
@@ -720,6 +740,7 @@ public class GuiWorldMap extends ScaledScreen {
         caveButton.tooltip = caveButtonText();
         int mode = currentMode();
         modesButton.icon = MODE_ICONS[mode];
+        modesButton.iconColor = MODE_COLORS[mode];
         modesButton.active = mode != MODE_FLAT;
         modesButton.tooltip = I18n.format("wayfarmap.gui.modes") + ": "
             + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
@@ -842,6 +863,13 @@ public class GuiWorldMap extends ScaledScreen {
     private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
     private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
         Icons.CHUNKLOAD };
+    /** Each mode's color, on its icon in the modes menu and on the modes button. */
+    private static final int[] MODE_COLORS = { 0xFF6CC24A, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
+    /** Colors of the header's icons. */
+    private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
+        COLOR_EXPORT = 0xFFF2C14E, COLOR_ADDONS = 0xFF5BD6E0, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
+        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F,
+        COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
     /**
      * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
      * loaded.
@@ -879,6 +907,7 @@ public class GuiWorldMap extends ScaledScreen {
             String label = I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
             entries.add(
                 new MenuEntry(label, true, () -> setMode(value)).icon(MODE_ICONS[mode])
+                    .iconColor(MODE_COLORS[mode])
                     .selected(mode == current));
         }
         menu = entries;
@@ -1972,6 +2001,16 @@ public class GuiWorldMap extends ScaledScreen {
         }
     }
 
+    /** Whether the menu is a list of choices (one of its entries is the current one), like the modes. */
+    private static boolean isChoiceMenu(List<MenuEntry> entries) {
+        for (MenuEntry entry : entries) {
+            if (entry.selected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Width of the column the menu's icons are centered in: its widest icon, so the labels line up. */
     private static int iconColumn(List<MenuEntry> entries) {
         int widest = 7;
@@ -1991,9 +2030,9 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (entry.danger) {
             color = Theme.DANGER;
         } else if (entry.iconColor != 0) {
-            // Its own color, darker while its toggle is off (but still its color, so it can be told apart).
-            boolean on = entry.checked == null || entry.checked || hovered;
-            color = on ? entry.iconColor : Theme.blend(entry.iconColor, Theme.PANEL | 0xFF000000, 0.55);
+            // Its own color: darker while its toggle is off, or in a list of choices while it isn't the one chosen.
+            boolean on = entry.checked != null ? entry.checked : !isChoiceMenu(menu) || entry.selected;
+            color = Theme.iconShade(entry.iconColor, hovered, false, !on);
         } else if (entry.selected || hovered) {
             color = Theme.ACCENT;
         } else {

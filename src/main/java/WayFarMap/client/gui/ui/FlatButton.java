@@ -12,6 +12,8 @@ public class FlatButton extends GuiButton {
     public boolean danger;
     /** Drawn left of the text, which then starts after it instead of being centered; null for none. */
     public String[] icon;
+    /** The icon's own color (ARGB), 0 to draw it in the text colors. */
+    public int iconColor;
     /** How lit the button is by the mouse, fading in and out. */
     private final Smooth hover = new Smooth(0);
 
@@ -45,8 +47,15 @@ public class FlatButton extends GuiButton {
 
         int color = !enabled ? Theme.TEXT_DISABLED : danger ? Theme.DANGER : Theme.TEXT;
         if (icon != null) {
-            int iconColor = !enabled ? Theme.TEXT_DISABLED : hovered || active ? Theme.TEXT : Theme.TEXT_MUTED;
-            Icons.draw(icon, xPosition + 6, yPosition + (height - icon.length) / 2, iconColor);
+            int shade;
+            if (!enabled) {
+                shade = Theme.TEXT_DISABLED;
+            } else if (iconColor != 0) {
+                shade = Theme.iconShade(iconColor, hovered, active, false);
+            } else {
+                shade = hovered || active ? Theme.TEXT : Theme.TEXT_MUTED;
+            }
+            Icons.draw(icon, xPosition + 6, yPosition + (height - icon.length) / 2, shade);
             int textX = xPosition + 6 + Icons.width(icon) + 5;
             // Room left on the right for a mark the screen may put there.
             String text = Theme.ellipsize(mc.fontRenderer, displayString, xPosition + width - 10 - textX);

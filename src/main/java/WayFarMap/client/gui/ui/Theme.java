@@ -94,6 +94,20 @@ public final class Theme {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
+    /**
+     * The color of an icon that has a color of its own: full when lit (hovered, on or chosen), brighter on an accent
+     * background, a darker shade of it when dimmed (off, not chosen), so it can still be told apart.
+     */
+    public static int iconShade(int color, boolean lit, boolean onAccent, boolean dimmed) {
+        if (onAccent) {
+            return blend(color, 0xFFFFFFFF, 0.35);
+        }
+        if (dimmed && !lit) {
+            return blend(color, PANEL | 0xFF000000, 0.55);
+        }
+        return color;
+    }
+
     /** A filled circle, one rectangle per row of pixels. */
     public static void disc(double centerX, double centerY, double radius, int color) {
         int top = (int) Math.floor(centerY - radius), bottom = (int) Math.ceil(centerY + radius);
