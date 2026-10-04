@@ -19,7 +19,6 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
-import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
@@ -136,28 +135,24 @@ public class MinimapRenderer {
         double centerX = x + half, centerY = y + half;
 
         GL11.glPushMatrix();
-        // The frame: a line of its color, a dark one between it and the map; both as see-through as it is set,
-        // drawn as rings that don't overlap, so it is even all around.
+        // The frame: a line of its color right around the map, as see-through and thick as it is set.
         float opacity = Config.minimapFrameOpacity / 100f;
         int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
-        int frameGap = Math.round((Theme.PANEL >>> 24) * opacity) << 24 | Theme.PANEL & 0xFFFFFF;
         int frameWidth = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillRing(centerX, centerY, half + 1, half + 1 + frameWidth, frameColor);
-                fillRing(centerX, centerY, half, half + 1, frameGap);
+                fillRing(centerX, centerY, half, half + frameWidth, frameColor);
             }
             fillCircle(centerX, centerY, half, 0xFF0C0E11);
         } else {
             if (Config.minimapFrame) {
                 frameRect(
-                    x - 1 - frameWidth,
-                    y - 1 - frameWidth,
-                    x + size + 1 + frameWidth,
-                    y + size + 1 + frameWidth,
+                    x - frameWidth,
+                    y - frameWidth,
+                    x + size + frameWidth,
+                    y + size + frameWidth,
                     frameWidth,
                     frameColor);
-                frameRect(x - 1, y - 1, x + size + 1, y + size + 1, 1, frameGap);
             }
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
         }

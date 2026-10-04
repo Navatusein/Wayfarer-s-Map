@@ -1179,19 +1179,16 @@ public class GuiSettings extends ScaledScreen {
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;
         double half = size / 2.0;
         double centerX = x + half, centerY = y + half;
-        // The frame as the minimap draws it: its line and a dark one inside, as see-through and thick as set.
+        // The frame as the minimap draws it: its line right around the map, as see-through and thick as set.
         float opacity = Config.minimapFrameOpacity / 100f;
         int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
-        int frameGap = Math.round((Theme.PANEL >>> 24) * opacity) << 24 | Theme.PANEL & 0xFFFFFF;
         int line = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillRing(centerX, centerY, half + 1, half + 1 + line, frameColor);
-                fillRing(centerX, centerY, half, half + 1, frameGap);
+                fillRing(centerX, centerY, half, half + line, frameColor);
             }
         } else if (Config.minimapFrame) {
-            frameBand(x - 1 - line, y - 1 - line, x + size + 1 + line, y + size + 1 + line, line, frameColor);
-            frameBand(x - 1, y - 1, x + size + 1, y + size + 1, 1, frameGap);
+            frameBand(x - line, y - line, x + size + line, y + size + line, line, frameColor);
         }
 
         // The player turns round slowly, so the minimap's turning shows.

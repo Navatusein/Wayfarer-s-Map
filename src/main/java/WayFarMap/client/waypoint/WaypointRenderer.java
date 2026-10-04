@@ -199,8 +199,8 @@ public class WaypointRenderer {
         ItemStack icon = waypoint.getIcon();
 
         if (waypoint.outlineColor != null) {
-            // Only the waypoint's own color around it: a black line outside it looked like a second frame.
             int color = 0xFF000000 | waypoint.outlineColor;
+            Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
             Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
         }
@@ -217,8 +217,7 @@ public class WaypointRenderer {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT);
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDisable(GL11.GL_LIGHTING);
-            int edge = waypoint.outlineColor != null ? 1 : 0;
-            Gui.drawRect(x0 - edge, y0 - edge, x1 + edge, y1 + edge, DISABLED_VEIL);
+            Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, DISABLED_VEIL);
             GL11.glPopAttrib();
         }
 
