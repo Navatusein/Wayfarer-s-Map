@@ -117,6 +117,20 @@ public class Config {
     /** A fading line on the maps along the way the player came, this many blocks long. */
     public static boolean playerTrail = false;
     public static int playerTrailLength = 400;
+    /** How the trail is colored: one color, a rainbow, by speed, by height, or like fire. */
+    public static final int TRAIL_SINGLE = 0, TRAIL_RAINBOW = 1, TRAIL_SPEED = 2, TRAIL_HEIGHT = 3, TRAIL_FIRE = 4;
+    public static int playerTrailColorMode = TRAIL_SINGLE;
+    public static final int TRAIL_COLOR = 0x4C9AFF;
+    public static int playerTrailColor = TRAIL_COLOR;
+    /** The trail as a line, a dashed line or dots. */
+    public static final int TRAIL_LINE = 0, TRAIL_DASHED = 1, TRAIL_DOTS = 2;
+    public static int playerTrailStyle = TRAIL_LINE;
+    /** Thickness of the trail, 1 to 4. */
+    public static int playerTrailWidth = 2;
+    /** The trail fades out toward its old end. */
+    public static boolean playerTrailFade = true;
+    /** Dashes and dots run toward the player and the rainbow shimmers along the trail. */
+    public static boolean playerTrailAnimated = true;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
@@ -430,6 +444,53 @@ public class Config {
             100,
             () -> playerTrailLength,
             v -> playerTrailLength = v);
+        choice(
+            c,
+            "playerTrailColorMode",
+            "Colors of the trail: 0 = one color, 1 = rainbow, 2 = by speed, 3 = by height, 4 = fire.",
+            TRAIL_SINGLE,
+            new String[] { "single", "rainbow", "speed", "height", "fire" },
+            () -> playerTrailColorMode,
+            v -> playerTrailColorMode = v);
+        color(
+            c,
+            "playerTrailColor",
+            "Color of the trail when it has one color, as #RRGGBB.",
+            TRAIL_COLOR,
+            () -> playerTrailColor,
+            v -> playerTrailColor = v);
+        choice(
+            c,
+            "playerTrailStyle",
+            "Look of the trail: 0 = line, 1 = dashed line, 2 = dots.",
+            TRAIL_LINE,
+            new String[] { "line", "dashed", "dots" },
+            () -> playerTrailStyle,
+            v -> playerTrailStyle = v);
+        integer(
+            c,
+            "playerTrailWidth",
+            "Thickness of the trail, 1 to 4.",
+            2,
+            1,
+            4,
+            1,
+            () -> playerTrailWidth,
+            v -> playerTrailWidth = v);
+        bool(
+            c,
+            "playerTrailFade",
+            "The trail fades out toward its old end.",
+            true,
+            () -> playerTrailFade,
+            v -> playerTrailFade = v);
+        bool(
+            c,
+            "playerTrailAnimated",
+            "Dashes and dots run toward the player, and the rainbow shimmers along the trail.",
+            true,
+            () -> playerTrailAnimated,
+            v -> playerTrailAnimated = v);
         parent(null);
         bool(
             c,
