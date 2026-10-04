@@ -282,8 +282,8 @@ public class Config {
             "Size of the N, E, S and W letters: 1.0 = the game's font.",
             1.0,
             0.5,
-            2.0,
-            0.25,
+            3.0,
+            0.1,
             () -> minimapCompassScale,
             v -> minimapCompassScale = v);
         parent("enabled");
