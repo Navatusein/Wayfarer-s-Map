@@ -861,7 +861,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int MODE_FLAT = 0, MODE_ISO = 1, MODE_BARE = 2, MODE_TOPO = 3, MODE_BIOMES = 4,
         MODE_CHUNKLOAD = 5;
     private static final String[] MODE_KEYS = { "flat", "iso", "bare", "topo", "biomes", "chunkload" };
-    private static final String[][] MODE_ICONS = { Icons.FLAT, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
+    private static final String[][] MODE_ICONS = { Icons.MAP2D, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
         Icons.CHUNKLOAD };
     /** Each mode's color, on its icon in the modes menu and on the modes button. */
     private static final int[] MODE_COLORS = { 0xFF6CC24A, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
