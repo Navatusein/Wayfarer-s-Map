@@ -11,6 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
@@ -234,11 +238,25 @@ final class FaceRenderer {
     }
 
     /** The key of a block for {@link #BY_BLOCK}: its look, open sides, width and whether it can reach out. */
-    private static long blockKey(int lookKey, int exposed, boolean wide, boolean detached) {
+    private static long blockKey(int lookKey, int exposed, boolean wide, boolean detached, int tint) {
         long h = 0x51AFD7ED558CCD1DL
-            ^ ((long) lookKey << 8 | (long) exposed << 2 | (wide ? 2 : 0) | (detached ? 1 : 0));
+            ^ ((long) tint << 40 | (long) lookKey << 8 | (long) exposed << 2 | (wide ? 2 : 0) | (detached ? 1 : 0));
         h = (h ^ h >>> 33) * 0xFF51AFD7ED558CCDL;
         return h ^ h >>> 33;
+    }
+
+    /**
+     * The color the game tints the block with here (grass and leaves by the biome), 16 steps per channel: the pictures
+     * are taken with it, so a plant of one biome doesn't look like the same plant of another. One biome gives one
+     * key; where biomes blend, a few.
+     */
+    private static int tint(World world, Block block, int x, int y, int z) {
+        try {
+            int c = block.colorMultiplier(world, x, y, z);
+            return (c >> 20 & 0xF) << 8 | (c >> 12 & 0xF) << 4 | (c >> 4 & 0xF);
+        } catch (RuntimeException e) {
+            return 0xFFF;
+        }
     }
 
     /**
@@ -290,11 +308,9 @@ final class FaceRenderer {
         return true;
     }
 
-    /** Remembers a just drawn sprite's coverage (0-1) and average red, green and blue (every other pixel). */
-    private static void rememberLook(int id, int[] pixels, int side) {
-        if (id <= 0 || LOOKS_OF_SPRITES.containsKey(id)) {
-            return;
-        }
+    /** A picture's coverage (0-1) and average red, green and blue (every other pixel); any thread. */
+    private static float[] look(int[] pixels) {
+        int side = FacePalette.sideOf(pixels.length);
         long alpha = 0, r = 0, g = 0, b = 0;
         int count = 0;
         for (int y = 0; y < side; y += 2) {
@@ -307,18 +323,13 @@ final class FaceRenderer {
                 count++;
             }
         }
-        if (LOOKS_OF_SPRITES.size() > 200_000) {
-            LOOKS_OF_SPRITES.clear();
-        }
-        LOOKS_OF_SPRITES.put(
-            id,
-            alpha == 0 ? new float[] { 0, 0, 0, 0 }
-                : new float[] { alpha / (255f * count), r / (float) alpha, g / (float) alpha, b / (float) alpha });
+        return alpha == 0 ? new float[] { 0, 0, 0, 0 }
+            : new float[] { alpha / (255f * count), r / (float) alpha, g / (float) alpha, b / (float) alpha };
     }
 
     /** The kind of a block for {@link #BY_KIND}: its look, open sides, width and the six blocks next to it. */
-    private static long kindKey(World world, int lookKey, int exposed, boolean wide, int x, int y, int z) {
-        long h = 0x84222325CBF29CE4L ^ ((long) lookKey << 8 | (long) exposed << 1 | (wide ? 1 : 0));
+    private static long kindKey(World world, int lookKey, int exposed, boolean wide, int tint, int x, int y, int z) {
+        long h = 0x84222325CBF29CE4L ^ ((long) tint << 40 | (long) lookKey << 8 | (long) exposed << 1 | (wide ? 1 : 0));
         for (int[] offset : OFFSETS) {
             h = (h ^ blockAt(world, x + offset[0], y + offset[1], z + offset[2])) * 0x9E3779B97F4A7C15L;
             h ^= h >>> 29;
@@ -1020,9 +1031,10 @@ final class FaceRenderer {
                     continue;
                 }
                 if (learnable(pending)) {
-                    pending.kindKey = kindKey(world, key, exposed, pending.wide, x, y, z);
+                    int tint = tint(world, block, x, y, z);
+                    pending.kindKey = kindKey(world, key, exposed, pending.wide, tint, x, y, z);
                     pending.detached = detached(world, block, x, y, z);
-                    pending.blockKey = blockKey(key, exposed, pending.wide, pending.detached);
+                    pending.blockKey = blockKey(key, exposed, pending.wide, pending.detached, tint);
                     Learned learned = BY_KIND.get(pending.kindKey);
                     int[] ids = learned == null ? null : learned.reuse(LEARN_CONFIRMATIONS, 0);
                     if (learned == null || learned.unreliable || learned.confirmed < LEARN_CONFIRMATIONS) {
@@ -1362,13 +1374,12 @@ final class FaceRenderer {
             long storeStart = System.nanoTime();
             readNanos += storeStart - readStart;
             slot = 0;
-            int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
-            int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
-            int[] wideImage = cell > SLOT ? new int[WIDE_SPRITE_SIZE * WIDE_SPRITE_SIZE] : null;
+            int slots = slotsUsed(batch);
+            int[][] images = new int[slots][];
             for (Pending pending : batch) {
                 int pixels = pending.pixels();
-                int[] image = pending.cube ? faceImage : pending.wide ? wideImage : spriteImage;
                 for (int view = 0; view < pending.views(); view++, slot++) {
+                    int[] image = images[slot] = slotImage(slot, pixels * pixels);
                     int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                     float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
@@ -1395,17 +1406,14 @@ final class FaceRenderer {
                     if (pending.shot != null) {
                         BlockDiag.measure(image, pending.shot, view);
                     }
-                    if (variant != 0) {
-                        // Only to compare, in the log: not a picture of the palette.
-                        continue;
-                    }
-                    pending.ids[view] = palette.idOf(image);
-                    if (pending.detached) {
-                        rememberLook(pending.ids[view], image, pixels);
-                    }
                     unshadeNanos += u1 - u0;
-                    idNanos += System.nanoTime() - u1;
                 }
+            }
+            if (variant == 0) {
+                // (Another variant's pictures are only compared in the log: they get no ids.)
+                long idStart = System.nanoTime();
+                identify(batch, images, palette);
+                idNanos += System.nanoTime() - idStart;
             }
             storeNanos += System.nanoTime() - storeStart;
             if (diagnose && variant == 0 && !inspecting) {
@@ -1455,6 +1463,87 @@ final class FaceRenderer {
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+    }
+
+    /** Pictures of each slot of the buffer, kept from batch to batch (one array per slot and size). */
+    private static int[][] slotImages = new int[SLOTS][];
+
+    private static int[] slotImage(int slot, int length) {
+        int[] image = slotImages[slot];
+        if (image == null || image.length != length) {
+            image = slotImages[slot] = new int[length];
+        }
+        return image;
+    }
+
+    /**
+     * Threads working out the pictures' fingerprints, all of a batch at once: one after the other they took more
+     * than any other part of taking pictures (64 pictures of 128x128 pixels a batch, most of them new).
+     */
+    private static final ExecutorService HASHERS = Executors.newFixedThreadPool(
+        Math.max(
+            1,
+            Math.min(
+                6,
+                Runtime.getRuntime()
+                    .availableProcessors() / 4)),
+        task -> {
+            Thread thread = new Thread(task, "WayFarMap 3D picture hashes");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY - 1);
+            return thread;
+        });
+    /** Fewer pictures than this are worked out on the render thread: handing them over would cost more. */
+    private static final int PARALLEL_FROM = 8;
+
+    /** Gives each picture of the batch its id in the palette (and a block that can't reach out, its looks). */
+    private static void identify(List<Pending> batch, int[][] images, FacePalette palette) throws Exception {
+        int slots = images.length;
+        long[][] hashes = new long[slots][];
+        float[][] looks = new float[slots][];
+        boolean[] wantLooks = new boolean[slots];
+        int slot = 0;
+        for (Pending pending : batch) {
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                wantLooks[slot] = pending.detached;
+            }
+        }
+        if (slots < PARALLEL_FROM) {
+            for (int n = 0; n < slots; n++) {
+                hashes[n] = FacePalette.hashes(images[n]);
+                looks[n] = wantLooks[n] ? look(images[n]) : null;
+            }
+        } else {
+            int parts = Math.min(slots, 4 * Math.max(1, Math.min(6, Runtime.getRuntime().availableProcessors() / 4)));
+            List<Callable<Void>> tasks = new ArrayList<>(parts);
+            for (int part = 0; part < parts; part++) {
+                int from = slots * part / parts, to = slots * (part + 1) / parts;
+                tasks.add(() -> {
+                    for (int n = from; n < to; n++) {
+                        hashes[n] = FacePalette.hashes(images[n]);
+                        looks[n] = wantLooks[n] ? look(images[n]) : null;
+                    }
+                    return null;
+                });
+            }
+            for (Future<Void> done : HASHERS.invokeAll(tasks)) {
+                // Throws what a task threw.
+                done.get();
+            }
+        }
+        slot = 0;
+        for (Pending pending : batch) {
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                int id = palette.idOf(images[slot], hashes[slot]);
+                pending.ids[view] = id;
+                if (looks[slot] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
+                    if (LOOKS_OF_SPRITES.size() > 200_000) {
+                        LOOKS_OF_SPRITES.clear();
+                    }
+                    LOOKS_OF_SPRITES.put(id, looks[slot]);
+                }
+            }
         }
     }
 

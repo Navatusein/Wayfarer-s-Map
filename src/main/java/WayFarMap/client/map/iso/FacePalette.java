@@ -245,7 +245,15 @@ final class FacePalette {
     static final int EMPTY = -1;
 
     /** Id of the sprite, added if new; {@link #EMPTY} if nothing was drawn. */
-    synchronized int idOf(int[] image) {
+    int idOf(int[] image) {
+        return idOf(image, hashes(image));
+    }
+
+    /**
+     * What {@link #idOf} needs to know of a picture, worked out on any thread (several pictures at once): {whether
+     * anything is on it (0 or 1), its quick fingerprint, the file's hash}.
+     */
+    static long[] hashes(int[] image) {
         // One pass: whether anything is on it, and a quick fingerprint (four hashes side by side, several times
         // faster than one over the whole picture) for the pictures already met in this game.
         int alpha = 0;
@@ -264,16 +272,24 @@ final class FacePalette {
             h0 = (h0 ^ image[i]) * 0x100000001B3L;
         }
         if ((alpha >>> 24) == 0) {
+            return new long[] { 0, 0, 0 };
+        }
+        return new long[] { 1, mix(mix(mix(mix(n, h0), h1), h2), h3), hash(image) };
+    }
+
+    /** Id of the sprite with the {@link #hashes} given, added if new; {@link #EMPTY} if nothing was drawn. */
+    synchronized int idOf(int[] image, long[] hashes) {
+        if (hashes[0] == 0) {
             spritesEmpty++;
             return EMPTY;
         }
-        long quick = mix(mix(mix(mix(n, h0), h1), h2), h3);
+        long quick = hashes[1];
         Integer met = quickIds.get(quick);
         if (met != null) {
             spritesKnown++;
             return met;
         }
-        int id = idOfSlow(image);
+        int id = idOfSlow(image, hashes[2]);
         if (id > 0) {
             quickIds.put(quick, id);
         }
@@ -297,8 +313,7 @@ final class FacePalette {
     }
 
     /** {@link #idOf} for a picture with something on it, not met before in this game: by the file's hash. */
-    private int idOfSlow(int[] image) {
-        long hash = hash(image);
+    private int idOfSlow(int[] image, long hash) {
         Integer id = byHash.get(hash);
         if (id != null) {
             Entry known = entries.get(id - 1);
