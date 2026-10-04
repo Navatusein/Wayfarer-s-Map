@@ -17,6 +17,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 
 /** About the mod: its name and version, who made and tested it, and links to the author's pages. */
@@ -39,8 +40,8 @@ public class GuiAbout extends ScaledScreen {
     private static final class LinkButton extends FlatButton {
 
         final String url;
-        final String[] icon;
         final int brand;
+        private final Smooth hover = new Smooth(0);
 
         LinkButton(int id, int x, int y, int width, String text, String url, String[] icon, int brand) {
             super(id, x, y, width, 20, text);
@@ -55,13 +56,11 @@ public class GuiAbout extends ScaledScreen {
                 return;
             }
             boolean hovered = isMouseOver(mouseX, mouseY);
-            Theme.fill(
-                xPosition,
-                yPosition,
-                xPosition + width,
-                yPosition + height,
-                hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
-            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, hovered ? brand : Theme.BORDER);
+            double lit = hover.update(hovered ? 1 : 0, 22);
+            int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+            Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
+            int border = Theme.blend(Theme.BORDER, brand, lit);
+            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, border);
             // The site's color as a strip along the bottom.
             Theme.fill(xPosition + 1, yPosition + height - 2, xPosition + width - 1, yPosition + height - 1, brand);
             int iconWidth = Icons.width(icon);

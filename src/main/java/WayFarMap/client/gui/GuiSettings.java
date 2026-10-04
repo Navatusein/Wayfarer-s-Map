@@ -58,8 +58,6 @@ public class GuiSettings extends ScaledScreen {
     /** A circular arrow: back to the default value. */
     private static final String[] RESET_ICON = { "..###.#", ".#...##", "#...###", "#......", "#.....#", ".#...#.",
         "..###.." };
-    private static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
-    private static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
     private static final String[] COMPASS_LETTERS = { "N", "E", "S", "W" };
 
     /** Last opened category, kept while the game runs. */
@@ -88,6 +86,9 @@ public class GuiSettings extends ScaledScreen {
     private List<Row> rows;
     /** The option under the mouse, changed with the arrow keys. */
     private Config.Option hoveredOption;
+    /** The slider whose value is being typed in, and the field it is typed in; null when none. */
+    private Config.Option editedOption;
+    private FlatTextField valueField;
 
     /** Per option: how much its row is lit by the mouse, and where its switch's knob is (0 off to 1 on). */
     private final Map<Config.Option, float[]> animations = new IdentityHashMap<>();
@@ -456,6 +457,9 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     public void onGuiClosed() {
+        if (editedOption != null) {
+            stopEditing(true);
+        }
         Keyboard.enableRepeatEvents(false);
         Config.save();
         if (Config.useTextureColors != textureColorsBefore) {
@@ -467,10 +471,23 @@ public class GuiSettings extends ScaledScreen {
     @Override
     public void updateScreen() {
         searchField.updateCursorCounter();
+        if (editedOption != null) {
+            valueField.updateCursorCounter();
+        }
     }
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (editedOption != null) {
+            if (keyCode == Keyboard.KEY_ESCAPE) {
+                stopEditing(false);
+            } else if (keyCode == Keyboard.KEY_RETURN || keyCode == Keyboard.KEY_NUMPADENTER) {
+                stopEditing(true);
+            } else {
+                valueField.textboxKeyTyped(typedChar, keyCode);
+            }
+            return;
+        }
         if (keyCode == Keyboard.KEY_ESCAPE) {
             if (confirmingReset) {
                 confirmingReset = false;
@@ -559,7 +576,7 @@ public class GuiSettings extends ScaledScreen {
     public void handleMouseInput() {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
-        if (wheel != 0) {
+        if (wheel != 0 && editedOption == null) {
             scroll -= Integer.signum(wheel) * ROW_HEIGHT * 2;
             clampScroll();
         }
@@ -567,6 +584,14 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (editedOption != null) {
+            if (valueField.isMouseOver(mouseX, mouseY)) {
+                valueField.mouseClicked(mouseX, mouseY, button);
+                return;
+            }
+            // A click anywhere else keeps what was typed.
+            stopEditing(true);
+        }
         super.mouseClicked(mouseX, mouseY, button);
         searchField.mouseClicked(mouseX, mouseY, button);
         int listTop = listTop();
@@ -615,6 +640,11 @@ public class GuiSettings extends ScaledScreen {
                 // The whole row flips a switch, not only the switch itself.
                 step(option, true);
             } else if (!onControl) {
+                int valueLeft = controlX() - controlLeftWidth(option);
+                boolean onValue = mouseX >= valueLeft && mouseX < controlX() - 4 && mouseY >= y + 3;
+                if (onValue && mouseY < y + ROW_HEIGHT - 3 && button == 0 && isTypable(option)) {
+                    startEditing(option, y + 3);
+                }
                 return;
             } else if (option instanceof Config.ChoiceOption) {
                 // Left half goes back, right half forward; right click also goes back.
@@ -646,6 +676,57 @@ public class GuiSettings extends ScaledScreen {
         } else if (draggingSlider instanceof Config.DoubleOption) {
             Config.DoubleOption option = (Config.DoubleOption) draggingSlider;
             option.set(option.min + t * (option.max - option.min));
+        }
+    }
+
+    /** Sliders whose value can be typed in: not the 3D quality, which is shown as a size, not its setting. */
+    private static boolean isTypable(Config.Option option) {
+        return isSlider(option) && !"isoQuality".equals(option.key);
+    }
+
+    /** Puts a text field over the slider's value, with the value in it, selected. */
+    private void startEditing(Config.Option option, int y) {
+        editedOption = option;
+        // The list stays where it is while the field is open, under the row.
+        shownScroll = scroll;
+        String value;
+        if (option instanceof Config.IntOption) {
+            value = String.valueOf(((Config.IntOption) option).get());
+        } else {
+            value = String.format(Locale.ROOT, "%.2f", ((Config.DoubleOption) option).get());
+        }
+        int fieldWidth = Math.max(controlLeftWidth(option) - 4, 46);
+        valueField = new FlatTextField(fontRendererObj, controlX() - 4 - fieldWidth, y, fieldWidth, ROW_HEIGHT - 6);
+        valueField.setMaxStringLength(12);
+        valueField.setText(value);
+        valueField.setFocused(true);
+        valueField.setCursorPositionEnd();
+        valueField.setSelectionPos(0);
+    }
+
+    /** Closes the value field, setting the typed value (kept in the slider's range) when {@code apply}. */
+    private void stopEditing(boolean apply) {
+        Config.Option option = editedOption;
+        editedOption = null;
+        if (!apply) {
+            return;
+        }
+        String text = valueField.getText();
+        text = text.trim();
+        text = text.replace(',', '.');
+        try {
+            if (option instanceof Config.IntOption) {
+                Config.IntOption intOption = (Config.IntOption) option;
+                long typed = Math.round(Double.parseDouble(text));
+                long clamped = Math.max(intOption.min, Math.min(intOption.max, typed));
+                // Onto the slider's steps, counted from its start.
+                long steps = Math.round((clamped - intOption.min) / (double) intOption.step);
+                intOption.set((int) (intOption.min + steps * intOption.step));
+            } else {
+                ((Config.DoubleOption) option).set(Double.parseDouble(text));
+            }
+        } catch (NumberFormatException e) {
+            // Not a number: the value stays as it was.
         }
     }
 
@@ -686,27 +767,6 @@ public class GuiSettings extends ScaledScreen {
 
     private static boolean isOn(Config.Option option) {
         return option instanceof Config.BoolOption && ((Config.BoolOption) option).get();
-    }
-
-    /** The color between {@code from} (t = 0) and {@code to} (t = 1). */
-    private static int blend(int from, int to, float t) {
-        int result = 0;
-        for (int shift = 0; shift < 32; shift += 8) {
-            int a = (from >>> shift) & 0xFF, b = (to >>> shift) & 0xFF;
-            result |= Math.round(a + (b - a) * t) << shift;
-        }
-        return result;
-    }
-
-    /** Draws only inside the rectangle until {@link #unclip}. */
-    private void clip(int x0, int y0, int x1, int y1) {
-        int factor = ScaledScreen.currentFactor();
-        GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        GL11.glScissor(x0 * factor, mc.displayHeight - y1 * factor, (x1 - x0) * factor, (y1 - y0) * factor);
-    }
-
-    private static void unclip() {
-        GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
     @Override
@@ -772,7 +832,7 @@ public class GuiSettings extends ScaledScreen {
         Config.Option hovered = null;
         boolean overReset = false;
         hoveredOption = null;
-        clip(contentLeft - 4, listTop, right - 6, contentBottom);
+        Theme.clip(contentLeft - 4, listTop, right - 6, contentBottom);
         for (Row row : rows()) {
             int y = listTop + row.y - drawnScroll() + slide;
             if (y + row.height <= listTop || y >= contentBottom) {
@@ -830,7 +890,10 @@ public class GuiSettings extends ScaledScreen {
         if (showsMarkerPreview()) {
             drawMarkerPreview(listTop + listHeight() + 10 - drawnScroll() + slide);
         }
-        unclip();
+        Theme.unclip();
+        if (editedOption != null) {
+            valueField.drawTextBox();
+        }
         if (rows().isEmpty()) {
             Theme.centered(
                 fontRendererObj,
@@ -870,7 +933,7 @@ public class GuiSettings extends ScaledScreen {
         boolean hovered = false;
         if (row.section != null) {
             hovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, right - 6, y + row.height);
-            String[] arrow = row.hidden > 0 ? SECTION_CLOSED : SECTION_OPEN;
+            String[] arrow = row.hidden > 0 ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
             Icons.draw(arrow, x, y + 7 + (5 - arrow.length) / 2, hovered ? Theme.TEXT : Theme.ACCENT_DIM);
             x += 9;
         }
@@ -1133,6 +1196,9 @@ public class GuiSettings extends ScaledScreen {
                 if (defaultValue != null) {
                     notes.add(I18n.format("wayfarmap.settings.default", defaultValue));
                 }
+                if (isTypable(option) && offParent(option) == null) {
+                    notes.add(I18n.format("wayfarmap.settings.type_value"));
+                }
                 Config.BoolOption waitsFor = offParent(option);
                 if (waitsFor != null) {
                     notes.add(I18n.format("wayfarmap.settings.requires", I18n.format(waitsFor.langKey())));
@@ -1232,7 +1298,7 @@ public class GuiSettings extends ScaledScreen {
             int switchX = x + CONTROL_WIDTH - 24;
             int switchY = y + (h - 12) / 2;
             boolean rowHovered = hoveredOption == option;
-            Theme.fill(switchX, switchY, switchX + 24, switchY + 12, blend(Theme.CONTROL, Theme.ACCENT, knob));
+            Theme.fill(switchX, switchY, switchX + 24, switchY + 12, Theme.blend(Theme.CONTROL, Theme.ACCENT, knob));
             Theme.outline(switchX, switchY, switchX + 24, switchY + 12, rowHovered ? Theme.ACCENT : Theme.BORDER);
             int knobX = switchX + 2 + Math.round(12 * knob);
             Theme.fill(knobX, switchY + 2, knobX + 8, switchY + 10, Theme.TEXT);
@@ -1311,8 +1377,12 @@ public class GuiSettings extends ScaledScreen {
             Theme.outline(knobX - 3, y + 2, knobX + 3, y + h - 2, Theme.BORDER);
             // The value in a small box left of the slider.
             int boxX = x - controlLeftWidth(option);
+            // The value can be clicked to type it in: lit under the mouse.
+            boolean valueHovered = isTypable(option) && Theme.inside(mouseX, mouseY, boxX, y + 1, x - 4, y + h - 1);
+            active |= valueHovered;
             Theme.fill(boxX, y + 1, x - 4, y + h - 1, 0xFF0F1216);
-            Theme.outline(boxX, y + 1, x - 4, y + h - 1, active ? Theme.ACCENT_DIM : Theme.BORDER);
+            int boxBorder = valueHovered ? Theme.ACCENT : active ? Theme.ACCENT_DIM : Theme.BORDER;
+            Theme.outline(boxX, y + 1, x - 4, y + h - 1, boxBorder);
             int valueColor = active ? Theme.TEXT : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, value, boxX + 4, y + (h - 8) / 2, valueColor);
         }

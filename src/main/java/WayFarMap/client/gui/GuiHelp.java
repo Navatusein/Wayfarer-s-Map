@@ -20,6 +20,7 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
@@ -81,6 +82,10 @@ public class GuiHelp extends ScaledScreen {
     /** The sidebar's list of sections: where it is and how far it is scrolled. */
     private int listTop, listBottom, listScroll;
     private int scroll;
+    /** Where the sidebar's list and the text are drawn while they ease to their scroll. */
+    private final Smooth shownListScroll = new Smooth(0), shownScroll = new Smooth(0);
+    /** How lit each section's entry in the sidebar is by the mouse. */
+    private Smooth[] sectionLight = new Smooth[0];
 
     public GuiHelp(GuiScreen parent) {
         this.parent = parent;
@@ -133,6 +138,8 @@ public class GuiHelp extends ScaledScreen {
     private void layout() {
         lines.clear();
         scroll = 0;
+        // Another section's text starts at its top at once.
+        shownScroll.set(0);
         if (sections.isEmpty()) {
             return;
         }
@@ -292,7 +299,7 @@ public class GuiHelp extends ScaledScreen {
         if (!Theme.inside(mouseX, mouseY, left + 6, listTop, left + SIDEBAR_WIDTH - 6, listBottom)) {
             return -1;
         }
-        int index = (mouseY - listTop + listScroll) / ITEM_HEIGHT;
+        int index = (mouseY - listTop + (int) Math.round(shownListScroll.get())) / ITEM_HEIGHT;
         return index < sections.size() ? index : -1;
     }
 
@@ -356,43 +363,51 @@ public class GuiHelp extends ScaledScreen {
     /** The sidebar's list: the selected section marked, the one under the mouse lit, cut to the list's area. */
     private void drawSections(int mouseX, int mouseY) {
         int hovered = sectionAt(mouseX, mouseY);
-        int x0 = left + 6, x1 = left + SIDEBAR_WIDTH - (maxListScroll() > 0 ? 9 : 6);
+        int maxScroll = maxListScroll();
+        int x0 = left + 6, x1 = left + SIDEBAR_WIDTH - (maxScroll > 0 ? 9 : 6);
+        if (sectionLight.length != sections.size()) {
+            sectionLight = new Smooth[sections.size()];
+            for (int i = 0; i < sectionLight.length; i++) {
+                sectionLight[i] = new Smooth(0);
+            }
+        }
+        double shown = shownListScroll.update(listScroll, 16);
+        Theme.clip(x0, listTop, x1, listBottom);
         for (int i = 0; i < sections.size(); i++) {
-            int y = listTop + i * ITEM_HEIGHT - listScroll;
-            if (y < listTop || y + ITEM_HEIGHT > listBottom) {
+            int y = listTop + i * ITEM_HEIGHT - (int) Math.round(shown);
+            double lit = sectionLight[i].update(i == hovered ? 1 : 0, 20);
+            if (y + ITEM_HEIGHT <= listTop || y >= listBottom) {
                 continue;
             }
             boolean current = i == selected;
             if (current) {
                 Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, Theme.CONTROL_HOVER);
                 Theme.fill(x0, y, x0 + 2, y + ITEM_HEIGHT - 1, Theme.ACCENT);
-            } else if (i == hovered) {
-                Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, Theme.ROW_HOVER);
+            } else if (lit > 0.02) {
+                Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
             }
             String title = Theme.ellipsize(fontRendererObj, sections.get(i).title, x1 - x0 - 12);
-            Theme.text(
-                fontRendererObj,
-                title,
-                x0 + 7,
-                y + (ITEM_HEIGHT - 8) / 2,
-                current ? Theme.TEXT : i == hovered ? Theme.TEXT : Theme.TEXT_MUTED);
+            int color = current ? Theme.TEXT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+            Theme.text(fontRendererObj, title, x0 + 7, y + (ITEM_HEIGHT - 8) / 2, color);
         }
-        int maxScroll = maxListScroll();
+        Theme.unclip();
         if (maxScroll > 0) {
-            int track = listBottom - listTop;
-            int bar = Math.max(12, track * track / (track + maxScroll));
-            int barY = listTop + (track - bar) * listScroll / maxScroll;
-            Theme.fill(left + SIDEBAR_WIDTH - 5, listTop, left + SIDEBAR_WIDTH - 4, listBottom, Theme.CONTROL);
-            Theme.fill(left + SIDEBAR_WIDTH - 6, barY, left + SIDEBAR_WIDTH - 3, barY + bar, Theme.BORDER);
+            boolean over = Theme.inside(mouseX, mouseY, left, listTop, left + SIDEBAR_WIDTH, listBottom);
+            int total = sections.size() * ITEM_HEIGHT;
+            int x = left + SIDEBAR_WIDTH - 6;
+            Theme.scrollbar(x, listTop, listBottom, listBottom - listTop, total, shown / maxScroll, over);
         }
     }
 
     /** The section's text: notes and tips on a tinted band, list items with a dot. */
     private void drawText() {
-        int y = contentTop - scroll;
+        double shown = shownScroll.update(scroll, 16);
+        int y = contentTop - (int) Math.round(shown);
+        // Cut a little above the top, where a note's band starts over its first line.
+        Theme.clip(contentLeft, contentTop - 3, contentRight, contentBottom + 1);
         for (Line line : lines) {
             int h = height(line);
-            if (y >= contentTop && y + h <= contentBottom && line.kind != 3) {
+            if (y + h > contentTop - 3 && y < contentBottom + 1 && line.kind != 3) {
                 int x = contentLeft;
                 if (line.kind == 1 || line.kind == 2) {
                     // Important notes and tips: a tinted band with a colored bar on the left.
@@ -411,12 +426,12 @@ public class GuiHelp extends ScaledScreen {
             }
             y += h;
         }
-        if (maxScroll() > 0) {
-            int track = contentBottom - contentTop;
-            int bar = Math.max(12, track * track / (track + maxScroll()));
-            int barY = contentTop + (track - bar) * scroll / maxScroll();
-            Theme.fill(right - 7, contentTop, right - 6, contentBottom, Theme.CONTROL);
-            Theme.fill(right - 8, barY, right - 5, barY + bar, Theme.BORDER);
+        Theme.unclip();
+        int maxScroll = maxScroll();
+        if (maxScroll > 0) {
+            int visible = contentBottom - contentTop;
+            double position = shown / maxScroll;
+            Theme.scrollbar(right - 8, contentTop, contentBottom, visible, visible + maxScroll, position, false);
         }
     }
 

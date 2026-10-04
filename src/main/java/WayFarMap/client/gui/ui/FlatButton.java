@@ -12,6 +12,8 @@ public class FlatButton extends GuiButton {
     public boolean danger;
     /** Drawn left of the text, which then starts after it instead of being centered; null for none. */
     public String[] icon;
+    /** How lit the button is by the mouse, fading in and out. */
+    private final Smooth hover = new Smooth(0);
 
     public FlatButton(int id, int x, int y, int width, int height, String text) {
         super(id, x, y, width, height, text);
@@ -39,21 +41,7 @@ public class FlatButton extends GuiButton {
             return;
         }
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
-        int background;
-        if (!enabled) {
-            background = Theme.CONTROL_DISABLED;
-        } else if (active) {
-            background = hovered ? Theme.ACCENT : Theme.ACCENT_DIM;
-        } else {
-            background = hovered ? Theme.CONTROL_HOVER : Theme.CONTROL;
-        }
-        Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
-        Theme.outline(
-            xPosition,
-            yPosition,
-            xPosition + width,
-            yPosition + height,
-            hovered || active ? Theme.ACCENT : Theme.BORDER);
+        drawBackground(hovered);
 
         int color = !enabled ? Theme.TEXT_DISABLED : danger ? Theme.DANGER : Theme.TEXT;
         if (icon != null) {
@@ -67,5 +55,23 @@ public class FlatButton extends GuiButton {
         }
         String text = Theme.ellipsize(mc.fontRenderer, displayString, width - 6);
         Theme.centered(mc.fontRenderer, text, xPosition + width / 2, yPosition + (height - 8) / 2, color);
+    }
+
+    /** The box: lit by the mouse with a short fade, in the accent color when active. */
+    protected void drawBackground(boolean hovered) {
+        double lit = hover.update(hovered ? 1 : 0, 22);
+        int background, border;
+        if (!enabled) {
+            background = Theme.CONTROL_DISABLED;
+            border = Theme.BORDER;
+        } else if (active) {
+            background = Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, lit);
+            border = Theme.ACCENT;
+        } else {
+            background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+            border = Theme.blend(Theme.BORDER, Theme.ACCENT, lit);
+        }
+        Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
+        Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, border);
     }
 }

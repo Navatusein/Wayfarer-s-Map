@@ -16,6 +16,7 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.registry.GameData;
@@ -42,6 +43,8 @@ public class GuiItemPicker extends ScaledScreen {
     private FlatTextField search;
     private int gridX, gridY, columns, rows;
     private int scrollRow;
+    /** Where the grid is drawn while it eases to {@link #scrollRow} (in rows). */
+    private final Smooth shownRow = new Smooth(0);
 
     public GuiItemPicker(GuiScreen parent, Callback callback) {
         this.parent = parent;
@@ -122,6 +125,7 @@ public class GuiItemPicker extends ScaledScreen {
             }
         }
         scrollRow = 0;
+        shownRow.set(0);
     }
 
     private int maxScroll() {
@@ -178,7 +182,8 @@ public class GuiItemPicker extends ScaledScreen {
         if (mouseX < gridX || mouseY < gridY || mouseX >= gridX + columns * CELL || mouseY >= gridY + rows * CELL) {
             return -1;
         }
-        int index = ((mouseY - gridY) / CELL + scrollRow) * columns + (mouseX - gridX) / CELL;
+        int row = (int) Math.floor(shownRow.get() + (mouseY - gridY) / (double) CELL);
+        int index = row * columns + (mouseX - gridX) / CELL;
         return index < filtered.size() ? index : -1;
     }
 
@@ -202,20 +207,30 @@ public class GuiItemPicker extends ScaledScreen {
 
         Theme.fill(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, 0xFF0F1216);
         Theme.outline(gridX - 1, gridY - 1, gridX + columns * CELL + 1, gridY + rows * CELL + 1, Theme.BORDER);
+        double shown = shownRow.update(scrollRow, 16);
         int hovered = stackIndexAt(mouseX, mouseY);
-        int first = scrollRow * columns;
-        for (int i = 0; i < rows * columns; i++) {
-            int index = first + i;
+        int firstRow = (int) Math.floor(shown);
+        // One row more than fits: the grid moves smoothly and is cut at its edges.
+        Theme.clip(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL);
+        for (int i = 0; i < (rows + 1) * columns; i++) {
+            int index = firstRow * columns + i;
             if (index >= filtered.size()) {
                 break;
             }
             int cx = gridX + (i % columns) * CELL;
-            int cy = gridY + (i / columns) * CELL;
+            int cy = gridY + (int) Math.round((firstRow + i / columns - shown) * CELL);
             if (index == hovered) {
                 drawRect(cx, cy, cx + CELL, cy + CELL, Theme.CONTROL_HOVER);
                 Theme.outline(cx, cy, cx + CELL, cy + CELL, Theme.ACCENT);
             }
             WaypointRenderer.drawItemDirect(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);
+        }
+        Theme.unclip();
+        int maxScroll = maxScroll();
+        if (maxScroll > 0) {
+            int totalRows = rows + maxScroll;
+            int x = gridX + columns * CELL + 3;
+            Theme.scrollbar(x, gridY, gridY + rows * CELL, rows, totalRows, shown / maxScroll, false);
         }
 
         String count = filtered.size() + "";

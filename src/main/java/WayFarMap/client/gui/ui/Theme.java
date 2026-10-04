@@ -1,7 +1,10 @@
 package WayFarMap.client.gui.ui;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+
+import org.lwjgl.opengl.GL11;
 
 /** Colors and drawing helpers of the flat, minimal look shared by all WayFarMap screens. */
 public final class Theme {
@@ -62,5 +65,39 @@ public final class Theme {
 
     public static boolean inside(int mouseX, int mouseY, int x0, int y0, int x1, int y1) {
         return mouseX >= x0 && mouseX < x1 && mouseY >= y0 && mouseY < y1;
+    }
+
+    /** The color between {@code from} (t = 0) and {@code to} (t = 1), alpha included. */
+    public static int blend(int from, int to, double t) {
+        int result = 0;
+        for (int shift = 0; shift < 32; shift += 8) {
+            int a = (from >>> shift) & 0xFF, b = (to >>> shift) & 0xFF;
+            result |= (int) Math.round(a + (b - a) * t) << shift;
+        }
+        return result;
+    }
+
+    /**
+     * Draws only inside the rectangle (GUI pixels of the screen being drawn) until {@link #unclip}: a scrolled list
+     * is cut at its edges instead of rows popping in and out.
+     */
+    public static void clip(int x0, int y0, int x1, int y1) {
+        int factor = ScaledScreen.currentFactor();
+        int displayHeight = Minecraft.getMinecraft().displayHeight;
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(x0 * factor, displayHeight - y1 * factor, (x1 - x0) * factor, (y1 - y0) * factor);
+    }
+
+    public static void unclip() {
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    }
+
+    /** A thin scrollbar: its track, and the thumb lit while {@code lit}; {@code position} is 0 at the top to 1. */
+    public static void scrollbar(int x, int y0, int y1, int visible, int total, double position, boolean lit) {
+        int track = y1 - y0;
+        int bar = Math.max(12, track * visible / Math.max(visible, total));
+        int barY = y0 + (int) Math.round((track - bar) * Math.max(0, Math.min(1, position)));
+        fill(x, y0, x + 2, y1, CONTROL);
+        fill(x, barY, x + 2, barY + bar, lit ? ACCENT : BORDER);
     }
 }

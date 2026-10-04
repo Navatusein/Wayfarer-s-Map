@@ -119,6 +119,10 @@ public final class Icons {
         "#######..", "#.....##.", "#.###..##", "#.......#", "#.#####.#", "#.......#", "#.####..#", "#.......#",
         "#.#####.#", "#.......#", "#########" };
 
+    /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
+    public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
+    public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
+
     /** The mod's logo, a compass rose: layers of one color each, drawn together by {@link #drawLogo}. */
     private static final String[] LOGO_RING = { ".....#####.....", "...##.....##...", "..#.........#..",
         ".#...........#.", ".#...........#.", "#.............#", "#.............#", "#.............#",

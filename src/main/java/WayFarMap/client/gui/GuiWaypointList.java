@@ -2,7 +2,9 @@ package WayFarMap.client.gui;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
@@ -16,7 +18,9 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
@@ -70,7 +74,11 @@ public class GuiWaypointList extends ScaledScreen {
     private final List<Row> rows = new ArrayList<>();
     private final List<Hit> hits = new ArrayList<>();
     private int listLeft, listRight, listTop, listBottom;
+    /** First row at the top of the list; where the list is drawn while it eases there (in rows). */
     private int scroll;
+    private final Smooth shownScroll = new Smooth(0);
+    /** How lit each waypoint's row is by the mouse. */
+    private final Map<Waypoint, Smooth> rowLight = new IdentityHashMap<>();
 
     private FlatTextField groupField;
     private FlatButton groupActionButton;
@@ -248,7 +256,12 @@ public class GuiWaypointList extends ScaledScreen {
         if (button != 0) {
             return;
         }
+        boolean inList = mouseX >= listLeft && mouseX < listRight && mouseY >= listTop && mouseY < listBottom;
         for (Hit hit : new ArrayList<>(hits)) {
+            if (!inList) {
+                // Rows cut at the list's edges still register their buttons; only the visible part counts.
+                break;
+            }
             if (mouseX >= hit.x0 && mouseX < hit.x1 && mouseY >= hit.y0 && mouseY < hit.y1) {
                 hit.action.run();
                 return;
@@ -293,7 +306,7 @@ public class GuiWaypointList extends ScaledScreen {
         if (mouseX < listLeft || mouseX >= listRight || mouseY < listTop || mouseY >= listBottom) {
             return null;
         }
-        int index = scroll + (mouseY - listTop) / ROW_HEIGHT;
+        int index = (int) Math.floor(shownScroll.get() + (mouseY - listTop) / (double) ROW_HEIGHT);
         return index >= 0 && index < rows.size() ? rows.get(index) : null;
     }
 
@@ -354,15 +367,22 @@ public class GuiWaypointList extends ScaledScreen {
 
         hits.clear();
         int visibleRows = (listBottom - listTop) / ROW_HEIGHT;
-        for (int i = 0; i < visibleRows && scroll + i < rows.size(); i++) {
-            Row row = rows.get(scroll + i);
-            int y = listTop + i * ROW_HEIGHT;
+        double shown = shownScroll.update(scroll, 16);
+        int first = (int) Math.floor(shown);
+        boolean mouseInList = mouseY >= listTop && mouseY < listBottom;
+        Theme.clip(listLeft, listTop - 1, listRight, listBottom + 1);
+        for (int i = first; i <= first + visibleRows && i < rows.size(); i++) {
+            Row row = rows.get(i);
+            int y = listTop + (int) Math.round((i - shown) * ROW_HEIGHT);
             boolean hovered = mouseX >= listLeft && mouseX < listRight && mouseY >= y && mouseY < y + ROW_HEIGHT;
+            hovered &= mouseInList && !draggingWaypoint;
             if (row.waypoint == null) {
                 drawGroupRow(row, y, mouseX, mouseY);
             } else {
-                if (hovered && !draggingWaypoint) {
-                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.ROW_HOVER);
+                Smooth light = rowLight.computeIfAbsent(row.waypoint, w -> new Smooth(0));
+                double lit = light.update(hovered ? 1 : 0, 20);
+                if (lit > 0.02) {
+                    drawRect(listLeft, y, listRight, y + ROW_HEIGHT, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
                 }
                 drawWaypointRow(row.waypoint, y, mouseX, mouseY);
                 if (draggingWaypoint && row.waypoint == pressedWaypoint) {
@@ -377,12 +397,11 @@ public class GuiWaypointList extends ScaledScreen {
                 }
             }
         }
+        Theme.unclip();
         if (rows.size() > visibleRows) {
-            // Scroll bar.
-            int trackHeight = listBottom - listTop;
-            int barHeight = Math.max(10, trackHeight * visibleRows / rows.size());
-            int barY = listTop + (trackHeight - barHeight) * scroll / Math.max(1, maxScroll());
-            drawRect(listRight - 3, barY, listRight - 1, barY + barHeight, Theme.BORDER);
+            boolean lit = Theme.inside(mouseX, mouseY, listLeft, listTop, listRight, listBottom);
+            double position = shown / Math.max(1, maxScroll());
+            Theme.scrollbar(listRight - 3, listTop, listBottom, visibleRows, rows.size(), position, lit);
         }
 
         groupField.drawTextBox();
@@ -420,14 +439,17 @@ public class GuiWaypointList extends ScaledScreen {
         x += 14;
 
         boolean isCollapsed = collapsed.contains(key);
-        String title = (isCollapsed ? "+ " : "- ")
-            + (row.ungrouped ? I18n.format("wayfarmap.gui.no_group") : group.name)
+        String title = (row.ungrouped ? I18n.format("wayfarmap.gui.no_group") : group.name)
             + " ("
             + manager.getWaypointsInGroup(row.ungrouped ? null : group.name)
                 .size()
             + ")";
-        int titleWidth = fontRendererObj.getStringWidth(title);
-        fontRendererObj.drawString(title, x, y + 6, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
+        int titleWidth = 9 + fontRendererObj.getStringWidth(title);
+        // An arrow before the title, which opens and closes the group.
+        String[] arrow = isCollapsed ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
+        boolean titleHovered = Theme.inside(mouseX, mouseY, x, y, x + titleWidth, y + ROW_HEIGHT);
+        Icons.draw(arrow, x, y + 7 + (5 - arrow.length) / 2, titleHovered ? Theme.TEXT : Theme.ACCENT_DIM);
+        fontRendererObj.drawString(title, x + 9, y + 6, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
         hits.add(new Hit(x, y, x + titleWidth, y + ROW_HEIGHT, () -> {
             if (!collapsed.remove(key)) {
                 collapsed.add(key);

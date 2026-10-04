@@ -8,7 +8,6 @@ import net.minecraft.client.Minecraft;
  */
 public class IconButton extends FlatButton {
 
-    public String[] icon;
     public String tooltip;
     /** Color of the state dot in the lower right corner, 0 for none. */
     public int badge;
@@ -27,15 +26,7 @@ public class IconButton extends FlatButton {
             return;
         }
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
-        int background = active ? (hovered ? Theme.ACCENT : Theme.ACCENT_DIM)
-            : hovered ? Theme.CONTROL_HOVER : Theme.CONTROL;
-        Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
-        Theme.outline(
-            xPosition,
-            yPosition,
-            xPosition + width,
-            yPosition + height,
-            hovered || active ? Theme.ACCENT : Theme.BORDER);
+        drawBackground(hovered);
         int color = !enabled || dim && !hovered ? Theme.TEXT_MUTED : Theme.TEXT;
         Icons.draw(icon, xPosition + (width - Icons.width(icon)) / 2, yPosition + (height - icon.length) / 2, color);
         if (badge != 0) {
