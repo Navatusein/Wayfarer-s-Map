@@ -26,8 +26,11 @@ public class GuiAbout extends ScaledScreen {
     private static final int WIDTH = 260, HEIGHT = 220;
     private static final int ID_CLOSE = 0, ID_GITHUB = 1, ID_BOOSTY = 2, ID_TELEGRAM = 3;
 
-    private static final String AUTHOR = "EvgenWarGold";
-    private static final String TESTER = "Faotik";
+    /** Who made and who tested the mod, and the author's pages; the welcome window shows them too. */
+    static final String AUTHOR = "EvgenWarGold";
+    static final String TESTER = "Faotik";
+    static final String GITHUB_URL = "https://github.com/evgengoldwar", BOOSTY_URL = "https://boosty.to/evgenwargold",
+        TELEGRAM_URL = "https://t.me/Shaterplay4";
 
     private final GuiScreen parent;
     private int left, top;
@@ -91,7 +94,7 @@ public class GuiAbout extends ScaledScreen {
                 linkY,
                 linkWidth,
                 "GitHub",
-                "https://github.com/evgengoldwar",
+                GITHUB_URL,
                 Icons.GITHUB,
                 0xFFE6EAF0));
         buttonList.add(
@@ -101,7 +104,7 @@ public class GuiAbout extends ScaledScreen {
                 linkY,
                 linkWidth,
                 "Boosty",
-                "https://boosty.to/evgenwargold",
+                BOOSTY_URL,
                 Icons.BOOSTY,
                 0xFFF15F2C));
         buttonList.add(
@@ -111,7 +114,7 @@ public class GuiAbout extends ScaledScreen {
                 linkY,
                 linkWidth,
                 "Telegram",
-                "https://t.me/Shaterplay4",
+                TELEGRAM_URL,
                 Icons.TELEGRAM,
                 0xFF2AABEE));
         buttonList
@@ -128,7 +131,7 @@ public class GuiAbout extends ScaledScreen {
     }
 
     /** Opens the page in the system browser. */
-    private static void openLink(String url) {
+    static void openLink(String url) {
         try {
             Class<?> desktopClass = Class.forName("java.awt.Desktop");
             Object desktop = desktopClass.getMethod("getDesktop")

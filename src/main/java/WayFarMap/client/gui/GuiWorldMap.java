@@ -929,13 +929,9 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Written once the welcome window is closed: it is never shown again. */
     private static final String WELCOME_FILE = "welcome-shown";
-    private static final int WELCOME_WIDTH = 270;
-    /** Height of a step of the welcome window: a key cap and what it does. */
-    private static final int WELCOME_STEP = 16;
-    /** Color of a key cap: the yellow of §e, as in the help. */
-    private static final int KEY_CAP_COLOR = 0xFFFF55;
     /** The welcome window is open: the map takes no input until it is closed. */
     private boolean welcome;
+    private WelcomeWindow welcomeWindow;
 
     private File welcomeFile() {
         return new File(new File(mc.mcDataDir, "wayfarmap"), WELCOME_FILE);
@@ -944,6 +940,9 @@ public class GuiWorldMap extends ScaledScreen {
     /** Opens the welcome window the first time the map is opened after installing the mod. */
     private void checkWelcome() {
         welcome = !welcomeFile().exists();
+        if (welcome && welcomeWindow == null) {
+            welcomeWindow = new WelcomeWindow(fontRendererObj);
+        }
     }
 
     private void closeWelcome() {
@@ -960,128 +959,18 @@ public class GuiWorldMap extends ScaledScreen {
         }
     }
 
-    private int welcomeLeft() {
-        return (width - WELCOME_WIDTH) / 2;
-    }
-
-    private int welcomeTop() {
-        return (height - welcomeHeight()) / 2;
-    }
-
-    /** The intro text, wrapped to the window. */
-    private List<?> welcomeLines() {
-        return fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.welcome.text"), WELCOME_WIDTH - 24);
-    }
-
-    /** The first things to know: {key, what it does}. */
-    private String[][] welcomeSteps() {
-        String waypointKey = KeyHandler.keyName("new_waypoint");
-        List<String[]> steps = new ArrayList<>();
-        steps.add(new String[] { I18n.format("wayfarmap.welcome.key_drag"), I18n.format("wayfarmap.welcome.drag") });
-        steps.add(new String[] { I18n.format("wayfarmap.welcome.key_menu"), I18n.format("wayfarmap.welcome.menu") });
-        if (waypointKey != null) {
-            steps.add(new String[] { waypointKey, I18n.format("wayfarmap.welcome.waypoint") });
-        }
-        steps.add(new String[] { "?", I18n.format("wayfarmap.welcome.help") });
-        return steps.toArray(new String[0][]);
-    }
-
-    /** Width of the column of key caps: the widest of them. */
-    private int welcomeKeyColumn(String[][] steps) {
-        int widest = 0;
-        for (String[] step : steps) {
-            widest = Math.max(widest, fontRendererObj.getStringWidth(step[0]) + 8);
-        }
-        return widest;
-    }
-
-    /** What a step does, wrapped to the room right of the key caps. */
-    private List<?> welcomeStepLines(String[] step, int keyColumn) {
-        return fontRendererObj.listFormattedStringToWidth(step[1], WELCOME_WIDTH - 24 - keyColumn - 8);
-    }
-
-    /** Height of a step: its key cap, or its wrapped text if that is taller. */
-    private int welcomeStepHeight(String[] step, int keyColumn) {
-        return Math.max(WELCOME_STEP, welcomeStepLines(step, keyColumn).size() * 10 + 6);
-    }
-
-    private int welcomeHeight() {
-        String[][] steps = welcomeSteps();
-        int keyColumn = welcomeKeyColumn(steps);
-        int stepsHeight = 0;
-        for (String[] step : steps) {
-            stepsHeight += welcomeStepHeight(step, keyColumn);
-        }
-        return WindowHeader.HEIGHT + 8 + welcomeLines().size() * 10 + 8 + stepsHeight + 34;
-    }
-
-    /** The window's button: {x0, y0, x1, y1}. */
-    private int[] welcomeButton() {
-        int x0 = welcomeLeft() + WELCOME_WIDTH / 2 - 45, y0 = welcomeTop() + welcomeHeight() - 26;
-        return new int[] { x0, y0, x0 + 90, y0 + 18 };
-    }
-
-    /** A key cap with the text on it, as in the help; returns its width. */
-    private int drawKeyCap(String key, int x, int y) {
-        int w = fontRendererObj.getStringWidth(key) + 8;
-        Theme.fill(x, y, x + w, y + 12, 0x26000000 | KEY_CAP_COLOR);
-        // A darker edge at the bottom, like a key.
-        Theme.fill(x, y + 12, x + w, y + 13, 0x60000000 | KEY_CAP_COLOR);
-        Theme.text(fontRendererObj, key, x + 4, y + 2, 0xFF000000 | KEY_CAP_COLOR);
-        return w;
-    }
-
-    /** The mod's name, what it is, and where its help is; the help button is outlined meanwhile. */
+    /** The welcome window over the dimmed map; the help button it points to is outlined meanwhile. */
     private void drawWelcome(int mouseX, int mouseY) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         if (helpButton != null && helpButton.visible) {
-            // Pulsing outline around the help button the text points to.
+            // Pulsing outline around the help button the window points to.
             float pulse = 0.5f + 0.5f * (float) Math.sin(System.currentTimeMillis() / 250.0);
             int alpha = 0x60 + (int) (0x9F * pulse);
             int x0 = helpButton.xPosition - 2, y0 = helpButton.yPosition - 2;
             int color = alpha << 24 | (Theme.ACCENT & 0xFFFFFF);
             Theme.outline(x0, y0, x0 + helpButton.getWidth() + 4, y0 + 13 + 4, color);
         }
-        int left = welcomeLeft(), top = welcomeTop();
-        int right = left + WELCOME_WIDTH;
-        Theme.panel(left, top, right, top + welcomeHeight());
-        WindowHeader.draw(
-            fontRendererObj,
-            left,
-            top,
-            right,
-            right - 6,
-            Icons.MINIMAP,
-            "Wayfarer's Map",
-            I18n.format("wayfarmap.welcome.subtitle"),
-            Theme.TEXT_MUTED,
-            null);
-        List<?> lines = welcomeLines();
-        int y = top + WindowHeader.HEIGHT + 8;
-        for (Object line : lines) {
-            Theme.text(fontRendererObj, String.valueOf(line), left + 12, y, Theme.TEXT);
-            y += 10;
-        }
-        y += 8;
-        // The steps: key caps in a column, what they do next to them.
-        String[][] steps = welcomeSteps();
-        int keyColumn = welcomeKeyColumn(steps);
-        for (String[] step : steps) {
-            drawKeyCap(step[0], left + 12, y);
-            int textX = left + 12 + keyColumn + 8;
-            // Long ones go on over more lines instead of being cut short.
-            int lineY = y + 2;
-            for (Object line : welcomeStepLines(step, keyColumn)) {
-                Theme.text(fontRendererObj, String.valueOf(line), textX, lineY, Theme.TEXT_MUTED);
-                lineY += 10;
-            }
-            y += welcomeStepHeight(step, keyColumn);
-        }
-        int[] b = welcomeButton();
-        boolean hovered = Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3]);
-        Theme.fill(b[0], b[1], b[2], b[3], hovered ? Theme.ACCENT : Theme.ACCENT_DIM);
-        Theme.outline(b[0], b[1], b[2], b[3], Theme.ACCENT);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.welcome.ok"), (b[0] + b[2]) / 2, b[1] + 5, Theme.TEXT);
+        welcomeWindow.draw(width, height, mouseX, mouseY);
     }
 
     @Override
@@ -2340,10 +2229,13 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         if (welcome) {
-            // Only its button closes it; the map waits.
-            int[] b = welcomeButton();
-            if (button == 0 && Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3])) {
+            // Only its buttons close it; the map waits.
+            WelcomeWindow.Click click = button == 0 ? welcomeWindow.click(mouseX, mouseY) : WelcomeWindow.Click.NONE;
+            if (click != WelcomeWindow.Click.NONE) {
                 closeWelcome();
+            }
+            if (click == WelcomeWindow.Click.HELP) {
+                mc.displayGuiScreen(new GuiHelp(this));
             }
             return;
         }
