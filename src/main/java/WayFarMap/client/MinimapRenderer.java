@@ -17,6 +17,7 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.integration.ClaimsLayer;
@@ -74,6 +75,15 @@ public class MinimapRenderer {
 
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
+        long perf = Perf.start();
+        try {
+            drawMinimap(event);
+        } finally {
+            Perf.end(Perf.Part.MINIMAP, perf);
+        }
+    }
+
+    private void drawMinimap(RenderGameOverlayEvent.Post event) {
         if (event.type != RenderGameOverlayEvent.ElementType.ALL || !Config.minimapEnabled) {
             return;
         }

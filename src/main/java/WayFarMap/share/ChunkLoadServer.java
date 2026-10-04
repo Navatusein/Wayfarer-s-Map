@@ -33,6 +33,7 @@ import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -566,6 +567,15 @@ public final class ChunkLoadServer {
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
+        long perf = Perf.start();
+        try {
+            serverTick(event);
+        } finally {
+            Perf.end(Perf.Part.CHUNKLOAD, perf);
+        }
+    }
+
+    private void serverTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }

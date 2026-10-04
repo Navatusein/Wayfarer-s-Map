@@ -32,6 +32,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.MapDrawer;
 
@@ -228,7 +229,9 @@ final class IsoTiles {
             smooth = Config.isoSmooth;
             invalidateAll();
         }
+        long perf = Perf.start();
         int uploaded = uploadResults();
+        Perf.end(Perf.Part.ISO_UPLOAD, perf);
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int onScreen = 0, ready = 0, empty = 0, fromCoarser = 0, holes = 0;
         int blocks = IsoProjection.tileBlocks(level);

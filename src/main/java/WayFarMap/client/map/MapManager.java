@@ -37,6 +37,7 @@ import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.map.export.MapExport;
@@ -699,10 +700,12 @@ public class MapManager implements IResourceManagerReloadListener {
         long isoStart = System.nanoTime();
         IsoMap.INSTANCE.tick(world);
         long isoNanos = System.nanoTime() - isoStart;
+        Perf.add(Perf.Part.CAPTURE_3D, isoNanos);
         MapExport.tick();
         updateCaveMode(world, mc.thePlayer);
 
         int budget = Config.chunksScannedPerTick;
+        long scanStart = Perf.start();
         if (activeCaveLayer >= 0) {
             caveTracker.scan(mc, world, mc.thePlayer, getCaveLayer(activeCaveLayer), activeCaveLayer, null, budget);
             // The surface rarely changes while the player is underground.
@@ -710,6 +713,7 @@ public class MapManager implements IResourceManagerReloadListener {
         } else {
             surfaceTracker.scan(mc, world, mc.thePlayer, surface, -1, biomes, budget);
         }
+        Perf.end(Perf.Part.SCAN_2D, scanStart);
         lastMapTick = System.nanoTime() - tickStart + unloadsBefore;
         FlatLog.mapTick(lastMapTick, isoNanos, unloadsBefore);
         if (FlatLog.on()) {

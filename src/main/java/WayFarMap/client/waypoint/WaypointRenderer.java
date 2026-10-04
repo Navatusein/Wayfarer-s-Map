@@ -29,6 +29,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
@@ -437,12 +438,23 @@ public class WaypointRenderer {
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
         if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
+            long perf = Perf.start();
             ItemSprites.takeQueued();
+            Perf.end(Perf.Part.ITEM_PICTURES, perf);
         }
     }
 
     @SubscribeEvent
     public void onRenderWorldLast(RenderWorldLastEvent event) {
+        long perf = Perf.start();
+        try {
+            renderWorldLast(event);
+        } finally {
+            Perf.end(Perf.Part.MARKERS, perf);
+        }
+    }
+
+    private void renderWorldLast(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.theWorld == null || mc.thePlayer == null || mc.gameSettings.hideGUI) {
             return;

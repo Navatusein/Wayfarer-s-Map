@@ -25,6 +25,7 @@ import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.ChunkScanner;
 
@@ -1000,6 +1001,16 @@ public final class IsoMap implements BlockStore.Listener {
      */
     public void draw(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor, int x,
         int y, int width, int height) {
+        long perf = Perf.start();
+        try {
+            drawView(dimensionId, rotation, centerX, centerZ, scale, factor, x, y, width, height);
+        } finally {
+            Perf.end(Perf.Part.ISO_DRAW, perf);
+        }
+    }
+
+    private void drawView(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor,
+        int x, int y, int width, int height) {
         Dimension dimension = dimension(dimensionId);
         if (dimension == null) {
             return;
