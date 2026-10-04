@@ -426,7 +426,10 @@ public class MinimapRenderer {
         Gui.drawRect(x1 - thickness, y0 + thickness, x1, y1 - thickness, color);
     }
 
-    /** A ring between two radii. */
+    /**
+     * A ring between two radii. Wound the same way as {@link #fillCircle}: the HUD culls back faces, and a ring wound
+     * the other way wasn't drawn at all.
+     */
     private static void fillRing(double cx, double cy, double inner, double outer, int color) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
@@ -437,8 +440,8 @@ public class MinimapRenderer {
         for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
             double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
             double cos = Math.cos(a), sin = Math.sin(a);
-            tessellator.addVertex(cx + cos * outer, cy + sin * outer, 0);
             tessellator.addVertex(cx + cos * inner, cy + sin * inner, 0);
+            tessellator.addVertex(cx + cos * outer, cy + sin * outer, 0);
         }
         tessellator.draw();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
