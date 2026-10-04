@@ -114,6 +114,9 @@ public class Config {
     public static int unexploredPattern = UNEXPLORED_NONE;
     /** A soft shadow on the explored land along its edge, with a faint glow on the unexplored side. */
     public static boolean edgeShadow = false;
+    /** A fading line on the maps along the way the player came, this many blocks long. */
+    public static boolean playerTrail = false;
+    public static int playerTrailLength = 400;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
@@ -409,6 +412,25 @@ public class Config {
             false,
             () -> edgeShadow,
             v -> edgeShadow = v);
+        bool(
+            c,
+            "playerTrail",
+            "A fading line on the 2D map and the minimap along the way the player came.",
+            false,
+            () -> playerTrail,
+            v -> playerTrail = v);
+        parent("playerTrail");
+        integer(
+            c,
+            "playerTrailLength",
+            "Length of the player's trail, in blocks.",
+            400,
+            100,
+            2000,
+            100,
+            () -> playerTrailLength,
+            v -> playerTrailLength = v);
+        parent(null);
         bool(
             c,
             "followPlayer",

@@ -35,6 +35,8 @@ public class Waypoint {
     public boolean beam;
     /** Placed automatically where the player died; only the latest few are kept. */
     public boolean death;
+    /** When the player died there (milliseconds since 1970), 0 if unknown: shown as "5 min ago". */
+    public long diedAt;
 
     private transient ItemStack cachedIcon;
     private transient boolean iconResolved;
@@ -59,6 +61,7 @@ public class Waypoint {
         copy.enabled = enabled;
         copy.beam = beam;
         copy.death = death;
+        copy.diedAt = diedAt;
         return copy;
     }
 
@@ -76,6 +79,7 @@ public class Waypoint {
         enabled = other.enabled;
         beam = other.beam;
         death = other.death;
+        diedAt = other.diedAt;
         iconResolved = false;
     }
 

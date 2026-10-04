@@ -10,6 +10,7 @@ import WayFarMap.client.InspectCommand;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
@@ -64,6 +65,9 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(DeathMarker.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(PlayerTrail.INSTANCE);
 
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);

@@ -146,6 +146,30 @@ public final class Icons {
     /** A list item's mark. */
     public static final String[] BULLET = { ".#.", "###", ".#." };
 
+    /** Small icons (7x7) for the map's bottom bar and its menus. */
+    public static final String[] SMALL_CURSOR = { "...#...", ".#####.", ".#...#.", "##.#.##", ".#...#.", ".#####.",
+        "...#..." };
+    public static final String[] SMALL_TREE = { "..###..", ".#####.", "#######", ".#####.", "...#...", "...#...",
+        "..###.." };
+    public static final String[] SMALL_CAVE = { "..###..", ".#####.", "##...##", "#.....#", "#.....#", "#######" };
+    public static final String[] SMALL_FLAG = { "##.....", "#####..", "######.", "#####..", "#......", "#......",
+        "#......" };
+    public static final String[] SMALL_QUEUE = { "...#...", "...#...", ".#####.", "..###..", "...#...", "#.....#",
+        "#######" };
+    public static final String[] SMALL_UP = { "...#...", "..###..", ".#####.", "...#...", "...#...", "...#...",
+        "..###.." };
+    public static final String[] SMALL_PLUS = { "...#...", "...#...", "...#...", "#######", "...#...", "...#...",
+        "...#..." };
+    public static final String[] SMALL_TRASH = { ".#####.", "#######", ".#...#.", ".#.#.#.", ".#.#.#.", ".#...#.",
+        ".#####." };
+    public static final String[] SMALL_PENCIL = { ".....##", "....###", "...###.", "..###..", ".###...", "##.....",
+        "#......" };
+    public static final String[] SMALL_CHAT = { "#######", "#.....#", "#.###.#", "#.....#", "#######", ".##....",
+        "#......" };
+    public static final String[] SMALL_EYE = { "..###..", ".#...#.", "#..#..#", ".#...#.", "..###.." };
+    public static final String[] SMALL_DROP = { "...#...", "..###..", ".#####.", "#######", "#######", ".#####.",
+        "..###.." };
+
     /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
     public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
     public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };

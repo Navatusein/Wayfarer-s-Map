@@ -314,6 +314,7 @@ public class MinimapRenderer {
                     () -> PowerfailLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, px, pz);
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
             MapDrawer.drawTeammates(
                 mc,

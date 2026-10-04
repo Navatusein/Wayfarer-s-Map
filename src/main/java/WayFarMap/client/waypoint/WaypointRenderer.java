@@ -14,6 +14,7 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -41,6 +42,8 @@ public class WaypointRenderer {
     private static final RenderItem RENDER_ITEM = new RenderItem();
     /** Marker color of waypoints that have neither an icon nor an outline. */
     public static final int DEFAULT_COLOR = 0xFFFFFF;
+    /** Background of a death marker's label on the map: the label's dark, tinted red. */
+    private static final int DEATH_LABEL_BG = 0xC0401216;
     /** Up to this distance, in-world waypoints keep their full size on screen. */
     private static final double NEAR_DISTANCE = 12.0;
 
@@ -259,7 +262,8 @@ public class WaypointRenderer {
 
     /** Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}. */
     public static void drawMapLabel(Waypoint waypoint, int[] rect, float textScale) {
-        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], Theme.LABEL_BG);
+        // A death marker's label is tinted red, so it is never taken for an ordinary waypoint.
+        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], waypoint.death ? DEATH_LABEL_BG : Theme.LABEL_BG);
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         String name = mapLabelName(waypoint);
         GL11.glPushMatrix();
@@ -285,14 +289,38 @@ public class WaypointRenderer {
             return "";
         }
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int room = Config.waypointLabelMaxWidth - font.getStringWidth(distanceSuffix(waypoint));
+        int room = Config.waypointLabelMaxWidth - font.getStringWidth(labelSuffix(waypoint));
         return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));
     }
 
     /** The distance part of the map label: without a name it stands alone, so no gap before it. */
     private static String labelDistance(Waypoint waypoint) {
-        String distance = distanceSuffix(waypoint);
+        String distance = labelSuffix(waypoint);
         return waypoint.name.isEmpty() ? distance.trim() : distance;
+    }
+
+    /** What follows the name on the map: the distance, and how long ago for a death marker. */
+    private static String labelSuffix(Waypoint waypoint) {
+        return distanceSuffix(waypoint) + ageSuffix(waypoint);
+    }
+
+    /** "  5 min ago" for a death marker that knows when the player died; "" otherwise. */
+    public static String ageSuffix(Waypoint waypoint) {
+        if (!waypoint.death || waypoint.diedAt <= 0) {
+            return "";
+        }
+        long minutes = Math.max(0, (System.currentTimeMillis() - waypoint.diedAt) / 60_000);
+        String age;
+        if (minutes < 1) {
+            age = I18n.format("wayfarmap.death.just_now");
+        } else if (minutes < 60) {
+            age = I18n.format("wayfarmap.death.minutes_ago", minutes);
+        } else if (minutes < 60 * 24) {
+            age = I18n.format("wayfarmap.death.hours_ago", minutes / 60);
+        } else {
+            age = I18n.format("wayfarmap.death.days_ago", minutes / (60 * 24));
+        }
+        return "  " + age;
     }
 
     /** " 123m": distance from the player, shown after the name on the world map. */
@@ -494,7 +522,7 @@ public class WaypointRenderer {
             waypoint.x + 0.5,
             waypoint.y,
             waypoint.z + 0.5,
-            labelText(waypoint, false),
+            labelText(waypoint, false) + ageSuffix(waypoint),
             waypoint.outlineColor,
             icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size));
     }

@@ -94,6 +94,19 @@ public final class Theme {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
+    /** A filled circle, one rectangle per row of pixels. */
+    public static void disc(double centerX, double centerY, double radius, int color) {
+        int top = (int) Math.floor(centerY - radius), bottom = (int) Math.ceil(centerY + radius);
+        for (int y = top; y < bottom; y++) {
+            double dy = y + 0.5 - centerY;
+            double reach = Math.sqrt(Math.max(0, radius * radius - dy * dy));
+            int from = (int) Math.round(centerX - reach), to = (int) Math.round(centerX + reach);
+            if (to > from) {
+                fill(from, y, to, y + 1, color);
+            }
+        }
+    }
+
     /** A thin scrollbar: its track, and the thumb lit while {@code lit}; {@code position} is 0 at the top to 1. */
     public static void scrollbar(int x, int y0, int y1, int visible, int total, double position, boolean lit) {
         int track = y1 - y0;
