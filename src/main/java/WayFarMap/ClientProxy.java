@@ -10,6 +10,7 @@ import WayFarMap.client.InspectCommand;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.MobIconDump;
 import WayFarMap.client.PerfTicks;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
@@ -79,6 +80,8 @@ public class ClientProxy extends CommonProxy {
         ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
         // Report of how a block gets onto the 3D map, to send when it looks wrong there.
         ClientCommandHandler.instance.registerCommand(new InspectCommand());
+        // Material to make the map's mob icons from: every mob drawn by the game, its skin and model.
+        ClientCommandHandler.instance.registerCommand(new MobIconDump());
 
         MinecraftForge.EVENT_BUS.register(new IsoEntityDrawer.NameTags());
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());

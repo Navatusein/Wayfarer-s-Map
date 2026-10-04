@@ -616,3 +616,6 @@ wayfarmap.clean.done=Deleted %s.
 wayfarmap.inspect.usage=Usage: %s (without coordinates: the block you look at)
 wayfarmap.inspect.done=3D map report of %s,%s,%s written: wayfarmap/inspect/%s (click to open the folder)
 wayfarmap.inspect.failed=Could not write the 3D map report: %s
+wayfarmap.mobicons.done=Mob icons dumped: %s mobs (%s could not be drawn). Send wayfarmap/dumps/%s (click to open the folder)
+wayfarmap.mobicons.failed=Could not dump the mob icons: %s
+wayfarmap.mobicons.noFramebuffer=Mob icons can't be drawn: framebuffers are off (Video Settings)

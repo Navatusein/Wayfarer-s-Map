@@ -616,3 +616,6 @@ wayfarmap.clean.done=Удалено %s.
 wayfarmap.inspect.usage=Использование: %s (без координат — блок, на который вы смотрите)
 wayfarmap.inspect.done=Отчёт 3D-карты о блоке %s,%s,%s записан: wayfarmap/inspect/%s (нажмите, чтобы открыть папку)
 wayfarmap.inspect.failed=Не удалось записать отчёт 3D-карты: %s
+wayfarmap.mobicons.done=Иконки мобов сохранены: мобов %s (не удалось нарисовать %s). Отправьте wayfarmap/dumps/%s (нажмите, чтобы открыть папку)
+wayfarmap.mobicons.failed=Не удалось сохранить иконки мобов: %s
+wayfarmap.mobicons.noFramebuffer=Нельзя нарисовать иконки мобов: отключены фреймбуферы (Настройки графики)
