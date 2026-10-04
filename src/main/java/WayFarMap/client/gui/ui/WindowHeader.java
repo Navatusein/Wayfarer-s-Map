@@ -14,7 +14,41 @@ public final class WindowHeader {
     /** Width taken on the right by the close button, with its margin. */
     public static final int CLOSE_ROOM = 30;
 
+    /** Scrolling of a subtitle too long for its room: speed (GUI pixels a second) and the pause at each end (ms). */
+    private static final double SCROLL_SPEED = 18;
+    private static final long SCROLL_PAUSE_MS = 1500;
+
     private WindowHeader() {}
+
+    /**
+     * The line under the title. When it is longer than its room it isn't cut short: it slides slowly to its end and
+     * back, pausing at each end, so all of it can be read.
+     */
+    private static void drawSubtitle(FontRenderer font, String text, int x, int y, int room, int color) {
+        int overflow = font.getStringWidth(text) - room;
+        if (overflow <= 0) {
+            font.drawString(text, x, y, color);
+            return;
+        }
+        long travel = Math.round(overflow / SCROLL_SPEED * 1000);
+        long cycle = 2 * (SCROLL_PAUSE_MS + travel);
+        long t = System.currentTimeMillis() % cycle;
+        double shift;
+        if (t < SCROLL_PAUSE_MS) {
+            shift = 0;
+        } else if (t < SCROLL_PAUSE_MS + travel) {
+            shift = (t - SCROLL_PAUSE_MS) / (double) travel;
+        } else if (t < 2 * SCROLL_PAUSE_MS + travel) {
+            shift = 1;
+        } else {
+            shift = 1 - (t - 2 * SCROLL_PAUSE_MS - travel) / (double) travel;
+        }
+        // Eased at both ends of each way, so it starts and stops softly.
+        shift = shift * shift * (3 - 2 * shift);
+        Theme.clip(x, y - 1, x + room, y + 9);
+        font.drawString(text, x - (int) Math.round(shift * overflow), y, color);
+        Theme.unclip();
+    }
 
     /**
      * The close button for the header of a window ending at {@code right}; give it the id of the window's cancel or
@@ -55,7 +89,7 @@ public final class WindowHeader {
         int titleY = subtitle == null ? top + 11 : top + 6;
         font.drawStringWithShadow(shownTitle, textLeft, titleY, Theme.TEXT);
         if (subtitle != null) {
-            font.drawString(Theme.ellipsize(font, subtitle, room), textLeft, top + 17, subtitleColor);
+            drawSubtitle(font, subtitle, textLeft, top + 17, room, subtitleColor);
         }
         // The line under the header: in the accent color under the title.
         int accentRight = Math.min(right - 1, textLeft + font.getStringWidth(shownTitle) + 4);

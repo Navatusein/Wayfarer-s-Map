@@ -476,10 +476,12 @@ public class GuiWorldMap extends ScaledScreen {
             entries.add(
                 addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins)
                     .icon(Icons.ORE)
+                    .iconColor(0xFF5BD6E0)
                     .key("ores"));
             entries.add(
                 addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids)
                     .icon(Icons.SMALL_DROP)
+                    .iconColor(0xFF3F8FE8)
                     .key("fluids"));
         }
         if (Mods.isClaimsAvailable()) {
@@ -489,18 +491,21 @@ public class GuiWorldMap extends ScaledScreen {
                     ClaimsLayer.onShow();
                 }
             }).icon(Icons.CLAIM)
+                .iconColor(0xFFF2C14E)
                 .key("claims"));
         }
         if (Mods.isPowerfailsAvailable()) {
             entries.add(
                 addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails)
                     .icon(Icons.POWER)
+                    .iconColor(0xFFFFD23F)
                     .key("powerfails"));
         }
         if (Mods.isThaumcraftNodesAvailable()) {
             entries.add(
                 addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes)
                     .icon(Icons.NODE)
+                    .iconColor(0xFFC08CFF)
                     .key("nodes"));
         }
         menu = entries;
@@ -1986,8 +1991,9 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (entry.danger) {
             color = Theme.DANGER;
         } else if (entry.iconColor != 0) {
-            // Its own color, dimmed while its toggle is off.
-            color = entry.checked == null || entry.checked || hovered ? entry.iconColor : Theme.TEXT_DISABLED;
+            // Its own color, darker while its toggle is off (but still its color, so it can be told apart).
+            boolean on = entry.checked == null || entry.checked || hovered;
+            color = on ? entry.iconColor : Theme.blend(entry.iconColor, Theme.PANEL | 0xFF000000, 0.55);
         } else if (entry.selected || hovered) {
             color = Theme.ACCENT;
         } else {

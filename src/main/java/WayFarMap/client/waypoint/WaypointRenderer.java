@@ -44,6 +44,8 @@ public class WaypointRenderer {
     public static final int DEFAULT_COLOR = 0xFFFFFF;
     /** Background of a death marker's label on the map: the label's dark, tinted red. */
     private static final int DEATH_LABEL_BG = 0xC0401216;
+    /** The age line under a death marker's name: a light red. */
+    private static final int DEATH_AGE_COLOR = 0xFFE59A96;
     /** Up to this distance, in-world waypoints keep their full size on screen. */
     private static final double NEAR_DISTANCE = 12.0;
 
@@ -249,8 +251,11 @@ public class WaypointRenderer {
             return null;
         }
         int textWidth = font.getStringWidth(name) + font.getStringWidth(distance);
+        // A death marker's age on a second line, under the name.
+        String age = ageLine(waypoint);
+        textWidth = Math.max(textWidth, font.getStringWidth(age));
         int width = (int) Math.ceil((textWidth + 4) * textScale);
-        int height = (int) Math.ceil(10 * textScale);
+        int height = (int) Math.ceil((age.isEmpty() ? 10 : 19) * textScale);
         int x0 = (int) Math.round(sx) - width / 2;
         int y0 = (int) Math.round(sy) + Math.round(size / 2f) + 2;
         return new int[] { x0, y0, x0 + width, y0 + height };
@@ -275,6 +280,10 @@ public class WaypointRenderer {
             font.getStringWidth(name),
             0,
             waypoint.enabled ? Theme.TEXT_MUTED : Theme.TEXT_DISABLED);
+        String age = ageLine(waypoint);
+        if (!age.isEmpty()) {
+            font.drawString(age, 0, 9, waypoint.enabled ? DEATH_AGE_COLOR : Theme.TEXT_DISABLED);
+        }
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
@@ -299,9 +308,14 @@ public class WaypointRenderer {
         return waypoint.name.isEmpty() ? distance.trim() : distance;
     }
 
-    /** What follows the name on the map: the distance, and how long ago for a death marker. */
+    /** What follows the name on the map: the distance (a death marker's age goes on a line of its own). */
     private static String labelSuffix(Waypoint waypoint) {
-        return distanceSuffix(waypoint) + ageSuffix(waypoint);
+        return distanceSuffix(waypoint);
+    }
+
+    /** A death marker's age for the line under its map label ("12 min ago"), or "" for none. */
+    private static String ageLine(Waypoint waypoint) {
+        return ageSuffix(waypoint).trim();
     }
 
     /** "  5 min ago" for a death marker that knows when the player died; "" otherwise. */
