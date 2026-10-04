@@ -20,8 +20,17 @@ public abstract class ScaledScreen extends GuiScreen {
     /** How long a screen takes to slide into place when it opens, and how far it comes from (GUI pixels). */
     private static final long OPEN_MS = 180;
     private static final int OPEN_DISTANCE = 8;
-    /** Not drawn for this long: the screen is being opened (again), not just drawn the next frame. */
-    private static final long REOPEN_MS = 250;
+    /**
+     * Not drawn for this long: the screen is being opened again (e.g. after playing a while), even if no other of
+     * the mod's screens was drawn meanwhile.
+     */
+    private static final long REOPEN_MS = 5000;
+    /**
+     * Frames of the mod's screens drawn so far. A screen not drawn in the frame before (on top or behind another)
+     * is being opened or came back: counted in frames, not time, so a slow frame (a picture loaded, the game
+     * stuttering) doesn't make it slide in again as if it had just been opened.
+     */
+    private static long frame;
 
     /** Scale the screen being drawn uses (screen pixels per GUI pixel), 0 when none of ours is drawing. */
     private static int activeFactor;
@@ -37,6 +46,8 @@ public abstract class ScaledScreen extends GuiScreen {
     private int appliedFactor;
     /** When the screen was opened, and when it was last drawn (milliseconds). */
     private long openedAt, lastDrawn;
+    /** The last of {@link #frame} it was drawn in. */
+    private long lastFrame = -2;
     /**
      * The mod's screen that was open when this one was made (e.g. the world map under its settings): it stays
      * drawn under this one, dimmed by it, instead of the game. Null when this one was opened from the game.
@@ -131,6 +142,10 @@ public abstract class ScaledScreen extends GuiScreen {
             // The scale option changed, or the window: lay the screen out again.
             setWorldAndResolution(mc, 0, 0);
         }
+        if (!drawingBehind) {
+            // A new frame: the screens behind are drawn in it from here.
+            frame++;
+        }
         if (behind != null && showsScreenBehind() && behind.mc != null && behindDepth < MAX_BEHIND) {
             // The screen this one was opened over, as it is now, under this one's dimmed background.
             boolean was = drawingBehind;
@@ -150,11 +165,12 @@ public abstract class ScaledScreen extends GuiScreen {
         int x = drawingBehind ? -10000 : Mouse.getX() * width / mc.displayWidth;
         int y = drawingBehind ? -10000 : height - Mouse.getY() * height / mc.displayHeight - 1;
         long now = System.currentTimeMillis();
-        if (now - lastDrawn > REOPEN_MS) {
+        if (lastFrame < frame - 1 || now - lastDrawn > REOPEN_MS) {
             // Opened, or back from another screen.
             openedAt = now;
         }
         lastDrawn = now;
+        lastFrame = frame;
         int offset = 0;
         if (slidesIn()) {
             // Eases out: fast at first, settling into place.
