@@ -54,7 +54,13 @@ public class MinimapRenderer {
 
     /** Height of the minimap with the lines of text under it. */
     public static int boxHeight() {
-        return Config.minimapSize + shownLines * LINE_HEIGHT;
+        // The text starts its gap under the map; the last line's height is its font's, not a whole line's.
+        return Config.minimapSize + (shownLines > 0 ? Config.minimapTextGap + shownLines * lineHeight() - 3 : 0);
+    }
+
+    /** Height of a line of text under the minimap, at its size. */
+    private static int lineHeight() {
+        return Math.max(1, (int) Math.round(LINE_HEIGHT * Config.minimapTextScale));
     }
 
     /** Left of the minimap on a screen this wide (GUI pixels of the HUD). */
@@ -201,11 +207,16 @@ public class MinimapRenderer {
 
         drawZoomLabel(mc.fontRenderer, x, y, size, Config.MINIMAP_ZOOMS[zoom]);
 
-        int textY = y + size + 3;
+        int textY = y + size + Config.minimapTextGap;
+        double textScale = Config.minimapTextScale;
         for (String line : lines) {
-            mc.fontRenderer
-                .drawStringWithShadow(line, x + size / 2 - mc.fontRenderer.getStringWidth(line) / 2, textY, 0xFFFFFF);
-            textY += LINE_HEIGHT;
+            // Centered under the map at its size.
+            GL11.glPushMatrix();
+            GL11.glTranslated(x + size / 2.0 - mc.fontRenderer.getStringWidth(line) * textScale / 2, textY, 0);
+            GL11.glScaled(textScale, textScale, 1);
+            mc.fontRenderer.drawStringWithShadow(line, 0, 0, 0xFFFFFF);
+            GL11.glPopMatrix();
+            textY += lineHeight();
         }
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -373,7 +384,9 @@ public class MinimapRenderer {
     /** N, E, S and W on the edge of the minimap, in white, turning with it. */
     private static void drawCompass(FontRenderer font, double cx, double cy, double half, boolean round,
         float rotation) {
-        double edge = half - 5;
+        double scale = Config.minimapCompassScale;
+        // Bigger letters sit further in from the edge.
+        double edge = half - 5 * scale;
         for (int i = 0; i < COMPASS_LETTERS.length; i++) {
             double[] direction = rotate(COMPASS_DIRECTIONS[i][0], COMPASS_DIRECTIONS[i][1], rotation);
             // On a square the letter slides along the border, on a circle along the rim.
@@ -382,9 +395,10 @@ public class MinimapRenderer {
             // Placed at sub-pixel positions: rounding to GUI pixels made the letters jump while turning.
             GL11.glPushMatrix();
             GL11.glTranslated(
-                cx + direction[0] * reach - font.getStringWidth(letter) / 2.0 + 1,
-                cy + direction[1] * reach - 3,
+                cx + direction[0] * reach - (font.getStringWidth(letter) / 2.0 - 1) * scale,
+                cy + direction[1] * reach - 3 * scale,
                 0);
+            GL11.glScaled(scale, scale, 1);
             font.drawStringWithShadow(letter, 0, 0, 0xFFFFFF);
             GL11.glPopMatrix();
         }

@@ -1106,15 +1106,21 @@ public class GuiSettings extends ScaledScreen {
         if (Config.minimapShowBiome) {
             lines.add("Plains");
         }
-        int blockHeight = size + (lines.isEmpty() ? 0 : 3 + lines.size() * 10);
+        double textScale = Config.minimapTextScale;
+        int lineHeight = Math.max(1, (int) Math.round(10 * textScale));
+        int blockHeight = size + (lines.isEmpty() ? 0 : Config.minimapTextGap + lines.size() * lineHeight - 3);
         int mapX = x0 + (x1 - x0) * 2 / 5 - size / 2;
         int mapY = y0 + (y1 - y0 - blockHeight) / 2;
         drawPreviewMap(mapX, mapY, size);
-        int textY = mapY + size + 3;
+        int textY = mapY + size + Config.minimapTextGap;
         for (String line : lines) {
-            int lineX = mapX + size / 2 - fontRendererObj.getStringWidth(line) / 2;
-            fontRendererObj.drawStringWithShadow(line, lineX, textY, 0xFFFFFF);
-            textY += 10;
+            // At the size and with the room from the map the minimap has.
+            GL11.glPushMatrix();
+            GL11.glTranslated(mapX + size / 2.0 - fontRendererObj.getStringWidth(line) * textScale / 2, textY, 0);
+            GL11.glScaled(textScale, textScale, 1);
+            fontRendererObj.drawStringWithShadow(line, 0, 0, 0xFFFFFF);
+            GL11.glPopMatrix();
+            textY += lineHeight;
         }
         drawScreenThumbnail(x1 - 8 - 96, y0 + 17, 96, 54);
 
@@ -1182,17 +1188,21 @@ public class GuiSettings extends ScaledScreen {
 
         MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3f);
         if (Config.minimapCompass) {
-            double edge = half - 5;
+            double letterScale = Config.minimapCompassScale;
+            double edge = half - 5 * letterScale;
             for (int i = 0; i < COMPASS_LETTERS.length; i++) {
                 String letter = COMPASS_LETTERS[i];
                 // North up, then clockwise, turning with the map.
                 double a = Math.toRadians(rotation + i * 90);
                 double ux = Math.sin(a), uy = -Math.cos(a);
                 double reach = round ? edge : edge / Math.max(Math.abs(ux), Math.abs(uy));
-                double letterX = centerX + ux * reach - fontRendererObj.getStringWidth(letter) / 2.0 + 1;
-                double letterY = centerY + uy * reach - 3;
-                fontRendererObj
-                    .drawStringWithShadow(letter, (int) Math.round(letterX), (int) Math.round(letterY), 0xFFFFFF);
+                double letterX = centerX + ux * reach - (fontRendererObj.getStringWidth(letter) / 2.0 - 1) * letterScale;
+                double letterY = centerY + uy * reach - 3 * letterScale;
+                GL11.glPushMatrix();
+                GL11.glTranslated(letterX, letterY, 0);
+                GL11.glScaled(letterScale, letterScale, 1);
+                fontRendererObj.drawStringWithShadow(letter, 0, 0, 0xFFFFFF);
+                GL11.glPopMatrix();
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

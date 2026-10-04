@@ -81,6 +81,9 @@ public class Config {
     public static boolean minimapRotate = false;
     /** N, E, S and W on the edge of the minimap. */
     public static boolean minimapCompass = true;
+    /** Size of the compass letters, of the text under the minimap (1 = the game's font), and its room from the map. */
+    public static double minimapCompassScale = 1.0, minimapTextScale = 1.0;
+    public static int minimapTextGap = 3;
     /** Frame around the minimap, and the color of its line (RGB). */
     public static boolean minimapFrame = true;
     public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
@@ -268,6 +271,18 @@ public class Config {
             true,
             () -> minimapCompass,
             v -> minimapCompass = v);
+        parent("compass");
+        decimal(
+            c,
+            "compassScale",
+            "Size of the N, E, S and W letters: 1.0 = the game's font.",
+            1.0,
+            0.5,
+            2.0,
+            0.25,
+            () -> minimapCompassScale,
+            v -> minimapCompassScale = v);
+        parent("enabled");
         bool(c, "frame", "Draw a frame around the minimap.", true, () -> minimapFrame, v -> minimapFrame = v);
         parent("frame");
         color(
@@ -293,6 +308,26 @@ public class Config {
             true,
             () -> minimapShowBiome,
             v -> minimapShowBiome = v);
+        decimal(
+            c,
+            "textScale",
+            "Size of the coordinates and the biome under the minimap: 1.0 = the game's font.",
+            1.0,
+            0.5,
+            2.0,
+            0.25,
+            () -> minimapTextScale,
+            v -> minimapTextScale = v);
+        integer(
+            c,
+            "textGap",
+            "Room between the minimap and the text under it, in pixels.",
+            3,
+            0,
+            16,
+            1,
+            () -> minimapTextGap,
+            v -> minimapTextGap = v);
 
         c = CATEGORY_MAP;
         tab(TAB_MAP);
