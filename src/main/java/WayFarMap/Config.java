@@ -88,6 +88,8 @@ public class Config {
     public static boolean minimapFrame = true;
     public static final int MINIMAP_FRAME_COLOR = 0x2A313B;
     public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
+    /** How opaque the minimap's frame is, in percent, and how thick its colored line is, in pixels. */
+    public static int minimapFrameOpacity = 100, minimapFrameWidth = 1;
     /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
     public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
         MARKER_CIRCLE = 4, MARKER_DOT = 5;
@@ -204,6 +206,8 @@ public class Config {
     public static boolean showPets = true;
     /** Width of the colored frame around mob icons, in GUI pixels. */
     public static int mobFrameWidth = 1;
+    /** How opaque the frame around mob icons is, in percent, and the icons' size, in percent of the usual. */
+    public static int mobFrameOpacity = 100, mobIconScale = 100;
     /** A small arrow at the mob's icon pointing where it looks. */
     public static boolean mobFacing = true;
     /** Names of pets (given with a name tag) under their icon. */
@@ -292,6 +296,26 @@ public class Config {
             MINIMAP_FRAME_COLOR,
             () -> minimapFrameColor,
             v -> minimapFrameColor = v);
+        integer(
+            c,
+            "frameOpacity",
+            "How opaque the minimap frame is, in percent: lower lets the world show through it.",
+            100,
+            0,
+            100,
+            5,
+            () -> minimapFrameOpacity,
+            v -> minimapFrameOpacity = v);
+        integer(
+            c,
+            "frameWidth",
+            "Thickness of the minimap frame's colored line, in pixels.",
+            1,
+            1,
+            3,
+            1,
+            () -> minimapFrameWidth,
+            v -> minimapFrameWidth = v);
         group("info");
         parent("enabled");
         bool(
@@ -822,13 +846,33 @@ public class Config {
         integer(
             c,
             "frameWidth",
-            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels.",
+            "Width of the colored frame around mob icons that tells what kind of mob it is, in pixels; 0 = none.",
             1,
-            1,
+            0,
             3,
             1,
             () -> mobFrameWidth,
             v -> mobFrameWidth = v);
+        integer(
+            c,
+            "frameOpacity",
+            "How opaque the colored frame around mob icons is, in percent.",
+            100,
+            10,
+            100,
+            5,
+            () -> mobFrameOpacity,
+            v -> mobFrameOpacity = v);
+        integer(
+            c,
+            "iconScale",
+            "Size of mob icons, in percent of the usual size.",
+            100,
+            50,
+            250,
+            10,
+            () -> mobIconScale,
+            v -> mobIconScale = v);
         bool(
             c,
             "facing",

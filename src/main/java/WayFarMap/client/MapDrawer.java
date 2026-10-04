@@ -556,7 +556,7 @@ public final class MapDrawer {
         int firstIcon = Config.entityIcons ? Math.max(0, mobs.size() - Config.entityIconLimit) : mobs.size();
         // Icons shrink when zooming out (like waypoints) so they don't cover the map, down to half their size.
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
-        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor);
+        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor * Config.mobIconScale / 100f);
         playerSize = Math.max(4f, playerSize * zoomFactor);
         FontRenderer font = mc.fontRenderer;
         for (int i = 0; i < mobs.size(); i++) {
@@ -631,6 +631,15 @@ public final class MapDrawer {
         double t = Math.min(1, below / range);
         // Eased: fades slowly at first, then quicker.
         return (float) (1 - t * t * (3 - 2 * t));
+    }
+
+    /** The square band between two half sizes around (sx, sy), in four pieces that don't overlap. */
+    private static void frameBand(Tessellator tessellator, double sx, double sy, double inner, double outer,
+        int color) {
+        fillRect(tessellator, sx - outer, sy - outer, sx + outer, sy - inner, color);
+        fillRect(tessellator, sx - outer, sy + inner, sx + outer, sy + outer, color);
+        fillRect(tessellator, sx - outer, sy - inner, sx - inner, sy + inner, color);
+        fillRect(tessellator, sx + inner, sy - inner, sx + outer, sy + inner, color);
     }
 
     private static int withAlpha(int color, float alpha) {
@@ -741,28 +750,21 @@ public final class MapDrawer {
     private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color,
         float alpha) {
         double half = size / 2.0;
-        int frame = Math.max(1, Config.mobFrameWidth);
+        // 0 = no frame: the face alone on its dark tile.
+        int frame = Math.max(0, Config.mobFrameWidth);
+        float frameAlpha = alpha * Config.mobFrameOpacity / 100f;
         Tessellator tessellator = Tessellator.instance;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         if (frame > 1) {
             // A dark line around a wide frame, so it shows on its own color.
-            fillRect(
-                tessellator,
-                sx - half - frame - 0.5,
-                sy - half - frame - 0.5,
-                sx + half + frame + 0.5,
-                sy + half + frame + 0.5,
-                withAlpha(0xA0000000, alpha));
+            frameBand(tessellator, sx, sy, half + frame, half + frame + 0.5, withAlpha(0xA0000000, frameAlpha));
         }
-        fillRect(
-            tessellator,
-            sx - half - frame,
-            sy - half - frame,
-            sx + half + frame,
-            sy + half + frame,
-            withAlpha(color, alpha));
+        if (frame > 0) {
+            // A band around the tile, not a square under it: see-through, it must not darken the face.
+            frameBand(tessellator, sx, sy, half, half + frame, withAlpha(color, frameAlpha));
+        }
         fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, withAlpha(0xFF101418, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on

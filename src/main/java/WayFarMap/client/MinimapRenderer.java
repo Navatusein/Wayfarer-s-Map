@@ -136,17 +136,22 @@ public class MinimapRenderer {
         double centerX = x + half, centerY = y + half;
 
         GL11.glPushMatrix();
-        int frameColor = 0xFF000000 | Config.minimapFrameColor;
+        // The frame: a line of its color, a dark one between it and the map; both as see-through as it is set,
+        // drawn as rings that don't overlap, so it is even all around.
+        float opacity = Config.minimapFrameOpacity / 100f;
+        int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
+        int frameGap = Math.round((Theme.PANEL >>> 24) * opacity) << 24 | Theme.PANEL & 0xFFFFFF;
+        int line = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillCircle(centerX, centerY, half + 2, frameColor);
-                fillCircle(centerX, centerY, half + 1, Theme.PANEL);
+                fillRing(centerX, centerY, half + 1, half + 1 + line, frameColor);
+                fillRing(centerX, centerY, half, half + 1, frameGap);
             }
             fillCircle(centerX, centerY, half, 0xFF0C0E11);
         } else {
             if (Config.minimapFrame) {
-                Gui.drawRect(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
-                Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, frameColor);
+                frameRect(x - 1 - line, y - 1 - line, x + size + 1 + line, y + size + 1 + line, line, frameColor);
+                frameRect(x - 1, y - 1, x + size + 1, y + size + 1, 1, frameGap);
             }
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
         }
@@ -406,6 +411,33 @@ public class MinimapRenderer {
     }
 
     private static final int CIRCLE_SEGMENTS = 64;
+
+    /** A band {@code thickness} wide inside the rectangle's edges, in four pieces that don't overlap. */
+    private static void frameRect(int x0, int y0, int x1, int y1, int thickness, int color) {
+        Gui.drawRect(x0, y0, x1, y0 + thickness, color);
+        Gui.drawRect(x0, y1 - thickness, x1, y1, color);
+        Gui.drawRect(x0, y0 + thickness, x0 + thickness, y1 - thickness, color);
+        Gui.drawRect(x1 - thickness, y0 + thickness, x1, y1 - thickness, color);
+    }
+
+    /** A ring between two radii. */
+    private static void fillRing(double cx, double cy, double inner, double outer, int color) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawing(GL11.GL_TRIANGLE_STRIP);
+        tessellator.setColorRGBA_I(color & 0xFFFFFF, (color >>> 24) & 0xFF);
+        for (int i = CIRCLE_SEGMENTS; i >= 0; i--) {
+            double a = 2 * Math.PI * i / CIRCLE_SEGMENTS;
+            double cos = Math.cos(a), sin = Math.sin(a);
+            tessellator.addVertex(cx + cos * outer, cy + sin * outer, 0);
+            tessellator.addVertex(cx + cos * inner, cy + sin * inner, 0);
+        }
+        tessellator.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
 
     private static void fillCircle(double cx, double cy, double radius, int color) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);

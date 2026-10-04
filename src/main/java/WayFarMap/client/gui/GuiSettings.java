@@ -1141,15 +1141,19 @@ public class GuiSettings extends ScaledScreen {
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;
         double half = size / 2.0;
         double centerX = x + half, centerY = y + half;
-        int frameColor = 0xFF000000 | Config.minimapFrameColor;
+        // The frame as the minimap draws it: its line and a dark one inside, as see-through and thick as set.
+        float opacity = Config.minimapFrameOpacity / 100f;
+        int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
+        int frameGap = Math.round((Theme.PANEL >>> 24) * opacity) << 24 | Theme.PANEL & 0xFFFFFF;
+        int line = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillDisc(centerX, centerY, half + 2, frameColor);
-                fillDisc(centerX, centerY, half + 1, Theme.PANEL);
+                fillRing(centerX, centerY, half + 1, half + 1 + line, frameColor);
+                fillRing(centerX, centerY, half, half + 1, frameGap);
             }
         } else if (Config.minimapFrame) {
-            Theme.fill(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
-            Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, frameColor);
+            frameBand(x - 1 - line, y - 1 - line, x + size + 1 + line, y + size + 1 + line, line, frameColor);
+            frameBand(x - 1, y - 1, x + size + 1, y + size + 1, 1, frameGap);
         }
 
         // The player turns round slowly, so the minimap's turning shows.
@@ -1223,6 +1227,32 @@ public class GuiSettings extends ScaledScreen {
         int mapHeight = Math.max(3, MinimapRenderer.boxHeight() * h / screenHeight);
         Theme.fill(mapLeft, mapTop, mapLeft + mapWidth, mapTop + mapHeight, Theme.ACCENT_DIM);
         Theme.outline(mapLeft, mapTop, mapLeft + mapWidth, mapTop + mapHeight, Theme.ACCENT);
+    }
+
+    /** A band {@code thickness} wide inside the rectangle's edges, in four pieces that don't overlap. */
+    private static void frameBand(int x0, int y0, int x1, int y1, int thickness, int color) {
+        Theme.fill(x0, y0, x1, y0 + thickness, color);
+        Theme.fill(x0, y1 - thickness, x1, y1, color);
+        Theme.fill(x0, y0 + thickness, x0 + thickness, y1 - thickness, color);
+        Theme.fill(x1 - thickness, y0 + thickness, x1, y1 - thickness, color);
+    }
+
+    /** A ring between two radii, drawn as rectangles per row that don't overlap. */
+    private static void fillRing(double centerX, double centerY, double inner, double outer, int color) {
+        int top = (int) Math.floor(centerY - outer), bottom = (int) Math.ceil(centerY + outer);
+        for (int y = top; y < bottom; y++) {
+            double dy = y + 0.5 - centerY;
+            double reach = Math.sqrt(Math.max(0, outer * outer - dy * dy));
+            int from = (int) Math.round(centerX - reach), to = (int) Math.round(centerX + reach);
+            if (Math.abs(dy) < inner) {
+                double hole = Math.sqrt(inner * inner - dy * dy);
+                int holeFrom = (int) Math.round(centerX - hole), holeTo = (int) Math.round(centerX + hole);
+                Theme.fill(from, y, holeFrom, y + 1, color);
+                Theme.fill(holeTo, y, to, y + 1, color);
+            } else if (to > from) {
+                Theme.fill(from, y, to, y + 1, color);
+            }
+        }
     }
 
     /** A filled circle, drawn as one rectangle per row. */
