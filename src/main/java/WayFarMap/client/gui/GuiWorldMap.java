@@ -283,7 +283,7 @@ public class GuiWorldMap extends ScaledScreen {
 
         lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
-        modesButton = new IconButton(ID_MODES, 0, 4, Icons.FLAT, "");
+        modesButton = new IconButton(ID_MODES, 0, 4, Icons.MAP2D, "");
         gridButton = new IconButton(ID_GRID, 0, 4, Icons.GRID, I18n.format("wayfarmap.gui.grid"));
         followButton = new IconButton(ID_FOLLOW, 0, 4, Icons.FOLLOW, I18n.format("wayfarmap.gui.follow"));
         mobsButton = new IconButton(ID_MOBS, 0, 4, Icons.MOBS, "");
