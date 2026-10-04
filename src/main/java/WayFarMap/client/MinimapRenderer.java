@@ -469,7 +469,9 @@ public class MinimapRenderer {
     private static void drawWaypoints(Minecraft mc, double px, double pz, double scale, int x, int y, int size,
         boolean round, float rotation) {
         double half = size / 2.0;
-        double limit = half - 5;
+        float markerSize = Config.minimapWaypointSize;
+        // Markers at the edge stay whole inside it, with their outline.
+        double limit = half - markerSize / 2 - 1;
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
             double[] offset = rotate((waypoint.x + 0.5 - px) * scale, (waypoint.z + 0.5 - pz) * scale, rotation);
             double dx = offset[0], dz = offset[1];
@@ -478,7 +480,7 @@ public class MinimapRenderer {
                 dx *= limit / outside;
                 dz *= limit / outside;
             }
-            WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, 8f, false);
+            WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, markerSize, false);
         }
     }
 }

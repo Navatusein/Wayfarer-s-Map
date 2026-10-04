@@ -219,6 +219,8 @@ public class Config {
 
     public static boolean waypointsInWorld = true;
     public static boolean waypointsOnMinimap = true;
+    /** Size of waypoint markers on the minimap, in GUI pixels. */
+    public static int minimapWaypointSize = 8;
     public static int waypointMaxDistance = 0;
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
@@ -906,6 +908,18 @@ public class Config {
             true,
             () -> waypointsOnMinimap,
             v -> waypointsOnMinimap = v);
+        parent("showOnMinimap");
+        integer(
+            c,
+            "minimapSize",
+            "Size of waypoint markers on the minimap, in pixels.",
+            8,
+            4,
+            12,
+            2,
+            () -> minimapWaypointSize,
+            v -> minimapWaypointSize = v);
+        parent(null);
         integer(
             c,
             "maxDistance",
