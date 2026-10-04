@@ -1029,11 +1029,18 @@ final class FaceRenderer {
                         pending.shot.shade[view] = shade;
                     }
                     long u0 = System.nanoTime();
+                    // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a
+                    // table for the shade instead of dividing each color of each pixel.
+                    int[] table = shade >= 1f ? null : shadeTable(shade);
                     for (int row = 0; row < pixels; row++) {
                         // Read back bottom-up; pictures are top-down.
                         int from = (sy + pixels - 1 - row) * SIZE + sx;
+                        if (table == null) {
+                            System.arraycopy(all, from, image, row * pixels, pixels);
+                            continue;
+                        }
                         for (int column = 0; column < pixels; column++) {
-                            image[row * pixels + column] = unshade(all[from + column], shade);
+                            image[row * pixels + column] = unshade(all[from + column], table);
                         }
                     }
                     long u1 = System.nanoTime();
@@ -1924,15 +1931,37 @@ final class FaceRenderer {
         GL11.glLoadMatrix(matrixBuffer);
     }
 
-    /** Takes the game's side shading out of a pixel, so the tracer can shade it by the light of its place. */
-    private static int unshade(int argb, float shade) {
-        if (shade >= 1f || (argb >>> 24) == 0) {
+    /**
+     * Takes the game's side shading out of a pixel, so the tracer can shade it by the light of its place: each color
+     * through the table for its shade ({@link #shadeTable}).
+     */
+    private static int unshade(int argb, int[] table) {
+        if ((argb >>> 24) == 0) {
             return argb;
         }
-        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) / shade + 0.5f));
-        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) / shade + 0.5f));
-        int b = Math.min(255, (int) ((argb & 0xFF) / shade + 0.5f));
-        return argb & 0xFF000000 | r << 16 | g << 8 | b;
+        return argb & 0xFF000000 | table[(argb >> 16) & 0xFF] << 16
+            | table[(argb >> 8) & 0xFF] << 8
+            | table[argb & 0xFF];
+    }
+
+    /** Tables for {@link #unshade}, by the shade's bits: a side's few shades come back again and again. */
+    private static final Map<Integer, int[]> SHADE_TABLES = new HashMap<>();
+
+    /** Each color (0-255) with the shade taken out, as dividing it would give. */
+    private static int[] shadeTable(float shade) {
+        int key = Float.floatToIntBits(shade);
+        int[] table = SHADE_TABLES.get(key);
+        if (table == null) {
+            if (SHADE_TABLES.size() > 256) {
+                SHADE_TABLES.clear();
+            }
+            table = new int[256];
+            for (int color = 0; color < 256; color++) {
+                table[color] = Math.min(255, (int) (color / shade + 0.5f));
+            }
+            SHADE_TABLES.put(key, table);
+        }
+        return table;
     }
 
     /**
