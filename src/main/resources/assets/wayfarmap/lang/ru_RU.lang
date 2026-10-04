@@ -354,6 +354,7 @@ wayfarmap.pictures.pixels=%s пикс. на блок
 wayfarmap.pictures.minutes=~%s мин
 wayfarmap.pictures.under_minute=<1 мин
 wayfarmap.pictures.no_3d=Здесь пока нет 3D-карты
+wayfarmap.pictures.iso_empty=3D-карта здесь пуста: включите запись блоков для 3D-карты и исследуйте мир — тогда можно будет сделать 3D-снимок (и потом с выключенной записью тоже).
 wayfarmap.pictures.night=Ночью (факелы и луна)
 wayfarmap.pictures.format=Формат
 wayfarmap.pictures.single=Одна картинка

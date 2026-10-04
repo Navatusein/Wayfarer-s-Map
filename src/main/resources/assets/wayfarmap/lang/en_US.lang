@@ -354,6 +354,7 @@ wayfarmap.pictures.pixels=%s px per block
 wayfarmap.pictures.minutes=~%s min
 wayfarmap.pictures.under_minute=<1 min
 wayfarmap.pictures.no_3d=No 3D map here yet
+wayfarmap.pictures.iso_empty=3D map is empty here: turn on recording blocks for the 3D map and explore, then the 3D picture can be made (also with recording off again).
 wayfarmap.pictures.night=At night (torches and moon)
 wayfarmap.pictures.format=Format
 wayfarmap.pictures.single=One picture

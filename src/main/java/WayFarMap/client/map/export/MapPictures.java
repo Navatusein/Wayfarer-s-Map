@@ -1,8 +1,8 @@
 package WayFarMap.client.map.export;
 
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.Image;
-import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
@@ -12,8 +12,11 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReadParam;
@@ -170,30 +173,37 @@ public final class MapPictures {
 
     /**
      * Puts the picture on the clipboard (on a background thread: big pictures take a moment), on a dark background,
-     * at most {@link #CLIPBOARD_MAX} pixels long.
+     * at most {@link #CLIPBOARD_MAX} pixels long. With the system's own tool first (PowerShell on Windows, osascript
+     * on macOS, wl-copy or xclip on Linux): Java's clipboard is often unusable in the game (headless with lwjgl3ify,
+     * and on Windows it hands the picture over only when pasted, which fails); it is the last try.
      *
      * @param done told on that thread: null if it worked, else why not
      */
     public static void copy(Picture picture, java.util.function.Consumer<String> done) {
         Thread thread = new Thread(() -> {
+            File file = null;
             try {
                 BufferedImage read = read(picture.image, CLIPBOARD_MAX);
                 if (read == null) {
                     done.accept("unreadable");
                     return;
                 }
-                BufferedImage opaque = new BufferedImage(
-                    read.getWidth(),
-                    read.getHeight(),
-                    BufferedImage.TYPE_INT_RGB);
-                Graphics2D g = opaque.createGraphics();
-                g.setRenderingHint(
-                    RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-                g.setColor(new java.awt.Color(BACKGROUND, true));
-                g.fillRect(0, 0, read.getWidth(), read.getHeight());
-                g.drawImage(read, 0, 0, null);
-                g.dispose();
+                BufferedImage opaque = opaque(read);
+                file = File.createTempFile("wayfarmap-copy", ".png");
+                file.deleteOnExit();
+                if (!ImageIO.write(opaque, "png", file)) {
+                    done.accept("no PNG writer");
+                    return;
+                }
+                String nativeFailure = copyWithSystem(file);
+                if (nativeFailure == null) {
+                    done.accept(null);
+                    return;
+                }
+                if (GraphicsEnvironment.isHeadless()) {
+                    done.accept(nativeFailure);
+                    return;
+                }
                 Toolkit.getDefaultToolkit()
                     .getSystemClipboard()
                     .setContents(new ImageSelection(opaque), null);
@@ -201,10 +211,84 @@ public final class MapPictures {
             } catch (Throwable t) {
                 WayFarMap.LOG.warn("Could not copy the map picture", t);
                 done.accept(t.getMessage() == null ? t.toString() : t.getMessage());
+            } finally {
+                if (file != null) {
+                    file.delete();
+                }
             }
         }, "WayFarMap copy picture");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /** The picture on the dark background, without see-through parts (many programs paste them black). */
+    private static BufferedImage opaque(BufferedImage image) {
+        BufferedImage opaque = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = opaque.createGraphics();
+        g.setColor(new java.awt.Color(BACKGROUND, true));
+        g.fillRect(0, 0, image.getWidth(), image.getHeight());
+        g.drawImage(image, 0, 0, null);
+        g.dispose();
+        return opaque;
+    }
+
+    /** Puts the PNG file on the clipboard with the system's tool; null if it worked, else why not. */
+    private static String copyWithSystem(File png) {
+        String os = System.getProperty("os.name", "")
+            .toLowerCase(Locale.ROOT);
+        String path = png.getAbsolutePath();
+        List<List<String>> tries = new ArrayList<>();
+        if (os.contains("win")) {
+            // Copies the picture itself into the clipboard, so it stays there after PowerShell ends.
+            String script = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
+                + "$i = [System.Drawing.Image]::FromFile('"
+                + path.replace("'", "''")
+                + "'); [System.Windows.Forms.Clipboard]::SetImage($i); $i.Dispose()";
+            tries.add(Arrays.asList("powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", script));
+        } else if (os.contains("mac")) {
+            String escaped = path.replace("\\", "\\\\")
+                .replace("\"", "\\\"");
+            tries.add(
+                Arrays.asList(
+                    "osascript",
+                    "-e",
+                    "set the clipboard to (read (POSIX file \"" + escaped + "\") as \u00ABclass PNGf\u00BB)"));
+        } else {
+            if (System.getenv("WAYLAND_DISPLAY") != null) {
+                tries.add(Arrays.asList("wl-copy", "--type", "image/png"));
+            }
+            tries.add(Arrays.asList("xclip", "-selection", "clipboard", "-t", "image/png", "-i", path));
+        }
+        String failure = "no clipboard tool";
+        for (List<String> command : tries) {
+            try {
+                ProcessBuilder builder = new ProcessBuilder(command);
+                // Not read: the tools may stay running to serve the clipboard (xclip, wl-copy), keeping a pipe open.
+                builder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                builder.redirectError(ProcessBuilder.Redirect.INHERIT);
+                String tool = command.get(0);
+                if (tool.equals("wl-copy")) {
+                    builder.redirectInput(png);
+                }
+                Process process = builder.start();
+                if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                    process.destroy();
+                    failure = tool + " took too long";
+                } else if (process.exitValue() != 0) {
+                    failure = tool + " failed (" + process.exitValue() + ")";
+                } else {
+                    return null;
+                }
+            } catch (IOException e) {
+                failure = "no " + command.get(0) + " (install xclip or wl-clipboard)";
+            } catch (InterruptedException e) {
+                Thread.currentThread()
+                    .interrupt();
+                return "interrupted";
+            }
+        }
+        WayFarMap.LOG.warn("Could not copy the map picture with the system's tool: {}", failure);
+        return failure;
     }
 
     /** A picture for the clipboard. */

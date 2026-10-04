@@ -128,8 +128,11 @@ public class GuiMapPictures extends ScaledScreen {
     private final int dimension;
     private final String flatWhat, name, dimensionName;
     private boolean iso;
-    /** Whether the dimension has a 3D map to save. */
-    private final boolean isoAvailable;
+    /**
+     * Whether the dimension's 3D map has blocks to save; recording them may be off, what was recorded is still
+     * there.
+     */
+    private boolean isoAvailable;
     private final List<Quality> flatChoices = new ArrayList<>();
     /** Counted the first time 3D is picked (it reads the 3D map); null until then. */
     private List<Quality> isoChoices;
@@ -176,7 +179,8 @@ public class GuiMapPictures extends ScaledScreen {
         this.flatWhat = flatWhat;
         this.name = name;
         this.dimensionName = dimensionName;
-        this.isoAvailable = IsoExport.of(dimension, Config.isoRotation, IsoExport.MAX_LEVEL, false) != null;
+        IsoExport probe = IsoExport.of(dimension, Config.isoRotation, IsoExport.MAX_LEVEL, false);
+        this.isoAvailable = probe != null && probe.hasBlocks();
         this.iso = iso && isoAvailable;
         countFlat();
     }
@@ -219,6 +223,15 @@ public class GuiMapPictures extends ScaledScreen {
                     !tiles.isEmpty()));
         }
         isoQuality = Math.min(isoQuality, Math.max(0, isoChoices.size() - 1));
+        boolean any = false;
+        for (Quality quality : isoChoices) {
+            any |= quality.usable;
+        }
+        if (!any) {
+            // Files, but no blocks in them: as empty as no 3D map.
+            isoAvailable = false;
+            iso = false;
+        }
     }
 
     private List<Quality> choices() {
@@ -760,11 +773,25 @@ public class GuiMapPictures extends ScaledScreen {
         if (!big) {
             super.drawScaled(mouseX, mouseY, partialTicks);
             drawToast(height - 4);
+            drawIsoNote(mouseX, mouseY);
             return;
         }
         drawBig(mouseX, mouseY);
         super.drawScaled(mouseX, mouseY, partialTicks);
         drawToast(height - 4);
+    }
+
+    /** Why 3D can't be picked, under the mouse over its button. */
+    private void drawIsoNote(int mouseX, int mouseY) {
+        if (isoAvailable || !isoButton.isMouseOver(mouseX, mouseY)) {
+            return;
+        }
+        drawHoveringText(
+            fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.pictures.iso_empty"), 180),
+            mouseX,
+            mouseY,
+            fontRendererObj);
+        GL11.glDisable(GL11.GL_LIGHTING);
     }
 
     private void updateButtons(boolean big) {
