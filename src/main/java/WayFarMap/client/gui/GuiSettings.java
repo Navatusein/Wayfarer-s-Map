@@ -55,6 +55,8 @@ public class GuiSettings extends ScaledScreen {
     private static final int PREVIEW_HEIGHT = 96;
     /** Room over the mobs' options for their preview. */
     private static final int MOBS_PREVIEW_HEIGHT = 100;
+    /** Room over the player icon's options for its preview. */
+    private static final int MARKER_PREVIEW_HEIGHT = 84;
     /** Size of the squares the preview's ground is drawn with. */
     private static final int PREVIEW_CELL = 2;
     /** How long the options slide in after another tab is opened, in milliseconds. */
@@ -419,7 +421,7 @@ public class GuiSettings extends ScaledScreen {
         return !searching() && Config.TAB_MOBS.equals(Config.CATEGORIES.get(selectedCategory));
     }
 
-    /** The player marker's tab shows a preview of it under the options. */
+    /** The player icon's tab shows a preview of it over the options. */
     private boolean showsMarkerPreview() {
         return !searching() && Config.CATEGORY_PLAYER_MARKER.equals(Config.CATEGORIES.get(selectedCategory));
     }
@@ -428,6 +430,9 @@ public class GuiSettings extends ScaledScreen {
     private int listTop() {
         if (showsMinimapPreview()) {
             return contentTop + PREVIEW_HEIGHT;
+        }
+        if (showsMarkerPreview()) {
+            return contentTop + MARKER_PREVIEW_HEIGHT;
         }
         return contentTop + (showsMobsPreview() ? MOBS_PREVIEW_HEIGHT : 0);
     }
@@ -438,12 +443,7 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private int maxScroll() {
-        int height = listHeight();
-        if (showsMarkerPreview()) {
-            // The marker's preview under the options: its title and box.
-            height += 10 + 12 + 64 + 4;
-        }
-        return Math.max(0, height - (contentBottom - listTop()));
+        return Math.max(0, listHeight() - (contentBottom - listTop()));
     }
 
     private void clampScroll() {
@@ -897,6 +897,9 @@ public class GuiSettings extends ScaledScreen {
         if (showsMobsPreview()) {
             drawMobsPreview(contentTop + slide);
         }
+        if (showsMarkerPreview()) {
+            drawMarkerPreview(contentTop + slide);
+        }
 
         int listTop = listTop();
         Config.Option hovered = null;
@@ -960,9 +963,6 @@ public class GuiSettings extends ScaledScreen {
                     y + (ROW_HEIGHT - RESET_ICON.length) / 2,
                     over ? Theme.ACCENT : Theme.TEXT_MUTED);
             }
-        }
-        if (showsMarkerPreview()) {
-            drawMarkerPreview(listTop + listHeight() + 10 - drawnScroll() + slide);
         }
         Theme.unclip();
         if (editedOption != null) {
@@ -1103,20 +1103,19 @@ public class GuiSettings extends ScaledScreen {
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
-    /** Under the marker's options: the marker as on the world map, on dark and on light ground. */
-    private void drawMarkerPreview(int y) {
-        int boxHeight = 64, boxRight = right - 10;
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), contentLeft, y, Theme.ACCENT);
-        y += 12;
-        int middle = (contentLeft + boxRight) / 2;
-        Theme.fill(contentLeft, y, middle, y + boxHeight, 0xFF0C0E11);
-        Theme.fill(middle, y, boxRight, y + boxHeight, 0xFFC9D3B4);
-        Theme.outline(contentLeft, y, boxRight, y + boxHeight, Theme.BORDER);
+    /** Over the player icon's options: the icon as on the world map, on dark and on light ground. */
+    private void drawMarkerPreview(int y0) {
+        int x0 = contentLeft, x1 = right - 10, y1 = y0 + MARKER_PREVIEW_HEIGHT - 6;
+        int middle = (x0 + x1) / 2;
+        Theme.fill(x0, y0, middle, y1, 0xFF0C0E11);
+        Theme.fill(middle, y0, x1, y1, 0xFFC9D3B4);
+        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
         // Turning slowly, so its direction shows. The world map's size (5 at 100%).
         float yaw = (System.currentTimeMillis() % 8000L) * 360f / 8000f;
-        double cy = y + boxHeight / 2.0;
-        MapDrawer.drawPlayerArrow((contentLeft + middle) / 2.0, cy, yaw, 5f);
-        MapDrawer.drawPlayerArrow((middle + boxRight) / 2.0, cy, yaw, 5f);
+        double cy = (y0 + 12 + y1) / 2.0;
+        MapDrawer.drawPlayerArrow((x0 + middle) / 2.0, cy, yaw, 5f);
+        MapDrawer.drawPlayerArrow((middle + x1) / 2.0, cy, yaw, 5f);
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
