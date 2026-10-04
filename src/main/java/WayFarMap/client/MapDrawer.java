@@ -696,19 +696,23 @@ public final class MapDrawer {
         return friendly;
     }
 
-    /**
-     * Name given to the mob with a name tag, or null: none, or its kind's names are off (pets' and other mobs' are
-     * switched apart).
-     */
+    /** Name given to the mob with a name tag, or null: none, or the names of its kind are off. */
     private static String mobName(EntityLivingBase entity) {
-        if (!(entity instanceof EntityLiving)) {
+        if (!(entity instanceof EntityLiving) || !((EntityLiving) entity).hasCustomNameTag() || !namesShown(entity)) {
             return null;
         }
-        EntityLiving living = (EntityLiving) entity;
-        if (!living.hasCustomNameTag() || !(isPet(entity) ? Config.petNames : Config.mobNames)) {
-            return null;
+        return ((EntityLiving) entity).getCustomNameTag();
+    }
+
+    /** Whether names are shown for the mob's kind, told apart as for its frame color. */
+    private static boolean namesShown(EntityLivingBase entity) {
+        if (isPet(entity)) {
+            return Config.petNames;
         }
-        return living.getCustomNameTag();
+        if (entity instanceof IMob) {
+            return Config.hostileNames;
+        }
+        return isFriendly(entity) ? Config.friendlyNames : Config.neutralNames;
     }
 
     /** Small name centered under an icon, at {@code textScale} of the normal text size. */

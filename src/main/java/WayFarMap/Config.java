@@ -214,8 +214,8 @@ public class Config {
     public static boolean mobFacing = true;
     /** Names of pets (given with a name tag) under their icon. */
     public static boolean petNames = true;
-    /** Names of other mobs given with a name tag under their icon. */
-    public static boolean mobNames = true;
+    /** Names given with a name tag under the icons of hostile, neutral and friendly mobs. */
+    public static boolean hostileNames = true, neutralNames = true, friendlyNames = true;
 
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
@@ -893,6 +893,30 @@ public class Config {
             true,
             () -> mobFacing,
             v -> mobFacing = v);
+        // Names given with a name tag, each kind of mob on its own.
+        group("names");
+        parent(null);
+        bool(
+            c,
+            "hostileNames",
+            "Names of hostile mobs (given with a name tag) under their icon.",
+            true,
+            () -> hostileNames,
+            v -> hostileNames = v);
+        bool(
+            c,
+            "neutralNames",
+            "Names of neutral mobs (given with a name tag) under their icon.",
+            true,
+            () -> neutralNames,
+            v -> neutralNames = v);
+        bool(
+            c,
+            "friendlyNames",
+            "Names of friendly mobs (given with a name tag) under their icon.",
+            true,
+            () -> friendlyNames,
+            v -> friendlyNames = v);
         bool(
             c,
             "petNames",
@@ -900,13 +924,6 @@ public class Config {
             true,
             () -> petNames,
             v -> petNames = v);
-        bool(
-            c,
-            "mobNames",
-            "Names of other mobs (not pets) given with a name tag under their icon.",
-            true,
-            () -> mobNames,
-            v -> mobNames = v);
         tab(null);
 
         c = CATEGORY_WAYPOINTS;
