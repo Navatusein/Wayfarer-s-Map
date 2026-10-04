@@ -231,6 +231,8 @@ public class Config {
     public static int waypointMapLabels = LABELS_ALWAYS;
     /** Waypoint names in the world: always, or only for the one the crosshair is on (the icon alone before). */
     public static int waypointWorldLabels = LABELS_ALWAYS;
+    /** How far off a waypoint's icon the crosshair may be for its name to show, in degrees. */
+    public static int waypointLookZone = 4;
     public static int waypointMaxDistance = 0;
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
@@ -1023,6 +1025,16 @@ public class Config {
             new String[] { "always", "look" },
             () -> waypointWorldLabels,
             v -> waypointWorldLabels = v);
+        integer(
+            c,
+            "lookZone",
+            "With names shown when looked at: how far off the waypoint's icon the crosshair may be, in degrees.",
+            4,
+            0,
+            20,
+            1,
+            () -> waypointLookZone,
+            v -> waypointLookZone = v);
         bool(
             c,
             "fadeNear",

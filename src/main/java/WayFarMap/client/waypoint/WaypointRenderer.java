@@ -694,9 +694,7 @@ public class WaypointRenderer {
 
         // The font draws text with almost no alpha as opaque: below that the box is left out.
         if (labelAlpha >= 0.03f) {
-            if (outlineColor != null) {
-                fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, faded(0xFF000000 | outlineColor, labelAlpha));
-            }
+            // The box plain: the waypoint's color frames the icon, as on the maps.
             fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, labelAlpha));
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             int textY = top + 2;
@@ -710,10 +708,20 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
-        if (icon == null || !icon.draw(0f, top - 11f, 16f)) {
-            int color = 0xFF000000 | (outlineColor != null ? outlineColor : DEFAULT_COLOR);
+        if (outlineColor != null) {
+            // As on the maps: a dark line, the waypoint's color around the icon, and a dark tile under it.
+            fillRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
+            fillRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
+            fillRect(-8, top - 19, 8, top - 3, faded(0xE0202020, alpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        }
+        boolean drawn = icon != null && icon.draw(0f, top - 11f, 16f);
+        if (!drawn && outlineColor != null) {
+            // No icon: the frame filled with the color, as on the maps.
+            fillRect(-8, top - 19, 8, top - 3, faded(0xFF000000 | outlineColor, alpha));
+        } else if (!drawn) {
             fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
-            fillRect(-3, top - 11, 3, top - 5, faded(color, alpha));
+            fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | DEFAULT_COLOR, alpha));
         }
 
         GL11.glPopAttrib();
@@ -740,7 +748,9 @@ public class WaypointRenderer {
         }
         double cos = (x * lookX + iconY * lookY + z * lookZ) / length;
         double angle = Math.acos(Math.max(-1, Math.min(1, cos)));
-        return angle <= Math.max(LOOK_ANGLE_MIN, Math.atan(10 * scale / length));
+        // The icon itself, and around it as far as set: it needn't be aimed at exactly.
+        double zone = Math.toRadians(Math.max(0, Config.waypointLookZone));
+        return angle <= Math.max(LOOK_ANGLE_MIN, Math.atan(10 * scale / length)) + zone;
     }
 
     /** The color with its alpha times {@code alpha}. */
