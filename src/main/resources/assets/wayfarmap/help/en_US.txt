@@ -1,4 +1,4 @@
-# Basics
+# {icon:help} Basics
 §fWayfarer's Map§r draws everything you have §aalready seen§r. New places appear on the map as you explore.
 
 - §e{key:open_map}§r — open / close the world map
@@ -7,7 +7,7 @@
 
 > Every key, and how to change them — the §bKeys§r section.
 
-# Keys
+# {icon:keys} Keys
 All keys of the mod are set in Minecraft's §bOptions → Controls§r (category §fWayfarer's Map§r); this list shows them as they are set now.
 
 - §e{key:open_map}§r — open / close the world map
@@ -30,7 +30,7 @@ All keys of the mod are set in Minecraft's §bOptions → Controls§r (category 
 - §eSpace§r — back to the player, §eEsc§r — close
 - §eQ§r / §eE§r — turn the 3D view
 
-# Map buttons
+# {icon:buttons} Map buttons
 The top of the map has §ficons§r; hover one to see its name.
 
 §fLeft:§r
@@ -55,7 +55,7 @@ The top of the map has §ficons§r; hover one to see its name.
 
 Any button of the map except the §bgear§r and the dimension title can be hidden: §bSettings → World map → Buttons on the map§r. The §finterface scale§r is there too.
 
-# Map navigation
+# {icon:navigation} Map navigation
 - §eLeft drag§r — move the map
 - §eWheel§r — zoom (towards the cursor)
 - §eSpace§r — back to the player
@@ -74,7 +74,7 @@ Under §fglass§r the map shows what is below it, lightly tinted with the glass 
 
 The bottom left shows the coordinates under the cursor. §7(?)§r means the place is not explored yet.
 
-# Waypoints
+# {icon:waypoints} Waypoints
 A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem icon§r. It shows on the map, the minimap and in the world.
 
 - Create: §e{key:new_waypoint}§r, §eRight click → New waypoint§r or the button in the list
@@ -92,21 +92,21 @@ A waypoint is a point with a §fname§r, an §foutline color§r and an §fitem i
 
 > Very many waypoints (hundreds)? Set §bSettings → Waypoints → View distance§r: the world shows only the near ones, the maps show all.
 
-# Waypoint groups
+# {icon:groups} Waypoint groups
 Groups hide waypoints in bulk, for example §f"Ores"§r or §f"Bases"§r.
 
 - Create a group in the waypoint list §b(§e{key:waypoint_list}§b)
 - §eDrag a waypoint with the left button§r onto a group to move it
 - The toggle next to a group hides / shows §fall its waypoints at once§r
 
-# Teleport
+# {icon:teleport} Teleport
 ! Teleporting works §fonly with permission for /tp§r on the server (or cheats in single player). Without it there are no teleport buttons.
 
 - §eRight click → Teleport here§r — to the highest safe spot
 - If the height is unknown (unexplored), the map §fasks for Y§r in a window
 - The waypoint list has a teleport button for each waypoint
 
-# Caves
+# {icon:caves} Caves
 Cave mode shows §fa layer underground§r instead of the surface.
 
 - §bCaves§r / §e{key:cave_mode}§r: §fauto§r — on while you are underground; §fon§r / §foff§r — always
@@ -116,27 +116,27 @@ Cave mode shows §fa layer underground§r instead of the surface.
 
 > Caves get on the map when you walk through them — the map draws what is around you.
 
-# Biomes and search
+# {icon:biomes} Biomes and search
 - §bBiomes§r — colors the map by biome (in any dimension, also in the Nether and underground); hovering shows the biome at the bottom
 - The §fsearch field§r shows up at the top in biome, ore or fluid view
 - Example: type §e"Ocean"§r — everything else turns §7gray§r and oceans get §6outlined§r
 - §eEsc§r in the field clears the search, §eEnter§r leaves the field
 
-# Topography
+# {icon:topo} Topography
 - §bModes → Topography§r — the surface by height, in JourneyMap's look: water in flat §9dark blue§r (lighter along the shore), land in flat bands from §2dark green§r at the shore through gray-green and slate to §dlavender§r and nearly §fwhite§r peaks
 - Dark brown §fcontour lines§r between the bands join places of equal height: close lines mean a steep slope
 - Biomes and topography replace each other: turning one on turns the other off. Works on the minimap too
 - The line step and the lines themselves — §bSettings → 2D map§r
 - Made from the heights of the explored surface; caves and the 3D map are not shown in this view
 
-# Map view
+# {icon:view} Map view
 - §bLighting§r (sun / moon) — one button, round and round: §fauto§r (the map §ffollows the time of day§r) → §falways day§r → §falways night§r; at night places lit by torches, lamps and lava glow
 - §bGrid§r — the 16×16 chunk grid
 - §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Under roofs and overhangs the real floor shows, not solid stone (how deep to look — §bSettings → 3D map → Look under roofs§r). Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
 - §bMobs§r — a menu of checkboxes: neutral, friendly, pets, hostile, players. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
-# Ores and fluids
+# {icon:ores} Ores and fluids
 Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and §bFluids§r checkboxes in the §bAdd-on layers§r menu (layers icon, top left) — they are §fexclusive§r, only one is on.
 
 - Hover a vein — a tooltip with its ores
@@ -146,7 +146,7 @@ Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and 
 
 ! Veins show up only after prospecting (mined ores, samples, scanners).
 
-# Power failures (GregTech)
+# {icon:power} Power failures (GregTech)
 When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r checkbox in the §bAdd-on layers§r menu shows them on the map and the minimap with a §cred frame§r and a lightning icon.
 
 - Hover — which machine, coordinates, how many times and when it last failed
@@ -157,7 +157,7 @@ When a GregTech machine runs out of energy, GregTech records a §fpower failure�
 
 > Your whole team sees them: the GregTech server sends them.
 
-# Thaumcraft nodes (TCNodeTracker)
+# {icon:nodes} Thaumcraft nodes (TCNodeTracker)
 Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded with TCNodeTracker show on the map and the minimap — a node icon in the color of its §fstrongest aspect§r with that aspect inside. Turned on with the §bThaumcraft nodes§r checkbox in the §bAdd-on layers§r menu.
 
 - Hover — node type, modifier, every aspect with its amount, and the coordinates
@@ -166,7 +166,7 @@ Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded
 - §eRight click a node → Remove node§r — removes it from TCNodeTracker's list
 - The search at the top finds aspects: §e"ignis"§r, §e"aer ordo"§r — other nodes fade
 
-# Claims (ServerUtilities)
+# {icon:claims} Claims (ServerUtilities)
 Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bAdd-on layers§r menu.
 
 §fLeft drag a rectangle:§r
@@ -185,7 +185,7 @@ Colors: every claim in its team's color, yours too (a bit brighter). Chunk loade
 
 ! A selection is at most §f64×64§r chunks. Claim and load limits come from the server — see the counter at the bottom right.
 
-# Team map
+# {icon:team} Team map
 Every player has §ftheir own map§r. If the mod is on the §fserver§r too (with §fServerUtilities§r), a team's map becomes §ashared§r.
 
 - Create or join a team — §fyour whole map§r (all dimensions and caves) is sent to the team in the background, and you get the team's
@@ -201,7 +201,7 @@ Every player has §ftheir own map§r. If the mod is on the §fserver§r too (wit
 ! Without a team your map stays yours only — nobody else's reaches you.
 > To turn it off: §bSettings → 2D map → Team map§r.
 
-# Loading an area (/wf chunkload)
+# {icon:chunkload} Loading an area (/wf chunkload)
 The command maps a §flarge area around you§r without walking it: the server loads (and generates if needed) the chunks, and the map draws them.
 
 - §e/wf chunkload 2d <radius>§r — the flat map, radius in chunks
@@ -226,7 +226,7 @@ The command maps a §flarge area around you§r without walking it: the server lo
 
 ! Needs operator rights (cheats in single player). On a shared server a large radius loads the server.
 
-# Settings
+# {icon:settings} Settings
 The §bSettings§r button on the map opens all options by category:
 
 - §fMinimap§r — size, §fposition anywhere on screen§r (dragged with the mouse), zoom, coordinates and biome, §fround shape§r and §frotate with view§r (view direction always up). The compass points N, E, S, W are marked on the minimap's edge

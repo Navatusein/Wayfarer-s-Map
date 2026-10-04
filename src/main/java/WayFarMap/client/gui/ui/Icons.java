@@ -119,6 +119,29 @@ public final class Icons {
         "#######..", "#.....##.", "#.###..##", "#.......#", "#.#####.#", "#.......#", "#.####..#", "#.......#",
         "#.#####.#", "#.......#", "#########" };
 
+    public static final String[] KEYS = { // a keyboard
+        "###########", "#.........#", "#.#.#.#.#.#", "#.........#", "#.#.#####.#", "#.........#", "###########" };
+
+    public static final String[] ORE = { // a cut gem
+        "..#####..", ".#.#.#.#.", "#########", ".#.....#.", "..#...#..", "...#.#...", "....#...." };
+
+    public static final String[] POWER = { // a lightning bolt
+        "....###", "...###.", "..###..", ".######", "######.", "..###..", ".###...", "###....", "#......" };
+
+    public static final String[] NODE = { // a sparkle
+        "....#....", "....#....", "...###...", "..#####..", "#########", "..#####..", "...###...", "....#....",
+        "....#...." };
+
+    public static final String[] CLAIM = { // a shield
+        "#########", "#.......#", "#.......#", "#.......#", ".#.....#.", ".#.....#.", "..#...#..", "...#.#...",
+        "....#...." };
+
+    /** Marks of the help's notes: an exclamation mark for an important one, a light bulb for a tip. */
+    public static final String[] NOTE = { "##", "##", "##", "##", "##", "..", "##" };
+    public static final String[] TIP = { ".###.", "#...#", "#...#", "#...#", ".#.#.", ".###.", "..#.." };
+    /** A list item's mark. */
+    public static final String[] BULLET = { ".#.", "###", ".#." };
+
     /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
     public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
     public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
