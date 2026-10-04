@@ -1078,6 +1078,9 @@ public class Config {
         abstract void save(Configuration configuration);
 
         public abstract void reset();
+
+        /** Whether it is still set to its default value. */
+        public abstract boolean isDefault();
     }
 
     public static class BoolOption extends Option {
@@ -1116,6 +1119,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultValue);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return get() == defaultValue;
         }
     }
 
@@ -1158,6 +1166,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultValue);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return get() == defaultValue;
         }
     }
 
@@ -1217,6 +1230,12 @@ public class Config {
         public void reset() {
             set(defaultValue);
         }
+
+        @Override
+        public boolean isDefault() {
+            // Values are snapped to the step, the default may not be.
+            return Math.abs(get() - defaultValue) < step / 2;
+        }
     }
 
     /** An RGB color, saved as {@code #RRGGBB}. */
@@ -1268,6 +1287,11 @@ public class Config {
         public void reset() {
             set(defaultValue);
         }
+
+        @Override
+        public boolean isDefault() {
+            return get() == (defaultValue & 0xFFFFFF);
+        }
     }
 
     /**
@@ -1309,6 +1333,11 @@ public class Config {
         @Override
         public void reset() {
             set(defaultX, defaultY);
+        }
+
+        @Override
+        public boolean isDefault() {
+            return Math.abs(minimapX - defaultX) < 1e-4 && Math.abs(minimapY - defaultY) < 1e-4;
         }
     }
 
