@@ -56,9 +56,12 @@ public class GuiHelp extends ScaledScreen {
 
         final String title;
         final String[] icon;
+        /** The icon's color (ARGB), shown while the section is open or under the mouse. */
+        final int color;
         final List<String> lines = new ArrayList<>();
 
-        Section(String title, String[] icon) {
+        Section(String title, String[] icon, int color) {
+            this.color = color;
             this.title = title;
             this.icon = icon;
         }
@@ -282,12 +285,14 @@ public class GuiHelp extends ScaledScreen {
                     String title = line.substring(2)
                         .trim();
                     String[] icon = Icons.HELP;
+                    int color = sectionColor("");
                     Matcher matcher = ICON.matcher(title);
                     if (matcher.find()) {
                         icon = sectionIcon(matcher.group(1));
+                        color = sectionColor(matcher.group(1));
                         title = title.substring(matcher.end());
                     }
-                    current = new Section(title, icon);
+                    current = new Section(title, icon, color);
                     sections.add(current);
                 } else if (current != null) {
                     current.lines.add(line);
@@ -297,6 +302,48 @@ public class GuiHelp extends ScaledScreen {
             // Missing translation: the caller falls back to English.
         }
         return sections;
+    }
+
+    /** The color of a section's icon, by the icon's name; the accent for the help's own. */
+    private static int sectionColor(String name) {
+        switch (name) {
+            case "keys":
+                return 0xFFE8D44D;
+            case "buttons":
+                return 0xFF6CC24A;
+            case "navigation":
+                return 0xFFFF7B72;
+            case "waypoints":
+                return 0xFFE5534B;
+            case "groups":
+                return 0xFF5BD6E0;
+            case "teleport":
+                return 0xFFC08CFF;
+            case "caves":
+                return 0xFFC8A070;
+            case "biomes":
+                return 0xFF8BD450;
+            case "topo":
+                return 0xFF4FC3A8;
+            case "view":
+                return 0xFFE8A040;
+            case "ores":
+                return 0xFF5BD6E0;
+            case "power":
+                return 0xFFFFD23F;
+            case "nodes":
+                return 0xFFC08CFF;
+            case "claims":
+                return 0xFFF2C14E;
+            case "team":
+                return 0xFF4C9AFF;
+            case "chunkload":
+                return 0xFFC08CFF;
+            case "settings":
+                return 0xFFAAB4C3;
+            default:
+                return Theme.ACCENT;
+        }
     }
 
     /** The icon named in a section's title ({@code {icon:name}}); the help's own for an unknown name. */
@@ -451,7 +498,7 @@ public class GuiHelp extends ScaledScreen {
     /** Over the text: the section's icon, title and number, and a line filling up as the text is read. */
     private void drawHeader(Section section, double shown) {
         int iconY = top + 13 - section.icon.length / 2;
-        Icons.draw(section.icon, contentLeft, iconY, Theme.ACCENT);
+        Icons.draw(section.icon, contentLeft, iconY, section.color);
         int titleX = contentLeft + Icons.width(section.icon) + 6;
         String counter = (selected + 1) + " / " + sections.size();
         int counterWidth = fontRendererObj.getStringWidth(counter);
@@ -506,7 +553,8 @@ public class GuiHelp extends ScaledScreen {
                 Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
             }
             Section section = sections.get(i);
-            int iconColor = current ? Theme.ACCENT : Theme.blend(Theme.TEXT_DISABLED, Theme.TEXT_MUTED, lit);
+            // The open section's icon in its color, the others gray; the color shows through under the mouse.
+            int iconColor = current ? section.color : Theme.blend(Theme.TEXT_DISABLED, section.color, lit);
             int iconX = x0 + 6 + (ICON_COLUMN - Icons.width(section.icon)) / 2;
             Icons.draw(section.icon, iconX, y + (ITEM_HEIGHT - 1 - section.icon.length) / 2, iconColor);
             int textX = x0 + 6 + ICON_COLUMN + 4;
