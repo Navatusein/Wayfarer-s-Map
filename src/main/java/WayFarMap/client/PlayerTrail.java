@@ -2,6 +2,9 @@ package WayFarMap.client;
 
 import java.awt.Color;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
@@ -85,16 +88,77 @@ public final class PlayerTrail {
         if (!Config.playerTrail || trail.points.isEmpty() || dimension != trail.dimension) {
             return;
         }
+        double originX = x + width / 2.0 - centerX * scale, originY = y + height / 2.0 - centerZ * scale;
+        render(trail.points, originX, originY, scale, playerX, playerZ);
+    }
+
+    /** How long the preview's walk takes, and how long it stays at its end before it starts over (ms). */
+    private static final long PREVIEW_WALK_MS = 6000, PREVIEW_HOLD_MS = 1500;
+    /** The preview's walk, made for a rectangle of this size: {width, height}. */
+    private static List<double[]> previewPath;
+    private static int previewWidth, previewHeight;
+
+    /**
+     * The settings' preview: a walk across the rectangle with the trail drawn as it is set and the player's marker
+     * at its head; it starts over every few seconds. It goes down into a valley and up a mountain, walking, then
+     * riding fast, then slowly, so the height and speed colors show.
+     */
+    public static void drawPreview(int x, int y, int width, int height) {
+        if (previewPath == null || previewWidth != width || previewHeight != height) {
+            previewPath = makePreviewPath(width, height);
+            previewWidth = width;
+            previewHeight = height;
+        }
+        long cycle = System.currentTimeMillis() % (PREVIEW_WALK_MS + PREVIEW_HOLD_MS);
+        int shown = (int) Math.max(2, previewPath.size() * Math.min(1, cycle / (double) PREVIEW_WALK_MS));
+        List<double[]> walked = previewPath.subList(0, shown);
+        double[] head = walked.get(shown - 1), before = walked.get(shown - 2);
+        render(walked, x, y, 1, head[0], head[1]);
+        // Minecraft's yaw: 0 is south (+z), -90 east (+x).
+        float yaw = (float) Math.toDegrees(Math.atan2(-(head[0] - before[0]), head[1] - before[1]));
+        MapDrawer.drawPlayerArrow(x + head[0], y + head[1], yaw, 4f);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static List<double[]> makePreviewPath(int width, int height) {
+        List<double[]> path = new ArrayList<>();
+        double time = 0;
+        double[] last = null;
+        int steps = 2000;
+        for (int i = 0; i <= steps; i++) {
+            double t = i / (double) steps;
+            double px = 12 + t * (width - 30);
+            double pz = height / 2.0 + height * 0.28 * Math.sin(t * 7) + height * 0.08 * Math.sin(t * 23);
+            if (last != null && distance(last, px, pz) < STEP) {
+                continue;
+            }
+            // Height: down into a valley, up a mountain, back to sea level.
+            double valley = 40 * Math.sin(Math.min(1, t / 0.3) * Math.PI);
+            double mountain = t > 0.3 ? 90 * Math.sin((t - 0.3) / 0.7 * Math.PI) : 0;
+            double py = 64 - valley + mountain;
+            // Speed: walking, then riding fast, then slowly.
+            double speed = t < 0.35 ? 4.3 : t < 0.7 ? 11 : 2;
+            if (last != null) {
+                time += distance(last, px, pz) / speed * 1000;
+            }
+            last = new double[] { px, pz, py, time };
+            path.add(last);
+        }
+        return path;
+    }
+
+    /** Draws the trail through the points ({x, z, y, time}) at {@code scale}, ending at the player. */
+    private static void render(Collection<double[]> points, double originX, double originY, double scale,
+        double playerX, double playerZ) {
         // The points on screen with their colors, the player's own place last.
-        int count = trail.points.size() + 1;
+        int count = points.size() + 1;
         double[] sx = new double[count], sy = new double[count];
         int[] rgb = new int[count];
         float[] alpha = new float[count];
         boolean[] joined = new boolean[count];
-        double originX = x + width / 2.0 - centerX * scale, originY = y + height / 2.0 - centerZ * scale;
         double[] previous = null;
         int i = 0;
-        for (double[] point : trail.points) {
+        for (double[] point : points) {
             sx[i] = originX + point[0] * scale;
             sy[i] = originY + point[1] * scale;
             rgb[i] = color(point, previous, i, count);

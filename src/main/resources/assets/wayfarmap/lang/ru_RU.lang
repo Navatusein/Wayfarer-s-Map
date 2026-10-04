@@ -73,6 +73,7 @@ wayfarmap.settings.map2d=2D-карта
 wayfarmap.settings.map3d=3D-карта
 wayfarmap.settings.playerMarker=Значок игрока
 wayfarmap.settings.marker_preview=Предпросмотр
+wayfarmap.settings.trail_off=Включите след игрока, чтобы увидеть его здесь
 wayfarmap.option.playerMarker.style=Вид
 wayfarmap.option.playerMarker.style.desc=Как вы отображаетесь на большой карте и миникарте.
 wayfarmap.option.playerMarker.style.arrow=Стрелка

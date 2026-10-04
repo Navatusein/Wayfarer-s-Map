@@ -20,6 +20,7 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Icons;
@@ -46,6 +47,9 @@ public class GuiSettings extends ScaledScreen {
     private static final int SEARCH_WIDTH = 120;
     /** Room under the options for the description: its name, two lines and the default value. */
     private static final int DESCRIPTION_HEIGHT = 52;
+    /** Height of the trail's preview, and the last of the trail's options, which it comes after. */
+    private static final int TRAIL_PREVIEW_HEIGHT = 84;
+    private static final String TRAIL_LAST_OPTION = "playerTrailAnimated";
     /** Room over the minimap's options for its preview. */
     private static final int PREVIEW_HEIGHT = 96;
     /** Size of the squares the preview's ground is drawn with. */
@@ -116,6 +120,8 @@ public class GuiSettings extends ScaledScreen {
         final int height;
         /** How far the name is moved in: under the switch it depends on. */
         final int indent;
+        /** The player's trail drawn as it is set, under the trail's options. */
+        boolean trailPreview;
 
         private Row(Config.Option option, String title, String section, int hidden, int y, int height, int indent) {
             this.option = option;
@@ -134,10 +140,25 @@ public class GuiSettings extends ScaledScreen {
         static Row option(Config.Option option, int y, int indent) {
             return new Row(option, null, null, 0, y, ROW_HEIGHT, indent);
         }
+
+        static Row trailPreview(int y) {
+            Row row = new Row(null, null, null, 0, y, TRAIL_PREVIEW_HEIGHT, 0);
+            row.trailPreview = true;
+            return row;
+        }
     }
+
+    /**
+     * Where the list was scrolled and what was searched when the screen was last closed: it opens the same way again
+     * until the game is restarted, so settings can be tried in the game and changed further.
+     */
+    private static int savedScroll;
+    private static String savedSearch = "";
 
     public GuiSettings(GuiScreen parent) {
         this.parent = parent;
+        scroll = savedScroll;
+        searchText = savedSearch;
     }
 
     @Override
@@ -329,6 +350,11 @@ public class GuiSettings extends ScaledScreen {
             int indent = option.parent != null && option.parent.group.equals(option.group) ? INDENT : 0;
             result.add(Row.option(option, y, indent));
             y += ROW_HEIGHT;
+            if (TRAIL_LAST_OPTION.equals(option.key)) {
+                // Under the trail's options: the trail as they make it.
+                result.add(Row.trailPreview(y));
+                y += TRAIL_PREVIEW_HEIGHT;
+            }
         }
         return result;
     }
@@ -487,6 +513,8 @@ public class GuiSettings extends ScaledScreen {
         if (editedOption != null) {
             stopEditing(true);
         }
+        savedScroll = scroll;
+        savedSearch = searchText;
         Keyboard.enableRepeatEvents(false);
         Config.save();
         if (Config.useTextureColors != textureColorsBefore) {
@@ -865,6 +893,10 @@ public class GuiSettings extends ScaledScreen {
             if (y + row.height <= listTop || y >= contentBottom) {
                 continue;
             }
+            if (row.trailPreview) {
+                drawTrailPreview(y);
+                continue;
+            }
             if (row.option == null) {
                 drawSectionTitle(row, y, mouseX, mouseY);
                 continue;
@@ -1006,6 +1038,36 @@ public class GuiSettings extends ScaledScreen {
                 }
             }
         }
+    }
+
+    /**
+     * Under the trail's options: a walk on a made-up map with the trail drawn the way it is set, starting over every
+     * few seconds; dimmed with a note while the trail is off.
+     */
+    private void drawTrailPreview(int y) {
+        int x0 = contentLeft, x1 = right - 10, y0 = y + 2, y1 = y + TRAIL_PREVIEW_HEIGHT - 4;
+        Theme.fill(x0, y0, x1, y1, 0xFF13211A);
+        // A hint of ground, so it reads as a map.
+        for (int gx = x0; gx < x1; gx += 8) {
+            for (int gy = y0; gy < y1; gy += 8) {
+                if (((gx - x0) * 7 + (gy - y0) * 13) % 5 == 0) {
+                    Theme.fill(gx, gy, Math.min(gx + 8, x1), Math.min(gy + 8, y1), 0xFF172A1F);
+                }
+            }
+        }
+        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
+        PlayerTrail.drawPreview(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
+        if (!Config.playerTrail) {
+            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC0101418);
+            Theme.centered(
+                fontRendererObj,
+                I18n.format("wayfarmap.settings.trail_off"),
+                (x0 + x1) / 2,
+                (y0 + y1) / 2 - 4,
+                Theme.TEXT_MUTED);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Under the marker's options: the marker as on the world map, on dark and on light ground. */

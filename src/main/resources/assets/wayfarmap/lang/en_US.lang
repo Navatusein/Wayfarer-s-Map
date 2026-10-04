@@ -73,6 +73,7 @@ wayfarmap.settings.map2d=2D map
 wayfarmap.settings.map3d=3D map
 wayfarmap.settings.playerMarker=Player icon
 wayfarmap.settings.marker_preview=Preview
+wayfarmap.settings.trail_off=Turn on the player's trail to see it here
 wayfarmap.option.playerMarker.style=Look
 wayfarmap.option.playerMarker.style.desc=How you are shown on the world map and the minimap.
 wayfarmap.option.playerMarker.style.arrow=Arrow
