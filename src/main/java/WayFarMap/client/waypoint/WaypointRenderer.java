@@ -185,9 +185,30 @@ public class WaypointRenderer {
      *
      * @param label draw the name below the marker
      */
-    /** The tile under one of the {@link Symbols}, and how much of it the icon takes. */
-    private static final int SYMBOL_TILE = 0xE0202020;
+    /** How much of a marker one of the {@link Symbols} takes, and its shadow's opacity. */
     private static final float SYMBOL_SCALE = 0.85f;
+    private static final float SYMBOL_SHADOW = 0.6f;
+
+    /**
+     * One of the {@link Symbols}, white, with a soft dark shadow a little down and right of it so it shows on light
+     * ground too (as the game's text does), at the given opacity.
+     */
+    private static boolean drawSymbol(String symbol, double cx, double cy, double size, float alpha) {
+        double offset = Math.max(0.5, size / 16);
+        int shadow = Math.round(255 * SYMBOL_SHADOW * alpha) << 24;
+        if (!Symbols.draw(symbol, cx + offset, cy + offset, size, shadow)) {
+            return false;
+        }
+        return Symbols.draw(symbol, cx, cy, size, Math.round(255 * alpha) << 24 | 0xFFFFFF);
+    }
+
+    /** A one pixel frame just inside the rectangle, its middle left open. */
+    private static void frame(int x0, int y0, int x1, int y1, int color) {
+        Gui.drawRect(x0, y0, x1, y0 + 1, color);
+        Gui.drawRect(x0, y1 - 1, x1, y1, color);
+        Gui.drawRect(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        Gui.drawRect(x1 - 1, y0 + 1, x1, y1 - 1, color);
+    }
     /** Laid over the marker of a disabled waypoint on the world map. */
     private static final int DISABLED_VEIL = 0xB0181A1E;
 
@@ -205,18 +226,19 @@ public class WaypointRenderer {
         ItemStack icon = waypoint.getIcon();
         String symbol = waypoint.getSymbol();
 
-        if (waypoint.outlineColor != null) {
+        if (waypoint.outlineColor != null && symbol != null) {
+            // Only the frame: the white icon on the map itself.
+            int color = 0xFF000000 | waypoint.outlineColor;
+            frame(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
+            frame(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
+        } else if (waypoint.outlineColor != null) {
             int color = 0xFF000000 | waypoint.outlineColor;
             Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-            Gui.drawRect(x0, y0, x1, y1, icon != null || symbol != null ? 0xC0202020 : color);
-        } else if (symbol != null) {
-            // A dark tile under the white icon, so it shows on any ground.
-            Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, 0xFF000000);
-            Gui.drawRect(x0, y0, x1, y1, SYMBOL_TILE);
+            Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
         }
         if (symbol != null) {
-            Symbols.draw(symbol, cx, cy, size * SYMBOL_SCALE, 0xFFFFFFFF);
+            drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, 1f);
         } else if (icon != null) {
             drawItem(icon, cx, cy, size);
         } else if (waypoint.outlineColor == null) {
@@ -571,16 +593,7 @@ public class WaypointRenderer {
         }
         BillboardIcon picture;
         if (symbol != null) {
-            final boolean framed = waypoint.outlineColor != null;
-            picture = (cx, cy, size) -> {
-                if (!framed) {
-                    // Without the waypoint's frame, a dark tile of its own under the white icon.
-                    int tx = Math.round(cx), ty = Math.round(cy);
-                    fillRect(tx - 9, ty - 9, tx + 9, ty + 9, faded(0xFF000000, alpha));
-                    fillRect(tx - 8, ty - 8, tx + 8, ty + 8, faded(SYMBOL_TILE, alpha));
-                }
-                return Symbols.draw(symbol, cx, cy, size * SYMBOL_SCALE, faded(0xFFFFFFFF, alpha));
-            };
+            picture = (cx, cy, size) -> drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, alpha);
         } else {
             picture = icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha);
         }
@@ -595,7 +608,8 @@ public class WaypointRenderer {
             alpha,
             Config.waypointWorldLabels == Config.LABELS_HOVER
                 ? LABEL_SHOWN.computeIfAbsent(waypoint, w -> new Smooth(0))
-                : null);
+                : null,
+            symbol != null);
     }
 
     /** How much of each waypoint's name shows in the world, eased in and out, while it shows only when looked at. */
@@ -651,15 +665,18 @@ public class WaypointRenderer {
     /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon, float alpha) {
-        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null);
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false);
     }
 
     /**
      * Same; with {@code label} the name and the distance show only while the crosshair is on the icon, coming and
      * going with it (eased by {@code label}), the icon alone otherwise.
+     *
+     * @param openFrame the colored frame around the icon is left open in the middle (no dark tile), for one of the
+     *                  {@link Symbols}
      */
     private static void renderBillboard(Minecraft mc, double x, double y, double z, String name,
-        Integer outlineColor, BillboardIcon icon, float alpha, Smooth label) {
+        Integer outlineColor, BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;
@@ -724,11 +741,16 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
-        if (outlineColor != null) {
+        if (outlineColor != null && !openFrame) {
             // As on the maps: a dark line, the waypoint's color around the icon, and a dark tile under it.
             fillRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
             fillRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
             fillRect(-8, top - 19, 8, top - 3, faded(0xE0202020, alpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        } else if (outlineColor != null) {
+            // Only the frame, open in the middle, around an icon that needs no tile.
+            frameRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
+            frameRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
             GL11.glEnable(GL11.GL_TEXTURE_2D);
         }
         boolean drawn = icon != null && icon.draw(0f, top - 11f, 16f);
@@ -772,6 +794,14 @@ public class WaypointRenderer {
     /** The color with its alpha times {@code alpha}. */
     private static int faded(int color, float alpha) {
         return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
+    }
+
+    /** A one unit frame just inside the rectangle, its middle left open. */
+    private static void frameRect(int x0, int y0, int x1, int y1, int color) {
+        fillRect(x0, y0, x1, y0 + 1, color);
+        fillRect(x0, y1 - 1, x1, y1, color);
+        fillRect(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        fillRect(x1 - 1, y0 + 1, x1, y1 - 1, color);
     }
 
     private static void fillRect(int x0, int y0, int x1, int y1, int color) {
