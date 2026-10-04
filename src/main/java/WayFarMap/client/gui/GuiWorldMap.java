@@ -969,13 +969,13 @@ public class GuiWorldMap extends ScaledScreen {
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         long perf = Perf.start();
         try {
-            drawMap(mouseX, mouseY, partialTicks);
+            drawWindow(mouseX, mouseY, partialTicks);
         } finally {
             Perf.end(Perf.Part.WORLD_MAP, perf);
         }
     }
 
-    private void drawMap(int mouseX, int mouseY, float partialTicks) {
+    private void drawWindow(int mouseX, int mouseY, float partialTicks) {
         if (isDrawnBehind()) {
             // Behind another screen: drawn as when open (the surface view it sets then), and never dragged.
             dragging = false;
