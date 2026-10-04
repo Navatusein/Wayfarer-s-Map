@@ -214,11 +214,14 @@ public final class IsoLog {
                 + "drawn. BOTTLENECK in each SUMMARY: what costs most and what to change.");
         line(
             "LEGEND pictures learned by kind (a block open on the same sides next to the same blocks): after "
-                + "3 times the same, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when a "
-                + "kind gave other pictures (drawn every time from then on). In each SUMMARY: learned pictures (per "
-                + "kind reused/drawn/drawnEmpty/confirmed/conflicts), tiles per level of the 3D view (queued with "
-                + "nothing yet / only out of date, drawn, drawing times), copies per new chunk (more than one = "
-                + "pictures not all taken at once).");
+                + "3 times alike, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when a "
+                + "kind gave other pictures (drawn every time from then on). Also by block alone (whatever is next "
+                + "to it): after 6 alike in 3 kinds of places, for blocks inside their cell (detached: plants) or "
+                + "all empty (ores); BLOCK_UNRELIABLE when not. Alike = the same, or for a detached block about the "
+                + "same coverage and color (plants moved a little from place to place). In each SUMMARY: learned "
+                + "pictures (per kind reused/drawn/drawnEmpty/confirmed/conflicts/alike/reusedByBlock/"
+                + "blockConflicts), tiles per level of the 3D view (queued with nothing yet / only out of date, "
+                + "drawn, drawing times), copies per new chunk (more than one = pictures not all taken at once).");
         line(
             "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
                 + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
@@ -2172,6 +2175,12 @@ public final class IsoLog {
                 + learned[1]
                 + " seen="
                 + learned[2]
+                + "] byBlock[learned="
+                + learned[3]
+                + " unreliable="
+                + learned[4]
+                + " seen="
+                + learned[5]
                 + "]");
         kinds.sort((a, b) -> Long.compare(b.getValue()[0] + b.getValue()[1], a.getValue()[0] + a.getValue()[1]));
         for (int n = 0; n < Math.min(25, kinds.size()); n++) {

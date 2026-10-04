@@ -165,16 +165,153 @@ final class FaceRenderer {
      */
     private static final Map<Long, Learned> BY_KIND = new HashMap<>();
     private static final int LEARN_CONFIRMATIONS = 3, VERIFY_EVERY = 16;
+    /**
+     * Pictures learned by block alone (with its metadata and open sides, whatever is next to it), for the blocks
+     * whose six neighbours make nearly every place a kind of its own: grass with a different block under it, ores
+     * between other stones. Learned from {@link #BLOCK_CONFIRMATIONS} pictures alike, taken in at least
+     * {@link #BLOCK_PLACES} kinds of places. Only for blocks that can't reach their neighbours (smaller than their cell
+     * on every side: plants, an unconnected fence post), or whose pictures are all empty (ores the game draws nothing
+     * of here): a block that joins its neighbours looks by them.
+     */
+    private static final Map<Long, Learned> BY_BLOCK = new HashMap<>();
+    private static final int BLOCK_CONFIRMATIONS = 6, BLOCK_PLACES = 3;
+    /**
+     * How far apart pictures of a block that can't reach its neighbours may be and still count as the same: plants
+     * the game moves a little from place to place (tall grass, Biomes O' Plenty's foliage), so no two places give the
+     * very same picture. Share of the picture covered (relative) and average color (per channel, 0-255).
+     */
+    private static final float ALIKE_COVERAGE = 0.3f, ALIKE_COLOR = 20f;
+    /** Coverage and average color of sprites by id, for {@link #alike} (cleared with the other caches). */
+    private static final Map<Integer, float[]> LOOKS_OF_SPRITES = new HashMap<>();
+    /** Look keys a kind was found unreliable for, logged only the first few times. */
+    private static final Map<Integer, Integer> UNRELIABLE_LOGGED = new HashMap<>();
 
     private static final class Learned {
 
         final int[] ids;
         int confirmed, reused;
         boolean unreliable;
+        /** By block: the kinds of places (their {@link #kindKey}) it was confirmed in, the first few. */
+        final long[] places = new long[BLOCK_PLACES];
+        int placeCount;
 
         Learned(int[] ids) {
             this.ids = ids;
         }
+
+        boolean allEmpty() {
+            for (int id : ids) {
+                if (id != FacePalette.EMPTY && id != 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        void place(long kindKey) {
+            for (int n = 0; n < placeCount; n++) {
+                if (places[n] == kindKey) {
+                    return;
+                }
+            }
+            if (placeCount < places.length) {
+                places[placeCount++] = kindKey;
+            }
+        }
+
+        /** Its pictures, to give a block without drawing it, or null: not learned yet, or this one is to check. */
+        int[] reuse(int confirmations, int placesNeeded) {
+            if (unreliable || confirmed < confirmations || placeCount < placesNeeded) {
+                return null;
+            }
+            return ++reused % VERIFY_EVERY != 0 ? ids : null;
+        }
+    }
+
+    /** The key of a block for {@link #BY_BLOCK}: its look, open sides, width and whether it can reach out. */
+    private static long blockKey(int lookKey, int exposed, boolean wide, boolean detached) {
+        long h = 0x51AFD7ED558CCD1DL
+            ^ ((long) lookKey << 8 | (long) exposed << 2 | (wide ? 2 : 0) | (detached ? 1 : 0));
+        h = (h ^ h >>> 33) * 0xFF51AFD7ED558CCDL;
+        return h ^ h >>> 33;
+    }
+
+    /**
+     * Whether the block, as it is here, stays inside its cell on all four sides (a plant, a torch, a fence post with
+     * nothing to join): then what is next to it doesn't change how it looks.
+     */
+    private static boolean detached(World world, Block block, int x, int y, int z) {
+        try {
+            block.setBlockBoundsBasedOnState(world, x, y, z);
+            return block.getBlockBoundsMinX() > 0.01 && block.getBlockBoundsMaxX() < 0.99
+                && block.getBlockBoundsMinZ() > 0.01
+                && block.getBlockBoundsMaxZ() < 0.99;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether two blocks' pictures look the same: the very same, or (for a block that can't reach its neighbours)
+     * each view covering about as much with about the same color, as a plant moved a little does.
+     */
+    private static boolean alike(int[] a, int[] b, boolean detached, FacePalette palette) {
+        if (Arrays.equals(a, b)) {
+            return true;
+        }
+        if (!detached) {
+            return false;
+        }
+        for (int view = 0; view < a.length; view++) {
+            if (a[view] == b[view]) {
+                continue;
+            }
+            if (a[view] <= 0 || b[view] <= 0) {
+                return false;
+            }
+            float[] la = spriteLook(a[view], palette), lb = spriteLook(b[view], palette);
+            if (la == null || lb == null) {
+                return false;
+            }
+            if (Math.abs(la[0] - lb[0]) > ALIKE_COVERAGE * Math.max(la[0], lb[0]) + 0.01f) {
+                return false;
+            }
+            for (int channel = 1; channel <= 3; channel++) {
+                if (Math.abs(la[channel] - lb[channel]) > ALIKE_COLOR) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** A sprite's coverage (0-1) and average red, green and blue, from a 16 pixel copy; null if it can't be read. */
+    private static float[] spriteLook(int id, FacePalette palette) {
+        float[] look = LOOKS_OF_SPRITES.get(id);
+        if (look != null) {
+            return look;
+        }
+        FacePalette.Sprite sprite = palette.sprite(id);
+        if (sprite == null) {
+            return null;
+        }
+        int mip = Math.max(0, Math.min(sprite.mips.length - 1, Integer.numberOfTrailingZeros(sprite.size) - 4));
+        int[] pixels = sprite.mips[mip];
+        long alpha = 0, r = 0, g = 0, b = 0;
+        for (int c : pixels) {
+            int a = c >>> 24;
+            alpha += a;
+            r += (c >> 16 & 0xFF) * a;
+            g += (c >> 8 & 0xFF) * a;
+            b += (c & 0xFF) * a;
+        }
+        look = alpha == 0 ? new float[] { 0, 0, 0, 0 }
+            : new float[] { alpha / (255f * pixels.length), r / (float) alpha, g / (float) alpha, b / (float) alpha };
+        if (LOOKS_OF_SPRITES.size() > 100_000) {
+            LOOKS_OF_SPRITES.clear();
+        }
+        LOOKS_OF_SPRITES.put(id, look);
+        return look;
     }
 
     /** The kind of a block for {@link #BY_KIND}: its look, open sides, width and the six blocks next to it. */
@@ -194,7 +331,8 @@ final class FaceRenderer {
 
     /** What the learned pictures did, by look key, since the log started: see {@link #KIND_FIELDS}. */
     private static final Map<Integer, long[]> KIND_STATS = new HashMap<>();
-    static final String[] KIND_FIELDS = { "reused", "drawn", "drawnEmpty", "confirmed", "conflicts" };
+    static final String[] KIND_FIELDS = { "reused", "drawn", "drawnEmpty", "confirmed", "conflicts", "alike",
+        "reusedByBlock", "blockConflicts" };
 
     private static void kindStat(int lookKey, int field) {
         if (IsoLog.on()) {
@@ -207,8 +345,9 @@ final class FaceRenderer {
         return KIND_STATS;
     }
 
+    /** {learned, unreliable, seen} kinds of places, then the same by block alone. */
     static int[] learnedKinds() {
-        int learned = 0, unreliable = 0;
+        int learned = 0, unreliable = 0, blockLearned = 0, blockUnreliable = 0;
         for (Learned l : BY_KIND.values()) {
             if (l.unreliable) {
                 unreliable++;
@@ -216,14 +355,22 @@ final class FaceRenderer {
                 learned++;
             }
         }
-        return new int[] { learned, unreliable, BY_KIND.size() };
+        for (Learned l : BY_BLOCK.values()) {
+            if (l.unreliable) {
+                blockUnreliable++;
+            } else if (l.confirmed >= BLOCK_CONFIRMATIONS && l.placeCount >= BLOCK_PLACES) {
+                blockLearned++;
+            }
+        }
+        return new int[] { learned, unreliable, BY_KIND.size(), blockLearned, blockUnreliable, BY_BLOCK.size() };
     }
 
     /**
-     * Remembers the pictures just taken of a block for its kind: the same as before confirms them, other ones make
-     * the kind be drawn every time. Not from a block at the edge of what is loaded (its pictures may be wrong).
+     * Remembers the pictures just taken of a block for its kind and for the block alone: alike pictures confirm them,
+     * other ones make it be drawn every time. Not from a block at the edge of what is loaded (its pictures may be
+     * wrong).
      */
-    private static void learn(Pending pending) {
+    private static void learn(Pending pending, FacePalette palette) {
         boolean empty = true;
         for (int view = 0; view < pending.views(); view++) {
             empty &= pending.ids[view] == FacePalette.EMPTY;
@@ -235,43 +382,66 @@ final class FaceRenderer {
         if (pending.unsure || !learnable(pending)) {
             return;
         }
-        long key = pending.kindKey;
-        Learned learned = BY_KIND.get(key);
+        Learned learned = BY_KIND.get(pending.kindKey);
         if (learned == null) {
-            BY_KIND.put(key, new Learned(pending.ids.clone()));
-            return;
+            BY_KIND.put(pending.kindKey, new Learned(pending.ids.clone()));
+        } else if (!learned.unreliable) {
+            if (Arrays.equals(learned.ids, pending.ids)) {
+                learned.confirmed++;
+                kindStat(pending.lookKey, 3);
+            } else if (alike(learned.ids, pending.ids, pending.detached, palette)) {
+                learned.confirmed++;
+                kindStat(pending.lookKey, 5);
+            } else {
+                learned.unreliable = true;
+                kindConflicts++;
+                kindStat(pending.lookKey, 4);
+                logUnreliable("KIND_UNRELIABLE", pending, learned);
+            }
         }
-        if (learned.unreliable) {
-            return;
-        }
-        if (Arrays.equals(learned.ids, pending.ids)) {
-            learned.confirmed++;
-            kindStat(pending.lookKey, 3);
-        } else {
-            learned.unreliable = true;
-            kindConflicts++;
-            kindStat(pending.lookKey, 4);
-            if (IsoLog.on()) {
-                IsoLog.log(
-                    "KIND_UNRELIABLE " + BlockDiag.name(pending.lookKey)
-                        + " openSides="
-                        + pending.exposed
-                        + " at "
-                        + pending.x
-                        + ","
-                        + pending.y
-                        + ","
-                        + pending.z
-                        + " after "
-                        + learned.confirmed
-                        + " same: pictures "
-                        + Arrays.toString(learned.ids)
-                        + " now "
-                        + Arrays.toString(pending.ids)
-                        + " (drawn every time from now on)");
+        Learned byBlock = BY_BLOCK.get(pending.blockKey);
+        if (byBlock == null) {
+            byBlock = new Learned(pending.ids.clone());
+            byBlock.place(pending.kindKey);
+            BY_BLOCK.put(pending.blockKey, byBlock);
+        } else if (!byBlock.unreliable) {
+            if (alike(byBlock.ids, pending.ids, pending.detached, palette)) {
+                byBlock.confirmed++;
+                byBlock.place(pending.kindKey);
+            } else {
+                byBlock.unreliable = true;
+                kindStat(pending.lookKey, 7);
+                logUnreliable("BLOCK_UNRELIABLE", pending, byBlock);
             }
         }
     }
+
+    /** Logs that a kind gave other pictures, the first few times for each block. */
+    private static void logUnreliable(String what, Pending pending, Learned learned) {
+        if (!IsoLog.on() || UNRELIABLE_LOGGED.merge(pending.lookKey, 1, Integer::sum) > 3) {
+            return;
+        }
+        IsoLog.log(
+            what + " " + BlockDiag.name(pending.lookKey)
+                + " openSides="
+                + pending.exposed
+                + " detached="
+                + pending.detached
+                + " at "
+                + pending.x
+                + ","
+                + pending.y
+                + ","
+                + pending.z
+                + " after "
+                + learned.confirmed
+                + " same: pictures "
+                + Arrays.toString(learned.ids)
+                + " now "
+                + Arrays.toString(pending.ids)
+                + " (drawn every time from now on; logged 3 times per block at most)");
+    }
+
     private static int cacheGeneration;
     /** Whether a block class draws sides depending on the world (overrides the world-aware getIcon). */
     private static final Map<Class<?>, Boolean> WORLD_ICONS = new HashMap<>();
@@ -307,8 +477,10 @@ final class FaceRenderer {
         boolean wide;
         /** A tile entity farther away draws over its place (a stargate's base under its ring): kept by place. */
         boolean overBig;
-        /** Its kind for {@link #BY_KIND} (if learnable). */
-        long kindKey;
+        /** Its kind for {@link #BY_KIND} and its key for {@link #BY_BLOCK} (if learnable). */
+        long kindKey, blockKey;
+        /** It stays inside its cell on all four sides here (see {@link #detached}). */
+        boolean detached;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -519,6 +691,9 @@ final class FaceRenderer {
     static void clear() {
         BY_SURROUNDINGS.clear();
         BY_KIND.clear();
+        BY_BLOCK.clear();
+        LOOKS_OF_SPRITES.clear();
+        UNRELIABLE_LOGGED.clear();
         BY_PLACE.clear();
         SESSIONS.clear();
         TWINS.clear();
@@ -544,6 +719,9 @@ final class FaceRenderer {
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_KIND.clear();
+            BY_BLOCK.clear();
+            LOOKS_OF_SPRITES.clear();
+            UNRELIABLE_LOGGED.clear();
             BY_PLACE.clear();
             SESSIONS.clear();
             TWINS.clear();
@@ -626,7 +804,7 @@ final class FaceRenderer {
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
                 } else {
-                    learn(pending);
+                    learn(pending, palette);
                     if (BY_SURROUNDINGS.size() > 200_000) {
                         // A long game: start over rather than grow without end.
                         BY_SURROUNDINGS.clear();
@@ -821,12 +999,23 @@ final class FaceRenderer {
                 }
                 if (learnable(pending)) {
                     pending.kindKey = kindKey(world, key, exposed, pending.wide, x, y, z);
+                    pending.detached = detached(world, block, x, y, z);
+                    pending.blockKey = blockKey(key, exposed, pending.wide, pending.detached);
                     Learned learned = BY_KIND.get(pending.kindKey);
-                    if (learned != null && !learned.unreliable
-                        && learned.confirmed >= LEARN_CONFIRMATIONS
-                        && ++learned.reused % VERIFY_EVERY != 0) {
+                    int[] ids = learned == null ? null : learned.reuse(LEARN_CONFIRMATIONS, 0);
+                    if (learned == null || learned.unreliable || learned.confirmed < LEARN_CONFIRMATIONS) {
+                        // Not learned for this kind of place (else this one is drawn to check): by block alone.
+                        Learned byBlock = BY_BLOCK.get(pending.blockKey);
+                        if (byBlock != null && (pending.detached || byBlock.allEmpty())) {
+                            ids = byBlock.reuse(BLOCK_CONFIRMATIONS, BLOCK_PLACES);
+                            if (ids != null) {
+                                kindStat(key, 6);
+                            }
+                        }
+                    }
+                    if (ids != null) {
                         // Its kind looks the same wherever it is: its pictures without drawing it.
-                        System.arraycopy(learned.ids, 0, pending.ids, 0, pending.ids.length);
+                        System.arraycopy(ids, 0, pending.ids, 0, pending.ids.length);
                         kindHit++;
                         kindStat(key, 0);
                         continue;
