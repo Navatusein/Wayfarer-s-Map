@@ -163,6 +163,10 @@ public class GuiWorldMap extends ScaledScreen {
         String hint;
         /** Destructive (deleting): red, with a line above it when it follows other entries. */
         boolean danger;
+        /** The current choice of a list (e.g. the map's mode): marked with the accent bar and color. */
+        boolean selected;
+        /** Color of the icon (ARGB), 0 for the usual muted one. */
+        int iconColor;
 
         MenuEntry(String label, boolean enabled, Runnable action) {
             this(label, enabled, action, null);
@@ -188,6 +192,16 @@ public class GuiWorldMap extends ScaledScreen {
 
         MenuEntry danger() {
             this.danger = true;
+            return this;
+        }
+
+        MenuEntry selected(boolean selected) {
+            this.selected = selected;
+            return this;
+        }
+
+        MenuEntry iconColor(int color) {
+            this.iconColor = color;
             return this;
         }
     }
@@ -531,18 +545,28 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.neutral", Config.showPassiveMobs, Config::toggleNeutralMobs)
+                .icon(Icons.SMALL_NEUTRAL)
+                .iconColor(Theme.TEXT)
                 .key("passive_mobs"));
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs)
+                .icon(Icons.SMALL_HEART)
+                .iconColor(Theme.SUCCESS)
                 .key("friendly_mobs"));
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets)
+                .icon(Icons.SMALL_PAW)
+                .iconColor(0xFFF2C14E)
                 .key("pets"));
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.hostile", Config.showHostileMobs, Config::toggleHostileMobs)
+                .icon(Icons.SMALL_CREEPER)
+                .iconColor(Theme.DANGER)
                 .key("hostile_mobs"));
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.players", Config.showOtherPlayers, Config::toggleOtherPlayers)
+                .icon(Icons.SMALL_PERSON)
+                .iconColor(Theme.ACCENT)
                 .key("players"));
         menu = entries;
         menuKind = MENU_MOBS;
@@ -847,15 +871,16 @@ public class GuiWorldMap extends ScaledScreen {
                 continue;
             }
             final int value = mode;
-            String label = (mode == current ? "\u25CF " : "   ")
-                + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
-            entries.add(new MenuEntry(label, true, () -> setMode(value)));
+            String label = I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
+            entries.add(
+                new MenuEntry(label, true, () -> setMode(value)).icon(MODE_ICONS[mode])
+                    .selected(mode == current));
         }
         menu = entries;
         menuKind = MENU_MODES;
         menuShown();
-        menuWidth = MENU_WIDTH;
-        menuX = Math.max(2, Math.min(modesButton.xPosition, width - MENU_WIDTH - 2));
+        menuWidth = menuWidthFor(entries, MENU_WIDTH);
+        menuX = Math.max(2, Math.min(modesButton.xPosition, width - menuWidth - 2));
         menuY = modesButton.yPosition + 18;
     }
 
@@ -961,8 +986,33 @@ public class GuiWorldMap extends ScaledScreen {
         return steps.toArray(new String[0][]);
     }
 
+    /** Width of the column of key caps: the widest of them. */
+    private int welcomeKeyColumn(String[][] steps) {
+        int widest = 0;
+        for (String[] step : steps) {
+            widest = Math.max(widest, fontRendererObj.getStringWidth(step[0]) + 8);
+        }
+        return widest;
+    }
+
+    /** What a step does, wrapped to the room right of the key caps. */
+    private List<?> welcomeStepLines(String[] step, int keyColumn) {
+        return fontRendererObj.listFormattedStringToWidth(step[1], WELCOME_WIDTH - 24 - keyColumn - 8);
+    }
+
+    /** Height of a step: its key cap, or its wrapped text if that is taller. */
+    private int welcomeStepHeight(String[] step, int keyColumn) {
+        return Math.max(WELCOME_STEP, welcomeStepLines(step, keyColumn).size() * 10 + 6);
+    }
+
     private int welcomeHeight() {
-        return WindowHeader.HEIGHT + 8 + welcomeLines().size() * 10 + 8 + welcomeSteps().length * WELCOME_STEP + 34;
+        String[][] steps = welcomeSteps();
+        int keyColumn = welcomeKeyColumn(steps);
+        int stepsHeight = 0;
+        for (String[] step : steps) {
+            stepsHeight += welcomeStepHeight(step, keyColumn);
+        }
+        return WindowHeader.HEIGHT + 8 + welcomeLines().size() * 10 + 8 + stepsHeight + 34;
     }
 
     /** The window's button: {x0, y0, x1, y1}. */
@@ -1015,16 +1065,17 @@ public class GuiWorldMap extends ScaledScreen {
         y += 8;
         // The steps: key caps in a column, what they do next to them.
         String[][] steps = welcomeSteps();
-        int keyColumn = 0;
-        for (String[] step : steps) {
-            keyColumn = Math.max(keyColumn, fontRendererObj.getStringWidth(step[0]) + 8);
-        }
+        int keyColumn = welcomeKeyColumn(steps);
         for (String[] step : steps) {
             drawKeyCap(step[0], left + 12, y);
             int textX = left + 12 + keyColumn + 8;
-            String what = Theme.ellipsize(fontRendererObj, step[1], right - 12 - textX);
-            Theme.text(fontRendererObj, what, textX, y + 2, Theme.TEXT_MUTED);
-            y += WELCOME_STEP;
+            // Long ones go on over more lines instead of being cut short.
+            int lineY = y + 2;
+            for (Object line : welcomeStepLines(step, keyColumn)) {
+                Theme.text(fontRendererObj, String.valueOf(line), textX, lineY, Theme.TEXT_MUTED);
+                lineY += 10;
+            }
+            y += welcomeStepHeight(step, keyColumn);
         }
         int[] b = welcomeButton();
         boolean hovered = Theme.inside(mouseX, mouseY, b[0], b[1], b[2], b[3]);
@@ -1945,10 +1996,14 @@ public class GuiWorldMap extends ScaledScreen {
     /** Width of a menu: its longest label, with room for icons or checkboxes and for the key hints. */
     private int menuWidthFor(List<MenuEntry> entries, int minimum) {
         int widest = minimum;
+        int iconColumn = iconColumn(entries);
         for (MenuEntry entry : entries) {
             int w = fontRendererObj.getStringWidth(entry.label) + 14;
-            if (entry.checked != null || entry.icon != null) {
+            if (entry.checked != null) {
                 w += 12;
+            }
+            if (entry.icon != null) {
+                w += iconColumn + 5;
             }
             if (entry.hint != null) {
                 w += fontRendererObj.getStringWidth(entry.hint) + 12;
@@ -1984,6 +2039,11 @@ public class GuiWorldMap extends ScaledScreen {
                 // Destructive entries are set apart by a line.
                 Theme.fill(menuX + 4, y, menuX + menuWidth - 4, y + 1, Theme.BORDER);
             }
+            if (entry.selected) {
+                // The current choice: always marked, a little lit.
+                Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, 0x60000000 | Theme.ACCENT_DIM & 0xFFFFFF);
+                Theme.fill(menuX + 1, y, menuX + 3, y + MENU_ROW, Theme.ACCENT);
+            }
             if (lit > 0.02) {
                 int light = Theme.blend(Theme.CONTROL_HOVER & 0xFFFFFF, Theme.CONTROL_HOVER, lit);
                 Theme.fill(menuX + 1, y, menuX + menuWidth - 1, y + MENU_ROW, light);
@@ -2018,19 +2078,36 @@ public class GuiWorldMap extends ScaledScreen {
         }
     }
 
-    /** The entry's icon, centered in its row; returns where it ends. */
+    /** Width of the column the menu's icons are centered in: its widest icon, so the labels line up. */
+    private static int iconColumn(List<MenuEntry> entries) {
+        int widest = 7;
+        for (MenuEntry entry : entries) {
+            if (entry.icon != null) {
+                widest = Math.max(widest, Icons.width(entry.icon));
+            }
+        }
+        return widest;
+    }
+
+    /** The entry's icon, centered in its row and in the menu's icon column; returns where the column ends. */
     private int drawMenuIcon(MenuEntry entry, int x, int y, boolean hovered) {
         int color;
         if (!entry.enabled) {
             color = Theme.TEXT_DISABLED;
         } else if (entry.danger) {
             color = Theme.DANGER;
+        } else if (entry.iconColor != 0) {
+            // Its own color, dimmed while its toggle is off.
+            color = entry.checked == null || entry.checked || hovered ? entry.iconColor : Theme.TEXT_DISABLED;
+        } else if (entry.selected || hovered) {
+            color = Theme.ACCENT;
         } else {
-            color = hovered ? Theme.ACCENT : Theme.TEXT_MUTED;
+            color = Theme.TEXT_MUTED;
         }
-        int iconWidth = Icons.width(entry.icon);
-        Icons.draw(entry.icon, x, y + (MENU_ROW - entry.icon.length) / 2, color);
-        return x + Math.max(7, iconWidth);
+        int column = iconColumn(menu);
+        int iconX = x + (column - Icons.width(entry.icon)) / 2;
+        Icons.draw(entry.icon, iconX, y + (MENU_ROW - entry.icon.length) / 2, color);
+        return x + column;
     }
 
     /** @return true if the click was taken by the menu (which then closes) */

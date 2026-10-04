@@ -170,6 +170,16 @@ public final class Icons {
     public static final String[] SMALL_DROP = { "...#...", "..###..", ".#####.", "#######", "#######", ".#####.",
         "..###.." };
 
+    /** Small icons (7x7) of the kinds of mobs, for the mobs menu. */
+    public static final String[] SMALL_NEUTRAL = { "#.....#", ".#####.", ".#.#.#.", ".#####.", "..###..", "..#.#.." };
+    public static final String[] SMALL_HEART = { ".##.##.", "#######", "#######", ".#####.", "..###..", "...#..." };
+    public static final String[] SMALL_PAW = { ".#.#.#.", ".#.#.#.", ".......", "..###..", ".#####.", ".#####.",
+        "..#.#.." };
+    public static final String[] SMALL_CREEPER = { "#######", "#..#..#", "#..#..#", "###.###", "##...##", "##.#.##",
+        "#######" };
+    public static final String[] SMALL_PERSON = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..",
+        ".#...#." };
+
     /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
     public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
     public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
