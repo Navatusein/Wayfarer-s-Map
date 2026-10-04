@@ -17,6 +17,7 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ClaimsLayer;
@@ -62,6 +63,10 @@ public class MinimapRenderer {
             return;
         }
         Minecraft mc = Minecraft.getMinecraft();
+        if (mc.currentScreen instanceof GuiMinimapPosition) {
+            // Being dragged: moved to the mouse right before it is drawn, so it keeps up with the cursor.
+            ((GuiMinimapPosition) mc.currentScreen).updateDrag();
+        }
         EntityClientPlayerMP player = mc.thePlayer;
         MapDimension dimension = MapManager.INSTANCE.getDimension();
         if (dimension != null && !Config.showPlants && dimension.plantless() != null) {

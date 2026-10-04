@@ -7,6 +7,7 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import WayFarMap.Config;
 import WayFarMap.client.MinimapRenderer;
@@ -120,21 +121,23 @@ public class GuiMinimapPosition extends GuiScreen {
         }
     }
 
-    @Override
-    protected void mouseClickMove(int mouseX, int mouseY, int button, long timeSinceLastClick) {
-        if (dragging) {
-            // Shift moves freely, without pulling it onto the edges and the middle.
-            moveTo(mouseX - grabX, mouseY - grabY, !isShiftKeyDown());
+    /**
+     * Follows the mouse while the minimap is dragged. Called every frame, before the HUD draws the minimap: mouse
+     * events only come in game ticks (20 a second), which made the minimap move in jerks behind the cursor.
+     */
+    public void updateDrag() {
+        if (!dragging) {
+            return;
         }
-    }
-
-    @Override
-    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
-        super.mouseMovedOrUp(mouseX, mouseY, button);
-        if (button == 0 && dragging) {
+        if (!Mouse.isButtonDown(0)) {
             dragging = false;
             centeredX = centeredY = false;
+            return;
         }
+        int mouseX = Mouse.getX() * width / mc.displayWidth;
+        int mouseY = height - Mouse.getY() * height / mc.displayHeight - 1;
+        // Shift moves freely, without pulling it onto the edges and the middle.
+        moveTo(mouseX - grabX, mouseY - grabY, !isShiftKeyDown());
     }
 
     @Override
@@ -166,6 +169,7 @@ public class GuiMinimapPosition extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         // The minimap itself is drawn by the HUD under this screen; here only its outline and the hints.
+        updateDrag();
         int x = boxLeft(), y = boxTop();
         int x1 = x + Config.minimapSize, y1 = y + MinimapRenderer.boxHeight();
         if (centeredX) {
