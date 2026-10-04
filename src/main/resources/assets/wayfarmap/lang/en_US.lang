@@ -616,5 +616,3 @@ wayfarmap.clean.done=Deleted %s.
 wayfarmap.inspect.usage=Usage: %s (without coordinates: the block you look at)
 wayfarmap.inspect.done=3D map report of %s,%s,%s written: wayfarmap/inspect/%s (click to open the folder)
 wayfarmap.inspect.failed=Could not write the 3D map report: %s
-wayfarmap.mobdump.done=Mob textures dumped: %s mobs, %s pictures (%s could not be read) in wayfarmap/dumps/%s (click to open the folder)
-wayfarmap.mobdump.failed=Could not dump the mob textures: %s

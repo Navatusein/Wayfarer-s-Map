@@ -616,5 +616,3 @@ wayfarmap.clean.done=Удалено %s.
 wayfarmap.inspect.usage=Использование: %s (без координат — блок, на который вы смотрите)
 wayfarmap.inspect.done=Отчёт 3D-карты о блоке %s,%s,%s записан: wayfarmap/inspect/%s (нажмите, чтобы открыть папку)
 wayfarmap.inspect.failed=Не удалось записать отчёт 3D-карты: %s
-wayfarmap.mobdump.done=Текстуры мобов сохранены: мобов %s, картинок %s (не удалось прочитать %s) в wayfarmap/dumps/%s (нажмите, чтобы открыть папку)
-wayfarmap.mobdump.failed=Не удалось сохранить текстуры мобов: %s
