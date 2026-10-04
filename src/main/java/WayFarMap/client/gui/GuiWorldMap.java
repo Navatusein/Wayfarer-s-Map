@@ -51,15 +51,12 @@ import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
-import WayFarMap.client.map.FlatExport;
 import WayFarMap.client.map.MapCleaner;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.MapRegion;
 import WayFarMap.client.map.Topography;
 import WayFarMap.client.map.export.MapExport;
-import WayFarMap.client.map.export.TilePyramid;
-import WayFarMap.client.map.iso.IsoExport;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.client.map.iso.IsoProjection;
 import WayFarMap.client.waypoint.Waypoint;
@@ -82,14 +79,9 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
         ID_CLOSE = 21, ID_ABOUT = 22;
-    /** What the open menu is: the right click map menu, the mob filter, the add-on layers, teammates or export. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_EXPORT = 4,
-        MENU_MODES = 5, MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
-    private static final int EXPORT_MENU_WIDTH = 250;
-    /** Rough time to draw one exported 3D tile on one thread, in seconds, for the menu's estimate. */
-    private static final double EXPORT_SECONDS_PER_TILE = 0.2;
-    /** Export the 3D map as it looks at night. */
-    private static boolean exportNight;
+    /** What the open menu is: the right click map menu, the mob filter, the add-on layers or teammates. */
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_MODES = 5,
+        MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
@@ -640,76 +632,8 @@ public class GuiWorldMap extends ScaledScreen {
         menuY = mobsButton.yPosition + 18;
     }
 
-    /**
-     * Menu under the export button: saves the whole map as it is shown (flat, or 3D at a chosen detail) into a folder
-     * a browser opens zoomable down to single blocks; while an export runs, stops it.
-     */
-    private void openExportMenu() {
-        List<MenuEntry> entries = new ArrayList<>();
-        if (MapExport.running()) {
-            String status = MapExport.statusText();
-            entries.add(new MenuEntry(status == null ? "" : status, false, () -> {}));
-            entries.add(new MenuEntry(I18n.format("wayfarmap.export.cancel"), true, MapExport::cancel));
-        } else if (isoShown()) {
-            int dimensionId = viewDimension();
-            for (int level = 0; level <= IsoExport.MAX_LEVEL; level++) {
-                IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
-                if (export == null) {
-                    continue;
-                }
-                Set<Long> tiles = export.tiles();
-                // Drawing time grows with the pixels: a tile of 256x256 takes about the same at any detail.
-                double minutes = tiles.size() * EXPORT_SECONDS_PER_TILE / export.threads() / 60;
-                String time = minutes < 1 ? I18n.format("wayfarmap.export.under_minute")
-                    : I18n.format("wayfarmap.export.minutes", (int) Math.ceil(minutes));
-                long[] picture = TilePyramid.pictureSize(tiles, export.tileSize());
-                String label = I18n.format(
-                    "wayfarmap.export.iso_level",
-                    (int) export.pixelsPerBlock(),
-                    picture[0] + "\u00D7" + picture[1],
-                    time);
-                final int chosen = level;
-                entries.add(new MenuEntry(label, !tiles.isEmpty(), () -> startIsoExport(dimensionId, chosen)));
-            }
-            entries.add(
-                new MenuEntry(
-                    I18n.format("wayfarmap.export.night"),
-                    true,
-                    () -> { exportNight = !exportNight; },
-                    exportNight));
-        } else {
-            MapDimension map = MapManager.INSTANCE.getViewMap();
-            Set<Long> regions = map == null ? Collections.<Long>emptySet() : new FlatExport(map, 1).tiles();
-            long[] picture = TilePyramid.pictureSize(regions, MapRegion.SIZE);
-            for (int blockPixels = 1; blockPixels <= 16; blockPixels *= 2) {
-                final int chosen = blockPixels;
-                String label = I18n.format(
-                    "wayfarmap.export.flat_scale",
-                    blockPixels,
-                    picture[0] * blockPixels + "\u00D7" + picture[1] * blockPixels);
-                entries.add(new MenuEntry(label, !regions.isEmpty(), () -> startFlatExport(chosen)));
-            }
-        }
-        menu = entries;
-        menuKind = MENU_EXPORT;
-        menuShown();
-        menuWidth = EXPORT_MENU_WIDTH;
-        menuX = Math.max(2, Math.min(exportButton.xPosition, width - EXPORT_MENU_WIDTH - 2));
-        menuY = exportButton.yPosition + 18;
-    }
-
-    /** Name of the export: world and dimension. */
-    private String exportName() {
-        File world = MapManager.INSTANCE.getWorldDirectory();
-        return (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
-    }
-
-    /** @param blockPixels pixels per block of the saved map */
-    private void startFlatExport(int blockPixels) {
-        MapDimension map = MapManager.INSTANCE.getViewMap();
-        if (map == null) {
-            return;
-        }
+    /** Opens the pictures of the map: making one of what the map shows, and the ones made so far. */
+    private void openPictures() {
         String what;
         int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
         if (biomeViewShown()) {
@@ -719,37 +643,16 @@ public class GuiWorldMap extends ScaledScreen {
         } else {
             what = "2d";
         }
-        what += "_" + blockPixels + "px";
-        TilePyramid.Info info = new TilePyramid.Info();
-        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (" + what + ")";
-        info.mode = "2d";
-        info.pixelsPerBlock = blockPixels;
-        // Up to 64 screen pixels per block, like the closest zoom of the map.
-        info.maxZoom = Math.max(4, 64.0 / blockPixels);
-        MapExport.start(new FlatExport(map, blockPixels), info, exportName() + "_" + what);
-        chatExportStarted();
-    }
-
-    private void startIsoExport(int dimensionId, int level) {
-        IsoExport export = IsoExport.of(dimensionId, Config.isoRotation, level, exportNight);
-        if (export == null) {
-            return;
-        }
-        String what = "3d_" + (int) export.pixelsPerBlock() + "px" + (exportNight ? "_night" : "");
-        TilePyramid.Info info = new TilePyramid.Info();
-        info.title = MapManager.INSTANCE.getViewedDimensionName() + " (3D)";
-        info.mode = "3d";
-        info.pixelsPerBlock = export.pixelsPerBlock();
-        // Up to 128 screen pixels per block, and always a few times closer than the picture itself.
-        info.maxZoom = Math.max(4, 128 / export.pixelsPerBlock());
-        MapExport.start(export, info, exportName() + "_" + what);
-        chatExportStarted();
-    }
-
-    private void chatExportStarted() {
-        if (mc.thePlayer != null) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(I18n.format("wayfarmap.export.started")));
-        }
+        File world = MapManager.INSTANCE.getWorldDirectory();
+        String name = (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();
+        mc.displayGuiScreen(
+            new GuiMapPictures(
+                this,
+                viewDimension(),
+                isoShown(),
+                what,
+                name,
+                MapManager.INSTANCE.getViewedDimensionName()));
     }
 
     private static String caveButtonText() {
@@ -827,7 +730,7 @@ public class GuiWorldMap extends ScaledScreen {
         } else if (button.id == ID_MODES) {
             openModesMenu();
         } else if (button.id == ID_EXPORT) {
-            openExportMenu();
+            openPictures();
         } else if (button.id == ID_CAVES) {
             Config.cycleCaveMode();
             updateLightButtons();
@@ -2136,8 +2039,6 @@ public class GuiWorldMap extends ScaledScreen {
                     openAddonsMenu();
                 } else if (entry.checked != null && menuKind == MENU_MOBS) {
                     openMobsMenu();
-                } else if (entry.checked != null && menuKind == MENU_EXPORT) {
-                    openExportMenu();
                 }
             }
         }

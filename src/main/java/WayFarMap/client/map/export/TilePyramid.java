@@ -117,26 +117,11 @@ public final class TilePyramid {
         Set<Long> wanted = source.tiles();
         long[] total = { wanted.size() + wanted.size() / 3 + 1 };
         AtomicLong done = new AtomicLong();
-        progress.progress(0, total[0]);
 
         // The finest level: drawn by the source.
         List<Set<Long>> levels = new ArrayList<>();
-        Set<Long> finest = ConcurrentHashMap.newKeySet();
-        File level0 = new File(tiles, "0");
-        mkdirs(level0);
-        runAll(source.threads(), new ArrayList<>(wanted), key -> {
-            int x = keyX(key), y = keyY(key);
-            int[] pixels = source.render(x, y);
-            if (pixels != null) {
-                writePng(new File(level0, x + "_" + y + ".png"), pixels, size);
-                finest.add(key);
-            }
-            progress.progress(done.incrementAndGet(), total[0]);
-        }, progress);
+        Set<Long> finest = renderFinest(source, wanted, new File(tiles, "0"), progress, done, total);
         levels.add(finest);
-        if (finest.isEmpty()) {
-            throw new IOException("Nothing to export");
-        }
         int[] finestBounds = bounds(finest);
         int tileRows = finestBounds[3] - finestBounds[1] + 1;
         total[0] = done.get() + finest.size() / 3 + tileRows + 1;
@@ -184,6 +169,69 @@ public final class TilePyramid {
         copyViewer(new File(folder, "index.html"));
         progress.progress(total[0], total[0]);
         return finest.size();
+    }
+
+    /**
+     * The whole map as one picture at full detail and nothing else: the finest tiles are drawn into a hidden folder
+     * next to it, put together row by row (so it can be far bigger than the memory), and deleted.
+     *
+     * @return the number of non-empty finest tiles
+     */
+    public static int writePicture(Source source, File file, Progress progress) throws IOException, CancelledException {
+        int size = source.tileSize();
+        Set<Long> wanted = source.tiles();
+        long[] total = { wanted.size() + 1 };
+        AtomicLong done = new AtomicLong();
+        File work = new File(file.getParentFile(), "." + file.getName() + ".tiles");
+        try {
+            Set<Long> finest = renderFinest(source, wanted, work, progress, done, total);
+            int[] b = bounds(finest);
+            total[0] = done.get() + b[3] - b[1] + 1;
+            writeOverview(
+                finest,
+                work,
+                size,
+                file,
+                progress,
+                () -> { progress.progress(done.incrementAndGet(), Math.max(total[0], done.get() + 1)); });
+            progress.progress(total[0], total[0]);
+            return finest.size();
+        } finally {
+            deleteTree(work);
+        }
+    }
+
+    /** Draws the source's finest tiles into the folder; the ones that show something. */
+    private static Set<Long> renderFinest(Source source, Set<Long> wanted, File dir, Progress progress,
+        AtomicLong done, long[] total) throws IOException, CancelledException {
+        int size = source.tileSize();
+        progress.progress(0, total[0]);
+        Set<Long> finest = ConcurrentHashMap.newKeySet();
+        mkdirs(dir);
+        runAll(source.threads(), new ArrayList<>(wanted), key -> {
+            int x = keyX(key), y = keyY(key);
+            int[] pixels = source.render(x, y);
+            if (pixels != null) {
+                writePng(new File(dir, x + "_" + y + ".png"), pixels, size);
+                finest.add(key);
+            }
+            progress.progress(done.incrementAndGet(), total[0]);
+        }, progress);
+        if (finest.isEmpty()) {
+            throw new IOException("Nothing to export");
+        }
+        return finest;
+    }
+
+    /** Deletes a file or a folder with everything in it. */
+    static void deleteTree(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteTree(child);
+            }
+        }
+        file.delete();
     }
 
     private interface TileTask {

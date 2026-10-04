@@ -1,6 +1,7 @@
 package WayFarMap.client.map.export;
 
 import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -17,15 +18,17 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.map.MapManager;
 
 /**
- * Saves the whole map, flat or 3D, as a folder under {@code screenshots/wayfarmap/} that a browser shows zoomable
- * down to single blocks ({@link TilePyramid}). One export at a time, in the background; the chat says when it is done
- * with a link to open it.
+ * Saves the whole map, flat or 3D, under {@code screenshots/wayfarmap/}: as one picture, or as a folder that a browser
+ * shows zoomable down to single blocks ({@link TilePyramid}). One export at a time, in the background; the chat says
+ * when it is done with a link to open it.
  */
 public final class MapExport {
 
     private static final class Job {
 
+        /** The picture, or the folder of the page. */
         final File folder;
+        final boolean site;
         volatile long done, total;
         volatile boolean cancelled;
         /** Set when finished: the message for the chat. */
@@ -33,12 +36,15 @@ public final class MapExport {
         volatile boolean failed;
         volatile boolean waitingForSave = true;
 
-        Job(File folder) {
+        Job(File folder, boolean site) {
             this.folder = folder;
+            this.site = site;
         }
     }
 
     private static volatile Job job;
+    /** Exports finished so far, so a screen showing the pictures knows when to look again. */
+    private static volatile int finished;
 
     private MapExport() {}
 
@@ -61,6 +67,25 @@ public final class MapExport {
         return I18n.format("wayfarmap.export.progress", percent);
     }
 
+    /** How far the running export is, 0 to 1; -1 while it prepares or when none runs. */
+    public static double progress() {
+        Job current = job;
+        if (current == null || current.result != null || current.waitingForSave || current.total <= 0) {
+            return -1;
+        }
+        return Math.min(0.99, current.done / (double) current.total);
+    }
+
+    /** How many exports have finished (well or not) since the game started. */
+    public static int finished() {
+        return finished;
+    }
+
+    /** Where the pictures go: {@code screenshots/wayfarmap}, only the mod's. */
+    public static File folder() {
+        return new File(new File(Minecraft.getMinecraft().mcDataDir, "screenshots"), "wayfarmap");
+    }
+
     /** Stops the running export; what was written so far stays. */
     public static void cancel() {
         Job current = job;
@@ -72,16 +97,16 @@ public final class MapExport {
     /**
      * Starts exporting (render thread). The map is saved first, so the files have everything.
      *
-     * @param name what the folder is called, before the date
+     * @param name what the picture or the folder is called, before the date
+     * @param site the page that zooms in a browser (a folder); false for one picture
      */
-    public static void start(TilePyramid.Source source, TilePyramid.Info info, String name) {
+    public static void start(TilePyramid.Source source, TilePyramid.Info info, String name, boolean site) {
         if (running()) {
             return;
         }
-        Minecraft mc = Minecraft.getMinecraft();
         String date = new SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(new Date());
-        File folder = new File(new File(new File(mc.mcDataDir, "screenshots"), "wayfarmap"), safe(name) + "_" + date);
-        Job current = new Job(folder);
+        File folder = new File(folder(), safe(name) + "_" + date + (site ? "" : ".png"));
+        Job current = new Job(folder, site);
         job = current;
         List<Future<?>> saving = MapManager.INSTANCE.saveAll();
         Thread thread = new Thread(() -> run(current, source, info, saving), "WayFarMap export");
@@ -96,7 +121,7 @@ public final class MapExport {
                 future.get();
             }
             current.waitingForSave = false;
-            int tiles = TilePyramid.write(source, info, current.folder, new TilePyramid.Progress() {
+            TilePyramid.Progress progress = new TilePyramid.Progress() {
 
                 @Override
                 public boolean cancelled() {
@@ -108,7 +133,17 @@ public final class MapExport {
                     current.total = total;
                     current.done = done;
                 }
-            });
+            };
+            int tiles;
+            if (current.site) {
+                tiles = TilePyramid.write(source, info, current.folder, progress);
+            } else {
+                File parent = current.folder.getParentFile();
+                if (!parent.isDirectory() && !parent.mkdirs()) {
+                    throw new IOException("Could not create " + parent);
+                }
+                tiles = TilePyramid.writePicture(source, current.folder, progress);
+            }
             WayFarMap.LOG.info("Exported the map ({} tiles) to {}", tiles, current.folder);
             current.result = "done";
         } catch (TilePyramid.CancelledException e) {
@@ -118,6 +153,8 @@ public final class MapExport {
             WayFarMap.LOG.warn("Could not export the map", t);
             current.failed = true;
             current.result = t.getMessage() == null ? t.toString() : t.getMessage();
+        } finally {
+            finished++;
         }
     }
 
@@ -139,8 +176,8 @@ public final class MapExport {
             ChatStyle style = new ChatStyle();
             style.setUnderlined(true);
             style.setColor(EnumChatFormatting.AQUA);
-            style.setChatClickEvent(
-                new ClickEvent(ClickEvent.Action.OPEN_FILE, new File(current.folder, "index.html").getAbsolutePath()));
+            File open = current.site ? new File(current.folder, "index.html") : current.folder;
+            style.setChatClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE, open.getAbsolutePath()));
             link.setChatStyle(style);
             message.appendSibling(link);
         } else if ("cancelled".equals(current.result)) {
