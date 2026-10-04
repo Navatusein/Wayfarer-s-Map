@@ -13,7 +13,9 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ChatComponentText;
@@ -1007,8 +1009,27 @@ public class GuiWorldMap extends ScaledScreen {
         welcomeWindow.draw(width, height, mouseX, mouseY);
     }
 
+    /** Whether the world map is on screen: open, or drawn behind one of the mod's screens opened over it. */
+    public static boolean isVisible(Minecraft mc) {
+        GuiScreen screen = mc.currentScreen;
+        return screen instanceof GuiWorldMap
+            || screen instanceof ScaledScreen && ((ScaledScreen) screen).showsBehind(GuiWorldMap.class);
+    }
+
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        if (isDrawnBehind()) {
+            // Behind another screen: drawn as when open (the surface view it sets then), and never dragged.
+            dragging = false;
+            boolean surface = MapManager.INSTANCE.isSurfaceView();
+            updateSurfaceView();
+            try {
+                drawMap(mouseX, mouseY, partialTicks);
+            } finally {
+                MapManager.INSTANCE.setSurfaceView(surface);
+            }
+            return;
+        }
         drawMap(mouseX, mouseY, partialTicks);
         if (welcome) {
             drawWelcome(mouseX, mouseY);
@@ -2843,7 +2864,10 @@ public class GuiWorldMap extends ScaledScreen {
             ThaumcraftNodes.setSearch("");
         }
         saveView();
-        MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+        if (!ScaledScreen.isBeingCovered(this)) {
+            // Only when really closed: under a screen opened over it, it is still shown.
+            MapManager.INSTANCE.trimAroundPlayer(mc.thePlayer);
+        }
     }
 
     // ---------------------------------------------------------------- where the map was left
@@ -2965,6 +2989,12 @@ public class GuiWorldMap extends ScaledScreen {
     /** The map fills the window: it is there at once. */
     @Override
     protected boolean slidesIn() {
+        return false;
+    }
+
+    /** The map fills the window: nothing behind it would show. */
+    @Override
+    protected boolean showsScreenBehind() {
         return false;
     }
 

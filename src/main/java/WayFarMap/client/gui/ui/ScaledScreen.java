@@ -28,9 +28,56 @@ public abstract class ScaledScreen extends GuiScreen {
     /** How far down the screen being drawn is moved while it slides in (GUI pixels). */
     private static int activeOffset;
 
+    /** A screen behind this one is being drawn: it gets no mouse, so nothing on it lights up. */
+    private static boolean drawingBehind;
+    /** Screens drawn behind each other at most: a guard against a screen ending up behind itself. */
+    private static final int MAX_BEHIND = 4;
+    private static int behindDepth;
+
     private int appliedFactor;
     /** When the screen was opened, and when it was last drawn (milliseconds). */
     private long openedAt, lastDrawn;
+    /**
+     * The mod's screen that was open when this one was made (e.g. the world map under its settings): it stays
+     * drawn under this one, dimmed by it, instead of the game. Null when this one was opened from the game.
+     */
+    private final ScaledScreen behind;
+
+    /** The screen a new one was last opened over, and when: it closes only to stay drawn under it. */
+    private static ScaledScreen lastCovered;
+    private static long lastCoveredAt;
+
+    protected ScaledScreen() {
+        GuiScreen open = Minecraft.getMinecraft().currentScreen;
+        behind = open instanceof ScaledScreen && open != this ? (ScaledScreen) open : null;
+        if (behind != null) {
+            lastCovered = behind;
+            lastCoveredAt = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * Whether the screen is being closed only because another of the mod's screens is opening over it, which keeps
+     * it drawn behind (for {@link GuiScreen#onGuiClosed}: it should not let go of what it shows).
+     */
+    public static boolean isBeingCovered(ScaledScreen screen) {
+        return lastCovered == screen && System.currentTimeMillis() - lastCoveredAt < 2000;
+    }
+
+    /** Whether a screen of the type is drawn behind this one (directly or further back). */
+    public boolean showsBehind(Class<?> type) {
+        for (ScaledScreen screen = behind; screen != null; screen = screen.behind) {
+            if (type.isInstance(screen)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the screen is drawn now only as the background of another one, and gets no input. */
+    protected static boolean isDrawnBehind() {
+        return drawingBehind;
+    }
 
     /** Screen pixels per GUI pixel of the mod's screens. */
     public static int factor(Minecraft mc) {
@@ -63,6 +110,11 @@ public abstract class ScaledScreen extends GuiScreen {
         return true;
     }
 
+    /** Whether the screen it was opened over is drawn behind it; not for screens covering the whole window. */
+    protected boolean showsScreenBehind() {
+        return true;
+    }
+
     @Override
     public void setWorldAndResolution(Minecraft mc, int width, int height) {
         appliedFactor = factor(mc);
@@ -74,15 +126,29 @@ public abstract class ScaledScreen extends GuiScreen {
 
     @Override
     public final void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        if (factor(mc) != appliedFactor) {
-            // The scale option changed (or the window): lay the screen out again.
+        int expectedWidth = (mc.displayWidth + appliedFactor - 1) / Math.max(1, appliedFactor);
+        if (factor(mc) != appliedFactor || width != expectedWidth) {
+            // The scale option changed, or the window: lay the screen out again.
             setWorldAndResolution(mc, 0, 0);
+        }
+        if (behind != null && showsScreenBehind() && behind.mc != null && behindDepth < MAX_BEHIND) {
+            // The screen this one was opened over, as it is now, under this one's dimmed background.
+            boolean was = drawingBehind;
+            drawingBehind = true;
+            behindDepth++;
+            try {
+                behind.drawScreen(mouseX, mouseY, partialTicks);
+            } finally {
+                drawingBehind = was;
+                behindDepth--;
+            }
         }
         int minecraftFactor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
         float scale = (float) appliedFactor / minecraftFactor;
-        // Minecraft passes the mouse in its own GUI pixels; ours are different.
-        int x = Mouse.getX() * width / mc.displayWidth;
-        int y = height - Mouse.getY() * height / mc.displayHeight - 1;
+        // Minecraft passes the mouse in its own GUI pixels; ours are different. A screen drawn behind another one
+        // gets it far away.
+        int x = drawingBehind ? -10000 : Mouse.getX() * width / mc.displayWidth;
+        int y = drawingBehind ? -10000 : height - Mouse.getY() * height / mc.displayHeight - 1;
         long now = System.currentTimeMillis();
         if (now - lastDrawn > REOPEN_MS) {
             // Opened, or back from another screen.
