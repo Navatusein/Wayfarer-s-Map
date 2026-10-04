@@ -94,6 +94,11 @@ public final class MapDrawer {
         int rx1 = floor(right) >> MapRegion.SHIFT;
         int rz1 = floor(bottom) >> MapRegion.SHIFT;
 
+        if (Config.unexploredPattern != Config.UNEXPLORED_NONE) {
+            // Under the map: it only shows where nothing was explored (the map is transparent there).
+            drawUnexploredPattern(left, top, scale, x, y, width, height);
+        }
+
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -185,6 +190,18 @@ public final class MapDrawer {
                     tessellator.draw();
                     GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
                 }
+                if (!lod && Config.edgeShadow) {
+                    // Over the map: a soft shadow along the edge of the explored land.
+                    region.bindShadowTexture(missingNeighbors(dimension, rx, rz));
+                    GL11.glColor4f(1f, 1f, 1f, 1f);
+                    tessellator.startDrawingQuads();
+                    tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
+                    tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
+                    tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
+                    tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
+                    tessellator.draw();
+                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                }
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -199,6 +216,73 @@ public final class MapDrawer {
                 textureLimited,
                 System.nanoTime() - frameStart);
         }
+    }
+
+    /** Which neighbors of the region don't exist (bits 1 west, 2 east, 4 north, 8 south), for its edge shadow. */
+    private static int missingNeighbors(MapDimension dimension, int rx, int rz) {
+        int missing = 0;
+        if (dimension.isKnownMissing(rx - 1, rz)) {
+            missing |= 1;
+        }
+        if (dimension.isKnownMissing(rx + 1, rz)) {
+            missing |= 2;
+        }
+        if (dimension.isKnownMissing(rx, rz - 1)) {
+            missing |= 4;
+        }
+        if (dimension.isKnownMissing(rx, rz + 1)) {
+            missing |= 8;
+        }
+        return missing;
+    }
+
+    /** Room between two lines or dots of the unexplored land's pattern, in GUI pixels. */
+    private static final int PATTERN_LINE_STEP = 7, PATTERN_DOT_STEP = 8;
+    private static final int PATTERN_LINE_COLOR = 0xFF181D24, PATTERN_DOT_COLOR = 0xFF222933;
+
+    /**
+     * The pattern of the unexplored land ({@link Config#unexploredPattern}) over the map rectangle: diagonal lines or
+     * dots, lined up with the world's origin so they move with the map instead of sliding under it.
+     */
+    private static void drawUnexploredPattern(double left, double top, double scale, int x, int y, int width,
+        int height) {
+        // Where the world's origin is on screen: the pattern starts there.
+        double originX = x - left * scale, originY = y - top * scale;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        if (Config.unexploredPattern == Config.UNEXPLORED_LINES) {
+            // Lines where screen x + y is the same, one every few pixels.
+            int step = PATTERN_LINE_STEP;
+            double first = originX + originY + Math.ceil((x + y - originX - originY) / step) * step;
+            tessellator.setColorRGBA_I(PATTERN_LINE_COLOR & 0xFFFFFF, PATTERN_LINE_COLOR >>> 24);
+            for (double c = first; c < x + width + y + height; c += step) {
+                // Where the line enters the rectangle at the bottom or left, and leaves it at the top or right.
+                double fromX = Math.max(x, c - (y + height)), toX = Math.min(x + width, c - y);
+                if (toX <= fromX) {
+                    continue;
+                }
+                // One GUI pixel wide, as a thin parallelogram along the line.
+                tessellator.addVertex(fromX, c - fromX, 0);
+                tessellator.addVertex(Math.min(fromX + 1, x + width), c - fromX, 0);
+                tessellator.addVertex(Math.min(toX + 1, x + width), c - toX, 0);
+                tessellator.addVertex(toX, c - toX, 0);
+            }
+        } else {
+            int step = PATTERN_DOT_STEP;
+            double firstX = originX + Math.ceil((x - originX) / step) * step;
+            double firstY = originY + Math.ceil((y - originY) / step) * step;
+            for (double dy = firstY; dy < y + height; dy += step) {
+                for (double dx = firstX; dx < x + width; dx += step) {
+                    addRect(tessellator, dx, dy, dx + 1, dy + 1, PATTERN_DOT_COLOR);
+                }
+            }
+        }
+        tessellator.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**

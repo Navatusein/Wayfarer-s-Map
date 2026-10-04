@@ -16,8 +16,10 @@ import org.lwjgl.input.Mouse;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.registry.GameData;
 
@@ -31,6 +33,8 @@ public class GuiItemPicker extends ScaledScreen {
     }
 
     private static final int CELL = 18;
+    /** How much lower the search and the grid are than under a plain title: room for the header. */
+    private static final int SEARCH_DOWN = WindowHeader.HEIGHT - 12;
 
     /** All item stacks, built once per game session (it can be large in modpacks). */
     private static List<ItemStack> allStacks;
@@ -93,14 +97,14 @@ public class GuiItemPicker extends ScaledScreen {
         buildItemList();
         Keyboard.enableRepeatEvents(true);
         columns = Math.max(4, Math.min(24, (width - 40) / CELL));
-        rows = Math.max(3, (height - 90) / CELL);
+        rows = Math.max(3, (height - 90 - SEARCH_DOWN) / CELL);
         gridX = (width - columns * CELL) / 2;
-        gridY = 44;
+        gridY = 44 + SEARCH_DOWN;
 
         // Made like the fields of the waypoint editor: a click on it gives the focus, a click elsewhere takes it away.
         // Not focused at first: typing starts once the field is clicked.
         String oldText = search != null ? search.getText() : "";
-        search = new FlatTextField(fontRendererObj, gridX, 20, columns * CELL, 18);
+        search = new FlatTextField(fontRendererObj, gridX, 20 + SEARCH_DOWN, columns * CELL, 18);
         search.setHint(I18n.format("wayfarmap.gui.search"));
         search.setMaxStringLength(64);
         search.setText(oldText);
@@ -110,6 +114,7 @@ public class GuiItemPicker extends ScaledScreen {
         int half = (columns * CELL - 4) / 2;
         buttonList.add(new FlatButton(0, gridX, buttonY, half, 18, I18n.format("wayfarmap.gui.no_icon")));
         buttonList.add(new FlatButton(1, gridX + columns * CELL - half, buttonY, half, 18, I18n.format("gui.cancel")));
+        buttonList.add(WindowHeader.closeButton(1, gridX + columns * CELL + 8, 4));
         applyFilter();
     }
 
@@ -202,7 +207,17 @@ public class GuiItemPicker extends ScaledScreen {
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(gridX - 8, 4, gridX + columns * CELL + 8, gridY + rows * CELL + 34);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_icon"), gridX, 11, Theme.ACCENT);
+        WindowHeader.draw(
+            fontRendererObj,
+            gridX - 8,
+            4,
+            gridX + columns * CELL + 8,
+            gridX + columns * CELL + 8 - WindowHeader.CLOSE_ROOM,
+            Icons.ORE,
+            I18n.format("wayfarmap.gui.pick_icon_title"),
+            I18n.format("wayfarmap.gui.pick_icon_hint"),
+            Theme.TEXT_MUTED,
+            String.valueOf(filtered.size()));
         search.drawTextBox();
 
         Theme.fill(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, 0xFF0F1216);
@@ -233,13 +248,6 @@ public class GuiItemPicker extends ScaledScreen {
             Theme.scrollbar(x, gridY, gridY + rows * CELL, rows, totalRows, shown / maxScroll, false);
         }
 
-        String count = filtered.size() + "";
-        Theme.text(
-            fontRendererObj,
-            count,
-            gridX + columns * CELL - fontRendererObj.getStringWidth(count),
-            11,
-            Theme.TEXT_MUTED);
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 

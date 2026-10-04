@@ -14,8 +14,10 @@ import org.lwjgl.input.Keyboard;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
@@ -29,6 +31,8 @@ public class GuiEditWaypoint extends ScaledScreen {
     /** Color sample next to the outline switch; a click opens the color picker. */
     private static final int SWATCH_X = 144, SWATCH_Y = 155, SWATCH_W = 76, SWATCH_H = 18;
     private static final int BUTTON_ROW = 205;
+    /** How far above the name the panel and its header start. */
+    private static final int HEADER_ABOVE = WindowHeader.HEIGHT - 8;
 
     private static final int ID_GROUP = 1, ID_NEW_GROUP = 2, ID_ICON = 3, ID_OUTLINE = 4, ID_SAVE = 5, ID_DELETE = 6,
         ID_CANCEL = 7, ID_TELEPORT = 8, ID_BEAM = 9, ID_SHARE = 10;
@@ -69,7 +73,8 @@ public class GuiEditWaypoint extends ScaledScreen {
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         left = width / 2 - 110;
-        top = Math.max(4, height / 2 - 130);
+        // Room above for the header, which starts over the name.
+        top = Math.max(4 + HEADER_ABOVE, height / 2 - 130);
         fields.clear();
         buttonList.clear();
 
@@ -125,6 +130,7 @@ public class GuiEditWaypoint extends ScaledScreen {
         }
         // Rounding leftovers go to the last button so the row ends flush with the fields above.
         cancelButton.setWidth(left + 220 - cancelButton.xPosition);
+        buttonList.add(WindowHeader.closeButton(ID_CANCEL, left + 230, top - HEADER_ABOVE));
         updateButtons();
     }
 
@@ -361,13 +367,18 @@ public class GuiEditWaypoint extends ScaledScreen {
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
-        Theme.panel(left - 10, top - 8, left + 230, top + BUTTON_ROW + 27);
-        Theme.text(
+        Theme.panel(left - 10, top - HEADER_ABOVE, left + 230, top + BUTTON_ROW + 27);
+        WindowHeader.draw(
             fontRendererObj,
+            left - 10,
+            top - HEADER_ABOVE,
+            left + 230,
+            left + 230 - WindowHeader.CLOSE_ROOM,
+            Icons.WAYPOINTS,
             I18n.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
-            left,
-            top,
-            Theme.ACCENT);
+            I18n.format("wayfarmap.gui.edit_waypoint_hint"),
+            Theme.TEXT_MUTED,
+            null);
 
         Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.name"), left, top + 14, Theme.TEXT_MUTED);
         Theme.text(fontRendererObj, "X", left, top + 48, Theme.TEXT_MUTED);

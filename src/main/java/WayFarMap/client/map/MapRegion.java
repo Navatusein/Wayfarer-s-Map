@@ -83,6 +83,23 @@ public class MapRegion implements PixelSource {
         }
     }
 
+    /**
+     * The shadow along the edge of the explored land ({@link #bindShadowTexture}): one texel for every
+     * {@link #SHADOW_CELL} x {@link #SHADOW_CELL} blocks, smoothed by linear filtering.
+     */
+    private int shadowTextureId = -1;
+    /** {@link #changes} and the missing neighbors the shadow was built for; -1 before it was built. */
+    private int shadowChanges = -1, shadowNeighbors = -1;
+    private long lastShadowUpload;
+    private static final int SHADOW_CELL = 4, SHADOW_SIZE = SIZE / SHADOW_CELL;
+    /** How far (in texels) the shadow reaches into the explored land, and the glow out of it. */
+    private static final int SHADOW_REACH = 2;
+    private static final long SHADOW_UPLOAD_INTERVAL_MS = 1000;
+    /** Darkest the shadow gets right at the edge, and the strongest glow, out of 255. */
+    private static final int SHADOW_ALPHA = 150, GLOW_EDGE_ALPHA = 30;
+    /** The glow outside the edge: the accent color of the mod's screens. */
+    private static final int EDGE_GLOW_RGB = 0x4C9AFF;
+
     private int textureId = -1;
     /** Area changed since the last upload, in local pixel coordinates (inclusive); minX > maxX when clean. */
     private int dirtyMinX, dirtyMinZ, dirtyMaxX = -1, dirtyMaxZ = -1;
@@ -210,6 +227,113 @@ public class MapRegion implements PixelSource {
                 GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
                 uploadBuffer);
         }
+    }
+
+    /**
+     * Binds the edge shadow texture: black, fading in over the explored land near unexplored land, and a faint glow
+     * over the unexplored side, to be drawn over the map. Land past the region's sides counts as unexplored only where
+     * the neighbor region does not exist ({@code missingNeighbors}: bits 1 west, 2 east, 4 north, 8 south). Rebuilt at
+     * most once a second while the region changes. Render thread.
+     */
+    public void bindShadowTexture(int missingNeighbors) {
+        boolean create = shadowTextureId == -1;
+        if (create) {
+            shadowTextureId = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, shadowTextureId);
+            // Linear both ways: a texel covers 4x4 blocks, the shadow must look smooth, not blocky.
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, shadowTextureId);
+        }
+        long now = System.currentTimeMillis();
+        boolean stale = shadowChanges != changes || shadowNeighbors != missingNeighbors;
+        if (create || stale && now - lastShadowUpload >= SHADOW_UPLOAD_INTERVAL_MS) {
+            shadowChanges = changes;
+            shadowNeighbors = missingNeighbors;
+            lastShadowUpload = now;
+            if (uploadBuffer == null) {
+                uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
+            }
+            uploadBuffer.clear();
+            uploadBuffer.put(buildShadow(missingNeighbors));
+            uploadBuffer.flip();
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+            GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+            GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+            GL11.glTexImage2D(
+                GL11.GL_TEXTURE_2D,
+                0,
+                GL11.GL_RGBA,
+                SHADOW_SIZE,
+                SHADOW_SIZE,
+                0,
+                GL12.GL_BGRA,
+                GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+                uploadBuffer);
+        }
+    }
+
+    /** The shadow's texels (ARGB), see {@link #bindShadowTexture}. */
+    int[] buildShadow(int missingNeighbors) {
+        // How much of each cell is explored, 0 to 1.
+        float[] explored = new float[SHADOW_SIZE * SHADOW_SIZE];
+        float perPixel = 1f / (SHADOW_CELL * SHADOW_CELL);
+        for (int z = 0; z < SIZE; z++) {
+            int row = (z / SHADOW_CELL) * SHADOW_SIZE;
+            for (int x = 0; x < SIZE; x++) {
+                if ((pixels[z * SIZE + x] >>> 24) != 0) {
+                    explored[row + x / SHADOW_CELL] += perPixel;
+                }
+            }
+        }
+        int[] texels = new int[SHADOW_SIZE * SHADOW_SIZE];
+        for (int cz = 0; cz < SHADOW_SIZE; cz++) {
+            for (int cx = 0; cx < SHADOW_SIZE; cx++) {
+                float here = explored[cz * SHADOW_SIZE + cx];
+                // The nearest unexplored and explored land around, weaker the farther it is.
+                float nearUnexplored = 1 - here, nearExplored = here;
+                for (int dz = -SHADOW_REACH; dz <= SHADOW_REACH; dz++) {
+                    for (int dx = -SHADOW_REACH; dx <= SHADOW_REACH; dx++) {
+                        if (dx == 0 && dz == 0) {
+                            continue;
+                        }
+                        float weight = 1 - (float) Math.sqrt(dx * dx + dz * dz) / (SHADOW_REACH + 1);
+                        if (weight <= 0) {
+                            continue;
+                        }
+                        float other = exploredAt(explored, cx + dx, cz + dz, missingNeighbors);
+                        nearUnexplored = Math.max(nearUnexplored, (1 - other) * weight);
+                        nearExplored = Math.max(nearExplored, other * weight);
+                    }
+                }
+                int texel;
+                if (here >= 0.5f) {
+                    // Explored: darker the nearer the edge.
+                    texel = Math.round(nearUnexplored * here * SHADOW_ALPHA) << 24;
+                } else {
+                    // Unexplored: a faint glow of the accent color next to the edge.
+                    texel = Math.round(nearExplored * (1 - here) * GLOW_EDGE_ALPHA) << 24 | EDGE_GLOW_RGB;
+                }
+                texels[cz * SHADOW_SIZE + cx] = texel;
+            }
+        }
+        return texels;
+    }
+
+    /**
+     * How explored the cell is; past the region's sides, unexplored where the neighbor region does not exist and
+     * explored otherwise (its own shadow is drawn by that region).
+     */
+    private static float exploredAt(float[] explored, int cx, int cz, int missingNeighbors) {
+        int side = cx < 0 ? 1 : cx >= SHADOW_SIZE ? 2 : cz < 0 ? 4 : cz >= SHADOW_SIZE ? 8 : 0;
+        if (side != 0) {
+            return (missingNeighbors & side) != 0 ? 0 : 1;
+        }
+        return explored[cz * SHADOW_SIZE + cx];
     }
 
     @Override
@@ -361,6 +485,11 @@ public class MapRegion implements PixelSource {
         if (glowTextureId != -1) {
             GL11.glDeleteTextures(glowTextureId);
             glowTextureId = -1;
+        }
+        if (shadowTextureId != -1) {
+            GL11.glDeleteTextures(shadowTextureId);
+            shadowTextureId = -1;
+            shadowChanges = -1;
         }
         BiomeHighlight.forget(this);
         Topography.forget(this);

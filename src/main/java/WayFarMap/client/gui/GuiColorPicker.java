@@ -13,8 +13,10 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 
 /**
  * Picks any color: a tall hue bar, a saturation/brightness square for that hue, fields for R, G, B, hex, H, S and V
@@ -28,7 +30,7 @@ public class GuiColorPicker extends ScaledScreen {
         void onPicked(int rgb);
     }
 
-    private static final int PAD = 10, TITLE = 24;
+    private static final int PAD = 10, TITLE = WindowHeader.HEIGHT + 8;
     private static final int BAR_WIDTH = 12, SQUARE = 128;
     /** Height of the old and new color under the square. */
     private static final int PREVIEW_HEIGHT = 40;
@@ -140,6 +142,7 @@ public class GuiColorPicker extends ScaledScreen {
         buttonList.add(done);
         buttonList
             .add(new FlatButton(ID_CANCEL, left + panelWidth - PAD - w, buttonY, w, 18, I18n.format("gui.cancel")));
+        buttonList.add(WindowHeader.closeButton(ID_CANCEL, left + panelWidth, top));
     }
 
     /** Shows the color in every field but {@code except} (the one being typed in). */
@@ -367,7 +370,17 @@ public class GuiColorPicker extends ScaledScreen {
 
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, left + panelWidth, top + panelHeight);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.pick_color"), left + PAD, top + 9, Theme.ACCENT);
+        WindowHeader.draw(
+            fontRendererObj,
+            left,
+            top,
+            left + panelWidth,
+            left + panelWidth - WindowHeader.CLOSE_ROOM,
+            Icons.PALETTE,
+            I18n.format("wayfarmap.gui.pick_color"),
+            I18n.format("wayfarmap.gui.pick_color_hint"),
+            Theme.TEXT_MUTED,
+            String.format("#%06X", color()));
 
         int sx = squareX(), sy = squareY();
         int bx = barX(), barBottom = barBottom();

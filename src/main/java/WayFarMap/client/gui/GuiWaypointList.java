@@ -22,6 +22,7 @@ import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.gui.ui.WindowHeader;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
@@ -102,7 +103,7 @@ public class GuiWaypointList extends ScaledScreen {
         int panelWidth = Math.min(width - 20, 420);
         listLeft = (width - panelWidth) / 2;
         listRight = listLeft + panelWidth;
-        listTop = 28;
+        listTop = 6 + WindowHeader.HEIGHT + 8;
         listBottom = height - 58;
 
         buttonList.clear();
@@ -125,6 +126,7 @@ public class GuiWaypointList extends ScaledScreen {
         newWaypoint.active = true;
         buttonList.add(newWaypoint);
         buttonList.add(new FlatButton(ID_DONE, listRight - half, bottom + 24, half, 18, I18n.format("gui.done")));
+        buttonList.add(WindowHeader.closeButton(ID_DONE, listRight + 8, 6));
         updateGroupButton();
         rebuildRows();
     }
@@ -353,16 +355,26 @@ public class GuiWaypointList extends ScaledScreen {
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(listLeft - 8, 6, listRight + 8, height - 6);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.waypoints"), listLeft, 14, Theme.ACCENT);
+        String count = String.valueOf(
+            WaypointManager.INSTANCE.getWaypoints()
+                .size());
+        // The hint goes away while a waypoint is being dragged: it is being done.
+        String hint = draggingWaypoint ? null : I18n.format("wayfarmap.gui.drag_hint");
+        WindowHeader.draw(
+            fontRendererObj,
+            listLeft - 8,
+            6,
+            listRight + 8,
+            listRight + 8 - WindowHeader.CLOSE_ROOM,
+            Icons.WAYPOINTS,
+            I18n.format("wayfarmap.gui.waypoints"),
+            hint,
+            Theme.TEXT_MUTED,
+            count);
         Theme.fill(listLeft, listTop - 1, listRight, listBottom + 1, 0xFF0F1216);
         Theme.outline(listLeft - 1, listTop - 2, listRight + 1, listBottom + 2, Theme.BORDER);
 
         updateDrag(mouseX, mouseY);
-        if (!draggingWaypoint) {
-            String hint = I18n.format("wayfarmap.gui.drag_hint");
-            Theme
-                .text(fontRendererObj, hint, listRight - fontRendererObj.getStringWidth(hint), 14, Theme.TEXT_DISABLED);
-        }
         Row dropTarget = draggingWaypoint ? rowAt(mouseX, mouseY) : null;
 
         hits.clear();

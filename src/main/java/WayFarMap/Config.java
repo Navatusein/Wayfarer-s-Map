@@ -109,6 +109,11 @@ public class Config {
     public static boolean topoContours = true;
     public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
+    /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
+    public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
+    public static int unexploredPattern = UNEXPLORED_NONE;
+    /** A soft shadow on the explored land along its edge, with a faint glow on the unexplored side. */
+    public static boolean edgeShadow = false;
     /** Thickness of the grid's lines in screen pixels, and their colors (RGB; chunk and region borders). */
     public static int gridLineWidth = 1;
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
@@ -389,6 +394,21 @@ public class Config {
             () -> gridRegionOpacity,
             v -> gridRegionOpacity = v);
         parent(null);
+        choice(
+            c,
+            "unexploredPattern",
+            "Unexplored land on the 2D map and the minimap: 0 = plain, 1 = diagonal lines, 2 = dots.",
+            UNEXPLORED_NONE,
+            new String[] { "none", "lines", "dots" },
+            () -> unexploredPattern,
+            v -> unexploredPattern = v);
+        bool(
+            c,
+            "edgeShadow",
+            "A soft shadow along the edge of the explored land on the 2D map and the minimap.",
+            false,
+            () -> edgeShadow,
+            v -> edgeShadow = v);
         bool(
             c,
             "followPlayer",
