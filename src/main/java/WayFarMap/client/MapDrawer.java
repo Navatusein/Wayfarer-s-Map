@@ -505,10 +505,10 @@ public final class MapDrawer {
     }
 
     /** Frame colors of the kinds of mobs. */
-    private static final int HOSTILE_COLOR = 0xFFFF4040;
-    private static final int NEUTRAL_COLOR = 0xFFA8ADB4;
-    private static final int FRIENDLY_COLOR = 0xFF50D050;
-    private static final int PET_COLOR = 0xFF4C9AFF;
+    static final int HOSTILE_COLOR = 0xFFFF4040;
+    static final int NEUTRAL_COLOR = 0xFFA8ADB4;
+    static final int FRIENDLY_COLOR = 0xFF50D050;
+    static final int PET_COLOR = 0xFF4C9AFF;
     /** Mobs this many blocks below the player are drawn in full; lower ones fade out down to the height range. */
     private static final double FADE_START = 2;
 
@@ -744,6 +744,27 @@ public final class MapDrawer {
     }
 
     /**
+     * One mob drawn the way the maps draw it, for the settings' preview: its icon with the arrow where it looks and a
+     * pet's name, or a dot while icons are off. With no mob (no world to make one in) the tile is drawn with a dot.
+     */
+    static void drawMob(FontRenderer font, EntityLivingBase entity, double sx, double sy, float iconSize, int color,
+        float alpha, float textScale) {
+        if (!Config.entityIcons) {
+            drawDot(sx, sy, 1.5f, withAlpha(color, alpha), alpha);
+            return;
+        }
+        float half = iconSize / 2f;
+        if (Config.mobFacing && entity != null) {
+            drawFacing(entity, sx, sy, half, color, alpha, 1f);
+        }
+        drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
+        String name = entity == null ? null : petName(entity);
+        if (name != null) {
+            drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, textScale, alpha);
+        }
+    }
+
+    /**
      * Draws the mob as a flat icon: its face on a small tile framed in the color of its kind (pet, hostile, friendly,
      * neutral). Falls back to a dot when the mob's face can't be found.
      */
@@ -769,7 +790,7 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
         // one side.
-        if (!EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
+        if (entity == null || !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
             drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

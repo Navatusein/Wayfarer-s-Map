@@ -20,6 +20,7 @@ import org.lwjgl.opengl.GL11;
 import WayFarMap.Config;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.MobPreview;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
@@ -52,6 +53,8 @@ public class GuiSettings extends ScaledScreen {
     private static final String TRAIL_LAST_OPTION = "playerTrailAnimated";
     /** Room over the minimap's options for its preview. */
     private static final int PREVIEW_HEIGHT = 96;
+    /** Room over the mobs' options for their preview. */
+    private static final int MOBS_PREVIEW_HEIGHT = 100;
     /** Size of the squares the preview's ground is drawn with. */
     private static final int PREVIEW_CELL = 2;
     /** How long the options slide in after another tab is opened, in milliseconds. */
@@ -411,6 +414,11 @@ public class GuiSettings extends ScaledScreen {
         return !searching() && Config.CATEGORY_MINIMAP.equals(Config.CATEGORIES.get(selectedCategory));
     }
 
+    /** The mobs' tab shows a preview of them over the options. */
+    private boolean showsMobsPreview() {
+        return !searching() && Config.TAB_MOBS.equals(Config.CATEGORIES.get(selectedCategory));
+    }
+
     /** The player marker's tab shows a preview of it under the options. */
     private boolean showsMarkerPreview() {
         return !searching() && Config.CATEGORY_PLAYER_MARKER.equals(Config.CATEGORIES.get(selectedCategory));
@@ -418,7 +426,10 @@ public class GuiSettings extends ScaledScreen {
 
     /** Top of the options list. */
     private int listTop() {
-        return contentTop + (showsMinimapPreview() ? PREVIEW_HEIGHT : 0);
+        if (showsMinimapPreview()) {
+            return contentTop + PREVIEW_HEIGHT;
+        }
+        return contentTop + (showsMobsPreview() ? MOBS_PREVIEW_HEIGHT : 0);
     }
 
     private int listHeight() {
@@ -515,6 +526,7 @@ public class GuiSettings extends ScaledScreen {
         }
         savedScroll = scroll;
         savedSearch = searchText;
+        MobPreview.release();
         Keyboard.enableRepeatEvents(false);
         Config.save();
         if (Config.useTextureColors != textureColorsBefore) {
@@ -882,6 +894,9 @@ public class GuiSettings extends ScaledScreen {
         if (showsMinimapPreview()) {
             drawMinimapPreview(contentTop + slide);
         }
+        if (showsMobsPreview()) {
+            drawMobsPreview(contentTop + slide);
+        }
 
         int listTop = listTop();
         Config.Option hovered = null;
@@ -1046,16 +1061,7 @@ public class GuiSettings extends ScaledScreen {
      */
     private void drawTrailPreview(int y) {
         int x0 = contentLeft, x1 = right - 10, y0 = y + 2, y1 = y + TRAIL_PREVIEW_HEIGHT - 4;
-        Theme.fill(x0, y0, x1, y1, 0xFF13211A);
-        // A hint of ground, so it reads as a map.
-        for (int gx = x0; gx < x1; gx += 8) {
-            for (int gy = y0; gy < y1; gy += 8) {
-                if (((gx - x0) * 7 + (gy - y0) * 13) % 5 == 0) {
-                    Theme.fill(gx, gy, Math.min(gx + 8, x1), Math.min(gy + 8, y1), 0xFF172A1F);
-                }
-            }
-        }
-        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
+        drawPreviewGround(x0, y0, x1, y1);
         PlayerTrail.drawPreview(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
         if (!Config.playerTrail) {
@@ -1067,6 +1073,33 @@ public class GuiSettings extends ScaledScreen {
                 (y0 + y1) / 2 - 4,
                 Theme.TEXT_MUTED);
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** Dark green ground with a hint of a pattern, so a preview reads as a map; with its outline. */
+    private static void drawPreviewGround(int x0, int y0, int x1, int y1) {
+        Theme.fill(x0, y0, x1, y1, 0xFF13211A);
+        for (int gx = x0; gx < x1; gx += 8) {
+            for (int gy = y0; gy < y1; gy += 8) {
+                if (((gx - x0) * 7 + (gy - y0) * 13) % 5 == 0) {
+                    Theme.fill(gx, gy, Math.min(gx + 8, x1), Math.min(gy + 8, y1), 0xFF172A1F);
+                }
+            }
+        }
+        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
+    }
+
+    /**
+     * Over the mobs' options: two mobs of each kind on a made-up map, drawn the way the maps draw them (icons or dots,
+     * frame, size, arrows, pets' names); the kinds that are hidden are dimmed.
+     */
+    private void drawMobsPreview(int y0) {
+        int x0 = contentLeft, x1 = right - 10, y1 = y0 + MOBS_PREVIEW_HEIGHT - 6;
+        drawPreviewGround(x0, y0, x1, y1);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        Theme.clip(x0 + 1, y0 + 1, x1 - 1, y1 - 1);
+        MobPreview.draw(fontRendererObj, x0 + 1, y0 + 20, x1 - 1, y1 - 2);
+        Theme.unclip();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
