@@ -260,7 +260,7 @@ public final class MobIconDump extends CommandBase {
             entity.rotationPitch = entity.prevRotationPitch = 0f;
             info.put("width", entity.width);
             info.put("height", entity.height);
-            Render render = RenderManager.instance.getEntityClassRenderObject(kind);
+            Render render = RenderManager.instance.getEntityClassRenderObject(kind.asSubclass(Entity.class));
             info.put(
                 "renderer",
                 render == null ? null
