@@ -185,6 +185,9 @@ public class WaypointRenderer {
      *
      * @param label draw the name below the marker
      */
+    /** The tile under one of the {@link Symbols}, and how much of it the icon takes. */
+    private static final int SYMBOL_TILE = 0xE0202020;
+    private static final float SYMBOL_SCALE = 0.85f;
     /** Laid over the marker of a disabled waypoint on the world map. */
     private static final int DISABLED_VEIL = 0xB0181A1E;
 
@@ -200,14 +203,21 @@ public class WaypointRenderer {
         int x1 = x0 + half * 2;
         int y1 = y0 + half * 2;
         ItemStack icon = waypoint.getIcon();
+        String symbol = waypoint.getSymbol();
 
         if (waypoint.outlineColor != null) {
             int color = 0xFF000000 | waypoint.outlineColor;
             Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-            Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
+            Gui.drawRect(x0, y0, x1, y1, icon != null || symbol != null ? 0xC0202020 : color);
+        } else if (symbol != null) {
+            // A dark tile under the white icon, so it shows on any ground.
+            Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, 0xFF000000);
+            Gui.drawRect(x0, y0, x1, y1, SYMBOL_TILE);
         }
-        if (icon != null) {
+        if (symbol != null) {
+            Symbols.draw(symbol, cx, cy, size * SYMBOL_SCALE, 0xFFFFFFFF);
+        } else if (icon != null) {
             drawItem(icon, cx, cy, size);
         } else if (waypoint.outlineColor == null) {
             int inset = Math.max(1, half / 3);
@@ -554,9 +564,25 @@ public class WaypointRenderer {
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
         final ItemStack icon = waypoint.getIcon();
+        final String symbol = waypoint.getSymbol();
         final float alpha = nearFade(waypoint);
         if (alpha <= 0f) {
             return;
+        }
+        BillboardIcon picture;
+        if (symbol != null) {
+            final boolean framed = waypoint.outlineColor != null;
+            picture = (cx, cy, size) -> {
+                if (!framed) {
+                    // Without the waypoint's frame, a dark tile of its own under the white icon.
+                    int tx = Math.round(cx), ty = Math.round(cy);
+                    fillRect(tx - 9, ty - 9, tx + 9, ty + 9, faded(0xFF000000, alpha));
+                    fillRect(tx - 8, ty - 8, tx + 8, ty + 8, faded(SYMBOL_TILE, alpha));
+                }
+                return Symbols.draw(symbol, cx, cy, size * SYMBOL_SCALE, faded(0xFFFFFFFF, alpha));
+            };
+        } else {
+            picture = icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha);
         }
         renderBillboard(
             mc,
@@ -565,7 +591,7 @@ public class WaypointRenderer {
             waypoint.z + 0.5,
             labelText(waypoint, false) + ageSuffix(waypoint),
             waypoint.outlineColor,
-            icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha),
+            picture,
             alpha,
             Config.waypointWorldLabels == Config.LABELS_HOVER
                 ? LABEL_SHOWN.computeIfAbsent(waypoint, w -> new Smooth(0))

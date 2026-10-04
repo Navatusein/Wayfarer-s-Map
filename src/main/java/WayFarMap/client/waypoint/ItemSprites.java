@@ -18,7 +18,6 @@ import net.minecraft.item.ItemStack;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
-import org.lwjgl.opengl.GL14;
 
 import WayFarMap.WayFarMap;
 
@@ -36,6 +35,8 @@ final class ItemSprites {
      * so in the world up close it stays sharp.
      */
     private static final int SIZE = 64;
+    /** Smaller copies of a picture, down to 4 pixels. */
+    private static final int MIPMAP_LEVELS = 4;
     /** Pictures kept (16 KB each, with their smaller copies about 21): more than the waypoints of a world use. */
     private static final int MAX_PICTURES = 1024;
     /**
@@ -185,13 +186,15 @@ final class ItemSprites {
         }
         picture = new DynamicTexture(SIZE, SIZE);
         System.arraycopy(pixels, 0, picture.getTextureData(), 0, pixels.length);
-        // Smaller copies made with the picture, for when it is drawn small (a list, the map): without them it
-        // flickered. Up close its pixels stay sharp squares, like the item's own texture.
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, picture.getGlTextureId());
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_GENERATE_MIPMAP, GL11.GL_TRUE);
         picture.updateDynamicTexture();
+        // Smaller copies of the picture, for when it is drawn small (a list, the map): without them it flickered.
+        // Up close its pixels stay sharp squares, like the item's own texture.
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, picture.getGlTextureId());
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+        boolean mipmaps = Symbols.generateMipmaps(MIPMAP_LEVELS);
+        GL11.glTexParameteri(
+            GL11.GL_TEXTURE_2D,
+            GL11.GL_TEXTURE_MIN_FILTER,
+            mipmaps ? GL11.GL_LINEAR_MIPMAP_LINEAR : GL11.GL_LINEAR);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
         PICTURES.put(key, picture);
         return picture;

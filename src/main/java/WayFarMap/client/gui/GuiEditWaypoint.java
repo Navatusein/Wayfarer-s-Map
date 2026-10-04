@@ -18,6 +18,7 @@ import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.gui.ui.WindowHeader;
+import WayFarMap.client.waypoint.Symbols;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
@@ -152,8 +153,10 @@ public class GuiEditWaypoint extends ScaledScreen {
                     break;
                 case ID_ICON:
                     ItemStack icon = edited.getIcon();
-                    button.displayString = I18n.format("wayfarmap.gui.icon") + ": "
-                        + (icon == null ? I18n.format("wayfarmap.gui.none") : safeName(icon));
+                    String symbol = edited.getSymbol();
+                    String iconName = symbol != null ? Symbols.title(symbol)
+                        : icon == null ? I18n.format("wayfarmap.gui.none") : safeName(icon);
+                    button.displayString = I18n.format("wayfarmap.gui.icon") + ": " + iconName;
                     break;
                 case ID_OUTLINE:
                     button.displayString = I18n.format("wayfarmap.gui.outline") + ": "
@@ -234,7 +237,7 @@ public class GuiEditWaypoint extends ScaledScreen {
             }
             case ID_ICON:
                 readFields();
-                mc.displayGuiScreen(new GuiItemPicker(this, stack -> { edited.setIcon(stack); }));
+                mc.displayGuiScreen(new GuiItemPicker(this, stack -> { edited.setIcon(stack); }, edited::setSymbol));
                 return;
             case ID_OUTLINE:
                 edited.outlineColor = edited.outlineColor == null ? (Integer) outlineColor : null;
