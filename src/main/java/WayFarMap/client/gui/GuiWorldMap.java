@@ -864,7 +864,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final String[][] MODE_ICONS = { Icons.MAP2D, Icons.ISO, Icons.PLANTS, Icons.TOPO, Icons.BIOMES,
         Icons.CHUNKLOAD };
     /** Each mode's color, on its icon in the modes menu and on the modes button. */
-    private static final int[] MODE_COLORS = { 0xFF6CC24A, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
+    private static final int[] MODE_COLORS = { 0xFF5BD6E0, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
     /** Colors of the header's icons. */
     private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
         COLOR_EXPORT = 0xFFF2C14E, COLOR_ADDONS = 0xFF5BD6E0, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
