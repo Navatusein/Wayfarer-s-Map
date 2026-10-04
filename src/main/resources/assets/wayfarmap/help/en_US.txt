@@ -229,7 +229,7 @@ The command maps a §flarge area around you§r without walking it: the server lo
 # Settings
 The §bSettings§r button on the map opens all options by category:
 
-- §fMinimap§r — size, corner, zoom, coordinates and biome, §fround shape§r and §frotate with view§r (view direction always up). The compass points N, E, S, W are marked on the minimap's edge
+- §fMinimap§r — size, §fposition anywhere on screen§r (dragged with the mouse), zoom, coordinates and biome, §fround shape§r and §frotate with view§r (view direction always up). The compass points N, E, S, W are marked on the minimap's edge
 - §fWorld map§r — §finterface scale§r (the map and the mod's screens don't depend on Minecraft's GUI scale; Auto fits the window) and which §fbuttons§r the map shows
 - §f2D map§r — caves, lighting, colors, glass, mod layers, scan speed, autosave, team map
 - §f3D map§r — 3D view, view side, quality, smoothing, recording blocks, copy speed, looking under roofs

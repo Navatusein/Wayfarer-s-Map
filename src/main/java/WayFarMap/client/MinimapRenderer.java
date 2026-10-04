@@ -32,11 +32,29 @@ import WayFarMap.client.waypoint.WaypointManager;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
-/** Draws the minimap in a corner of the HUD. */
+/** Draws the minimap on the HUD, where it was put ({@link Config#minimapX}, {@link Config#minimapY}). */
 public class MinimapRenderer {
 
-    private static final int MARGIN = 4;
+    /** Room kept between the minimap and the edge of the screen (its frame is 2 pixels outside). */
+    public static final int MARGIN = 4;
     private static final int LINE_HEIGHT = 10;
+    /** Lines of text under the minimap the last time it was drawn. */
+    private static int shownLines = 2;
+
+    /** Height of the minimap with the lines of text under it. */
+    public static int boxHeight() {
+        return Config.minimapSize + shownLines * LINE_HEIGHT;
+    }
+
+    /** Left of the minimap on a screen this wide (GUI pixels of the HUD). */
+    public static int left(int screenWidth) {
+        return MARGIN + (int) Math.round(Config.minimapX * Math.max(0, screenWidth - 2 * MARGIN - Config.minimapSize));
+    }
+
+    /** Top of the minimap on a screen this high. */
+    public static int top(int screenHeight) {
+        return MARGIN + (int) Math.round(Config.minimapY * Math.max(0, screenHeight - 2 * MARGIN - boxHeight()));
+    }
 
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
@@ -78,8 +96,9 @@ public class MinimapRenderer {
         int size = Config.minimapSize;
         int screenWidth = event.resolution.getScaledWidth();
         int screenHeight = event.resolution.getScaledHeight();
-        int x = Config.minimapCorner % 2 == 0 ? MARGIN : screenWidth - MARGIN - size;
-        int y = Config.minimapCorner < 2 ? MARGIN : screenHeight - MARGIN - size - lines.size() * LINE_HEIGHT;
+        shownLines = lines.size();
+        int x = left(screenWidth);
+        int y = top(screenHeight);
         double scale = Config.MINIMAP_ZOOMS[Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom))];
 
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;

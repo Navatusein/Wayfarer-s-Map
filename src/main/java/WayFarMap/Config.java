@@ -67,7 +67,11 @@ public class Config {
 
     public static boolean minimapEnabled = true;
     public static int minimapSize = 100;
-    public static int minimapCorner = 1;
+    /**
+     * Where the minimap is: 0 puts it at the left (top) edge of the screen, 1 at the right (bottom) one, in between
+     * anywhere on the way. Kept as a share of the free room, so it stays on screen at any window size.
+     */
+    public static double minimapX = 1.0, minimapY = 0.0;
     public static int minimapZoom = 3;
     public static boolean minimapShowCoordinates = true;
     public static boolean minimapShowBiome = true;
@@ -209,14 +213,7 @@ public class Config {
         bool(c, "enabled", "Show the minimap on the HUD.", true, () -> minimapEnabled, v -> minimapEnabled = v);
         parent("enabled");
         integer(c, "size", "Minimap size in GUI pixels.", 100, 48, 256, 4, () -> minimapSize, v -> minimapSize = v);
-        choice(
-            c,
-            "corner",
-            "Screen corner: 0 = top left, 1 = top right, 2 = bottom left, 3 = bottom right.",
-            1,
-            new String[] { "top_left", "top_right", "bottom_left", "bottom_right" },
-            () -> minimapCorner,
-            v -> minimapCorner = v);
+        add(new PositionOption(c, "position", 1.0, 0.0));
         choice(
             c,
             "shape",
@@ -855,6 +852,17 @@ public class Config {
         }
         configuration.getCategory(CATEGORY_MINIMAP)
             .remove("zoom");
+        // The minimap was put in one of 4 corners ("corner"); now it goes anywhere ("positionX", "positionY").
+        if (configuration.hasKey(CATEGORY_MINIMAP, "corner") && !configuration.hasKey(CATEGORY_MINIMAP, "positionX")) {
+            int corner = configuration.get(CATEGORY_MINIMAP, "corner", 1)
+                .getInt(1);
+            configuration.get(CATEGORY_MINIMAP, "positionX", 1.0)
+                .set(corner % 2 == 0 ? 0.0 : 1.0);
+            configuration.get(CATEGORY_MINIMAP, "positionY", 0.0)
+                .set(corner < 2 ? 0.0 : 1.0);
+        }
+        configuration.getCategory(CATEGORY_MINIMAP)
+            .remove("corner");
         for (Option option : OPTIONS) {
             option.load(configuration);
         }
@@ -1259,6 +1267,48 @@ public class Config {
         @Override
         public void reset() {
             set(defaultValue);
+        }
+    }
+
+    /**
+     * Where the minimap is on screen ({@link #minimapX}, {@link #minimapY}), saved as {@code <key>X} and
+     * {@code <key>Y}; the settings screen opens a screen to drag it around.
+     */
+    public static class PositionOption extends Option {
+
+        public final double defaultX, defaultY;
+
+        PositionOption(String category, String key, double defaultX, double defaultY) {
+            super(category, key, "Minimap position: 0 = left (top) edge of the screen, 1 = right (bottom) edge.");
+            this.defaultX = defaultX;
+            this.defaultY = defaultY;
+        }
+
+        public static void set(double x, double y) {
+            minimapX = Math.max(0, Math.min(1, x));
+            minimapY = Math.max(0, Math.min(1, y));
+        }
+
+        @Override
+        void load(Configuration configuration) {
+            set(
+                configuration.get(category, key + "X", defaultX, comment, 0, 1)
+                    .getDouble(defaultX),
+                configuration.get(category, key + "Y", defaultY, comment, 0, 1)
+                    .getDouble(defaultY));
+        }
+
+        @Override
+        void save(Configuration configuration) {
+            configuration.get(category, key + "X", defaultX, comment, 0, 1)
+                .set(minimapX);
+            configuration.get(category, key + "Y", defaultY, comment, 0, 1)
+                .set(minimapY);
+        }
+
+        @Override
+        public void reset() {
+            set(defaultX, defaultY);
         }
     }
 

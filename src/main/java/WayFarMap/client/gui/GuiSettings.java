@@ -262,6 +262,10 @@ public class GuiSettings extends ScaledScreen {
                     Config.ColorOption color = (Config.ColorOption) option;
                     mc.displayGuiScreen(new GuiColorPicker(this, color.get(), color::set));
                 }
+            } else if (option instanceof Config.PositionOption) {
+                if (button == 0) {
+                    mc.displayGuiScreen(new GuiMinimapPosition(this));
+                }
             } else if (button == 0) {
                 draggingSlider = option;
                 updateSlider(mouseX);
@@ -446,6 +450,15 @@ public class GuiSettings extends ScaledScreen {
             Theme.fill(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, 0xFF000000 | rgb);
             Theme.outline(x + 3, y + 3, x + 3 + 2 * (h - 6), y + h - 3, Theme.BORDER);
             Theme.text(fontRendererObj, Config.ColorOption.hex(rgb), x + 8 + 2 * (h - 6), y + (h - 8) / 2, Theme.TEXT);
+        } else if (option instanceof Config.PositionOption) {
+            Theme.fill(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.ACCENT : Theme.BORDER);
+            Theme.centered(
+                fontRendererObj,
+                Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.minimap_position.change"), CONTROL_WIDTH - 8),
+                x + CONTROL_WIDTH / 2,
+                y + (h - 8) / 2,
+                Theme.TEXT);
         } else {
             double t;
             String value;
