@@ -14,6 +14,11 @@ public class FlatButton extends GuiButton {
     public String[] icon;
     /** The icon's own color (ARGB), 0 to draw it in the text colors. */
     public int iconColor;
+    /**
+     * Width kept for the icon, 0 for its own: buttons in a column with icons of different widths give them all the
+     * widest one's, so the icons are centered on one line and the text starts at the same place.
+     */
+    public int iconSlot;
     /** How lit the button is by the mouse, fading in and out. */
     private final Smooth hover = new Smooth(0);
 
@@ -55,8 +60,10 @@ public class FlatButton extends GuiButton {
             } else {
                 shade = hovered || active ? Theme.TEXT : Theme.TEXT_MUTED;
             }
-            Icons.draw(icon, xPosition + 6, yPosition + (height - icon.length) / 2, shade);
-            int textX = xPosition + 6 + Icons.width(icon) + 5;
+            int iconWidth = Icons.width(icon);
+            int slot = Math.max(iconSlot, iconWidth);
+            Icons.draw(icon, xPosition + 6 + (slot - iconWidth) / 2, yPosition + (height - icon.length) / 2, shade);
+            int textX = xPosition + 6 + slot + 5;
             // Room left on the right for a mark the screen may put there.
             String text = Theme.ellipsize(mc.fontRenderer, displayString, xPosition + width - 10 - textX);
             Theme.text(mc.fontRenderer, text, textX, yPosition + (height - 8) / 2, color);

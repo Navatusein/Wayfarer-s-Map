@@ -187,6 +187,11 @@ public class GuiSettings extends ScaledScreen {
         searchField.setFocused(searchFocused);
 
         buttonList.clear();
+        // The tabs' icons are centered in one column and their names start on one line.
+        int iconSlot = 0;
+        for (String category : Config.CATEGORIES) {
+            iconSlot = Math.max(iconSlot, Icons.width(tabIcon(category)));
+        }
         for (int i = 0; i < Config.CATEGORIES.size(); i++) {
             String category = Config.CATEGORIES.get(i);
             FlatButton tab = new FlatButton(
@@ -198,6 +203,7 @@ public class GuiSettings extends ScaledScreen {
                 I18n.format("wayfarmap.settings." + category));
             tab.icon = tabIcon(category);
             tab.iconColor = tabColor(category);
+            tab.iconSlot = iconSlot;
             buttonList.add(tab);
         }
         buttonList.add(
