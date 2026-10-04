@@ -141,16 +141,22 @@ public class MinimapRenderer {
         float opacity = Config.minimapFrameOpacity / 100f;
         int frameColor = Math.round(255 * opacity) << 24 | Config.minimapFrameColor;
         int frameGap = Math.round((Theme.PANEL >>> 24) * opacity) << 24 | Theme.PANEL & 0xFFFFFF;
-        int line = Config.minimapFrameWidth;
+        int frameWidth = Config.minimapFrameWidth;
         if (round) {
             if (Config.minimapFrame) {
-                fillRing(centerX, centerY, half + 1, half + 1 + line, frameColor);
+                fillRing(centerX, centerY, half + 1, half + 1 + frameWidth, frameColor);
                 fillRing(centerX, centerY, half, half + 1, frameGap);
             }
             fillCircle(centerX, centerY, half, 0xFF0C0E11);
         } else {
             if (Config.minimapFrame) {
-                frameRect(x - 1 - line, y - 1 - line, x + size + 1 + line, y + size + 1 + line, line, frameColor);
+                frameRect(
+                    x - 1 - frameWidth,
+                    y - 1 - frameWidth,
+                    x + size + 1 + frameWidth,
+                    y + size + 1 + frameWidth,
+                    frameWidth,
+                    frameColor);
                 frameRect(x - 1, y - 1, x + size + 1, y + size + 1, 1, frameGap);
             }
             Gui.drawRect(x, y, x + size, y + size, 0xFF0C0E11);
