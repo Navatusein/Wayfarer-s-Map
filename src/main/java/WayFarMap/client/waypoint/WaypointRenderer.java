@@ -466,6 +466,7 @@ public class WaypointRenderer {
         double scroll = -time * 0.2 - Math.floor(-time * 0.1);
 
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        boolean lightmap = disableLightmap();
         mc.getTextureManager()
             .bindTexture(BEAM_TEXTURE);
         GL11.glTexParameterf(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
@@ -532,7 +533,30 @@ public class WaypointRenderer {
         }
         GL11.glDepthMask(true);
         GL11.glPopAttrib();
+        restoreLightmap(lightmap);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Turns off the light map, the second texture the world is drawn with: left on, it tinted the markers' text and
+     * the beams with the light of whatever was drawn last, which from some angles was black.
+     *
+     * @return whether it was on, for {@link #restoreLightmap}
+     */
+    private static boolean disableLightmap() {
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        boolean on = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        return on;
+    }
+
+    private static void restoreLightmap(boolean on) {
+        if (on) {
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        }
     }
 
     private static void renderInWorld(Minecraft mc, Waypoint waypoint) {
@@ -628,6 +652,9 @@ public class WaypointRenderer {
         GL11.glRotatef(-renderManager.playerViewY, 0f, 1f, 0f);
         GL11.glRotatef(renderManager.playerViewX, 1f, 0f, 0f);
         GL11.glScalef(-scale, -scale, scale);
+        boolean lightmap = disableLightmap();
+        // Fog darkened the text with the distance it is drawn at, not the waypoint's.
+        GL11.glDisable(GL11.GL_FOG);
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
@@ -663,6 +690,7 @@ public class WaypointRenderer {
         }
 
         GL11.glPopAttrib();
+        restoreLightmap(lightmap);
         GL11.glDepthMask(true);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);

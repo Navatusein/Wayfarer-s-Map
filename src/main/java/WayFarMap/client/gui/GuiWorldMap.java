@@ -2140,6 +2140,10 @@ public class GuiWorldMap extends ScaledScreen {
             if (rect == null || (waypoint != hovered && overlapsAny(rect, rects))) {
                 continue;
             }
+            if (waypoint != hovered && Config.waypointMapLabels == Config.LABELS_HOVER) {
+                // Names only under the mouse.
+                continue;
+            }
             labelled.add(waypoint);
             rects.add(rect);
         }

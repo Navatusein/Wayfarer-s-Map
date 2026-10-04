@@ -225,6 +225,12 @@ public class Config {
     public static boolean waypointsOnMinimap = true;
     /** Size of waypoint markers on the minimap, in GUI pixels. */
     public static int minimapWaypointSize = 8;
+    /** When waypoint names show: always, only for the one under the mouse, or never. */
+    public static final int LABELS_ALWAYS = 0, LABELS_HOVER = 1, LABELS_OFF = 2;
+    /** Waypoint names on the world map (2D and 3D): always, or only the one under the mouse. */
+    public static int waypointMapLabels = LABELS_ALWAYS;
+    /** Waypoint names on the minimap: none, the one under the mouse (when it is free, e.g. chat open), or all. */
+    public static int waypointMinimapLabels = LABELS_OFF;
     public static int waypointMaxDistance = 0;
     public static double waypointScale = 1.0;
     public static double waypointMinScale = 0.35;
@@ -957,6 +963,15 @@ public class Config {
             2,
             () -> minimapWaypointSize,
             v -> minimapWaypointSize = v);
+        choice(
+            c,
+            "minimapLabels",
+            "Waypoint names on the minimap: none, the one under the mouse (when the mouse is free, e.g. with the chat "
+                + "open) or all of them.",
+            2,
+            new String[] { "always", "hover", "off" },
+            () -> waypointMinimapLabels,
+            v -> waypointMinimapLabels = v);
         parent(null);
         integer(
             c,
@@ -1000,6 +1015,14 @@ public class Config {
             10,
             () -> waypointLabelMaxWidth,
             v -> waypointLabelMaxWidth = v);
+        choice(
+            c,
+            "mapLabels",
+            "Waypoint names on the world map (2D and 3D): always, or only for the waypoint under the mouse.",
+            0,
+            new String[] { "always", "hover" },
+            () -> waypointMapLabels,
+            v -> waypointMapLabels = v);
         bool(
             c,
             "fadeNear",

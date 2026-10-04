@@ -14,6 +14,7 @@ import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 
+import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
@@ -204,7 +205,7 @@ public class MinimapRenderer {
         }
 
         if (Config.waypointsOnMinimap) {
-            drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation);
+            drawWaypoints(mc, px, pz, scale, x, y, size, round, rotation, screenWidth, screenHeight);
         }
         MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3.5f);
         if (Config.minimapCompass) {
@@ -462,11 +463,13 @@ public class MinimapRenderer {
 
     /** Waypoints outside the minimap stick to its border, so their direction stays visible. */
     private static void drawWaypoints(Minecraft mc, double px, double pz, double scale, int x, int y, int size,
-        boolean round, float rotation) {
+        boolean round, float rotation, int screenWidth, int screenHeight) {
         double half = size / 2.0;
         float markerSize = Config.minimapWaypointSize;
         // Markers at the edge stay whole inside it, with their outline.
         double limit = half - markerSize / 2 - 1;
+        List<Waypoint> drawn = new ArrayList<>();
+        List<double[]> places = new ArrayList<>();
         for (Waypoint waypoint : WaypointManager.INSTANCE.getVisibleWaypoints(mc.theWorld.provider.dimensionId)) {
             double[] offset = rotate((waypoint.x + 0.5 - px) * scale, (waypoint.z + 0.5 - pz) * scale, rotation);
             double dx = offset[0], dz = offset[1];
@@ -476,6 +479,71 @@ public class MinimapRenderer {
                 dz *= limit / outside;
             }
             WaypointRenderer.drawMapMarker(waypoint, x + half + dx, y + half + dz, markerSize, false);
+            drawn.add(waypoint);
+            places.add(new double[] { x + half + dx, y + half + dz });
         }
+        drawLabels(mc, drawn, places, markerSize, screenWidth, screenHeight);
+    }
+
+    /**
+     * Waypoint names under their markers, as set: all of them (the ones that don't cover another's), or only the
+     * one under the mouse while it is free (the chat or an inventory open); the latest drawn wins a place.
+     */
+    private static void drawLabels(Minecraft mc, List<Waypoint> drawn, List<double[]> places, float markerSize,
+        int screenWidth, int screenHeight) {
+        int mode = Config.waypointMinimapLabels;
+        if (mode == Config.LABELS_OFF || drawn.isEmpty()) {
+            return;
+        }
+        int hovered = -1;
+        if (mc.currentScreen != null && !Mouse.isGrabbed()) {
+            double mouseX = Mouse.getX() * (double) screenWidth / mc.displayWidth;
+            double mouseY = screenHeight - Mouse.getY() * (double) screenHeight / mc.displayHeight - 1;
+            double reach = markerSize / 2 + 2, best = Double.MAX_VALUE;
+            for (int i = 0; i < places.size(); i++) {
+                double ddx = places.get(i)[0] - mouseX, ddy = places.get(i)[1] - mouseY;
+                double d = Math.max(Math.abs(ddx), Math.abs(ddy));
+                if (d <= reach && d < best) {
+                    best = d;
+                    hovered = i;
+                }
+            }
+        }
+        if (mode == Config.LABELS_HOVER && hovered < 0) {
+            return;
+        }
+        // Smaller than on the world map: the minimap is small.
+        float textScale = Math.max(0.6f, Math.min(1f, markerSize / 10f));
+        List<int[]> placed = new ArrayList<>();
+        List<Integer> order = new ArrayList<>();
+        if (hovered >= 0) {
+            order.add(hovered);
+        }
+        if (mode == Config.LABELS_ALWAYS) {
+            for (int i = drawn.size() - 1; i >= 0; i--) {
+                if (i != hovered) {
+                    order.add(i);
+                }
+            }
+        }
+        for (int i : order) {
+            double[] at = places.get(i);
+            int[] rect = WaypointRenderer.getLabelRect(drawn.get(i), at[0], at[1], markerSize, textScale);
+            if (rect == null || (i != hovered && overlapsAny(rect, placed))) {
+                continue;
+            }
+            placed.add(rect);
+            WaypointRenderer.drawMapLabel(drawn.get(i), rect, textScale);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static boolean overlapsAny(int[] rect, List<int[]> others) {
+        for (int[] other : others) {
+            if (rect[0] < other[2] && other[0] < rect[2] && rect[1] < other[3] && other[1] < rect[3]) {
+                return true;
+            }
+        }
+        return false;
     }
 }
