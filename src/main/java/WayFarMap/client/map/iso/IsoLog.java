@@ -214,11 +214,11 @@ public final class IsoLog {
                 + "drawn. BOTTLENECK in each SUMMARY: what costs most and what to change.");
         line(
             "LEGEND pictures learned by kind (a block open on the same sides next to the same blocks): after "
-                + "3 times the same, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when "
-                + "a kind gave other pictures (drawn every time from then on). In each SUMMARY: learned pictures "
-                + "(per kind reused/drawn/drawnEmpty/confirmed/conflicts), tiles per level of the 3D view (queued with nothing "
-                + "yet / only out of date, drawn, drawing times), copies per new chunk (more than one = pictures "
-                + "not all taken at once).");
+                + "3 times the same, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when a "
+                + "kind gave other pictures (drawn every time from then on). In each SUMMARY: learned pictures (per "
+                + "kind reused/drawn/drawnEmpty/confirmed/conflicts), tiles per level of the 3D view (queued with "
+                + "nothing yet / only out of date, drawn, drawing times), copies per new chunk (more than one = "
+                + "pictures not all taken at once).");
         line(
             "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
                 + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
