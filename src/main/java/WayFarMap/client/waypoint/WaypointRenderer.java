@@ -3,7 +3,9 @@ package WayFarMap.client.waypoint;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -28,6 +30,7 @@ import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -573,8 +576,16 @@ public class WaypointRenderer {
             labelText(waypoint, false) + ageSuffix(waypoint),
             waypoint.outlineColor,
             icon == null ? null : (cx, cy, size) -> drawFlatItem(icon, cx, cy, size, alpha),
-            alpha);
+            alpha,
+            Config.waypointWorldLabels == Config.LABELS_HOVER
+                ? LABEL_SHOWN.computeIfAbsent(waypoint, w -> new Smooth(0))
+                : null);
     }
+
+    /** How much of each waypoint's name shows in the world, eased in and out, while it shows only when looked at. */
+    private static final Map<Waypoint, Smooth> LABEL_SHOWN = new WeakHashMap<>();
+    /** Angle (radians) around a marker's icon within which the crosshair is on it, at the least. */
+    private static final double LOOK_ANGLE_MIN = 0.012;
 
     /**
      * How much of the waypoint shows in the world: all of it from {@link Config#waypointFadeStart} blocks away,
@@ -624,6 +635,15 @@ public class WaypointRenderer {
     /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon, float alpha) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null);
+    }
+
+    /**
+     * Same; with {@code label} the name and the distance show only while the crosshair is on the icon, coming and
+     * going with it (eased by {@code label}), the icon alone otherwise.
+     */
+    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name,
+        Integer outlineColor, BillboardIcon icon, float alpha, Smooth label) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;
@@ -639,6 +659,10 @@ public class WaypointRenderer {
         double factor = viewDistance / distance;
         double apparentSize = Math.max(Config.waypointMinScale, Math.min(1.0, NEAR_DISTANCE / distance));
         float scale = (float) (0.0045 * Config.waypointScale * Math.max(viewDistance, 5.0) * apparentSize);
+        float labelAlpha = alpha;
+        if (label != null) {
+            labelAlpha *= (float) label.update(lookedAt(dx * factor, dy * factor, dz * factor, scale) ? 1 : 0, 14);
+        }
 
         int blocks = (int) Math.round(
             Math.sqrt(Math.pow(x - player.posX, 2) + Math.pow(y - player.posY, 2) + Math.pow(z - player.posZ, 2)));
@@ -668,17 +692,20 @@ public class WaypointRenderer {
         int top = 0;
         int bottom = name.isEmpty() ? 11 : 21;
 
-        if (outlineColor != null) {
-            fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, faded(0xFF000000 | outlineColor, alpha));
+        // The font draws text with almost no alpha as opaque: below that the box is left out.
+        if (labelAlpha >= 0.03f) {
+            if (outlineColor != null) {
+                fillRect(-boxHalf - 1, top - 1, boxHalf + 1, bottom + 1, faded(0xFF000000 | outlineColor, labelAlpha));
+            }
+            fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, labelAlpha));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            int textY = top + 2;
+            if (!name.isEmpty()) {
+                font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
+                textY += 10;
+            }
+            font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
         }
-        fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, alpha));
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        int textY = top + 2;
-        if (!name.isEmpty()) {
-            font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, alpha));
-            textY += 10;
-        }
-        font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, alpha));
 
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
@@ -694,6 +721,26 @@ public class WaypointRenderer {
         GL11.glDepthMask(true);
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Whether the crosshair is on a marker's icon: the angle between where the camera looks and the icon (drawn at
+     * (x, y, z) from the camera, scaled by {@code scale}) is within the icon's half size seen from there.
+     */
+    private static boolean lookedAt(double x, double y, double z, float scale) {
+        RenderManager view = RenderManager.instance;
+        double yaw = Math.toRadians(view.playerViewY), pitch = Math.toRadians(view.playerViewX);
+        double lookX = -Math.sin(yaw) * Math.cos(pitch), lookY = -Math.sin(pitch);
+        double lookZ = Math.cos(yaw) * Math.cos(pitch);
+        // The icon sits 11 units over the anchor (the box's top), half of it 8 units wide; a little more is allowed.
+        double iconY = y + 11 * scale;
+        double length = Math.sqrt(x * x + iconY * iconY + z * z);
+        if (length < 1e-6) {
+            return true;
+        }
+        double cos = (x * lookX + iconY * lookY + z * lookZ) / length;
+        double angle = Math.acos(Math.max(-1, Math.min(1, cos)));
+        return angle <= Math.max(LOOK_ANGLE_MIN, Math.atan(10 * scale / length));
     }
 
     /** The color with its alpha times {@code alpha}. */
