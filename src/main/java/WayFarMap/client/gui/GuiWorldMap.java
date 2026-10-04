@@ -2646,6 +2646,12 @@ public class GuiWorldMap extends ScaledScreen {
         return box;
     }
 
+    /** The map fills the window: it is there at once. */
+    @Override
+    protected boolean slidesIn() {
+        return false;
+    }
+
     @Override
     public boolean doesGuiPauseGame() {
         return false;

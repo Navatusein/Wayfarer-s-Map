@@ -84,8 +84,10 @@ public final class Theme {
     public static void clip(int x0, int y0, int x1, int y1) {
         int factor = ScaledScreen.currentFactor();
         int displayHeight = Minecraft.getMinecraft().displayHeight;
+        // The scissor is in window pixels: the screen's slide while it opens is not applied to it.
+        int offset = ScaledScreen.currentOffset();
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        GL11.glScissor(x0 * factor, displayHeight - y1 * factor, (x1 - x0) * factor, (y1 - y0) * factor);
+        GL11.glScissor(x0 * factor, displayHeight - (y1 + offset) * factor, (x1 - x0) * factor, (y1 - y0) * factor);
     }
 
     public static void unclip() {

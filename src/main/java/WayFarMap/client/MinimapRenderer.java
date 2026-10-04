@@ -41,6 +41,16 @@ public class MinimapRenderer {
     private static final int LINE_HEIGHT = 10;
     /** Lines of text under the minimap the last time it was drawn. */
     private static int shownLines = 2;
+    /** How fast the zoom eases to a new level (higher is faster), as on the world map. */
+    private static final double ZOOM_SPEED = 12;
+    /** How long the new zoom is shown on the minimap after it changes, and how long it takes to fade (ms). */
+    private static final long ZOOM_LABEL_MS = 1500, ZOOM_LABEL_FADE_MS = 300;
+    /** Scale the minimap is drawn at while it eases to its zoom level; 0 before the first frame. */
+    private static double shownScale;
+    private static long lastZoomFrame;
+    /** Zoom level the label was last shown for, and when it changed. */
+    private static int labelZoom = -1;
+    private static long zoomChangedAt;
 
     /** Height of the minimap with the lines of text under it. */
     public static int boxHeight() {
@@ -104,7 +114,13 @@ public class MinimapRenderer {
         shownLines = lines.size();
         int x = left(screenWidth);
         int y = top(screenHeight);
-        double scale = Config.MINIMAP_ZOOMS[Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom))];
+        int zoom = Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom));
+        double scale = easedScale(Config.MINIMAP_ZOOMS[zoom]);
+        if (zoom != labelZoom) {
+            // Not on the first frame: the minimap only just appeared, nothing was changed.
+            zoomChangedAt = labelZoom < 0 ? 0 : System.currentTimeMillis();
+            labelZoom = zoom;
+        }
 
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;
         float yaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
@@ -183,6 +199,8 @@ public class MinimapRenderer {
             drawCompass(mc.fontRenderer, centerX, centerY, half, round, rotation);
         }
 
+        drawZoomLabel(mc.fontRenderer, x, y, size, Config.MINIMAP_ZOOMS[zoom]);
+
         int textY = y + size + 3;
         for (String line : lines) {
             mc.fontRenderer
@@ -192,6 +210,44 @@ public class MinimapRenderer {
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glPopMatrix();
+    }
+
+    /** Moves the drawn scale toward {@code target}, in log space so every zoom step feels equally fast. */
+    private static double easedScale(double target) {
+        long now = System.nanoTime();
+        double seconds = lastZoomFrame == 0 ? 0 : Math.min(0.1, (now - lastZoomFrame) / 1.0e9);
+        lastZoomFrame = now;
+        if (shownScale <= 0) {
+            shownScale = target;
+        }
+        double t = 1.0 - Math.exp(-ZOOM_SPEED * seconds);
+        shownScale = Math.exp(Math.log(shownScale) + (Math.log(target) - Math.log(shownScale)) * t);
+        if (Math.abs(shownScale - target) < target * 0.002) {
+            shownScale = target;
+        }
+        return shownScale;
+    }
+
+    /** For a moment after the zoom changes: the new zoom ("1:4", "2:1") at the bottom of the minimap, fading out. */
+    private static void drawZoomLabel(FontRenderer font, int x, int y, int size, double scale) {
+        long shown = System.currentTimeMillis() - zoomChangedAt;
+        if (shown >= ZOOM_LABEL_MS) {
+            return;
+        }
+        double fade = Math.min(1, (ZOOM_LABEL_MS - shown) / (double) ZOOM_LABEL_FADE_MS);
+        String text = scale >= 1 ? Math.round(scale) + ":1" : "1:" + Math.round(1 / scale);
+        int textWidth = font.getStringWidth(text);
+        int left = x + (size - textWidth) / 2 - 4, top = y + size - 16;
+        int background = (int) Math.round(fade * 0xC0) << 24 | 0x101418;
+        Gui.drawRect(left, top, left + textWidth + 8, top + 12, background);
+        int alpha = (int) Math.round(fade * 0xFF);
+        // Text below 4 alpha would be drawn opaque by the font renderer.
+        if (alpha >= 4) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            font.drawStringWithShadow(text, left + 4, top + 2, alpha << 24 | 0xFFFFFF);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** Turns the offset (dx, dz) by the map's rotation in degrees, like glRotatef does on screen. */
