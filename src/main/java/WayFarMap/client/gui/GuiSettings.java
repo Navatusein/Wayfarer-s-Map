@@ -2,12 +2,15 @@ package WayFarMap.client.gui;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
@@ -16,6 +19,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.client.MapDrawer;
+import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Icons;
@@ -24,8 +28,9 @@ import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.map.BlockColors;
 
 /**
- * All mod settings: categories in a sidebar, the options of the selected one on the right. A search box over the
- * options finds them on every tab; changed options are marked and can be put back to their default one by one.
+ * All mod settings: categories in a sidebar, the options of the selected one on the right and the description of the
+ * one under the mouse below them. A search box over the options finds them on every tab; changed options are marked
+ * and can be put back to their default one by one; sections can be closed.
  */
 public class GuiSettings extends ScaledScreen {
 
@@ -39,22 +44,37 @@ public class GuiSettings extends ScaledScreen {
     /** Size of the "back to default" button right of a changed option's control. */
     private static final int RESET_SIZE = 9;
     private static final int SEARCH_WIDTH = 120;
+    /** Room under the options for the description: its name, two lines and the default value. */
+    private static final int DESCRIPTION_HEIGHT = 52;
+    /** Room over the minimap's options for its preview. */
+    private static final int PREVIEW_HEIGHT = 96;
+    /** Size of the squares the preview's ground is drawn with. */
+    private static final int PREVIEW_CELL = 2;
+    /** How long the options slide in after another tab is opened, in milliseconds. */
+    private static final long TAB_SLIDE_MS = 160;
     private static final int ID_RESET = 100, ID_DONE = 101, ID_RESET_ALL = 102, ID_RESET_TAB = 103,
         ID_RESET_CANCEL = 104;
 
     /** A circular arrow: back to the default value. */
     private static final String[] RESET_ICON = { "..###.#", ".#...##", "#...###", "#......", "#.....#", ".#...#.",
         "..###.." };
+    private static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
+    private static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
+    private static final String[] COMPASS_LETTERS = { "N", "E", "S", "W" };
 
     /** Last opened category, kept while the game runs. */
     private static int selectedCategory;
+    /** Closed sections ("tab/group"), kept while the game runs. */
+    private static final Set<String> CLOSED_SECTIONS = new HashSet<>();
 
     private final GuiScreen parent;
     private final boolean textureColorsBefore = Config.useTextureColors;
 
     private int left, top, right, bottom;
     private int contentLeft, contentTop, contentBottom;
+    /** Where the list scrolls to, and where it is drawn while it gets there. */
     private int scroll;
+    private double shownScroll;
     private Config.Option draggingSlider;
     /** The scrollbar is being dragged; where on its thumb it was taken. */
     private boolean draggingScrollbar;
@@ -64,10 +84,20 @@ public class GuiSettings extends ScaledScreen {
     private FlatTextField searchField;
     /** The search typed, kept when the screen is laid out again (window resized, back from the color picker). */
     private String searchText = "";
-    /** The lines of the list, rebuilt when the tab or the search changes. */
+    /** The lines of the list, rebuilt when the tab, the search or a closed section changes. */
     private List<Row> rows;
     /** The option under the mouse, changed with the arrow keys. */
     private Config.Option hoveredOption;
+
+    /** Per option: how much its row is lit by the mouse, and where its switch's knob is (0 off to 1 on). */
+    private final Map<Config.Option, float[]> animations = new IdentityHashMap<>();
+    private long lastFrame;
+    /** Seconds since the last frame, for the animations. */
+    private float frameTime;
+    /** When the open tab was chosen, to slide its options in. */
+    private long tabOpenedAt;
+    /** Top of the mark beside the open tab, moving to it when another one is chosen; below 0 before the first. */
+    private float tabMarkY = -1;
 
     /** A line of the options list: a section title, or an option. */
     private static final class Row {
@@ -76,18 +106,32 @@ public class GuiSettings extends ScaledScreen {
         final Config.Option option;
         /** The section title, translated. */
         final String title;
+        /** The section the title opens and closes ("tab/group"); null when it can't be closed. */
+        final String section;
+        /** Options under the title while its section is closed. */
+        final int hidden;
         /** Top, from the top of the list (not scrolled). */
         final int y;
         final int height;
         /** How far the name is moved in: under the switch it depends on. */
         final int indent;
 
-        Row(Config.Option option, String title, int y, int height, int indent) {
+        private Row(Config.Option option, String title, String section, int hidden, int y, int height, int indent) {
             this.option = option;
             this.title = title;
+            this.section = section;
+            this.hidden = hidden;
             this.y = y;
             this.height = height;
             this.indent = indent;
+        }
+
+        static Row title(String title, String section, int hidden, int y) {
+            return new Row(null, title, section, hidden, y, HEADER_HEIGHT, 0);
+        }
+
+        static Row option(Config.Option option, int y, int indent) {
+            return new Row(option, null, null, 0, y, ROW_HEIGHT, indent);
         }
     }
 
@@ -99,14 +143,14 @@ public class GuiSettings extends ScaledScreen {
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         int panelWidth = Math.min(width - 16, 520);
-        int panelHeight = Math.min(height - 16, 340);
+        int panelHeight = Math.min(height - 16, 380);
         left = (width - panelWidth) / 2;
         top = (height - panelHeight) / 2;
         right = left + panelWidth;
         bottom = top + panelHeight;
         contentLeft = left + SIDEBAR_WIDTH + 10;
         contentTop = top + 28;
-        contentBottom = bottom - 8;
+        contentBottom = bottom - 8 - DESCRIPTION_HEIGHT - 4;
 
         boolean searchFocused = searchField != null && searchField.isFocused();
         searchField = new FlatTextField(fontRendererObj, right - 10 - SEARCH_WIDTH, top + 5, SEARCH_WIDTH, 15)
@@ -117,14 +161,16 @@ public class GuiSettings extends ScaledScreen {
 
         buttonList.clear();
         for (int i = 0; i < Config.CATEGORIES.size(); i++) {
-            buttonList.add(
-                new FlatButton(
-                    i,
-                    left + 6,
-                    top + 26 + i * 20,
-                    SIDEBAR_WIDTH - 12,
-                    18,
-                    I18n.format("wayfarmap.settings." + Config.CATEGORIES.get(i))));
+            String category = Config.CATEGORIES.get(i);
+            FlatButton tab = new FlatButton(
+                i,
+                left + 6,
+                top + 26 + i * 20,
+                SIDEBAR_WIDTH - 12,
+                18,
+                I18n.format("wayfarmap.settings." + category));
+            tab.icon = tabIcon(category);
+            buttonList.add(tab);
         }
         buttonList.add(
             new FlatButton(
@@ -159,6 +205,33 @@ public class GuiSettings extends ScaledScreen {
         updateButtons();
         rows = null;
         clampScroll();
+        shownScroll = scroll;
+        tabMarkY = -1;
+    }
+
+    private static String[] tabIcon(String category) {
+        switch (category) {
+            case Config.CATEGORY_MINIMAP:
+                return Icons.MINIMAP;
+            case Config.TAB_MAP_2D:
+                return Icons.GRID;
+            case Config.TAB_MAP_3D:
+                return Icons.ISO;
+            case Config.CATEGORY_PLAYER_MARKER:
+                return Icons.MARKER;
+            case Config.CATEGORY_ENTITIES:
+                return Icons.TEAM;
+            case Config.TAB_MOBS:
+                return Icons.MOBS;
+            case Config.CATEGORY_WAYPOINTS:
+                return Icons.WAYPOINTS;
+            case Config.CATEGORY_COMMANDS:
+                return Icons.CHUNKLOAD;
+            case Config.CATEGORY_LOGS:
+                return Icons.LOGS;
+            default:
+                return Icons.FLAT;
+        }
     }
 
     /**
@@ -180,8 +253,13 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private boolean searching() {
+        return !query().isEmpty();
+    }
+
+    /** The search, trimmed and in lower case. */
+    private String query() {
         String query = searchText.trim();
-        return !query.isEmpty();
+        return query.toLowerCase(Locale.ROOT);
     }
 
     private List<Config.Option> options() {
@@ -195,30 +273,51 @@ public class GuiSettings extends ScaledScreen {
         return rows;
     }
 
-    /** The options of the open tab with a title before each section. */
+    /** The options of the open tab with a title before each section; a closed section only has its title. */
     private List<Row> tabRows() {
+        String tab = Config.CATEGORIES.get(selectedCategory);
+        List<Config.Option> options = options();
         List<Row> result = new ArrayList<>();
         String group = null;
+        boolean closed = false;
         int y = 0;
-        for (Config.Option option : options()) {
-            if (!option.group.isEmpty() && !option.group.equals(group)) {
-                // A little room above every title but the first.
-                y += result.isEmpty() ? 0 : 4;
-                result.add(new Row(null, groupTitle(option.group), y, HEADER_HEIGHT, 0));
-                y += HEADER_HEIGHT;
+        for (int i = 0; i < options.size(); i++) {
+            Config.Option option = options.get(i);
+            if (!option.group.equals(group)) {
+                closed = false;
+                if (!option.group.isEmpty()) {
+                    String section = tab + "/" + option.group;
+                    closed = CLOSED_SECTIONS.contains(section);
+                    // A little room above every title but the first.
+                    y += result.isEmpty() ? 0 : 4;
+                    result.add(Row.title(groupTitle(option.group), section, closed ? groupSize(options, i) : 0, y));
+                    y += HEADER_HEIGHT;
+                }
             }
             group = option.group;
+            if (closed) {
+                continue;
+            }
             int indent = option.parent != null && option.parent.group.equals(option.group) ? INDENT : 0;
-            result.add(new Row(option, null, y, ROW_HEIGHT, indent));
+            result.add(Row.option(option, y, indent));
             y += ROW_HEIGHT;
         }
         return result;
     }
 
+    /** How many options in a row from {@code from} are in the same section. */
+    private static int groupSize(List<Config.Option> options, int from) {
+        String group = options.get(from).group;
+        int count = 0;
+        for (int i = from; i < options.size() && options.get(i).group.equals(group); i++) {
+            count++;
+        }
+        return count;
+    }
+
     /** The options of every tab whose name or description has the search in it, under "tab / section" titles. */
     private List<Row> searchRows() {
-        String query = searchText.trim();
-        query = query.toLowerCase(Locale.ROOT);
+        String query = query();
         List<Row> result = new ArrayList<>();
         int y = 0;
         for (String tab : Config.CATEGORIES) {
@@ -234,7 +333,7 @@ public class GuiSettings extends ScaledScreen {
                     + (option.group.isEmpty() ? "" : " / " + groupTitle(option.group));
                 if (!optionTitle.equals(title)) {
                     y += result.isEmpty() ? 0 : 4;
-                    result.add(new Row(null, optionTitle, y, HEADER_HEIGHT, 0));
+                    result.add(Row.title(optionTitle, null, 0, y));
                     y += HEADER_HEIGHT;
                     title = optionTitle;
                     shown.clear();
@@ -242,7 +341,7 @@ public class GuiSettings extends ScaledScreen {
                 // Moved in only when the switch it depends on was found too, just above.
                 int indent = option.parent != null && shown.contains(option.parent) ? INDENT : 0;
                 shown.add(option);
-                result.add(new Row(option, null, y, ROW_HEIGHT, indent));
+                result.add(Row.option(option, y, indent));
                 y += ROW_HEIGHT;
             }
         }
@@ -253,17 +352,42 @@ public class GuiSettings extends ScaledScreen {
         return I18n.format("wayfarmap.settings.group." + group);
     }
 
+    /** The minimap's tab shows a preview of it over the options. */
+    private boolean showsMinimapPreview() {
+        return !searching() && Config.CATEGORY_MINIMAP.equals(Config.CATEGORIES.get(selectedCategory));
+    }
+
+    /** The player marker's tab shows a preview of it under the options. */
+    private boolean showsMarkerPreview() {
+        return !searching() && Config.CATEGORY_PLAYER_MARKER.equals(Config.CATEGORIES.get(selectedCategory));
+    }
+
+    /** Top of the options list. */
+    private int listTop() {
+        return contentTop + (showsMinimapPreview() ? PREVIEW_HEIGHT : 0);
+    }
+
     private int listHeight() {
         List<Row> list = rows();
         return list.isEmpty() ? 0 : list.get(list.size() - 1).y + list.get(list.size() - 1).height;
     }
 
     private int maxScroll() {
-        return Math.max(0, listHeight() - (contentBottom - contentTop));
+        int height = listHeight();
+        if (showsMarkerPreview()) {
+            // The marker's preview under the options: its title and box.
+            height += 10 + 12 + 64 + 4;
+        }
+        return Math.max(0, height - (contentBottom - listTop()));
     }
 
     private void clampScroll() {
         scroll = Math.max(0, Math.min(scroll, maxScroll()));
+    }
+
+    /** Scroll the list is drawn (and clicked) with. */
+    private int drawnScroll() {
+        return (int) Math.round(shownScroll);
     }
 
     private int resetX() {
@@ -274,14 +398,33 @@ public class GuiSettings extends ScaledScreen {
         return resetX() - 4 - CONTROL_WIDTH;
     }
 
+    /** The first switch the option depends on, directly or through others, that is off; null if none. */
+    private static Config.BoolOption offParent(Config.Option option) {
+        for (Config.BoolOption parent = option.parent; parent != null; parent = parent.parent) {
+            if (!parent.get()) {
+                return parent;
+            }
+        }
+        return null;
+    }
+
     private void selectCategory(int category) {
+        if (category != selectedCategory || searching()) {
+            tabOpenedAt = System.currentTimeMillis();
+        }
         selectedCategory = category;
-        scroll = 0;
         confirmingReset = false;
         searchText = "";
         searchField.setText("");
         searchField.setFocused(false);
+        listChanged();
+    }
+
+    /** The list is built again and shown from its top. */
+    private void listChanged() {
         rows = null;
+        scroll = 0;
+        shownScroll = 0;
     }
 
     /** The search changed: the list is built again from its top. */
@@ -289,8 +432,7 @@ public class GuiSettings extends ScaledScreen {
         String text = searchField.getText();
         if (!text.equals(searchText)) {
             searchText = text;
-            scroll = 0;
-            rows = null;
+            listChanged();
         }
     }
 
@@ -361,10 +503,10 @@ public class GuiSettings extends ScaledScreen {
                 return;
             }
             case Keyboard.KEY_PRIOR:
-                scroll -= contentBottom - contentTop - ROW_HEIGHT;
+                scroll -= contentBottom - listTop() - ROW_HEIGHT;
                 break;
             case Keyboard.KEY_NEXT:
-                scroll += contentBottom - contentTop - ROW_HEIGHT;
+                scroll += contentBottom - listTop() - ROW_HEIGHT;
                 break;
             case Keyboard.KEY_HOME:
                 scroll = 0;
@@ -380,7 +522,7 @@ public class GuiSettings extends ScaledScreen {
                 break;
             case Keyboard.KEY_LEFT:
             case Keyboard.KEY_RIGHT:
-                if (hoveredOption != null) {
+                if (hoveredOption != null && offParent(hoveredOption) == null) {
                     step(hoveredOption, keyCode == Keyboard.KEY_RIGHT);
                 }
                 break;
@@ -418,7 +560,7 @@ public class GuiSettings extends ScaledScreen {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
         if (wheel != 0) {
-            scroll -= Integer.signum(wheel) * ROW_HEIGHT;
+            scroll -= Integer.signum(wheel) * ROW_HEIGHT * 2;
             clampScroll();
         }
     }
@@ -427,7 +569,8 @@ public class GuiSettings extends ScaledScreen {
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         super.mouseClicked(mouseX, mouseY, button);
         searchField.mouseClicked(mouseX, mouseY, button);
-        if (mouseY < contentTop || mouseY >= contentBottom) {
+        int listTop = listTop();
+        if (mouseY < listTop || mouseY >= contentBottom) {
             return;
         }
         if (button == 0 && maxScroll() > 0 && mouseX >= right - 7 && mouseX < right - 1) {
@@ -443,9 +586,20 @@ public class GuiSettings extends ScaledScreen {
             return;
         }
         for (Row row : rows()) {
-            int y = contentTop + row.y - scroll;
-            if (row.option == null || mouseY < y || mouseY >= y + ROW_HEIGHT) {
+            int y = listTop + row.y - drawnScroll();
+            if (mouseY < y || mouseY >= y + row.height) {
                 continue;
+            }
+            if (row.option == null) {
+                if (row.section != null && button == 0) {
+                    // A section's title opens and closes it.
+                    if (!CLOSED_SECTIONS.remove(row.section)) {
+                        CLOSED_SECTIONS.add(row.section);
+                    }
+                    rows = null;
+                    clampScroll();
+                }
+                return;
             }
             Config.Option option = row.option;
             int controlRight = controlX() + CONTROL_WIDTH;
@@ -454,6 +608,9 @@ public class GuiSettings extends ScaledScreen {
                 if (button == 0) {
                     option.reset();
                 }
+            } else if (offParent(option) != null) {
+                // Waits for the switch it depends on.
+                return;
             } else if (option instanceof Config.BoolOption) {
                 // The whole row flips a switch, not only the switch itself.
                 step(option, true);
@@ -492,25 +649,72 @@ public class GuiSettings extends ScaledScreen {
         }
     }
 
-    /** Top and bottom of the scrollbar's thumb. */
+    /** Top and bottom of the scrollbar's thumb, where the list is drawn. */
     private int[] scrollbarThumb() {
-        int track = contentBottom - contentTop;
+        int listTop = listTop();
+        int track = contentBottom - listTop;
         int bar = Math.max(16, track * track / (track + maxScroll()));
-        int barY = contentTop + (track - bar) * scroll / Math.max(1, maxScroll());
+        int barY = listTop + (int) Math.round((track - bar) * shownScroll / Math.max(1, maxScroll()));
         return new int[] { barY, barY + bar };
     }
 
     private void dragScrollbar(int mouseY) {
         int[] thumb = scrollbarThumb();
-        int free = contentBottom - contentTop - (thumb[1] - thumb[0]);
+        int free = contentBottom - listTop() - (thumb[1] - thumb[0]);
         if (free > 0) {
-            scroll = (int) Math.round((mouseY - scrollbarGrab - contentTop) * (double) maxScroll() / free);
+            scroll = (int) Math.round((mouseY - scrollbarGrab - listTop()) * (double) maxScroll() / free);
             clampScroll();
+            // Follows the mouse without easing.
+            shownScroll = scroll;
         }
+    }
+
+    /** Moves {@code value} toward {@code target}, faster the higher {@code speed}, the same at any frame rate. */
+    private float approach(float value, float target, float speed) {
+        return value + (target - value) * (float) (1 - Math.exp(-frameTime * speed));
+    }
+
+    /** Animation state of the option: how lit its row is, where its switch's knob is. */
+    private float[] animation(Config.Option option) {
+        float[] state = animations.get(option);
+        if (state == null) {
+            state = new float[] { 0f, isOn(option) ? 1f : 0f };
+            animations.put(option, state);
+        }
+        return state;
+    }
+
+    private static boolean isOn(Config.Option option) {
+        return option instanceof Config.BoolOption && ((Config.BoolOption) option).get();
+    }
+
+    /** The color between {@code from} (t = 0) and {@code to} (t = 1). */
+    private static int blend(int from, int to, float t) {
+        int result = 0;
+        for (int shift = 0; shift < 32; shift += 8) {
+            int a = (from >>> shift) & 0xFF, b = (to >>> shift) & 0xFF;
+            result |= Math.round(a + (b - a) * t) << shift;
+        }
+        return result;
+    }
+
+    /** Draws only inside the rectangle until {@link #unclip}. */
+    private void clip(int x0, int y0, int x1, int y1) {
+        int factor = ScaledScreen.currentFactor();
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(x0 * factor, mc.displayHeight - y1 * factor, (x1 - x0) * factor, (y1 - y0) * factor);
+    }
+
+    private static void unclip() {
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        long now = System.nanoTime();
+        frameTime = lastFrame == 0 ? 0f : Math.min(0.1f, (now - lastFrame) / 1e9f);
+        lastFrame = now;
+
         updateButtons();
         if (draggingSlider != null) {
             if (Mouse.isButtonDown(0)) {
@@ -526,6 +730,11 @@ public class GuiSettings extends ScaledScreen {
                 draggingScrollbar = false;
             }
         }
+        clampScroll();
+        shownScroll = approach((float) shownScroll, scroll, 18f);
+        if (Math.abs(shownScroll - scroll) < 0.5) {
+            shownScroll = scroll;
+        }
 
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, right, bottom);
@@ -538,6 +747,7 @@ public class GuiSettings extends ScaledScreen {
             left + 8 + Icons.LOGO_SIZE + 4,
             top + 9,
             Theme.ACCENT);
+        drawTabMark();
 
         String category = Config.CATEGORIES.get(selectedCategory);
         String titleKey = searching() ? "search_results" : category;
@@ -551,92 +761,141 @@ public class GuiSettings extends ScaledScreen {
         Theme.fill(contentLeft, top + 22, right - 10, top + 23, Theme.BORDER);
         searchField.drawTextBox();
 
+        // The options slide in a little after another tab is opened.
+        float opened = Math.min(1f, (System.currentTimeMillis() - tabOpenedAt) / (float) TAB_SLIDE_MS);
+        int slide = Math.round((1 - opened) * (1 - opened) * 8);
+        if (showsMinimapPreview()) {
+            drawMinimapPreview(contentTop + slide);
+        }
+
+        int listTop = listTop();
         Config.Option hovered = null;
-        int hoveredY = 0;
         boolean overReset = false;
         hoveredOption = null;
+        clip(contentLeft - 4, listTop, right - 6, contentBottom);
         for (Row row : rows()) {
-            int y = contentTop + row.y - scroll;
-            if (y + row.height <= contentTop || y >= contentBottom) {
+            int y = listTop + row.y - drawnScroll() + slide;
+            if (y + row.height <= listTop || y >= contentBottom) {
                 continue;
             }
-            boolean whole = y >= contentTop && y + row.height <= contentBottom;
             if (row.option == null) {
-                if (whole) {
-                    Theme.text(fontRendererObj, row.title, contentLeft, y + 6, Theme.ACCENT);
-                    int lineX = contentLeft + fontRendererObj.getStringWidth(row.title) + 6;
-                    Theme.fill(lineX, y + 10, right - 10, y + 11, Theme.BORDER);
-                }
+                drawSectionTitle(row, y, mouseX, mouseY);
                 continue;
             }
             Config.Option option = row.option;
             boolean changed = !option.isDefault();
-            int visibleTop = Math.max(y, contentTop);
-            int visibleBottom = Math.min(y + ROW_HEIGHT, contentBottom);
-            boolean rowHovered = Theme.inside(mouseX, mouseY, contentLeft - 4, visibleTop, right - 6, visibleBottom);
-            if (rowHovered && !draggingScrollbar) {
-                Theme.fill(contentLeft - 4, visibleTop, right - 6, visibleBottom, Theme.ROW_HOVER);
-                hoveredOption = option;
-                if (changed && mouseX >= resetX() - 2) {
-                    overReset = true;
-                    hovered = option;
-                    hoveredY = y;
-                } else if (mouseX < controlX() - 4) {
-                    // The description only over the name: over the control it would hide the rows being changed.
-                    hovered = option;
-                    hoveredY = y;
-                }
+            boolean rowHovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, right - 6, y + ROW_HEIGHT);
+            rowHovered &= mouseY >= listTop && mouseY < contentBottom && !draggingScrollbar;
+            float[] state = animation(option);
+            state[0] = approach(state[0], rowHovered ? 1f : 0f, 20f);
+            state[1] = approach(state[1], isOn(option) ? 1f : 0f, 18f);
+            if (state[0] > 0.02f) {
+                int light = Math.round(state[0] * 0x20) << 24 | 0xFFFFFF;
+                Theme.fill(contentLeft - 4, y, right - 6, y + ROW_HEIGHT, light);
             }
-            if (whole) {
-                if (changed) {
-                    // Changed from the default: a mark at the start of the row.
-                    Theme.fill(contentLeft - 4, y + 4, contentLeft - 2, y + ROW_HEIGHT - 4, Theme.ACCENT);
-                }
-                int x = contentLeft + row.indent;
-                if (row.indent > 0) {
-                    // A short line from the switch this one depends on.
-                    Theme.fill(contentLeft + 2, y + 3, contentLeft + 3, y + 12, Theme.BORDER);
-                    Theme.fill(contentLeft + 2, y + 11, x - 2, y + 12, Theme.BORDER);
-                }
-                boolean off = option.parent != null && !option.parent.get();
-                int nameWidth = controlX() - x - controlLeftWidth(option) - 6;
-                String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), nameWidth);
-                Theme.text(fontRendererObj, name, x, y + 7, off ? Theme.TEXT_MUTED : Theme.TEXT);
-                drawControl(option, controlX(), y + 3, mouseX, mouseY);
-                if (changed) {
-                    boolean over = overReset && hovered == option;
-                    Icons.draw(
-                        RESET_ICON,
-                        resetX() + 1,
-                        y + (ROW_HEIGHT - RESET_ICON.length) / 2,
-                        over ? Theme.ACCENT : Theme.TEXT_MUTED);
-                }
+            if (rowHovered) {
+                hoveredOption = option;
+                hovered = option;
+                overReset = changed && mouseX >= resetX() - 2;
+            }
+            if (changed) {
+                // Changed from the default: a mark at the start of the row.
+                Theme.fill(contentLeft - 4, y + 4, contentLeft - 2, y + ROW_HEIGHT - 4, Theme.ACCENT);
+            }
+            int x = contentLeft + row.indent;
+            if (row.indent > 0) {
+                // A short line from the switch this one depends on.
+                Theme.fill(contentLeft + 2, y + 3, contentLeft + 3, y + 12, Theme.BORDER);
+                Theme.fill(contentLeft + 2, y + 11, x - 2, y + 12, Theme.BORDER);
+            }
+            boolean locked = offParent(option) != null;
+            int nameWidth = controlX() - x - controlLeftWidth(option) - 6;
+            String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), nameWidth);
+            drawName(name, x, y + 7, locked ? Theme.TEXT_DISABLED : Theme.TEXT);
+            drawControl(option, controlX(), y + 3, mouseX, mouseY, state[1]);
+            if (locked) {
+                // Waiting for the switch it depends on: the control is dimmed and can't be used.
+                int lockedLeft = controlX() - controlLeftWidth(option);
+                Theme.fill(lockedLeft, y + 3, controlX() + CONTROL_WIDTH, y + ROW_HEIGHT - 3, 0xB0161A20);
+            }
+            if (changed) {
+                boolean over = overReset && hovered == option;
+                Icons.draw(
+                    RESET_ICON,
+                    resetX() + 1,
+                    y + (ROW_HEIGHT - RESET_ICON.length) / 2,
+                    over ? Theme.ACCENT : Theme.TEXT_MUTED);
             }
         }
+        if (showsMarkerPreview()) {
+            drawMarkerPreview(listTop + listHeight() + 10 - drawnScroll() + slide);
+        }
+        unclip();
         if (rows().isEmpty()) {
             Theme.centered(
                 fontRendererObj,
                 I18n.format("wayfarmap.settings.no_results"),
                 (contentLeft + right - 10) / 2,
-                contentTop + 30,
+                listTop + 30,
                 Theme.TEXT_MUTED);
-        }
-        if (!searching() && Config.CATEGORY_PLAYER_MARKER.equals(category)) {
-            drawMarkerPreview();
         }
         if (maxScroll() > 0) {
             int[] thumb = scrollbarThumb();
-            boolean over = Theme.inside(mouseX, mouseY, right - 7, contentTop, right - 1, contentBottom);
+            boolean over = Theme.inside(mouseX, mouseY, right - 7, listTop, right - 1, contentBottom);
             over |= draggingScrollbar;
-            Theme.fill(right - 5, contentTop, right - 3, contentBottom, Theme.CONTROL);
+            Theme.fill(right - 5, listTop, right - 3, contentBottom, Theme.CONTROL);
             Theme.fill(right - 5, thumb[0], right - 3, thumb[1], over ? Theme.ACCENT : Theme.BORDER);
         }
 
         super.drawScaled(mouseX, mouseY, partialTicks);
         drawChangedMarks();
-        if (hovered != null) {
-            drawDescription(hovered, hoveredY, overReset);
+        drawDescription(hovered, overReset);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** A bar beside the open tab, sliding to the one chosen. */
+    private void drawTabMark() {
+        if (searching()) {
+            return;
         }
+        float target = top + 26 + selectedCategory * 20;
+        tabMarkY = tabMarkY < 0 ? target : approach(tabMarkY, target, 16f);
+        int y = Math.round(tabMarkY);
+        Theme.fill(left + 2, y + 3, left + 4, y + 15, Theme.ACCENT);
+    }
+
+    /** A section's title: an arrow to open or close it, and how many options a closed one hides. */
+    private void drawSectionTitle(Row row, int y, int mouseX, int mouseY) {
+        int x = contentLeft;
+        boolean hovered = false;
+        if (row.section != null) {
+            hovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, right - 6, y + row.height);
+            String[] arrow = row.hidden > 0 ? SECTION_CLOSED : SECTION_OPEN;
+            Icons.draw(arrow, x, y + 7 + (5 - arrow.length) / 2, hovered ? Theme.TEXT : Theme.ACCENT_DIM);
+            x += 9;
+        }
+        String title = row.title;
+        if (row.hidden > 0) {
+            title += " (" + row.hidden + ")";
+        }
+        Theme.text(fontRendererObj, title, x, y + 6, hovered ? Theme.TEXT : Theme.ACCENT);
+        int lineX = x + fontRendererObj.getStringWidth(title) + 6;
+        Theme.fill(lineX, y + 10, right - 10, y + 11, Theme.BORDER);
+    }
+
+    /** The option's name, with what was searched for marked in it. */
+    private void drawName(String name, int x, int y, int color) {
+        String query = query();
+        if (!query.isEmpty()) {
+            String lower = name.toLowerCase(Locale.ROOT);
+            int at = lower.indexOf(query);
+            if (at >= 0 && at + query.length() <= name.length()) {
+                int from = x + fontRendererObj.getStringWidth(name.substring(0, at));
+                int to = from + fontRendererObj.getStringWidth(name.substring(at, at + query.length()));
+                Theme.fill(from - 1, y - 1, to, y + 9, Theme.ACCENT_DIM);
+            }
+        }
+        Theme.text(fontRendererObj, name, x, y, color);
     }
 
     /** A dot on the sidebar's tabs that have options changed from their defaults. */
@@ -660,12 +919,8 @@ public class GuiSettings extends ScaledScreen {
     }
 
     /** Under the marker's options: the marker as on the world map, on dark and on light ground. */
-    private void drawMarkerPreview() {
-        int y = contentTop + listHeight() + 10 - scroll;
+    private void drawMarkerPreview(int y) {
         int boxHeight = 64, boxRight = right - 10;
-        if (y + 12 < contentTop || y + 12 + boxHeight > contentBottom) {
-            return;
-        }
         Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), contentLeft, y, Theme.ACCENT);
         y += 12;
         int middle = (contentLeft + boxRight) / 2;
@@ -681,54 +936,243 @@ public class GuiSettings extends ScaledScreen {
     }
 
     /**
-     * The option's description in full with its default value, in a box under its row (above it when there is no room
-     * below), so long descriptions are never cut off. Over the reset button, only what it resets to.
+     * Over the minimap's options: a made-up piece of land drawn the way the minimap would show it (shape, frame,
+     * zoom, turning, compass, text under it), and where on the screen it is.
      */
-    private void drawDescription(Config.Option option, int rowY, boolean reset) {
-        int boxLeft = contentLeft - 4, boxRight = right - 6;
+    private void drawMinimapPreview(int y0) {
+        int x0 = contentLeft, x1 = right - 10, y1 = y0 + PREVIEW_HEIGHT - 6;
+        Theme.fill(x0, y0, x1, y1, 0xFF0F1216);
+        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+
+        // Smaller than the real one, but growing with it.
+        int size = 28 + (Config.minimapSize - 48) * 28 / 208;
         List<String> lines = new ArrayList<>();
-        if (!reset) {
-            String description = I18n.format(option.langKey() + ".desc");
-            for (Object line : fontRendererObj.listFormattedStringToWidth(description, boxRight - boxLeft - 10)) {
-                lines.add(String.valueOf(line));
-            }
+        if (Config.minimapShowCoordinates) {
+            lines.add("128, 64, -256");
         }
-        String defaultValue = defaultText(option);
-        String footer = null;
-        if (defaultValue != null) {
-            footer = I18n.format(reset ? "wayfarmap.settings.reset_to" : "wayfarmap.settings.default", defaultValue);
-        } else if (reset) {
-            footer = I18n.format("wayfarmap.settings.reset_option");
+        if (Config.minimapShowBiome) {
+            lines.add("Plains");
         }
-        if (lines.isEmpty() && footer == null) {
-            return;
+        int blockHeight = size + (lines.isEmpty() ? 0 : 3 + lines.size() * 10);
+        int mapX = x0 + (x1 - x0) * 2 / 5 - size / 2;
+        int mapY = y0 + (y1 - y0 - blockHeight) / 2;
+        drawPreviewMap(mapX, mapY, size);
+        int textY = mapY + size + 3;
+        for (String line : lines) {
+            int lineX = mapX + size / 2 - fontRendererObj.getStringWidth(line) / 2;
+            fontRendererObj.drawStringWithShadow(line, lineX, textY, 0xFFFFFF);
+            textY += 10;
         }
-        int boxHeight = lines.size() * 10 + 8;
-        if (footer != null) {
-            // Under a thin line when there is a description above.
-            boxHeight += lines.isEmpty() ? 10 : 13;
-        }
-        int boxTop = rowY + ROW_HEIGHT;
-        if (boxTop + boxHeight > bottom - 4) {
-            boxTop = Math.max(top + 4, rowY - boxHeight);
-        }
-        Theme.fill(boxLeft, boxTop, boxRight, boxTop + boxHeight, 0xFF12161B);
-        Theme.outline(boxLeft, boxTop, boxRight, boxTop + boxHeight, Theme.ACCENT_DIM);
-        for (int i = 0; i < lines.size(); i++) {
-            Theme.text(fontRendererObj, lines.get(i), boxLeft + 5, boxTop + 5 + i * 10, Theme.TEXT);
-        }
-        if (footer != null) {
-            int y = boxTop + 5 + lines.size() * 10;
-            if (!lines.isEmpty()) {
-                Theme.fill(boxLeft + 5, y, boxRight - 5, y + 1, Theme.BORDER);
-                y += 3;
-            }
-            Theme.text(
+        drawScreenThumbnail(x1 - 8 - 96, y0 + 17, 96, 54);
+
+        if (!Config.minimapEnabled) {
+            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC00F1216);
+            Theme.centered(
                 fontRendererObj,
-                Theme.ellipsize(fontRendererObj, footer, boxRight - boxLeft - 10),
-                boxLeft + 5,
-                y,
+                I18n.format("wayfarmap.settings.minimap_off"),
+                (x0 + x1) / 2,
+                (y0 + y1) / 2 - 4,
                 Theme.TEXT_MUTED);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** The preview's minimap, its top left at (x, y). */
+    private void drawPreviewMap(int x, int y, int size) {
+        boolean round = Config.minimapShape == Config.SHAPE_ROUND;
+        double half = size / 2.0;
+        double centerX = x + half, centerY = y + half;
+        int frameColor = 0xFF000000 | Config.minimapFrameColor;
+        if (round) {
+            if (Config.minimapFrame) {
+                fillDisc(centerX, centerY, half + 2, frameColor);
+                fillDisc(centerX, centerY, half + 1, Theme.PANEL);
+            }
+        } else if (Config.minimapFrame) {
+            Theme.fill(x - 2, y - 2, x + size + 2, y + size + 2, Theme.PANEL);
+            Theme.outline(x - 2, y - 2, x + size + 2, y + size + 2, frameColor);
+        }
+
+        // The player turns round slowly, so the minimap's turning shows.
+        float yaw = (System.currentTimeMillis() % 12000L) * 360f / 12000f;
+        float rotation = Config.minimapRotate ? -180f - yaw : 0f;
+        int zoom = Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom));
+        // As many blocks across as the real minimap shows.
+        double blocksPerPixel = Config.minimapSize / Config.MINIMAP_ZOOMS[zoom] / size;
+        double angle = Math.toRadians(-rotation), cos = Math.cos(angle), sin = Math.sin(angle);
+        for (int row = 0; row < size; row += PREVIEW_CELL) {
+            int rowBottom = Math.min(size, row + PREVIEW_CELL);
+            double dy = row + PREVIEW_CELL / 2.0 - half;
+            int from = 0, to = size;
+            if (round) {
+                double reach = Math.sqrt(Math.max(0, half * half - dy * dy));
+                from = (int) Math.round(half - reach);
+                to = (int) Math.round(half + reach);
+            }
+            // Cells of one color next to each other are drawn as one rectangle.
+            int runStart = from, runColor = 0;
+            for (int col = from; col < to; col += PREVIEW_CELL) {
+                double dx = col + PREVIEW_CELL / 2.0 - half;
+                double worldX = (dx * cos - dy * sin) * blocksPerPixel;
+                double worldZ = (dx * sin + dy * cos) * blocksPerPixel;
+                int color = groundColor(worldX + 40, worldZ - 25);
+                if (col > from && color != runColor) {
+                    Theme.fill(x + runStart, y + row, x + col, y + rowBottom, runColor);
+                    runStart = col;
+                }
+                runColor = color;
+            }
+            if (to > from) {
+                Theme.fill(x + runStart, y + row, x + to, y + rowBottom, runColor);
+            }
+        }
+
+        MapDrawer.drawPlayerArrow(centerX, centerY, yaw + rotation, 3f);
+        if (Config.minimapCompass) {
+            double edge = half - 5;
+            for (int i = 0; i < COMPASS_LETTERS.length; i++) {
+                String letter = COMPASS_LETTERS[i];
+                // North up, then clockwise, turning with the map.
+                double a = Math.toRadians(rotation + i * 90);
+                double ux = Math.sin(a), uy = -Math.cos(a);
+                double reach = round ? edge : edge / Math.max(Math.abs(ux), Math.abs(uy));
+                double letterX = centerX + ux * reach - fontRendererObj.getStringWidth(letter) / 2.0 + 1;
+                double letterY = centerY + uy * reach - 3;
+                fontRendererObj
+                    .drawStringWithShadow(letter, (int) Math.round(letterX), (int) Math.round(letterY), 0xFFFFFF);
+            }
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** A small screen with the minimap where it is on the real one. */
+    private void drawScreenThumbnail(int x, int y, int w, int h) {
+        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.on_screen"), x, y - 11, Theme.TEXT_MUTED);
+        Theme.fill(x, y, x + w, y + h, 0xFF1B2430);
+        Theme.outline(x, y, x + w, y + h, Theme.BORDER);
+        // The hotbar, so it reads as the game's screen.
+        Theme.fill(x + w / 2 - 18, y + h - 5, x + w / 2 + 18, y + h - 2, Theme.BORDER);
+        ScaledResolution hud = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+        int screenWidth = Math.max(1, hud.getScaledWidth()), screenHeight = Math.max(1, hud.getScaledHeight());
+        int mapLeft = x + MinimapRenderer.left(screenWidth) * w / screenWidth;
+        int mapTop = y + MinimapRenderer.top(screenHeight) * h / screenHeight;
+        int mapWidth = Math.max(3, Config.minimapSize * w / screenWidth);
+        int mapHeight = Math.max(3, MinimapRenderer.boxHeight() * h / screenHeight);
+        Theme.fill(mapLeft, mapTop, mapLeft + mapWidth, mapTop + mapHeight, Theme.ACCENT_DIM);
+        Theme.outline(mapLeft, mapTop, mapLeft + mapWidth, mapTop + mapHeight, Theme.ACCENT);
+    }
+
+    /** A filled circle, drawn as one rectangle per row. */
+    private static void fillDisc(double centerX, double centerY, double radius, int color) {
+        int top = (int) Math.floor(centerY - radius), bottom = (int) Math.ceil(centerY + radius);
+        for (int y = top; y < bottom; y++) {
+            double dy = y + 0.5 - centerY;
+            double reach = Math.sqrt(Math.max(0, radius * radius - dy * dy));
+            int from = (int) Math.round(centerX - reach), to = (int) Math.round(centerX + reach);
+            if (to > from) {
+                Theme.fill(from, y, to, y + 1, color);
+            }
+        }
+    }
+
+    /** Made-up land for the preview: water, sand, grass and forest from smooth noise. */
+    private static int groundColor(double x, double z) {
+        double height = noise(x / 40, z / 40) * 0.75 + noise(x / 12 + 100, z / 12) * 0.25;
+        if (height < 0.36) {
+            return 0xFF2F5BA8;
+        }
+        if (height < 0.42) {
+            return 0xFF3F76C8;
+        }
+        if (height < 0.46) {
+            return 0xFFD8CC8E;
+        }
+        return height < 0.66 ? 0xFF5E9E3A : 0xFF3E7A2A;
+    }
+
+    /** Value noise in 0..1, smooth between whole coordinates. */
+    private static double noise(double x, double z) {
+        int ix = (int) Math.floor(x), iz = (int) Math.floor(z);
+        double fx = x - ix, fz = z - iz;
+        fx = fx * fx * (3 - 2 * fx);
+        fz = fz * fz * (3 - 2 * fz);
+        double a = hash(ix, iz), b = hash(ix + 1, iz), c = hash(ix, iz + 1), d = hash(ix + 1, iz + 1);
+        double upper = a + (b - a) * fx, lower = c + (d - c) * fx;
+        return upper + (lower - upper) * fz;
+    }
+
+    private static double hash(int x, int z) {
+        int h = x * 374761393 + z * 668265263;
+        h = (h ^ (h >>> 13)) * 1274126177;
+        h ^= h >>> 16;
+        return (h & 0xFFFFFF) / (double) 0x1000000;
+    }
+
+    /**
+     * The panel under the options: the name and full description of the option under the mouse, with its default
+     * value and the switch it waits for. It grows up over the list when the description is long. Over the reset
+     * button, what it resets to; with no option under the mouse, a hint.
+     */
+    private void drawDescription(Config.Option option, boolean reset) {
+        int boxLeft = contentLeft - 4, boxRight = right - 6, boxBottom = bottom - 8;
+        int textWidth = boxRight - boxLeft - 12;
+        String title = null;
+        List<String> lines = new ArrayList<>();
+        List<String> notes = new ArrayList<>();
+        if (option == null) {
+            addWrapped(lines, I18n.format("wayfarmap.settings.hint"), textWidth);
+        } else {
+            title = I18n.format(option.langKey());
+            String defaultValue = defaultText(option);
+            if (reset) {
+                String key = defaultValue == null ? "wayfarmap.settings.reset_option" : "wayfarmap.settings.reset_to";
+                notes.add(I18n.format(key, defaultValue));
+            } else {
+                addWrapped(lines, I18n.format(option.langKey() + ".desc"), textWidth);
+                if (defaultValue != null) {
+                    notes.add(I18n.format("wayfarmap.settings.default", defaultValue));
+                }
+                Config.BoolOption waitsFor = offParent(option);
+                if (waitsFor != null) {
+                    notes.add(I18n.format("wayfarmap.settings.requires", I18n.format(waitsFor.langKey())));
+                }
+            }
+        }
+        int needed = 8 + lines.size() * 10;
+        if (title != null) {
+            needed += 11;
+        }
+        if (!notes.isEmpty()) {
+            needed += 3 + notes.size() * 10;
+        }
+        int boxTop = Math.max(top + 26, boxBottom - Math.max(DESCRIPTION_HEIGHT, needed));
+        Theme.fill(boxLeft, boxTop, boxRight, boxBottom, 0xFF12161B);
+        Theme.outline(boxLeft, boxTop, boxRight, boxBottom, option != null ? Theme.ACCENT_DIM : Theme.BORDER);
+        int x = boxLeft + 6, y = boxTop + 5;
+        if (title != null) {
+            Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, title, textWidth), x, y, Theme.ACCENT);
+            y += 11;
+        }
+        for (String line : lines) {
+            Theme.text(fontRendererObj, line, x, y, option != null ? Theme.TEXT : Theme.TEXT_MUTED);
+            y += 10;
+        }
+        if (!notes.isEmpty()) {
+            if (title != null || !lines.isEmpty()) {
+                Theme.fill(x, y, boxRight - 6, y + 1, Theme.BORDER);
+            }
+            y += 3;
+            for (String note : notes) {
+                Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, note, textWidth), x, y, Theme.TEXT_MUTED);
+                y += 10;
+            }
+        }
+    }
+
+    private void addWrapped(List<String> lines, String text, int width) {
+        for (Object line : fontRendererObj.listFormattedStringToWidth(text, width)) {
+            lines.add(String.valueOf(line));
         }
     }
 
@@ -779,7 +1223,8 @@ public class GuiSettings extends ScaledScreen {
         return String.valueOf(value);
     }
 
-    private void drawControl(Config.Option option, int x, int y, int mouseX, int mouseY) {
+    /** The option's control at (x, y); {@code knob} is where a switch's knob is drawn, 0 off to 1 on. */
+    private void drawControl(Config.Option option, int x, int y, int mouseX, int mouseY, float knob) {
         int h = ROW_HEIGHT - 6;
         boolean hovered = Theme.inside(mouseX, mouseY, x, y, x + CONTROL_WIDTH, y + h);
         if (option instanceof Config.BoolOption) {
@@ -787,9 +1232,9 @@ public class GuiSettings extends ScaledScreen {
             int switchX = x + CONTROL_WIDTH - 24;
             int switchY = y + (h - 12) / 2;
             boolean rowHovered = hoveredOption == option;
-            Theme.fill(switchX, switchY, switchX + 24, switchY + 12, on ? Theme.ACCENT : Theme.CONTROL);
+            Theme.fill(switchX, switchY, switchX + 24, switchY + 12, blend(Theme.CONTROL, Theme.ACCENT, knob));
             Theme.outline(switchX, switchY, switchX + 24, switchY + 12, rowHovered ? Theme.ACCENT : Theme.BORDER);
-            int knobX = on ? switchX + 14 : switchX + 2;
+            int knobX = switchX + 2 + Math.round(12 * knob);
             Theme.fill(knobX, switchY + 2, knobX + 8, switchY + 10, Theme.TEXT);
             String state = I18n.format(on ? "options.on" : "options.off");
             Theme.text(
@@ -860,10 +1305,10 @@ public class GuiSettings extends ScaledScreen {
             boolean active = hovered || draggingSlider == option;
             int trackY = y + h / 2 - 1;
             Theme.fill(x + 3, trackY, x + CONTROL_WIDTH - 3, trackY + 3, Theme.CONTROL);
-            int knob = x + 3 + (int) Math.round(t * (CONTROL_WIDTH - 6));
-            Theme.fill(x + 3, trackY, knob, trackY + 3, active ? Theme.ACCENT : Theme.ACCENT_DIM);
-            Theme.fill(knob - 3, y + 2, knob + 3, y + h - 2, active ? Theme.ACCENT : Theme.TEXT);
-            Theme.outline(knob - 3, y + 2, knob + 3, y + h - 2, Theme.BORDER);
+            int knobX = x + 3 + (int) Math.round(t * (CONTROL_WIDTH - 6));
+            Theme.fill(x + 3, trackY, knobX, trackY + 3, active ? Theme.ACCENT : Theme.ACCENT_DIM);
+            Theme.fill(knobX - 3, y + 2, knobX + 3, y + h - 2, active ? Theme.ACCENT : Theme.TEXT);
+            Theme.outline(knobX - 3, y + 2, knobX + 3, y + h - 2, Theme.BORDER);
             // The value in a small box left of the slider.
             int boxX = x - controlLeftWidth(option);
             Theme.fill(boxX, y + 1, x - 4, y + h - 1, 0xFF0F1216);
