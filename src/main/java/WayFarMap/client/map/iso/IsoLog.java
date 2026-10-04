@@ -169,6 +169,13 @@ public final class IsoLog {
         THREAD_CPU.clear();
         THREAD_TOTALS.clear();
         FRESH_TIMES.clear();
+        LEVEL_COUNTS.clear();
+        LEVEL_TIMES.clear();
+        synchronized (FRESH_ATTEMPTS) {
+            FRESH_ATTEMPTS.clear();
+        }
+        FaceRenderer.kindStats()
+            .clear();
         perfStart = System.nanoTime();
         Runtime runtime = Runtime.getRuntime();
         line(
@@ -203,7 +210,15 @@ public final class IsoLog {
                 + "their time, the integrated server's ticks per second and milliseconds per tick (single player), "
                 + "the mod's parts per frame / tick / server tick (ms each on average, share of that time, slowest), "
                 + "cpu% of the mod's threads and the game's own (100 = one core busy), chunks put on the 3D map per "
-                + "second and how long new ones took. BOTTLENECK in each SUMMARY: what costs most and what to change.");
+                + "second and how long new ones took, pictures[reused/drawn] blocks given pictures from a cache or "
+                + "drawn. BOTTLENECK in each SUMMARY: what costs most and what to change.");
+        line(
+            "LEGEND pictures learned by kind (a block open on the same sides next to the same blocks): after "
+                + "3 times the same, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when a kind "
+                + "gave other pictures (drawn every time from then on). In each SUMMARY: learned pictures (per kind "
+                + "reused/drawn/drawnEmpty/confirmed/conflicts), tiles per level of the 3D view (queued with nothing "
+                + "yet / only out of date, drawn, drawing times), copies per new chunk (more than one = pictures "
+                + "not all taken at once).");
         line(
             "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
                 + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
@@ -455,6 +470,8 @@ public final class IsoLog {
         }
         long key = key(cx, cz);
         long now = System.nanoTime();
+        picturesReused.addAndGet(FaceRenderer.kindHit + FaceRenderer.surroundingsHit + FaceRenderer.placeHit);
+        picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
         Trace trace = TRACES.get(key);
         if (trace == null) {
             trace = new Trace(cx, cz);
@@ -540,6 +557,8 @@ public final class IsoLog {
                     + FaceRenderer.surroundingsHit
                     + " sharedInChunk="
                     + FaceRenderer.surroundingsShared
+                    + " kindHit="
+                    + FaceRenderer.kindHit
                     + "] batches="
                     + FaceRenderer.batches
                     + " slots="
@@ -759,6 +778,11 @@ public final class IsoLog {
         }
         if ("fresh".equals(t.reason)) {
             freshStored.incrementAndGet();
+            synchronized (FRESH_ATTEMPTS) {
+                if (FRESH_ATTEMPTS.size() < 200_000) {
+                    FRESH_ATTEMPTS.add(t.captures);
+                }
+            }
             synchronized (FRESH_TIMES) {
                 if (FRESH_TIMES.size() < 100_000) {
                     FRESH_TIMES.add(phases[0]);
@@ -1029,7 +1053,19 @@ public final class IsoLog {
     static void tileQueued(IsoTiles.Key key, boolean stale, int queueSize) {
         if (on()) {
             line("TILE_QUEUED " + tile(key) + (stale ? " stale" : " new") + " queue=" + queueSize);
+            levelStats(key.level)[stale ? 1 : 0]++;
         }
+    }
+
+    /**
+     * Per level of the 3D view: tiles queued with nothing to show yet, queued only out of date, drawn, and their
+     * drawing times (ms) for percentiles.
+     */
+    private static final Map<Integer, long[]> LEVEL_COUNTS = new ConcurrentHashMap<>();
+    private static final Map<Integer, List<Long>> LEVEL_TIMES = new ConcurrentHashMap<>();
+
+    private static long[] levelStats(int level) {
+        return LEVEL_COUNTS.computeIfAbsent(level, k -> new long[3]);
     }
 
     /** What one tile renderer met while making a tile (its own thread). */
@@ -1141,6 +1177,11 @@ public final class IsoLog {
         boolean empty = pixels == null;
         tilesDrawn.incrementAndGet();
         tileNanos.addAndGet(nanos);
+        levelStats(key.level)[2]++;
+        List<Long> times = LEVEL_TIMES.computeIfAbsent(key.level, k -> Collections.synchronizedList(new ArrayList<>()));
+        if (times.size() < 50_000) {
+            times.add(nanos / 1_000_000);
+        }
         if ("disk".equals(source)) {
             tilesFromDisk.incrementAndGet();
         }
@@ -1562,6 +1603,8 @@ public final class IsoLog {
     private static final Map<String, Long> THREAD_TOTALS = new ConcurrentHashMap<>();
     /** Chunks put on the 3D map since the last PERF line: new ones and ones copied again; how long new ones took. */
     private static final AtomicLong freshStored = new AtomicLong(), againStored = new AtomicLong();
+    /** Blocks given pictures from a cache (by kind, surroundings or place) and blocks drawn, since the last PERF. */
+    private static final AtomicLong picturesReused = new AtomicLong(), picturesDrawn = new AtomicLong();
     private static final List<Long> FRESH_TIMES = new ArrayList<>();
 
     /** One decimal. */
@@ -1627,6 +1670,16 @@ public final class IsoLog {
         parts(b, sample, Perf.Where.TICK, " tick:", ticks);
         parts(b, sample, Perf.Where.SERVER, " server:", server);
         b.append(threadCpu(nanos - perfStart, seconds));
+        long reused = picturesReused.getAndSet(0), drawnBlocks = picturesDrawn.getAndSet(0);
+        if (reused + drawnBlocks > 0) {
+            b.append(" pictures[reused=")
+                .append(reused)
+                .append(" drawn=")
+                .append(drawnBlocks)
+                .append(" saved=")
+                .append(share(reused, reused + drawnBlocks))
+                .append(']');
+        }
         long fresh = freshStored.getAndSet(0), again = againStored.getAndSet(0);
         b.append(" chunks/s[new=")
             .append(f1(fresh / seconds))
@@ -1980,6 +2033,9 @@ public final class IsoLog {
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
         bottleneck(title, all, names);
         tileSummary(title);
+        levelSummary(title);
+        attemptSummary(title);
+        kindSummary(title);
         blockSummary(title);
         changeSummary(title);
         BlockDiag.fallbackSummary(title);
@@ -2012,6 +2068,130 @@ public final class IsoLog {
                     + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** Per level of the 3D view: tiles with nothing yet / only out of date queued, drawn, and drawing times. */
+    private static void levelSummary(String title) {
+        List<Integer> levels = new ArrayList<>(LEVEL_COUNTS.keySet());
+        Collections.sort(levels);
+        for (int level : levels) {
+            long[] c = LEVEL_COUNTS.get(level);
+            StringBuilder b = new StringBuilder(title).append(" tiles L")
+                .append(level)
+                .append(": queuedMissing=")
+                .append(c[0])
+                .append(" queuedRefresh=")
+                .append(c[1])
+                .append(" drawn=")
+                .append(c[2]);
+            List<Long> times = LEVEL_TIMES.get(level);
+            if (times != null && !times.isEmpty()) {
+                List<Long> sorted;
+                synchronized (times) {
+                    sorted = new ArrayList<>(times);
+                }
+                Collections.sort(sorted);
+                long sum = 0;
+                for (long t : sorted) {
+                    sum += t;
+                }
+                b.append(" drawMs[p50=")
+                    .append(sorted.get(sorted.size() / 2))
+                    .append(" p90=")
+                    .append(sorted.get(sorted.size() * 9 / 10))
+                    .append(" max=")
+                    .append(sorted.get(sorted.size() - 1))
+                    .append(" totalS=")
+                    .append(sum / 1000)
+                    .append(']');
+            }
+            line(b.toString());
+        }
+    }
+
+    /** How many copies new chunks needed (more than one: pictures not all taken in one go). */
+    private static void attemptSummary(String title) {
+        long[] buckets = new long[5];
+        String[] names = { "1", "2-3", "4-6", "7-10", ">10" };
+        synchronized (FRESH_ATTEMPTS) {
+            for (int attempts : FRESH_ATTEMPTS) {
+                buckets[attempts <= 1 ? 0 : attempts <= 3 ? 1 : attempts <= 6 ? 2 : attempts <= 10 ? 3 : 4]++;
+            }
+        }
+        long total = 0;
+        for (long n : buckets) {
+            total += n;
+        }
+        if (total == 0) {
+            return;
+        }
+        StringBuilder b = new StringBuilder(title).append(" copies per new chunk:");
+        for (int i = 0; i < buckets.length; i++) {
+            b.append(' ')
+                .append(names[i])
+                .append('=')
+                .append(buckets[i])
+                .append('(')
+                .append(share(buckets[i], total))
+                .append(')');
+        }
+        line(b.toString());
+    }
+
+    /** How many copies each new chunk stored needed. */
+    private static final List<Integer> FRESH_ATTEMPTS = new ArrayList<>();
+
+    /**
+     * Pictures learned by kind: per block, how many were reused without drawing, drawn, drawn and all empty, drawn and
+     * the same as learned, and drawn different (the kind is then drawn every time); the share of drawing saved.
+     */
+    private static void kindSummary(String title) {
+        Map<Integer, long[]> stats = FaceRenderer.kindStats();
+        if (stats.isEmpty()) {
+            return;
+        }
+        long reused = 0, drawn = 0, empty = 0;
+        List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(stats.entrySet());
+        for (Map.Entry<Integer, long[]> kind : kinds) {
+            reused += kind.getValue()[0];
+            drawn += kind.getValue()[1];
+            empty += kind.getValue()[2];
+        }
+        int[] learned = FaceRenderer.learnedKinds();
+        line(
+            title + " learned pictures: reused without drawing=" + reused
+                + " drawn="
+                + drawn
+                + " (all empty "
+                + empty
+                + ") drawingSaved="
+                + share(reused, reused + drawn)
+                + " kinds[learned="
+                + learned[0]
+                + " unreliable="
+                + learned[1]
+                + " seen="
+                + learned[2]
+                + "]");
+        kinds.sort((a, b) -> Long.compare(b.getValue()[0] + b.getValue()[1], a.getValue()[0] + a.getValue()[1]));
+        for (int n = 0; n < Math.min(25, kinds.size()); n++) {
+            long[] v = kinds.get(n)
+                .getValue();
+            StringBuilder b = new StringBuilder(title).append("   kind#")
+                .append(n + 1)
+                .append(' ')
+                .append(BlockDiag.name(kinds.get(n)
+                    .getKey()));
+            for (int f = 0; f < FaceRenderer.KIND_FIELDS.length; f++) {
+                b.append(' ')
+                    .append(FaceRenderer.KIND_FIELDS[f])
+                    .append('=')
+                    .append(v[f]);
+            }
+            b.append(" saved=")
+                .append(share(v[0], v[0] + v[1]));
+            line(b.toString());
+        }
     }
 
     /** Tiles of the 3D view: what reading and saving them gave, warnings, and how long the screen took. */
