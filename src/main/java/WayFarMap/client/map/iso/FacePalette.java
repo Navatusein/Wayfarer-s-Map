@@ -246,17 +246,58 @@ final class FacePalette {
 
     /** Id of the sprite, added if new; {@link #EMPTY} if nothing was drawn. */
     synchronized int idOf(int[] image) {
-        boolean empty = true;
-        for (int pixel : image) {
-            if ((pixel >>> 24) != 0) {
-                empty = false;
-                break;
-            }
+        // One pass: whether anything is on it, and a quick fingerprint (four hashes side by side, several times
+        // faster than one over the whole picture) for the pictures already met in this game.
+        int alpha = 0;
+        long h0 = QUICK_SEED, h1 = QUICK_SEED + 1, h2 = QUICK_SEED + 2, h3 = QUICK_SEED + 3;
+        int n = image.length, i = 0;
+        for (; i + 3 < n; i += 4) {
+            int p0 = image[i], p1 = image[i + 1], p2 = image[i + 2], p3 = image[i + 3];
+            alpha |= p0 | p1 | p2 | p3;
+            h0 = (h0 ^ p0) * 0x100000001B3L;
+            h1 = (h1 ^ p1) * 0x100000001B3L;
+            h2 = (h2 ^ p2) * 0x100000001B3L;
+            h3 = (h3 ^ p3) * 0x100000001B3L;
         }
-        if (empty) {
+        for (; i < n; i++) {
+            alpha |= image[i];
+            h0 = (h0 ^ image[i]) * 0x100000001B3L;
+        }
+        if ((alpha >>> 24) == 0) {
             spritesEmpty++;
             return EMPTY;
         }
+        long quick = mix(mix(mix(mix(n, h0), h1), h2), h3);
+        Integer met = quickIds.get(quick);
+        if (met != null) {
+            spritesKnown++;
+            return met;
+        }
+        int id = idOfSlow(image);
+        if (id > 0) {
+            quickIds.put(quick, id);
+        }
+        return id;
+    }
+
+    /** Start of the quick fingerprints' hashes (FNV's). */
+    private static final long QUICK_SEED = 0xCBF29CE484222325L;
+    /**
+     * Ids of the pictures met in this game by their quick fingerprint: 64 bits over every pixel, as safe as the
+     * slower hash the file keeps (which the pictures found here are looked up by the first time).
+     */
+    private final Map<Long, Integer> quickIds = new HashMap<>();
+
+    /** Mixes a value into a 64-bit hash, every bit of it reaching every bit of the result. */
+    private static long mix(long hash, long value) {
+        long h = (hash ^ value) * 0x9E3779B97F4A7C15L;
+        h ^= h >>> 32;
+        h *= 0xD6E8FEB86659FD93L;
+        return h ^ h >>> 32;
+    }
+
+    /** {@link #idOf} for a picture with something on it, not met before in this game: by the file's hash. */
+    private int idOfSlow(int[] image) {
         long hash = hash(image);
         Integer id = byHash.get(hash);
         if (id != null) {
