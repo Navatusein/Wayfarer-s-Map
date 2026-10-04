@@ -18,7 +18,6 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
-import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
@@ -42,7 +41,6 @@ import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
-import WayFarMap.client.gui.ui.WindowHeader;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
@@ -525,8 +523,7 @@ public class GuiWorldMap extends ScaledScreen {
         List<MenuEntry> entries = new ArrayList<>();
         if (Mods.isVisualProspectingLoaded()) {
             entries.add(
-                addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins)
-                    .icon(Icons.ORE)
+                addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins).icon(Icons.ORE)
                     .iconColor(0xFF5BD6E0)
                     .key("ores"));
             entries.add(
@@ -610,8 +607,7 @@ public class GuiWorldMap extends ScaledScreen {
                 .iconColor(Theme.SUCCESS)
                 .key("friendly_mobs"));
         entries.add(
-            addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets)
-                .icon(Icons.SMALL_PAW)
+            addonToggle("wayfarmap.gui.mobs.menu.pets", Config.showPets, Config::togglePets).icon(Icons.SMALL_PAW)
                 .iconColor(0xFFF2C14E)
                 .key("pets"));
         entries.add(
@@ -1791,8 +1787,8 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> mc.displayGuiScreen(
                     GuiEditWaypoint
                         .create(this, bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz, dimension)))
-                .icon(Icons.SMALL_PLUS)
-                .key("new_waypoint"));
+                            .icon(Icons.SMALL_PLUS)
+                            .key("new_waypoint"));
         // A waypoint at once, without its editor: named by its coordinates, no icon.
         final int markY = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
         entries.add(
@@ -1801,7 +1797,7 @@ public class GuiWorldMap extends ScaledScreen {
                 true,
                 () -> WaypointManager.INSTANCE
                     .addWaypoint(new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension)))
-                .icon(Icons.SMALL_FLAG));
+                        .icon(Icons.SMALL_FLAG));
         if (flat) {
             final int rx = bx >> MapRegion.SHIFT, rz = bz >> MapRegion.SHIFT;
             entries.add(

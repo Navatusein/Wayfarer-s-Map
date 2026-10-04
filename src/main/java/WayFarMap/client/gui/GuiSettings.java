@@ -1235,7 +1235,8 @@ public class GuiSettings extends ScaledScreen {
                 double a = Math.toRadians(rotation + i * 90);
                 double ux = Math.sin(a), uy = -Math.cos(a);
                 double reach = round ? edge : edge / Math.max(Math.abs(ux), Math.abs(uy));
-                double letterX = centerX + ux * reach - (fontRendererObj.getStringWidth(letter) / 2.0 - 1) * letterScale;
+                double letterX = centerX + ux * reach
+                    - (fontRendererObj.getStringWidth(letter) / 2.0 - 1) * letterScale;
                 double letterY = centerY + uy * reach - 3 * letterScale;
                 GL11.glPushMatrix();
                 GL11.glTranslated(letterX, letterY, 0);

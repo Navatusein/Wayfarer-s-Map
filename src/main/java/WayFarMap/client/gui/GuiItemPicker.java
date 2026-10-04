@@ -15,8 +15,8 @@ import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
-import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Icons;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.gui.ui.WindowHeader;
@@ -314,7 +314,6 @@ public class GuiItemPicker extends ScaledScreen {
             int x = gridX + columns * CELL + 3;
             Theme.scrollbar(x, gridY, gridY + rows * CELL, rows, totalRows, shown / maxScroll, false);
         }
-
 
         super.drawScaled(mouseX, mouseY, partialTicks);
 

@@ -194,8 +194,7 @@ public final class PlayerTrail {
     }
 
     /** The trail as a line, or as dashes: each piece colored from its start to its end. */
-    private static void drawLine(double[] sx, double[] sy, int[] rgb, float[] alpha, boolean[] joined,
-        boolean dashed) {
+    private static void drawLine(double[] sx, double[] sy, int[] rgb, float[] alpha, boolean[] joined, boolean dashed) {
         // Line width is in window pixels: from about one to three GUI pixels.
         GL11.glLineWidth(Math.max(1f, ScaledScreen.currentFactor() * (0.5f + 0.6f * Config.playerTrailWidth)));
         Tessellator tessellator = Tessellator.instance;

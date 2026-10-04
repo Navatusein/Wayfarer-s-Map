@@ -586,10 +586,9 @@ public class GuiWaypointList extends ScaledScreen {
 
         groupField.drawTextBox();
         searchField.drawTextBox();
-        dimensionButton.displayString = Theme.ellipsize(
-            fontRendererObj,
-            choiceLabel(shownDimension()),
-            dimensionButton.getWidth() - 20) + (choicesOpen ? " \u25B4" : " \u25BE");
+        dimensionButton.displayString = Theme
+            .ellipsize(fontRendererObj, choiceLabel(shownDimension()), dimensionButton.getWidth() - 20)
+            + (choicesOpen ? " \u25B4" : " \u25BE");
         dimensionButton.active = choicesOpen;
         super.drawScaled(mouseX, mouseY, partialTicks);
         if (choicesOpen) {

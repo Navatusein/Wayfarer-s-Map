@@ -88,15 +88,7 @@ public class GuiAbout extends ScaledScreen {
         int linkWidth = (WIDTH - 20 - 2 * gap) / 3;
         int linkY = top + 166;
         buttonList.add(
-            new LinkButton(
-                ID_GITHUB,
-                left + 10,
-                linkY,
-                linkWidth,
-                "GitHub",
-                GITHUB_URL,
-                Icons.GITHUB,
-                0xFFE6EAF0));
+            new LinkButton(ID_GITHUB, left + 10, linkY, linkWidth, "GitHub", GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0));
         buttonList.add(
             new LinkButton(
                 ID_BOOSTY,

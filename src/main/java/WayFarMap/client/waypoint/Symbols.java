@@ -107,8 +107,9 @@ public final class Symbols {
     /** The name to show: "air-traffic-control" as "Air traffic control". */
     public static String title(String name) {
         String words = name.replace('-', ' ');
-        return words.isEmpty() ? words : words.substring(0, 1)
-            .toUpperCase(Locale.ROOT) + words.substring(1);
+        return words.isEmpty() ? words
+            : words.substring(0, 1)
+                .toUpperCase(Locale.ROOT) + words.substring(1);
     }
 
     /**

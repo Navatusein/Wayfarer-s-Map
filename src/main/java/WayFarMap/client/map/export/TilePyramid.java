@@ -202,8 +202,8 @@ public final class TilePyramid {
     }
 
     /** Draws the source's finest tiles into the folder; the ones that show something. */
-    private static Set<Long> renderFinest(Source source, Set<Long> wanted, File dir, Progress progress,
-        AtomicLong done, long[] total) throws IOException, CancelledException {
+    private static Set<Long> renderFinest(Source source, Set<Long> wanted, File dir, Progress progress, AtomicLong done,
+        long[] total) throws IOException, CancelledException {
         int size = source.tileSize();
         progress.progress(0, total[0]);
         Set<Long> finest = ConcurrentHashMap.newKeySet();

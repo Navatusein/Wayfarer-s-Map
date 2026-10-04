@@ -209,6 +209,7 @@ public class WaypointRenderer {
         Gui.drawRect(x0, y0 + 1, x0 + 1, y1 - 1, color);
         Gui.drawRect(x1 - 1, y0 + 1, x1, y1 - 1, color);
     }
+
     /** Laid over the marker of a disabled waypoint on the world map. */
     private static final int DISABLED_VEIL = 0xB0181A1E;
 
@@ -343,7 +344,7 @@ public class WaypointRenderer {
         return ageSuffix(waypoint).trim();
     }
 
-    /** "  5 min ago" for a death marker that knows when the player died; "" otherwise. */
+    /** " 5 min ago" for a death marker that knows when the player died; "" otherwise. */
     public static String ageSuffix(Waypoint waypoint) {
         if (!waypoint.death || waypoint.diedAt <= 0) {
             return "";
@@ -362,7 +363,7 @@ public class WaypointRenderer {
         return "  " + age;
     }
 
-    /** "  123m": distance from the player, for the line under the name on the world map. */
+    /** " 123m": distance from the player, for the line under the name on the world map. */
     public static String distanceSuffix(Waypoint waypoint) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null || player.dimension != waypoint.dimension) {
@@ -675,8 +676,8 @@ public class WaypointRenderer {
      * @param openFrame the colored frame around the icon is left open in the middle (no dark tile), for one of the
      *                  {@link Symbols}
      */
-    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name,
-        Integer outlineColor, BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
+    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         double dy = y + 1.5 - RenderManager.renderPosY;

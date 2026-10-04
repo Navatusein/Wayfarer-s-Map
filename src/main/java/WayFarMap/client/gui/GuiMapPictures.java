@@ -814,12 +814,12 @@ public class GuiMapPictures extends ScaledScreen {
         makeButton.active = !running && quality != null && quality.usable;
         makeButton.enabled = running || quality != null && quality.usable;
         makeButton.icon = running ? null : Icons.CAMERA;
-        deleteAllButton.displayString = I18n.format(
-            armed == ID_DELETE_ALL ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete_all");
+        deleteAllButton.displayString = I18n
+            .format(armed == ID_DELETE_ALL ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete_all");
         deleteAllButton.active = armed == ID_DELETE_ALL;
         deleteAllButton.enabled = !pictures.isEmpty() && !running;
-        deleteButton.displayString = I18n.format(
-            armed == ID_VIEW_DELETE ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete");
+        deleteButton.displayString = I18n
+            .format(armed == ID_VIEW_DELETE ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete");
         deleteButton.active = armed == ID_VIEW_DELETE;
         previousButton.enabled = nextButton.enabled = pictures.size() > 1;
     }
@@ -1063,9 +1063,8 @@ public class GuiMapPictures extends ScaledScreen {
         Theme.fill(0, 0, width, height, 0xF4080A0D);
         int areaTop = VIEW_BAR, areaBottom = height - 14;
         if (viewImage != null && viewImage.ready()) {
-            double fit = Math.min(
-                (width - 60) / (double) viewImage.width,
-                (areaBottom - areaTop - 8) / (double) viewImage.height);
+            double fit = Math
+                .min((width - 60) / (double) viewImage.width, (areaBottom - areaTop - 8) / (double) viewImage.height);
             double w = viewImage.width * fit * viewZoom, h = viewImage.height * fit * viewZoom;
             double cx = width / 2.0 + viewPanX, cy = (areaTop + areaBottom) / 2.0 + viewPanY;
             Theme.clip(0, areaTop, width, areaBottom);
@@ -1098,18 +1097,8 @@ public class GuiMapPictures extends ScaledScreen {
         String details = (size == null ? "" : size[0] + "×" + size[1] + " · ") + bytes(picture.bytes)
             + (picture.site ? " · " + I18n.format("wayfarmap.pictures.web") : "");
         int textX = 8 + counterWidth + 8, textRoom = copyButton.xPosition - 8 - textX;
-        Theme.text(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, picture.name, textRoom),
-            textX,
-            4,
-            Theme.TEXT);
-        Theme.text(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, details, textRoom),
-            textX,
-            14,
-            Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, picture.name, textRoom), textX, 4, Theme.TEXT);
+        Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, details, textRoom), textX, 14, Theme.TEXT_MUTED);
         if (System.currentTimeMillis() - toastAt > TOAST_MS) {
             String hint = I18n.format("wayfarmap.pictures.view_hint");
             Theme.centered(fontRendererObj, hint, width / 2, height - 11, Theme.TEXT_DISABLED);

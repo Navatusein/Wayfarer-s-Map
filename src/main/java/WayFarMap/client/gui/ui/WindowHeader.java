@@ -66,8 +66,8 @@ public final class WindowHeader {
      * @param subtitleColor its color, {@link Theme#TEXT_MUTED} normally
      * @param pill          short text in a pill on the right, or null for none
      */
-    public static void draw(FontRenderer font, int left, int top, int right, int textRight, String[] icon,
-        String title, String subtitle, int subtitleColor, String pill) {
+    public static void draw(FontRenderer font, int left, int top, int right, int textRight, String[] icon, String title,
+        String subtitle, int subtitleColor, String pill) {
         Theme.fill(left + 1, top + 1, right - 1, top + HEIGHT - 1, Theme.PANEL_ALT);
         Theme.fill(left + 1, top + HEIGHT - 1, right - 1, top + HEIGHT, Theme.BORDER);
 

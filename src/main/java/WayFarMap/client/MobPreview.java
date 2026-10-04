@@ -71,15 +71,13 @@ public final class MobPreview {
         if (mobs == null || madeIn != world) {
             madeIn = world;
             mobs = new EntityLivingBase[][] {
-                { make(() -> new EntityZombie(world)), make(() -> new EntityCreeper(world)) },
-                { make(() -> {
+                { make(() -> new EntityZombie(world)), make(() -> new EntityCreeper(world)) }, { make(() -> {
                     // Named with a name tag, like the wolf: its name shows too.
                     EntityCow cow = new EntityCow(world);
                     cow.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.mob_name"));
                     return cow;
                 }), make(() -> new EntityPig(world)) },
-                { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) },
-                { make(() -> {
+                { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) }, { make(() -> {
                     EntityWolf wolf = new EntityWolf(world);
                     wolf.setTamed(true);
                     wolf.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.pet_name"));
@@ -107,10 +105,8 @@ public final class MobPreview {
             double cx = left + columnWidth * (kind + 0.5);
             boolean shown = shown(kind);
             GL11.glEnable(GL11.GL_TEXTURE_2D);
-            String label = Theme.ellipsize(
-                font,
-                I18n.format("wayfarmap.settings.mobs." + KINDS[kind]),
-                (int) columnWidth - 4);
+            String label = Theme
+                .ellipsize(font, I18n.format("wayfarmap.settings.mobs." + KINDS[kind]), (int) columnWidth - 4);
             int labelX = (int) Math.round(cx - font.getStringWidth(label) / 2.0);
             font.drawStringWithShadow(label, labelX, top, shown ? COLORS[kind] : Theme.TEXT_DISABLED);
 
