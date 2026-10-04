@@ -578,7 +578,7 @@ public final class MapDrawer {
                 }
                 pushUpright(sx, sy);
                 drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
-                String name = petName(entity);
+                String name = mobName(entity);
                 if (name != null) {
                     drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, playerSize / 10f, alpha);
                 }
@@ -696,13 +696,19 @@ public final class MapDrawer {
         return friendly;
     }
 
-    /** Name given to a pet with a name tag, or null (not a pet, no name, or pet names are off). */
-    private static String petName(EntityLivingBase entity) {
-        if (!Config.petNames || !(entity instanceof EntityLiving) || !isPet(entity)) {
+    /**
+     * Name given to the mob with a name tag, or null: none, or its kind's names are off (pets' and other mobs' are
+     * switched apart).
+     */
+    private static String mobName(EntityLivingBase entity) {
+        if (!(entity instanceof EntityLiving)) {
             return null;
         }
         EntityLiving living = (EntityLiving) entity;
-        return living.hasCustomNameTag() ? living.getCustomNameTag() : null;
+        if (!living.hasCustomNameTag() || !(isPet(entity) ? Config.petNames : Config.mobNames)) {
+            return null;
+        }
+        return living.getCustomNameTag();
     }
 
     /** Small name centered under an icon, at {@code textScale} of the normal text size. */
@@ -758,7 +764,7 @@ public final class MapDrawer {
             drawFacing(entity, sx, sy, half, color, alpha, 1f);
         }
         drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
-        String name = entity == null ? null : petName(entity);
+        String name = entity == null ? null : mobName(entity);
         if (name != null) {
             drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, textScale, alpha);
         }

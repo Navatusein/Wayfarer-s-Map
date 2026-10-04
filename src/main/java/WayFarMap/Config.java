@@ -214,6 +214,8 @@ public class Config {
     public static boolean mobFacing = true;
     /** Names of pets (given with a name tag) under their icon. */
     public static boolean petNames = true;
+    /** Names of other mobs given with a name tag under their icon. */
+    public static boolean mobNames = true;
 
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
@@ -898,6 +900,13 @@ public class Config {
             true,
             () -> petNames,
             v -> petNames = v);
+        bool(
+            c,
+            "mobNames",
+            "Names of other mobs (not pets) given with a name tag under their icon.",
+            true,
+            () -> mobNames,
+            v -> mobNames = v);
         tab(null);
 
         c = CATEGORY_WAYPOINTS;

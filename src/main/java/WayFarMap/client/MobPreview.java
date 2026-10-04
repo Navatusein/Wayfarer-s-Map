@@ -72,7 +72,12 @@ public final class MobPreview {
             madeIn = world;
             mobs = new EntityLivingBase[][] {
                 { make(() -> new EntityZombie(world)), make(() -> new EntityCreeper(world)) },
-                { make(() -> new EntityCow(world)), make(() -> new EntityPig(world)) },
+                { make(() -> {
+                    // Named with a name tag, like the wolf: its name shows too.
+                    EntityCow cow = new EntityCow(world);
+                    cow.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.mob_name"));
+                    return cow;
+                }), make(() -> new EntityPig(world)) },
                 { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) },
                 { make(() -> {
                     EntityWolf wolf = new EntityWolf(world);
