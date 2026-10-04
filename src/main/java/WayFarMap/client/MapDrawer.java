@@ -800,7 +800,9 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
         // one side.
-        if (entity == null || !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
+        // Its icon drawn by the game; until it is made (or if it can't be), its face cut out of its skin.
+        if (entity == null
+            || !MobIcons.draw(entity, sx, sy, size, alpha) && !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
             drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

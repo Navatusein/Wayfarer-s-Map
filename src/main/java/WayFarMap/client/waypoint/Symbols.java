@@ -170,7 +170,7 @@ public final class Symbols {
      * Makes the smaller copies of the bound texture, up to {@code levels} of them. The game sets its textures to
      * have none (up to level 0), which is raised first. False if the graphics card can't.
      */
-    static boolean generateMipmaps(int levels) {
+    public static boolean generateMipmaps(int levels) {
         try {
             ContextCapabilities capabilities = GLContext.getCapabilities();
             if (!capabilities.OpenGL30 && !capabilities.GL_EXT_framebuffer_object) {
