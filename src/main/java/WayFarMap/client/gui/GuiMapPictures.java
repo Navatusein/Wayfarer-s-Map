@@ -138,6 +138,8 @@ public class GuiMapPictures extends ScaledScreen {
     private List<Quality> isoChoices;
 
     private List<MapPictures.Picture> pictures = new ArrayList<>();
+    /** Bytes the pictures folder takes, counted with the list. */
+    private long folderBytes;
     private int seenFinished = -1;
     private final Map<File, Shown> thumbs = new HashMap<>();
     private final Map<File, int[]> dimensions = new HashMap<>();
@@ -407,6 +409,7 @@ public class GuiMapPictures extends ScaledScreen {
     private void refresh() {
         seenFinished = MapExport.finished();
         pictures = MapPictures.list();
+        folderBytes = MapPictures.folderSize();
         Set<File> present = new HashSet<>();
         for (MapPictures.Picture picture : pictures) {
             present.add(picture.preview);
@@ -944,6 +947,18 @@ public class GuiMapPictures extends ScaledScreen {
             int pillRight = pillX + fontRendererObj.getStringWidth(count) + 6;
             Theme.fill(pillX, contentTop - 2, pillRight, contentTop + 9, Theme.CONTROL);
             Theme.text(fontRendererObj, count, pillX + 3, contentTop, Theme.TEXT_MUTED);
+        }
+        if (folderBytes > 0) {
+            // How much the whole folder takes on disk, up to the buttons.
+            int sizeX = galleryLeft + fontRendererObj.getStringWidth(title) + 5;
+            if (!pictures.isEmpty()) {
+                sizeX += fontRendererObj.getStringWidth(String.valueOf(pictures.size())) + 11;
+            }
+            String size = Theme.ellipsize(
+                fontRendererObj,
+                I18n.format("wayfarmap.pictures.folder_size", bytes(folderBytes)),
+                folderButton.xPosition - 6 - sizeX);
+            Theme.text(fontRendererObj, size, sizeX, contentTop, Theme.TEXT_MUTED);
         }
         if (pictures.isEmpty()) {
             int cx = (galleryLeft + x1) / 2, cy = (gridTop + contentBottom) / 2;

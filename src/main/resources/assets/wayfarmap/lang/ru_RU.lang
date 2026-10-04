@@ -367,6 +367,7 @@ wayfarmap.pictures.make=Сделать снимок
 wayfarmap.pictures.stop=Остановить
 wayfarmap.pictures.gallery=Снимки
 wayfarmap.pictures.folder=Папка
+wayfarmap.pictures.folder_size=на диске %s
 wayfarmap.pictures.delete_all=Удалить все
 wayfarmap.pictures.sure=Точно?
 wayfarmap.pictures.empty=Снимков пока нет

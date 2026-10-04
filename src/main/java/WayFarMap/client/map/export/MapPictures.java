@@ -104,6 +104,11 @@ public final class MapPictures {
         return pictures;
     }
 
+    /** Bytes the whole pictures folder takes, everything in it (what unfinished pictures left too). */
+    public static long folderSize() {
+        return size(MapExport.folder());
+    }
+
     private static long size(File file) {
         File[] children = file.listFiles();
         if (children == null) {

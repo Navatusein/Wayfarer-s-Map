@@ -367,6 +367,7 @@ wayfarmap.pictures.make=Make picture
 wayfarmap.pictures.stop=Stop
 wayfarmap.pictures.gallery=Pictures
 wayfarmap.pictures.folder=Folder
+wayfarmap.pictures.folder_size=%s on disk
 wayfarmap.pictures.delete_all=Delete all
 wayfarmap.pictures.sure=Sure?
 wayfarmap.pictures.empty=No pictures yet
