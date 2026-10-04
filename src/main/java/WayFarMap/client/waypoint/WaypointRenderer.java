@@ -248,17 +248,19 @@ public class WaypointRenderer {
      */
     public static int[] getLabelRect(Waypoint waypoint, double sx, double sy, float size, float textScale) {
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        String name = mapLabelName(waypoint);
-        String distance = labelDistance(waypoint);
-        if (name.isEmpty() && distance.isEmpty()) {
+        String[] lines = labelLines(waypoint);
+        if (lines[0].isEmpty() && lines[1].isEmpty()) {
             return null;
         }
-        int textWidth = font.getStringWidth(name) + font.getStringWidth(distance);
-        // A death marker's age on a second line, under the name.
-        String age = ageLine(waypoint);
-        textWidth = Math.max(textWidth, font.getStringWidth(age));
+        int textWidth = 0, count = 0;
+        for (String line : lines) {
+            if (!line.isEmpty()) {
+                textWidth = Math.max(textWidth, font.getStringWidth(line));
+                count++;
+            }
+        }
         int width = (int) Math.ceil((textWidth + 4) * textScale);
-        int height = (int) Math.ceil((age.isEmpty() ? 10 : 19) * textScale);
+        int height = (int) Math.ceil((count * 9 + 1) * textScale);
         int x0 = (int) Math.round(sx) - width / 2;
         int y0 = (int) Math.round(sy) + Math.round(size / 2f) + 2;
         return new int[] { x0, y0, x0 + width, y0 + height };
@@ -268,52 +270,40 @@ public class WaypointRenderer {
         drawMapLabel(waypoint, rect, 1f);
     }
 
-    /** Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}. */
+    /**
+     * Draws the label into the rectangle from {@link #getLabelRect}, with the text at {@code textScale}: as in the
+     * world, the name with the distance on its own line under it (and a death marker's age under that), centered.
+     */
     public static void drawMapLabel(Waypoint waypoint, int[] rect, float textScale) {
         // A death marker's label is tinted red, so it is never taken for an ordinary waypoint.
         Gui.drawRect(rect[0], rect[1], rect[2], rect[3], waypoint.death ? DEATH_LABEL_BG : Theme.LABEL_BG);
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        String name = mapLabelName(waypoint);
+        String[] lines = labelLines(waypoint);
+        int[] colors = { Theme.TEXT, Theme.TEXT_MUTED, DEATH_AGE_COLOR };
         GL11.glPushMatrix();
-        GL11.glTranslatef(rect[0] + 2 * textScale, rect[1] + textScale, 0f);
+        GL11.glTranslatef((rect[0] + rect[2]) / 2f, rect[1] + textScale, 0f);
         GL11.glScalef(textScale, textScale, 1f);
-        font.drawString(name, 0, 0, waypoint.enabled ? Theme.TEXT : Theme.TEXT_DISABLED);
-        font.drawString(
-            labelDistance(waypoint),
-            font.getStringWidth(name),
-            0,
-            waypoint.enabled ? Theme.TEXT_MUTED : Theme.TEXT_DISABLED);
-        String age = ageLine(waypoint);
-        if (!age.isEmpty()) {
-            font.drawString(age, 0, 9, waypoint.enabled ? DEATH_AGE_COLOR : Theme.TEXT_DISABLED);
+        int y = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].isEmpty()) {
+                continue;
+            }
+            int color = waypoint.enabled ? colors[i] : Theme.TEXT_DISABLED;
+            font.drawString(lines[i], -font.getStringWidth(lines[i]) / 2, y, color);
+            y += 9;
         }
         GL11.glPopMatrix();
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
-     * Name for the world map label: name and distance together always fit in {@link Config#waypointLabelMaxWidth},
-     * so the name is cut shorter to leave room for the distance. The full name of the hovered waypoint is shown in
-     * the map's bottom bar instead.
+     * The lines of a waypoint's map label, each "" when it has none: its name (cut to
+     * {@link Config#waypointLabelMaxWidth}; the hovered one's full name is in the map's bottom bar), the distance,
+     * and a death marker's age.
      */
-    private static String mapLabelName(Waypoint waypoint) {
-        if (waypoint.name.isEmpty()) {
-            return "";
-        }
-        FontRenderer font = Minecraft.getMinecraft().fontRenderer;
-        int room = Config.waypointLabelMaxWidth - font.getStringWidth(labelSuffix(waypoint));
-        return Theme.ellipsize(font, waypoint.name, Math.max(font.getStringWidth("..."), room));
-    }
-
-    /** The distance part of the map label: without a name it stands alone, so no gap before it. */
-    private static String labelDistance(Waypoint waypoint) {
-        String distance = labelSuffix(waypoint);
-        return waypoint.name.isEmpty() ? distance.trim() : distance;
-    }
-
-    /** What follows the name on the map: the distance (a death marker's age goes on a line of its own). */
-    private static String labelSuffix(Waypoint waypoint) {
-        return distanceSuffix(waypoint);
+    private static String[] labelLines(Waypoint waypoint) {
+        String name = labelText(waypoint, false);
+        return new String[] { name, distanceSuffix(waypoint).trim(), ageLine(waypoint) };
     }
 
     /** A death marker's age for the line under its map label ("12 min ago"), or "" for none. */
@@ -340,7 +330,7 @@ public class WaypointRenderer {
         return "  " + age;
     }
 
-    /** " 123m": distance from the player, shown after the name on the world map. */
+    /** "  123m": distance from the player, for the line under the name on the world map. */
     public static String distanceSuffix(Waypoint waypoint) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null || player.dimension != waypoint.dimension) {
