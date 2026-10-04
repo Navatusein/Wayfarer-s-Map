@@ -726,30 +726,38 @@ public class GuiMapData extends ScaledScreen {
         Theme.fill(left + 10, logsY() - 10, right - 10, logsY() - 9, Theme.BORDER);
         sizeRow(0, rowLabel(ID_LOGS), "", data == null ? unknown : bytes(data.logs), logsY(), value);
 
-        // Footer: the confirmation asked, or what the last cleaning did; and what is kept.
+        // Footer: what is kept, on up to two lines beside the Done button; over it the confirmation asked, or what
+        // the last cleaning did.
         int textWidth = right - left - 110;
+        List<String> note = new ArrayList<>();
+        for (Object line : fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.data.note"), textWidth)) {
+            note.add((String) line);
+        }
+        if (note.size() > 2) {
+            note.set(1, Theme.ellipsize(fontRendererObj, note.get(1) + "...", textWidth));
+            note = note.subList(0, 2);
+        }
+        int noteY = note.size() > 1 ? bottom - 26 : bottom - 21;
+        int messageY = note.size() > 1 ? bottom - 38 : bottom - 34;
         if (armed != -1) {
             String what = armed == ID_LOGS ? rowLabel(armed) : rowLabel(armed) + " · " + scopeName();
             Theme.text(
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.data.confirm", what), textWidth),
                 left + 10,
-                bottom - 34,
+                messageY,
                 Theme.DANGER);
         } else if (!status.isEmpty()) {
             Theme.text(
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, status, textWidth),
                 left + 10,
-                bottom - 34,
+                messageY,
                 Theme.SUCCESS);
         }
-        Theme.text(
-            fontRendererObj,
-            Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.data.note"), textWidth),
-            left + 10,
-            bottom - 21,
-            Theme.TEXT_MUTED);
+        for (int i = 0; i < note.size(); i++) {
+            Theme.text(fontRendererObj, note.get(i), left + 10, noteY + i * 10, Theme.TEXT_MUTED);
+        }
         super.drawScaled(mouseX, mouseY, partialTicks);
         if (listOpen) {
             // Over everything else.
