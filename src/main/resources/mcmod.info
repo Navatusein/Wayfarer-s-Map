@@ -10,7 +10,7 @@
 		"updateUrl": "",
 		"authorList": ["evgengoldwar"],
 		"credits": "",
-		"logoFile": "",
+		"logoFile": "assets/wayfarmap/logo.png",
 		"screenshots": [],
 		"parent": "",
 		"requiredMods": [],
