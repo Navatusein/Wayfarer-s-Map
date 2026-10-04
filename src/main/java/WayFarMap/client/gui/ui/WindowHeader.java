@@ -3,7 +3,7 @@ package WayFarMap.client.gui.ui;
 import net.minecraft.client.gui.FontRenderer;
 
 /**
- * The header across the top of a window, the same on every screen of the mod: the window's icon on an accent tile,
+ * The header across the top of a window, the same on every screen of the mod: the window's icon in the accent color,
  * its title with a muted line under it, an optional pill on the right (a count, a color, a size) and a close button,
  * over a line with an accent part under the title.
  */
@@ -37,10 +37,9 @@ public final class WindowHeader {
         Theme.fill(left + 1, top + 1, right - 1, top + HEIGHT - 1, Theme.PANEL_ALT);
         Theme.fill(left + 1, top + HEIGHT - 1, right - 1, top + HEIGHT, Theme.BORDER);
 
-        // The window's icon on an accent tile.
-        Theme.fill(left + 7, top + 7, left + 23, top + 23, Theme.ACCENT_DIM);
+        // The window's icon, in the accent color like the help's section icons.
         int iconX = left + 15 - Icons.width(icon) / 2, iconY = top + 15 - icon.length / 2;
-        Icons.draw(icon, iconX, iconY, Theme.TEXT);
+        Icons.draw(icon, iconX, iconY, Theme.ACCENT);
 
         int textLeft = left + 29;
         if (pill != null) {
