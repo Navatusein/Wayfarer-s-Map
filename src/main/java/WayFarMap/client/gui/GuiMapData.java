@@ -288,7 +288,6 @@ public class GuiMapData extends ScaledScreen {
         DeleteButton logs = new DeleteButton(ID_LOGS, 0, bottom - FOOTER + 7, BUTTON_WIDTH);
         deleteButtons.add(logs);
         buttonList.add(logs);
-        buttonList.add(new FlatButton(ID_DONE, right - 90, bottom - FOOTER + 6, 80, 18, I18n.format("gui.done")));
         if (!started) {
             started = true;
             if (counting == null) {
