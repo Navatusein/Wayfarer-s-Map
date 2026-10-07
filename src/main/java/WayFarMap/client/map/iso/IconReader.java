@@ -6,7 +6,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.util.IIcon;
 
 import org.lwjgl.BufferUtils;
@@ -23,10 +22,7 @@ import WayFarMap.WayFarMap;
 final class IconReader {
 
     private static final int SIZE = 16;
-    /** GL_FRAMEBUFFER_BINDING (same value for the EXT and core versions). */
-    private static final int FRAMEBUFFER_BINDING = 0x8CA6;
-
-    private static Framebuffer framebuffer;
+    private static OwnFramebuffer framebuffer;
     private static IntBuffer readBuffer;
     private static int failures;
 
@@ -34,7 +30,7 @@ final class IconReader {
 
     /** Whether icons can be read from the graphics card. */
     static boolean available() {
-        return failures < 5 && OpenGlHelper.isFramebufferEnabled();
+        return failures < 5 && OwnFramebuffer.supported();
     }
 
     /** The icon as 16x16 ARGB, or null if it can't be read. */
@@ -43,7 +39,7 @@ final class IconReader {
             return null;
         }
         Minecraft mc = Minecraft.getMinecraft();
-        int previous = GL11.glGetInteger(FRAMEBUFFER_BINDING);
+        int previous = GL11.glGetInteger(OwnFramebuffer.BINDING);
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -52,10 +48,10 @@ final class IconReader {
         boolean bound = false;
         try {
             if (framebuffer == null) {
-                framebuffer = new Framebuffer(SIZE, SIZE, false);
+                framebuffer = new OwnFramebuffer(SIZE, SIZE, false);
                 readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
             }
-            framebuffer.bindFramebuffer(true);
+            framebuffer.bind();
             bound = true;
             GL11.glClearColor(0f, 0f, 0f, 0f);
             GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
@@ -109,26 +105,14 @@ final class IconReader {
             return null;
         } finally {
             if (bound) {
-                rebind(mc, previous, framebuffer);
+                // Back to the buffer bound before (the game's own while a frame is drawn, none between frames).
+                OwnFramebuffer.bind(previous);
             }
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPopMatrix();
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
-        }
-    }
-
-    /**
-     * Binds the frame buffer that was bound before: the game's own while a frame is drawn (the world map is drawn
-     * into it), none between frames.
-     */
-    static void rebind(Minecraft mc, int previous, Framebuffer own) {
-        Framebuffer game = mc.getFramebuffer();
-        if (game != null && previous != 0 && previous == game.framebufferObject) {
-            game.bindFramebuffer(false);
-        } else {
-            own.unbindFramebuffer();
         }
     }
 }

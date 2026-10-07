@@ -196,6 +196,11 @@ public final class IsoMap implements BlockStore.Listener {
         FaceRenderer.clear();
         this.worldDirectory = worldDirectory;
         IsoLog.open(Minecraft.getMinecraft().mcDataDir, worldDirectory);
+        IsoLog.log(
+            "PICTURES framebuffers=" + OwnFramebuffer.kind()
+                + " (the mod's own; the game's are "
+                + (net.minecraft.client.renderer.OpenGlHelper.isFramebufferEnabled() ? "on" : "OFF")
+                + ")");
         palette = FacePalette.load(worldDirectory, spriteCacheId());
         writer = backgroundThread("WayFarMap 3D writer");
         saver = backgroundThread("WayFarMap 3D saver");

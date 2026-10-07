@@ -27,7 +27,6 @@ import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.tileentity.TileEntityChest;
 import net.minecraft.tileentity.TileEntityEnderChest;
@@ -91,7 +90,7 @@ final class FaceRenderer {
     private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
         { 1, 0, 0 } };
 
-    private static Framebuffer framebuffer;
+    private static OwnFramebuffer framebuffer;
     private static IntBuffer readBuffer;
     private static int[] readPixels;
     private static FloatBuffer matrixBuffer;
@@ -705,7 +704,7 @@ final class FaceRenderer {
     private static boolean offLogged;
 
     static boolean available() {
-        return !broken && OpenGlHelper.isFramebufferEnabled();
+        return !broken && OwnFramebuffer.supported();
     }
 
     /**
@@ -778,6 +777,9 @@ final class FaceRenderer {
         TWINS.clear();
         TWINS_WITH_DATA.clear();
         dropFlights();
+        // A world joined (or other resource packs): pictures given up on before are tried again.
+        broken = false;
+        failures = 0;
     }
 
     /** Forgets the batches being read back (their blocks get pictures another time); render thread. */
@@ -914,9 +916,9 @@ final class FaceRenderer {
             blocks.picturesMissing = true;
             if (!offLogged) {
                 offLogged = true;
-                String why = broken ? "the game's renderers failed again and again (see PICTURES_FAILED)"
-                    : "the game's framebuffers are off (video settings: FBO, options.txt fboEnable:true), or "
-                        + "another mod turned them off";
+                String why = broken
+                    ? "drawing them failed again and again this game (see PICTURES_FAILED, maybe in an earlier log)"
+                    : "the graphics card has no framebuffers";
                 WayFarMap.LOG.warn("The 3D map takes no pictures of blocks, they are drawn from icons: {}", why);
                 IsoLog.log("PICTURES_OFF " + why + ": blocks drawn from their icons, old pictures kept");
             }
@@ -1459,7 +1461,7 @@ final class FaceRenderer {
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
-        int previousFramebuffer = GL11.glGetInteger(0x8CA6); // GL_FRAMEBUFFER_BINDING
+        int previousFramebuffer = GL11.glGetInteger(OwnFramebuffer.BINDING);
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -1468,12 +1470,12 @@ final class FaceRenderer {
         boolean bound = false;
         try {
             if (framebuffer == null) {
-                framebuffer = new Framebuffer(SIZE, SIZE, true);
+                framebuffer = new OwnFramebuffer(SIZE, SIZE, true);
                 readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
                 matrixBuffer = BufferUtils.createFloatBuffer(16);
                 planeBuffer = BufferUtils.createDoubleBuffer(4);
             }
-            framebuffer.bindFramebuffer(true);
+            framebuffer.bind();
             bound = true;
             GL11.glClearColor(0f, 0f, 0f, 0f);
             GL11.glClearDepth(1.0);
@@ -1640,7 +1642,7 @@ final class FaceRenderer {
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
             if (bound) {
                 // Back to the buffer bound before (the game's own while a frame is drawn).
-                IconReader.rebind(mc, previousFramebuffer, framebuffer);
+                OwnFramebuffer.bind(previousFramebuffer);
             }
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPopMatrix();
