@@ -102,10 +102,12 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // Dark caves are drawn as at night with their own tint: only torches and other lights show them.
+        // Dark caves and the Nether are drawn as at night with their own tint: only lava, torches and other lights
+        // show them in full color.
         boolean darkCave = isDarkCave(dimension);
-        float night = darkCave ? 1f : nightAmount(Minecraft.getMinecraft());
-        float[] tint = darkCave ? CAVE_TINT : tint(night);
+        boolean dimNether = isDimNether(dimension);
+        float night = darkCave || dimNether ? 1f : nightAmount(Minecraft.getMinecraft());
+        float[] tint = darkCave ? CAVE_TINT : dimNether ? NETHER_TINT : tint(night);
         GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
 
         Tessellator tessellator = Tessellator.instance;
@@ -385,6 +387,9 @@ public final class MapDrawer {
     /** Map color multiplier for caves: no sun or moon down there, only torches light them up. */
     private static final float[] CAVE_TINT = { 0.2f, 0.2f, 0.23f };
 
+    /** Map color multiplier for the Nether: dim and warm, as its own murky light; lava and glowstone light it up. */
+    private static final float[] NETHER_TINT = { 0.5f, 0.36f, 0.32f };
+
     /** RGB multiplier for the map according to {@link Config#mapLightMode} and the time of day. */
     public static float[] lightTint(Minecraft mc) {
         return tint(nightAmount(mc));
@@ -398,11 +403,19 @@ public final class MapDrawer {
 
     /**
      * Cave layers of dimensions with a sky are dark at any time of day, lit only where torches and other lights are
-     * (unless the map is fixed to day). Dimensions without a sky, like the Nether, keep their caves lit.
+     * (unless the map is fixed to day). Dimensions without a sky, like the Nether, get {@link #isDimNether} instead.
      */
     private static boolean isDarkCave(MapDimension dimension) {
         return dimension.cave && Config.mapLightMode != Config.LIGHT_DAY
             && !MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
+    }
+
+    /**
+     * Dimensions without a sky, like the Nether, are dim at any time of day, surface and caves alike, with their lights
+     * glowing (unless the map is fixed to day).
+     */
+    private static boolean isDimNether(MapDimension dimension) {
+        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
     }
 
     /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */
