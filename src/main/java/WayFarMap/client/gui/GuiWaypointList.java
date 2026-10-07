@@ -7,6 +7,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -64,6 +65,8 @@ public class GuiWaypointList extends ScaledScreen {
         final Waypoint waypoint;
         /** A group's waypoints that the filter lets through. */
         int count;
+        /** For a header: those waypoints themselves. */
+        List<Waypoint> matching;
 
         Row(WaypointGroup group, boolean ungrouped, Waypoint waypoint) {
             this.group = group;
@@ -201,6 +204,7 @@ public class GuiWaypointList extends ScaledScreen {
         }
         Row header = new Row(group, ungrouped, null);
         header.count = matching.size();
+        header.matching = matching;
         rows.add(header);
         // Searching opens the groups: what was found shows.
         if (!collapsed.contains(key) || !searchText.isEmpty()) {
@@ -336,7 +340,7 @@ public class GuiWaypointList extends ScaledScreen {
     /** Runs {@code action} on the second click within a few seconds on the same object. */
     private void confirmDelete(Object object, Runnable action) {
         long now = System.currentTimeMillis();
-        if (pendingDelete == object && now - pendingDeleteTime < CONFIRM_MS) {
+        if (Objects.equals(pendingDelete, object) && now - pendingDeleteTime < CONFIRM_MS) {
             pendingDelete = null;
             action.run();
             rebuildRows();
@@ -347,7 +351,7 @@ public class GuiWaypointList extends ScaledScreen {
     }
 
     private boolean isPendingDelete(Object object) {
-        return pendingDelete == object && System.currentTimeMillis() - pendingDeleteTime < CONFIRM_MS;
+        return Objects.equals(pendingDelete, object) && System.currentTimeMillis() - pendingDeleteTime < CONFIRM_MS;
     }
 
     @Override
@@ -691,10 +695,11 @@ public class GuiWaypointList extends ScaledScreen {
             rebuildRows();
         }));
 
+        int bx = listRight - 4;
         if (row.ungrouped) {
+            drawClearButton(row, key, bx, y, mouseX, mouseY);
             return;
         }
-        int bx = listRight - 4;
         bx = drawTextButton(
             bx,
             y + 4,
@@ -709,6 +714,7 @@ public class GuiWaypointList extends ScaledScreen {
             groupField.setFocused(true);
             updateGroupButton();
         });
+        bx = drawClearButton(row, key, bx, y, mouseX, mouseY);
         bx = drawTextButton(bx, y + 4, "v", Theme.TEXT, mouseX, mouseY, () -> {
             manager.moveGroup(group, 1);
             rebuildRows();
@@ -717,6 +723,27 @@ public class GuiWaypointList extends ScaledScreen {
             manager.moveGroup(group, -1);
             rebuildRows();
         });
+    }
+
+    /**
+     * Deletes all of the group's waypoints the list shows (the dimension and search filters apply), after a second
+     * click. Not drawn for a group with none shown.
+     */
+    private int drawClearButton(Row row, String key, int bx, int y, int mouseX, int mouseY) {
+        if (row.count == 0) {
+            return bx;
+        }
+        // The group itself is the key of its "Delete"; this one gets its own.
+        final String pendingKey = "\u0000clear:" + key;
+        final List<Waypoint> waypoints = row.matching;
+        return drawTextButton(
+            bx,
+            y + 4,
+            I18n.format(isPendingDelete(pendingKey) ? "wayfarmap.gui.confirm" : "wayfarmap.gui.clear_group"),
+            Theme.DANGER,
+            mouseX,
+            mouseY,
+            () -> confirmDelete(pendingKey, () -> WaypointManager.INSTANCE.removeWaypoints(waypoints)));
     }
 
     private void drawWaypointRow(final Waypoint waypoint, int y, int mouseX, int mouseY) {

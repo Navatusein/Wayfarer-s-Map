@@ -9,6 +9,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -215,6 +216,11 @@ public class WaypointManager {
 
     public void removeWaypoint(Waypoint waypoint) {
         data.waypoints.remove(waypoint);
+        save();
+    }
+
+    public void removeWaypoints(Collection<Waypoint> waypoints) {
+        data.waypoints.removeAll(waypoints);
         save();
     }
 

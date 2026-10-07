@@ -67,6 +67,7 @@ wayfarmap.gui.outline=Обводка
 wayfarmap.gui.save=Сохранить
 wayfarmap.gui.delete=Удалить
 wayfarmap.gui.confirm=Точно?
+wayfarmap.gui.clear_group=Очистить
 wayfarmap.gui.edit=Изменить
 wayfarmap.gui.rename=Переим.
 wayfarmap.gui.create_group=Создать группу

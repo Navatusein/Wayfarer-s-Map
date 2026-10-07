@@ -67,6 +67,7 @@ wayfarmap.gui.outline=轮廓
 wayfarmap.gui.save=保存
 wayfarmap.gui.delete=删除
 wayfarmap.gui.confirm=确定？
+wayfarmap.gui.clear_group=清空
 wayfarmap.gui.edit=编辑
 wayfarmap.gui.rename=重命名
 wayfarmap.gui.create_group=创建分组

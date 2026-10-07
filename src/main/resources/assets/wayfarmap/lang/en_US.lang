@@ -67,6 +67,7 @@ wayfarmap.gui.outline=Outline
 wayfarmap.gui.save=Save
 wayfarmap.gui.delete=Delete
 wayfarmap.gui.confirm=Sure?
+wayfarmap.gui.clear_group=Clear
 wayfarmap.gui.edit=Edit
 wayfarmap.gui.rename=Rename
 wayfarmap.gui.create_group=Create group
