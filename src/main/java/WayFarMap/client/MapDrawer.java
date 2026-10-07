@@ -465,8 +465,8 @@ public final class MapDrawer {
     }
 
     /**
-     * Whether the west (north) edge of this chunk column (row) borders one of GregTech's ore vein cells: an even grid of
-     * 3x3 chunks starting at chunk 0, each holding at most one vein around its middle chunk.
+     * Whether the west (north) edge of this chunk column (row) borders one of GregTech's ore vein cells: an even
+     * grid of 3x3 chunks starting at chunk 0, each holding at most one vein around its middle chunk.
      */
     static boolean isOreVeinBorder(int chunk) {
         return Math.floorMod(chunk, 3) == 0;
