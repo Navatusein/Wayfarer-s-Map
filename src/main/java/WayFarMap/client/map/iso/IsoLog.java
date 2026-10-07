@@ -271,6 +271,14 @@ public final class IsoLog {
                 + "pictures, results waiting for upload, uploads and their time. SUMMARY latency: those times as "
                 + "percentiles. PERF frame: 3dDraw [3dUpload 3dLooks 3dTiles 3dEvict] splits the 3D view's frame "
                 + "time; tick: capture3d [3dLooksAhead].");
+        line(
+            "LEGEND speed-ups: QUEUED queue=fresh-early = a new chunk copied as soon as the 8 around it are loaded, "
+                + "without waiting for it to settle; it is QUEUED reason=settled again once settled (UNCHANGED if "
+                + "nothing came). NOISE = copied again but only fluids flowing, leaves or light changed: no pictures "
+                + "taken, not stored (by=render thread, before the pictures; by=writer, after), the chunk is copied "
+                + "again at most every 30 s, and noise is stored at least every 60 s. MARKED changed=x,y,z..x,y,z = "
+                + "the blocks that changed (chunk coordinates): only tiles over them are drawn again (whole = all). "
+                + "TILE_DONE src=composed = a coarse tile made from the 4 finer tiles' files instead of traced.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -730,6 +738,34 @@ public final class IsoLog {
                 + " (same blocks, pictures kept)");
     }
 
+    private static final AtomicLong noiseSkipped = new AtomicLong();
+
+    /**
+     * Copied again, but only noise changed (fluids flowing, leaves, light: see {@link BlockNoise}): not stored, no
+     * pictures taken (render thread) or not stored (writer); copied again seldom from now on.
+     */
+    static void noise(int cx, int cz, String where, long nanos) {
+        if (!on()) {
+            return;
+        }
+        noiseSkipped.incrementAndGet();
+        // From the writer the trace is gone already (it ends with the STORE line).
+        Trace trace = TRACES.remove(key(cx, cz));
+        line(
+            "NOISE " + cx
+                + ","
+                + cz
+                + " reason="
+                + (trace != null ? trace.reason : "?")
+                + " by="
+                + where
+                + " ms="
+                + ms(nanos)
+                + " (only fluids, leaves or light changed: not stored, copied again in "
+                + IsoMap.NOISY_RECAPTURE_MS / 1000
+                + "s at the earliest)");
+    }
+
     /** Copying it failed or gave nothing. */
     static void captureFailed(int cx, int cz, String why) {
         if (on()) {
@@ -1105,7 +1141,7 @@ public final class IsoLog {
     // ---------------------------------------------------------------- tiles
 
     /** Chunk changes reached the tiles in memory. */
-    static void marked(int dimension, int cx, int cz, long changeTimeMs, int tiles, int tilesInMemory) {
+    static void marked(int dimension, int cx, int cz, long changeTimeMs, int tiles, int tilesInMemory, int[] box) {
         if (on()) {
             line(
                 "MARKED " + cx
@@ -1115,6 +1151,17 @@ public final class IsoLog {
                     + dimension
                     + " delayMs="
                     + (System.currentTimeMillis() - changeTimeMs)
+                    + " changed="
+                    + (box == null ? "whole"
+                        : box[0] + "," + box[1]
+                            + ","
+                            + box[2]
+                            + ".."
+                            + box[3]
+                            + ","
+                            + box[4]
+                            + ","
+                            + box[5])
                     + " tilesDirtied="
                     + tiles
                     + " tilesInMemory="
@@ -1294,7 +1341,7 @@ public final class IsoLog {
                     .append(String.format(Locale.ROOT, "%.2f", w.traceNanos / 1e3 / w.rays))
                     .append(']');
             }
-            if (!"disk".equals(source)) {
+            if ("trace".equals(source)) {
                 b.append(" chunks[store=")
                     .append(w.storeChunks)
                     .append(" none=")
@@ -1652,6 +1699,8 @@ public final class IsoLog {
                     + incompleteCaptures.getAndSet(0)
                     + " unchanged="
                     + unchangedSkipped.getAndSet(0)
+                    + " noise="
+                    + noiseSkipped.getAndSet(0)
                     + " captureMs="
                     + ms(captureNanosSum.getAndSet(0))
                     + " stored="

@@ -48,6 +48,13 @@ public final class IsoMap implements BlockStore.Listener {
      * away only now and then: copying every loaded chunk again and again costs frames while flying around.
      */
     private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000, CHANGED_RECAPTURE_MS = 3_000;
+    /**
+     * A chunk whose changes were only noise lately (fluids flowing, leaves, light: see {@link BlockNoise}) is copied
+     * again at most this often when it changes: an oil spring or a lava fall nearby changes it every few seconds.
+     */
+    static final long NOISY_RECAPTURE_MS = 30_000;
+    /** Noise alone is stored at most this often: the map catches up with fluids and light once in a while. */
+    static final long NOISE_STORE_MS = 60_000;
     /** Chunks from the player that count as near. */
     private static final int NEAR_CHUNKS = 2;
     /** Time for pictures of a chunk copied as it is let go. */
@@ -124,6 +131,20 @@ public final class IsoMap implements BlockStore.Listener {
      * and again took half the game's time in a big base. {@code /wf chunkload 3d} takes them anew.
      */
     private final Map<Long, Long> signatures = new HashMap<>();
+    /** {@link ChunkBlocks#quietSignature} of the copies in {@link #signatures}. */
+    private final Map<Long, Long> quietSignatures = new HashMap<>();
+    /** When the writer last stored a chunk with changes this session (ms). */
+    private final Map<Long, Long> storedAt = new HashMap<>();
+    /** Chunks whose last copies changed only by noise: copied again seldom ({@link #NOISY_RECAPTURE_MS}). */
+    private final Set<Long> noisy = new HashSet<>();
+    /** What the writer did with chunks, for the render thread: {dimension, key, STORED or NOISE}. */
+    private final Queue<long[]> writerResults = new ConcurrentLinkedQueue<>();
+    private static final long STORED = 1, NOISE = 2;
+    /**
+     * Chunks copied before they settled (the 8 around them loaded, decoration maybe still arriving): copied again
+     * when the surface map scans them settled, which costs nothing (no pictures) if they stayed the same.
+     */
+    private final Set<Long> early = new HashSet<>();
     /**
      * Signatures of stored copies with every picture, worked out by the writer for chunks not yet copied this
      * session ({@link #NO_SIGNATURE} if there is none such): a chunk whose blocks are the same as stored needs no
@@ -216,6 +237,11 @@ public final class IsoMap implements BlockStore.Listener {
         copiedWhileLoaded.clear();
         unfinished.clear();
         signatures.clear();
+        quietSignatures.clear();
+        storedAt.clear();
+        noisy.clear();
+        writerResults.clear();
+        early.clear();
         refreshing.clear();
         storedSignatures.clear();
         checking.clear();
@@ -319,6 +345,7 @@ public final class IsoMap implements BlockStore.Listener {
         BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
         Perf.end(Perf.Part.LOOKS_TICK, looks);
         drainChanges();
+        drainWriterResults();
         Long done;
         while ((done = checked.poll()) != null) {
             // Its stored copy was looked at: its turn again (first, as a chunk new this session), now with the
@@ -352,6 +379,28 @@ public final class IsoMap implements BlockStore.Listener {
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
         return !freshQueue.isEmpty() || !captureQueue.isEmpty() || inProgress != null;
+    }
+
+    private void drainWriterResults() {
+        long[] result;
+        long now = System.currentTimeMillis();
+        while ((result = writerResults.poll()) != null) {
+            if (result[0] != lastCaptureDimension) {
+                continue;
+            }
+            if (result[2] == STORED) {
+                storedAt.put(result[1], now);
+                noisy.remove(result[1]);
+            } else {
+                noisy.add(result[1]);
+            }
+        }
+        if (storedAt.size() > 100_000) {
+            storedAt.clear();
+        }
+        if (noisy.size() > 50_000) {
+            noisy.clear();
+        }
     }
 
     /** Takes more pictures of the chunk being finished, until the deadline (at least one batch). */
@@ -476,6 +525,7 @@ public final class IsoMap implements BlockStore.Listener {
         }
         // Copied again as a new chunk when it comes back.
         partial.remove(key);
+        early.remove(key);
         copiedWhileLoaded.remove(key);
         if (!mayCopy) {
             // No time left this tick: the chunk is copied the next time it is loaded.
@@ -547,6 +597,10 @@ public final class IsoMap implements BlockStore.Listener {
             copiedWhileLoaded.clear();
             unfinished.clear();
             signatures.clear();
+            quietSignatures.clear();
+            storedAt.clear();
+            noisy.clear();
+            early.clear();
             refreshing.clear();
             storedSignatures.clear();
             checking.clear();
@@ -558,8 +612,16 @@ public final class IsoMap implements BlockStore.Listener {
         Long last = lastCapture.get(key);
         int cx = chunk.xPosition, cz = chunk.zPosition;
         if (last == null) {
+            // Copied once settled anyway: no second copy for having been ready early.
+            early.remove(key);
             freshQueue.add(key);
             IsoLog.queued(cx, cz, "fresh", "fresh", freshQueue.size(), captureQueue.size());
+            return;
+        }
+        if (early.remove(key) && !freshQueue.contains(key)) {
+            // Copied before it settled: copied again now that its decoration is there (nothing to do if none came).
+            captureQueue.add(key);
+            IsoLog.queued(cx, cz, "settled", "again", freshQueue.size(), captureQueue.size());
             return;
         }
         if (!copiedWhileLoaded.contains(key)) {
@@ -573,14 +635,19 @@ public final class IsoMap implements BlockStore.Listener {
             && Math.abs(chunk.xPosition - MathHelper.floor_double(player.posX / 16)) <= NEAR_CHUNKS
             && Math.abs(chunk.zPosition - MathHelper.floor_double(player.posZ / 16)) <= NEAR_CHUNKS;
         // A chunk whose blocks changed (trees and snow added after it arrived, or built on) is copied again soon.
-        long interval = changed ? CHANGED_RECAPTURE_MS : near ? RECAPTURE_MS : FAR_RECAPTURE_MS;
+        long interval = changed ? (noisy.contains(key) ? NOISY_RECAPTURE_MS : CHANGED_RECAPTURE_MS)
+            : near ? RECAPTURE_MS : FAR_RECAPTURE_MS;
         long since = System.currentTimeMillis() - last;
         if (since < interval || freshQueue.contains(key)) {
             IsoLog.scanDecision(
                 cx,
                 cz,
                 freshQueue.contains(key) ? "skip (still in fresh queue)"
-                    : "skip (copied lately, interval " + interval + "ms, changed=" + changed + ")",
+                    : "skip (copied lately, interval " + interval
+                        + "ms, changed="
+                        + changed
+                        + (noisy.contains(key) ? ", noisy" : "")
+                        + ")",
                 since);
             return;
         }
@@ -592,6 +659,27 @@ public final class IsoMap implements BlockStore.Listener {
             "again",
             freshQueue.size(),
             captureQueue.size());
+    }
+
+    /**
+     * The surface map found a new chunk with the 8 around it loaded, still settling (render thread): its blocks are
+     * copied now rather than once it settled, seconds later; it is copied again when it is scanned settled.
+     */
+    public void onChunkReady(World world, Chunk chunk) {
+        if (!Config.record3d || writer == null || world.provider.dimensionId != lastCaptureDimension) {
+            // Another dimension: the scan of the chunk once settled clears the queues first.
+            return;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        if (lastCapture.containsKey(key) || freshQueue.contains(key) || loading.contains(key)) {
+            return;
+        }
+        if (early.size() > 50_000) {
+            early.clear();
+        }
+        early.add(key);
+        freshQueue.add(key);
+        IsoLog.queued(chunk.xPosition, chunk.zPosition, "fresh", "fresh-early", freshQueue.size(), captureQueue.size());
     }
 
     /**
@@ -683,6 +771,19 @@ public final class IsoMap implements BlockStore.Listener {
                     // Nothing changed but maybe pictures of animated blocks: left as it is.
                     unfinished.remove(key);
                     IsoLog.unchanged(cx, cz, unloading ? unloadReason : null, t1 - t0);
+                    return true;
+                }
+                Long quietStored = quietSignatures.get(key);
+                Long lastStored = storedAt.get(key);
+                if (quietStored != null && lastStored != null
+                    && !refresh
+                    && !unloading
+                    && System.currentTimeMillis() - lastStored < NOISE_STORE_MS
+                    && quietStored == blocks.quietSignature()) {
+                    // Only fluids flowing, leaves or light changed: no pictures, nothing stored, copied again seldom.
+                    unfinished.remove(key);
+                    noisy.add(key);
+                    IsoLog.noise(cx, cz, "render thread", System.nanoTime() - t0);
                     return true;
                 }
                 if (stored == null && !refresh && !unloading && palette != null && !unfinished.containsKey(key)) {
@@ -784,12 +885,17 @@ public final class IsoMap implements BlockStore.Listener {
         if (allPictures) {
             if (signatures.size() > 100_000) {
                 signatures.clear();
+                quietSignatures.clear();
             }
             signatures.put(key, signature);
+            quietSignatures.put(key, blocks.quietSignature());
         } else {
             signatures.remove(key);
+            quietSignatures.remove(key);
         }
         boolean force = refreshing.remove(key);
+        boolean mayBeNoise = !unloading && !whole;
+        int dimensionId = dimension.id;
         IsoLog.Trace trace = IsoLog.submitted(cx, cz);
         writer.submit(() -> {
             IsoLog.writerStart(trace);
@@ -808,7 +914,19 @@ public final class IsoMap implements BlockStore.Listener {
                     IsoLog.log("STORE_SKIPPED " + cx + "," + cz + " same blocks, only pictures taken again");
                     return;
                 }
-                dimension.store.put(cx, cz, blocks, timing);
+                if (!force && mayBeNoise
+                    && blocks.onlyNoiseChanged(before)
+                    && System.currentTimeMillis() - dimension.store.time(cx, cz) < NOISE_STORE_MS) {
+                    // Fluids flowing or drawing back, leaves, light: the stored copy stays a while longer.
+                    writerResults.add(new long[] { dimensionId, key, NOISE });
+                    IsoLog.noise(cx, cz, "writer", 0);
+                    return;
+                }
+                int[] box = blocks.changedBox(before);
+                dimension.store.put(cx, cz, blocks, timing, box);
+                if (timing[5] != 0) {
+                    writerResults.add(new long[] { dimensionId, key, STORED });
+                }
                 if (timing[5] != 0 && before != null) {
                     IsoLog.chunkDiff(cx, cz, trace, before, blocks);
                 }
@@ -885,17 +1003,31 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     @Override
-    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top) {
-        changes.add(new long[] { store.dimension, chunkX, chunkZ, top, System.currentTimeMillis() });
+    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box) {
+        long now = System.currentTimeMillis();
+        if (box == null || box.length == 0) {
+            changes.add(new long[] { store.dimension, chunkX, chunkZ, top, now });
+        } else {
+            changes.add(
+                new long[] { store.dimension, chunkX, chunkZ, top, now, box[0], box[1], box[2], box[3], box[4],
+                    box[5] });
+        }
     }
 
     private void drainChanges() {
         long[] change;
         while ((change = changes.poll()) != null) {
             if (tiles != null) {
+                int[] box = null;
+                if (change.length > 5) {
+                    box = new int[6];
+                    for (int i = 0; i < 6; i++) {
+                        box[i] = (int) change[5 + i];
+                    }
+                }
                 int marked = tiles
-                    .chunkChanged((int) change[0], (int) change[1], (int) change[2], (int) change[3], change[4]);
-                IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size());
+                    .chunkChanged((int) change[0], (int) change[1], (int) change[2], (int) change[3], change[4], box);
+                IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size(), box);
             }
         }
     }
@@ -916,6 +1048,9 @@ public final class IsoMap implements BlockStore.Listener {
             for (long key : chunks) {
                 lastCapture.remove(key);
                 signatures.remove(key);
+                quietSignatures.remove(key);
+                storedAt.remove(key);
+                noisy.remove(key);
                 storedSignatures.remove(key);
                 partial.remove(key);
                 unfinished.remove(key);
@@ -969,6 +1104,7 @@ public final class IsoMap implements BlockStore.Listener {
         // Copied again as they come by, with pictures in the new textures.
         lastCapture.clear();
         signatures.clear();
+        quietSignatures.clear();
         if (tiles != null) {
             tiles.invalidateAll();
         }

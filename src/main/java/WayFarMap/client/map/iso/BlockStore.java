@@ -52,8 +52,11 @@ public final class BlockStore {
 
     public interface Listener {
 
-        /** A chunk's blocks changed; {@code top} is the highest block it had before or has now. */
-        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top);
+        /**
+         * A chunk's blocks changed; {@code top} is the highest block it had before or has now, {@code box} the
+         * blocks that changed ({@link ChunkBlocks#changedBox}), null for all of them.
+         */
+        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box);
     }
 
     public final int dimension;
@@ -331,8 +334,10 @@ public final class BlockStore {
      *
      * @param timing for the log, filled in: nanos reading the region header, reading its chunks, encoding, trimming;
      *               bytes; 1 if changed; nanos waiting for the region's lock
+     * @param box    the blocks that changed against the copy stored, null if not known (see
+     *               {@link ChunkBlocks#changedBox})
      */
-    void put(int chunkX, int chunkZ, ChunkBlocks blocks, long[] timing) {
+    void put(int chunkX, int chunkZ, ChunkBlocks blocks, long[] timing, int[] box) {
         long t0 = System.nanoTime();
         byte[] blob = blocks.encode();
         long t1 = System.nanoTime();
@@ -380,7 +385,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax));
+        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax), box);
     }
 
     /**
@@ -419,7 +424,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, oldTop);
+        listener.chunkChanged(this, chunkX, chunkZ, oldTop, null);
         return true;
     }
 

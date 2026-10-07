@@ -1314,12 +1314,14 @@ public class MapManager implements IResourceManagerReloadListener {
         private boolean settled(WorldClient world, Chunk chunk, long key) {
             int[] state = settling.get(key);
             if (state == null) {
-                // First seen, last change of the surface, neighbours all loaded once (for the log), the surface then.
-                state = new int[] { tick, tick, 0, signatureBits(chunk) };
+                // First seen, last change of the surface, neighbours all loaded once (for the log), the surface then,
+                // the 3D map told it is ready.
+                state = new int[] { tick, tick, 0, signatureBits(chunk), 0 };
                 settling.put(key, state);
                 if (surface) {
                     chunk.isModified = false;
                     IsoLog.seen(chunk.xPosition, chunk.zPosition, allAroundReady(world, chunk));
+                    tell3dIfReady(world, chunk, state);
                 }
                 if (FlatLog.on()) {
                     FlatLog.seen(
@@ -1334,6 +1336,9 @@ public class MapManager implements IResourceManagerReloadListener {
                     }
                 }
                 return false;
+            }
+            if (surface) {
+                tell3dIfReady(world, chunk, state);
             }
             if (surface && state[2] == 0 && FlatLog.on() && allAroundReady(world, chunk)) {
                 state[2] = 1;
@@ -1397,6 +1402,17 @@ public class MapManager implements IResourceManagerReloadListener {
                     tick - state[0]);
             }
             return true;
+        }
+
+        /**
+         * The 3D map copies a new chunk as soon as the 8 around it are loaded, without waiting for it to settle (a
+         * second or two): it copies it again once it is scanned settled, which costs nothing if it stayed the same.
+         */
+        private void tell3dIfReady(WorldClient world, Chunk chunk, int[] state) {
+            if (state[4] == 0 && allAroundReady(world, chunk)) {
+                state[4] = 1;
+                IsoMap.INSTANCE.onChunkReady(world, chunk);
+            }
         }
 
         /** The neighbours not loaded (for the log): "+x-z,-x" style, empty if all are. */

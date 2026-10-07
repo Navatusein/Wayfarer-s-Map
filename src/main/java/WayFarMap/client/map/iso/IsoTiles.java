@@ -180,6 +180,10 @@ final class IsoTiles {
         boolean fromDisk;
         /** For the log: when its job was queued, and when the renderer finished it (nanos). */
         long queuedAt, finishedAt;
+        /** Read from its file: how far toward the viewer its rays went ({@link IsoTracer#minToward}). */
+        double minToward;
+        /** Made from the four finer tiles' files instead of traced (for the log). */
+        boolean composed;
         /** Why it is drawn again, for the log; null if it isn't. */
         String retryWhy;
         /**
@@ -470,7 +474,7 @@ final class IsoTiles {
                 }
                 IsoLog.tileShown(
                     tile.key,
-                    result.fromDisk ? "disk" : "trace",
+                    result.composed ? "composed" : result.fromDisk ? "disk" : "trace",
                     tile.empty,
                     changeMs,
                     newNanos,
@@ -607,25 +611,46 @@ final class IsoTiles {
         return null;
     }
 
-    /** A chunk changed: the tiles in memory that show it are drawn again (render thread). */
-    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time) {
+    /**
+     * Blocks around a changed one whose look may change with it, in blocks: sprites reaching past their cell,
+     * connected textures.
+     */
+    private static final int CHANGE_MARGIN = 2;
+
+    /**
+     * A chunk changed: the tiles in memory that show it are drawn again (render thread).
+     *
+     * @param box the blocks that changed, in the chunk's coordinates ({@link ChunkBlocks#changedBox}); null for the
+     *            whole chunk
+     */
+    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time, int[] box) {
         int marked = 0;
         double x0 = chunkX * 16.0, z0 = chunkZ * 16.0;
+        // Only the rays through the changed blocks: a few blocks of a chunk redrew every tile over its whole column.
+        double bx0 = x0, by0 = 0, bz0 = z0, bx1 = x0 + 16, by1 = top + 1, bz1 = z0 + 16;
+        if (box != null) {
+            bx0 = x0 + box[0] - CHANGE_MARGIN;
+            by0 = Math.max(0, box[1] - CHANGE_MARGIN);
+            bz0 = z0 + box[2] - CHANGE_MARGIN;
+            bx1 = x0 + box[3] + 1 + CHANGE_MARGIN;
+            by1 = Math.min(256, box[4] + 1 + CHANGE_MARGIN);
+            bz1 = z0 + box[5] + 1 + CHANGE_MARGIN;
+        }
         double[][] boxes = new double[4][];
         for (Tile tile : tiles.values()) {
             Key key = tile.key;
             if (key.dimension != dimension) {
                 continue;
             }
-            double[] box = boxes[key.rotation];
-            if (box == null) {
-                box = IsoProjection.of(key.rotation)
-                    .projectBox(x0, 0, z0, x0 + 16, top + 1, z0 + 16);
-                boxes[key.rotation] = box;
+            double[] area = boxes[key.rotation];
+            if (area == null) {
+                area = IsoProjection.of(key.rotation)
+                    .projectBox(bx0, by0, bz0, bx1, by1, bz1);
+                boxes[key.rotation] = area;
             }
             int blocks = IsoProjection.tileBlocks(key.level);
             double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
-            if (box[0] < u0 + blocks && box[2] > u0 && box[1] < v0 + blocks && box[3] > v0) {
+            if (area[0] < u0 + blocks && area[2] > u0 && area[1] < v0 + blocks && area[3] > v0) {
                 tile.dirtyAt = Math.max(tile.dirtyAt, time);
                 if (tile.changedSince == 0) {
                     tile.changedSince = time;
@@ -699,7 +724,7 @@ final class IsoTiles {
                     tile.key,
                     start - job.created,
                     System.nanoTime() - start,
-                    result.fromDisk ? "disk" : "trace",
+                    result.composed ? "composed" : result.fromDisk ? "disk" : "trace",
                     result.retryWhy,
                     result.pixels,
                     result.nightPixels);
@@ -743,6 +768,12 @@ final class IsoTiles {
             }
         } else if (work != null) {
             work.disk = file == null ? "not-kept (level " + key.level + ")" : "none";
+        }
+        if (file != null && key.level > DISK_LEVEL) {
+            Result composed = compose(tile, dimension, dirtyAt, file);
+            if (composed != null) {
+                return composed;
+            }
         }
         long start = System.currentTimeMillis();
         FacePalette palette = map.palette();
@@ -813,6 +844,116 @@ final class IsoTiles {
             }
         } else if (work != null && file != null) {
             work.saved = result.retry ? "not (drawn again)" : "not";
+        }
+        return result;
+    }
+
+    /**
+     * The tile made from the four finer tiles under it, from their files, if they are all saved and up to date: a
+     * pixel is the four pixels under it averaged (with {@link Config#isoSmooth}, else the first of them), which is
+     * what tracing it with four rays a pixel gives. Reading four files takes a few milliseconds, tracing the tile 15 to
+     * 30: zooming out over a part of the map seen closer, its coarser tiles come at once. Null if a finer tile is
+     * missing or out of date (then it is traced).
+     */
+    private Result compose(Tile tile, IsoMap.Dimension dimension, long dirtyAt, File file) {
+        Key key = tile.key;
+        IsoLog.TileWork work = IsoLog.work();
+        String disk = work == null ? null : work.disk;
+        long start = System.nanoTime();
+        File[] files = new File[4];
+        for (int i = 0; i < 4; i++) {
+            Key child = new Key(key.dimension, key.rotation, key.level - 1, key.tu * 2 + (i & 1), key.tv * 2 + (i >> 1));
+            files[i] = tileFile(dimension, child);
+            if (!files[i].isFile()) {
+                return null;
+            }
+        }
+        Result[] children = new Result[4];
+        long renderedAt = Long.MAX_VALUE;
+        double minToward = Double.MAX_VALUE;
+        boolean any = false;
+        for (int i = 0; i < 4; i++) {
+            // Out of date also against what the coarse tile was told changed since it was drawn.
+            Result child = readCached(new Tile(key), files[i], dimension, dirtyAt);
+            if (child == null) {
+                if (work != null) {
+                    work.disk = disk;
+                }
+                return null;
+            }
+            children[i] = child;
+            renderedAt = Math.min(renderedAt, child.renderedAt);
+            minToward = Math.min(minToward, child.minToward);
+            any |= child.pixels != null;
+        }
+        Result result;
+        if (!any) {
+            result = new Result(tile, null, null, null, renderedAt);
+        } else {
+            int[] pixels = new int[PIXELS * PIXELS], nightPixels = new int[PIXELS * PIXELS];
+            short[] hits = new short[PIXELS * PIXELS], solid = new short[PIXELS * PIXELS];
+            int half = PIXELS / 2;
+            boolean smooth = Config.isoSmooth;
+            int[] day = new int[4], night = new int[4], under = new int[4];
+            for (int i = 0; i < 4; i++) {
+                Result child = children[i];
+                if (child.pixels == null) {
+                    // Nothing there: the quarter stays clear.
+                    continue;
+                }
+                int ox = (i & 1) * half, oy = (i >> 1) * half;
+                for (int py = 0; py < half; py++) {
+                    for (int px = 0; px < half; px++) {
+                        int at = (oy + py) * PIXELS + ox + px;
+                        int from = py * 2 * PIXELS + px * 2;
+                        under[0] = from;
+                        under[1] = from + 1;
+                        under[2] = from + PIXELS;
+                        under[3] = from + PIXELS + 1;
+                        if (smooth) {
+                            for (int n = 0; n < 4; n++) {
+                                day[n] = child.pixels[under[n]];
+                                night[n] = child.nightPixels[under[n]];
+                            }
+                            pixels[at] = average(day);
+                            nightPixels[at] = average(night);
+                        } else {
+                            pixels[at] = child.pixels[from];
+                            nightPixels[at] = child.nightPixels[from];
+                        }
+                        // The block under the mouse and where mobs hide: the first of the four that has one.
+                        for (int n : under) {
+                            if (child.hits[n] != 0) {
+                                hits[at] = child.hits[n];
+                                break;
+                            }
+                        }
+                        if (child.solid != null) {
+                            for (int n : under) {
+                                if (child.solid[n] != 0) {
+                                    solid[at] = child.solid[n];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            result = new Result(tile, pixels, nightPixels, hits, renderedAt);
+            result.solid = solid;
+        }
+        result.fromDisk = true;
+        result.composed = true;
+        if (running) {
+            long saveStart = System.nanoTime();
+            boolean ok = writeCached(file, result, minToward);
+            if (work != null) {
+                work.saved = !ok ? "FAILED" : result.pixels == null ? "saved-empty" : "saved";
+                work.savedNanos = System.nanoTime() - saveStart;
+            }
+        }
+        if (work != null) {
+            work.disk = "composed (from 4 finer tiles in " + (System.nanoTime() - start) / 100_000 / 10.0 + "ms)";
         }
         return result;
     }
@@ -939,7 +1080,9 @@ final class IsoTiles {
                     + " min ago)";
             }
             if (empty) {
-                return new Result(tile, null, null, null, renderedAt);
+                Result result = new Result(tile, null, null, null, renderedAt);
+                result.minToward = minToward;
+                return result;
             }
             byte[] raw = new byte[PIXELS * PIXELS * 12];
             DataInputStream data = new DataInputStream(new InflaterInputStream(in, new Inflater(), 1 << 15));
@@ -962,6 +1105,7 @@ final class IsoTiles {
                 .get(solid);
             Result result = new Result(tile, pixels, nightPixels, hits, renderedAt);
             result.solid = solid;
+            result.minToward = minToward;
             return result;
         } catch (IOException e) {
             if (work != null) {

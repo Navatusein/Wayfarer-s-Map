@@ -222,6 +222,111 @@ public final class ChunkBlocks {
     }
 
     /**
+     * {@link #signature} without what is noise ({@link BlockNoise#quiet}): fluids flowing, leaves marked for decay,
+     * light. Copies with the same quiet signature differ at most by that.
+     */
+    long quietSignature() {
+        long h = 0xCBF29CE484222325L;
+        h = (h ^ yMin) * 0x100000001B3L;
+        h = (h ^ yMax) * 0x100000001B3L;
+        for (int cell : cells) {
+            h = (h ^ BlockNoise.quiet(cell)) * 0x100000001B3L;
+        }
+        for (int[] values : new int[][] { grass, foliage, water }) {
+            for (int value : values) {
+                h = (h ^ value) * 0x100000001B3L;
+            }
+        }
+        return h == 0 ? 1 : h;
+    }
+
+    /**
+     * Whether this copy is the old one but for noise: the same heights and colors, cells that differ only by
+     * {@link BlockNoise#quiet} or are air or fluid in both (a fluid spreading or drawing back), and no picture the old
+     * one lacked (pictures taken again differ on their own).
+     */
+    boolean onlyNoiseChanged(ChunkBlocks old) {
+        if (old == null || old.yMin != yMin
+            || old.yMax != yMax
+            || old.faceGeneration != faceGeneration
+            || !Arrays.equals(old.grass, grass)
+            || !Arrays.equals(old.foliage, foliage)
+            || !Arrays.equals(old.water, water)) {
+            return false;
+        }
+        for (int i = 0; i < cells.length; i++) {
+            int a = old.cells[i], b = cells[i];
+            if (a != b && BlockNoise.quiet(a) != BlockNoise.quiet(b)
+                && !(BlockNoise.airOrLiquid(a) && BlockNoise.airOrLiquid(b))) {
+                return false;
+            }
+        }
+        for (int n = 0; n < faceCells.length; n++) {
+            int j = Arrays.binarySearch(old.faceCells, faceCells[n]);
+            for (int slot = 0; slot < PER_CELL; slot++) {
+                if (faceIds[n * PER_CELL + slot] != 0 && (j < 0 || old.faceIds[j * PER_CELL + slot] == 0)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The blocks that differ from the old copy (block, light or pictures), in the chunk's own coordinates: {x0, y0,
+     * z0, x1, y1, z1}, both ends included; null if the whole chunk is to count (no old copy, other heights or
+     * colors), and an empty array if nothing differs.
+     */
+    int[] changedBox(ChunkBlocks old) {
+        if (old == null || old.yMin != yMin
+            || old.yMax != yMax
+            || !Arrays.equals(old.grass, grass)
+            || !Arrays.equals(old.foliage, foliage)
+            || !Arrays.equals(old.water, water)) {
+            return null;
+        }
+        int[] box = { 16, 256, 16, -1, -1, -1 };
+        for (int i = 0; i < cells.length; i++) {
+            if (old.cells[i] != cells[i]) {
+                include(box, i);
+            }
+        }
+        // Pictures: cells with pictures in one copy only, or other ones (the arrays are ascending).
+        int a = 0, b = 0;
+        while (a < old.faceCells.length || b < faceCells.length) {
+            int oldCell = a < old.faceCells.length ? old.faceCells[a] : Integer.MAX_VALUE;
+            int cell = b < faceCells.length ? faceCells[b] : Integer.MAX_VALUE;
+            if (oldCell < cell) {
+                include(box, oldCell);
+                a++;
+            } else if (cell < oldCell) {
+                include(box, cell);
+                b++;
+            } else {
+                for (int slot = 0; slot < PER_CELL; slot++) {
+                    if (old.faceIds[a * PER_CELL + slot] != faceIds[b * PER_CELL + slot]) {
+                        include(box, cell);
+                        break;
+                    }
+                }
+                a++;
+                b++;
+            }
+        }
+        return box[3] < 0 ? new int[0] : box;
+    }
+
+    private void include(int[] box, int index) {
+        int x = index & 15, z = (index >> 4) & 15, y = yMin + (index >> 8);
+        box[0] = Math.min(box[0], x);
+        box[1] = Math.min(box[1], y);
+        box[2] = Math.min(box[2], z);
+        box[3] = Math.max(box[3], x);
+        box[4] = Math.max(box[4], y);
+        box[5] = Math.max(box[5], z);
+    }
+
+    /**
      * Whether this (stored) copy has every picture of the palette's generation: taken with the palette in use, and
      * none of its blocks with pictures lacking one (a copy stored after giving up keeps them at 0).
      */
