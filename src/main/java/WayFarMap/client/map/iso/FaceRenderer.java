@@ -1,9 +1,12 @@
 package WayFarMap.client.map.iso;
 
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,6 +41,8 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GLContext;
 
@@ -109,7 +114,46 @@ final class FaceRenderer {
      * Blocks of chunks whose pictures are being taken, by chunk: a chunk with thousands of machines takes many ticks,
      * and finding its blocks again each tick (their surroundings above all) took half of each tick's time.
      */
-    private static final Map<Long, Session> SESSIONS = lru(8);
+    private static final Map<Long, Session> SESSIONS = lru(64);
+
+    /**
+     * A batch of pictures drawn and being read back into a pixel buffer object, without waiting for the graphics card:
+     * reading them at once ({@code glReadPixels} into memory) waited for it to finish all it was given, the last frame
+     * too, and took a third of the time of taking pictures. They are read out the next tick ({@link #finishFlights}),
+     * when it is long done.
+     */
+    private static final class Flight {
+
+        final List<Pending> batch;
+        final int pbo, usedRows, cell, perRow;
+        final boolean diagnose;
+        Map<Long, List<Pending>> waiting;
+
+        Flight(List<Pending> batch, int pbo, int usedRows, int cell, int perRow, boolean diagnose) {
+            this.batch = batch;
+            this.pbo = pbo;
+            this.usedRows = usedRows;
+            this.cell = cell;
+            this.perRow = perRow;
+            this.diagnose = diagnose;
+        }
+    }
+
+    /** Batches being read back, oldest first. */
+    private static final List<Flight> FLIGHTS = new ArrayList<>();
+    /** Pixel buffer objects not in use, and how many were made (at most {@link #MAX_PBOS}). */
+    private static final ArrayDeque<Integer> FREE_PBOS = new ArrayDeque<>();
+    private static final int MAX_PBOS = 8;
+    private static int pboCount;
+    /**
+     * Whether pictures may be read back later (OpenGL 2.1 pixel buffer objects); null until checked, false after any
+     * failure (then they are read at once, as before). {@code -Dwayfarmap.syncPictures=true} turns it off.
+     */
+    private static Boolean asyncWorks;
+    /** The last {@link #addFaces} is not complete only because its pictures are still being read back. */
+    static boolean lastInFlight;
+    /** For the log: time reading out and storing pictures drawn the tick before, since the log last took it. */
+    static long finishNanos;
 
     /** A map that lets go of the entries used longest ago past the size (render thread only). */
     private static <V> Map<Long, V> lru(int size) {
@@ -730,6 +774,121 @@ final class FaceRenderer {
         SESSIONS.clear();
         TWINS.clear();
         TWINS_WITH_DATA.clear();
+        dropFlights();
+    }
+
+    /** Forgets the batches being read back (their blocks get pictures another time); render thread. */
+    static void dropFlights() {
+        for (Flight flight : FLIGHTS) {
+            FREE_PBOS.add(flight.pbo);
+        }
+        FLIGHTS.clear();
+    }
+
+    /** Batches being read back (for the log). */
+    static int flights() {
+        return FLIGHTS.size();
+    }
+
+    private static boolean asyncAvailable() {
+        if (asyncWorks == null) {
+            boolean works;
+            try {
+                works = !Boolean.getBoolean("wayfarmap.syncPictures") && GLContext.getCapabilities().OpenGL21;
+            } catch (Throwable t) {
+                works = false;
+            }
+            asyncWorks = works;
+            IsoLog.log("PICTURES_READBACK " + (works ? "later (pixel buffer objects)" : "at once"));
+        }
+        return asyncWorks;
+    }
+
+    /** A free pixel buffer object for a batch, made if need be; -1 if none (then the batch is read at once). */
+    private static int takePbo() {
+        if (!asyncAvailable()) {
+            return -1;
+        }
+        Integer free = FREE_PBOS.poll();
+        if (free != null) {
+            return free;
+        }
+        if (pboCount >= MAX_PBOS) {
+            return -1;
+        }
+        int bound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+        int pbo = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+        GL15.glBufferData(GL21.GL_PIXEL_PACK_BUFFER, (long) SIZE * SIZE * 4, GL15.GL_STREAM_READ);
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, bound);
+        pboCount++;
+        return pbo;
+    }
+
+    /** Pictures can't be read back later after all: from now on at once. */
+    private static void asyncFailed(String why) {
+        if (asyncWorks == null || asyncWorks) {
+            WayFarMap.LOG.warn("The 3D map reads block pictures back at once from now on: {}", why);
+            IsoLog.log("PICTURES_READBACK at once from now on: " + why);
+        }
+        asyncWorks = false;
+    }
+
+    /**
+     * Reads out the batches of pictures drawn the tick before and gives them their ids, so the chunks waiting for
+     * them can be finished (render thread, before new pictures are drawn). A batch that can't be read gets none: its
+     * blocks are taken again.
+     */
+    static void finishFlights(FacePalette palette) {
+        if (FLIGHTS.isEmpty()) {
+            return;
+        }
+        long start = System.nanoTime();
+        List<Flight> flights = new ArrayList<>(FLIGHTS);
+        FLIGHTS.clear();
+        for (Flight flight : flights) {
+            boolean read = false;
+            int bound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+            try {
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flight.pbo);
+                ByteBuffer mapped = GL15
+                    .glMapBuffer(GL21.GL_PIXEL_PACK_BUFFER, GL15.GL_READ_ONLY, (long) SIZE * SIZE * 4, null);
+                if (mapped == null) {
+                    asyncFailed("glMapBuffer gave nothing (error " + GL11.glGetError() + ")");
+                } else {
+                    if (readPixels == null) {
+                        readPixels = new int[SIZE * SIZE];
+                    }
+                    mapped.order(ByteOrder.nativeOrder())
+                        .asIntBuffer()
+                        .get(readPixels, 0, flight.usedRows * SIZE);
+                    GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);
+                    read = true;
+                }
+            } catch (Throwable t) {
+                asyncFailed(String.valueOf(t));
+            } finally {
+                // As it was: another mod may read pixels into a buffer object of its own.
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, bound);
+                FREE_PBOS.add(flight.pbo);
+            }
+            try {
+                if (!read || palette == null || palette.generation != cacheGeneration) {
+                    throw new IllegalStateException(read ? "the palette changed" : "not read back");
+                }
+                store(flight.batch, readPixels, flight.cell, flight.perRow, palette, flight.diagnose);
+                if (IsoLog.on()) {
+                    checkSkippable(flight.batch);
+                }
+                afterBatch(flight.batch, flight.waiting);
+            } catch (Throwable t) {
+                for (Pending pending : flight.batch) {
+                    Arrays.fill(pending.ids, 0);
+                }
+                IsoLog.log("PICTURES_FAILED batch of " + flight.batch.size() + " read back later: " + t);
+            }
+        }
+        finishNanos += System.nanoTime() - start;
     }
 
     /**
@@ -737,10 +896,14 @@ final class FaceRenderer {
      * stops once the deadline is past (after at least one batch): the blocks left have none this time.
      *
      * @param deadline {@link System#nanoTime()} to stop at
-     * @return false if some pictures weren't taken in time
+     * @param async    pictures may be read back later: then false is returned with {@link #lastInFlight} set, and
+     *                 the chunk is finished by calling this again with the same blocks after {@link #finishFlights}
+     * @return false if some pictures weren't taken in time (or are still being read back)
      */
-    static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
+    static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline,
+        boolean async) {
         resetStats();
+        lastInFlight = false;
         lastPaletteFull = palette.full();
         long findStart = System.nanoTime();
         if (!available()) {
@@ -812,16 +975,42 @@ final class FaceRenderer {
             List<Pending> batch = toDraw.subList(from, to);
             from = to;
             prepareCovered(world, batch, palette);
-            draw(world, batch, palette);
+            Flight flight = drawBatch(world, batch, palette, async);
             if (IsoLog.on()) {
                 tryVariants(world, batch, palette);
             }
             lastDrawn += batch.size();
             batches++;
             slotsUsed += slots;
+            if (flight != null) {
+                // Read back and stored next tick.
+                flight.waiting = waiting;
+                FLIGHTS.add(flight);
+                lastInFlight = true;
+                continue;
+            }
             if (IsoLog.on()) {
                 checkSkippable(batch);
             }
+            afterBatch(batch, waiting);
+        }
+        session.from = from;
+        progressDone = from;
+        progressTotal = toDraw.size();
+        if (lastInFlight && !broken) {
+            // The session stays: called again once they are read, it goes on from here.
+            return false;
+        }
+        lastInFlight = false;
+        if (complete || broken) {
+            SESSIONS.remove(chunkKey);
+        }
+        return finish(found, blocks, palette, complete);
+    }
+
+    /** The pictures of a batch, taken: kept in the caches, and given to the blocks waiting for the same. */
+    private static void afterBatch(List<Pending> batch, Map<Long, List<Pending>> waiting) {
+        {
             for (Pending pending : batch) {
                 if (missing(pending)) {
                     lastMissing++;
@@ -853,12 +1042,10 @@ final class FaceRenderer {
                 }
             }
         }
-        session.from = from;
-        progressDone = from;
-        progressTotal = toDraw.size();
-        if (complete || broken) {
-            SESSIONS.remove(chunkKey);
-        }
+    }
+
+    /** Puts the pictures found into the chunk's copy. */
+    private static boolean finish(List<Pending> found, ChunkBlocks blocks, FacePalette palette, boolean complete) {
         if (broken) {
             blocks.picturesMissing = true;
             return true;
@@ -1246,6 +1433,16 @@ final class FaceRenderer {
 
     /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
+        drawBatch(world, batch, palette, false);
+    }
+
+    /**
+     * Draws the batch's pictures and reads them back: at once, or, if {@code async}, into a pixel buffer object read
+     * out the next tick ({@link #finishFlights}). Returns the batch then, null if it was read (or failed) now.
+     */
+    private static Flight drawBatch(World world, List<Pending> batch, FacePalette palette, boolean async) {
+        Flight flight = null;
+        int pbo = -1;
         long setupStart = System.nanoTime();
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
@@ -1365,78 +1562,52 @@ final class FaceRenderer {
             }
             // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
             int usedRows = Math.min(SIZE, (slotsUsed(batch) + perRow - 1) / perRow * cell);
-            readBuffer.clear();
-            GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
-            if (readPixels == null) {
-                readPixels = new int[SIZE * SIZE];
+            if (async && variant == 0 && !inspecting) {
+                pbo = takePbo();
             }
-            int[] all = readPixels;
-            readBuffer.get(all, 0, usedRows * SIZE);
-            long storeStart = System.nanoTime();
-            readNanos += storeStart - readStart;
-            slot = 0;
-            int slots = slotsUsed(batch);
-            int[][] images = new int[slots][];
-            for (Pending pending : batch) {
-                int pixels = pending.pixels();
-                for (int view = 0; view < pending.views(); view++, slot++) {
-                    int[] image = images[slot] = slotImage(slot, pixels * pixels);
-                    int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
-                    // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
-                    float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
-                        : 1f;
-                    if (pending.shot != null) {
-                        pending.shot.shade[view] = shade;
+            if (pbo >= 0) {
+                boolean first = pboChecked;
+                if (!first) {
+                    // Errors before ours aren't ours.
+                    for (int n = 0; n < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; n++) {}
+                }
+                int packBound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+                try {
+                    // Into the buffer object: returns at once, the graphics card copies them when it gets there.
+                    GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, 0L);
+                } finally {
+                    GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBound);
+                }
+                if (!first) {
+                    pboChecked = true;
+                    int error = GL11.glGetError();
+                    if (error != GL11.GL_NO_ERROR) {
+                        asyncFailed("reading into a pixel buffer object gave error " + error);
+                        FREE_PBOS.add(pbo);
+                        pbo = -1;
                     }
-                    long u0 = System.nanoTime();
-                    // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a
-                    // table for the shade instead of dividing each color of each pixel.
-                    int[] table = shade >= 1f ? null : shadeTable(shade);
-                    for (int row = 0; row < pixels; row++) {
-                        // Read back bottom-up; pictures are top-down.
-                        int from = (sy + pixels - 1 - row) * SIZE + sx;
-                        if (table == null) {
-                            System.arraycopy(all, from, image, row * pixels, pixels);
-                            continue;
-                        }
-                        for (int column = 0; column < pixels; column++) {
-                            image[row * pixels + column] = unshade(all[from + column], table);
-                        }
-                    }
-                    long u1 = System.nanoTime();
-                    if (pending.shot != null) {
-                        BlockDiag.measure(image, pending.shot, view);
-                    }
-                    unshadeNanos += u1 - u0;
                 }
             }
-            if (variant == 0) {
-                // (Another variant's pictures are only compared in the log: they get no ids.)
-                long idStart = System.nanoTime();
-                identify(batch, images, palette);
-                idNanos += System.nanoTime() - idStart;
-            }
-            storeNanos += System.nanoTime() - storeStart;
-            if (diagnose && variant == 0 && !inspecting) {
-                for (Pending pending : batch) {
-                    BlockDiag.picture(
-                        pending.block,
-                        pending.lookKey,
-                        pending.tileEntity,
-                        pending.x,
-                        pending.y,
-                        pending.z,
-                        pending.cube,
-                        pending.exposed,
-                        pending.why,
-                        pending.ids,
-                        pending.views(),
-                        pending.shot);
-                    pending.shot = null;
+            if (pbo >= 0) {
+                readNanos += System.nanoTime() - readStart;
+                flight = new Flight(batch, pbo, usedRows, cell, perRow, diagnose);
+            } else {
+                readBuffer.clear();
+                GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
+                if (readPixels == null) {
+                    readPixels = new int[SIZE * SIZE];
                 }
+                readBuffer.get(readPixels, 0, usedRows * SIZE);
+                readNanos += System.nanoTime() - readStart;
+                store(batch, readPixels, cell, perRow, palette, diagnose);
             }
             failures = 0;
         } catch (Throwable t) {
+            if (pbo >= 0 && flight == null) {
+                FREE_PBOS.add(pbo);
+            }
+            flight = null;
             // These blocks are drawn from their icons this time.
             for (Pending pending : batch) {
                 Arrays.fill(pending.ids, 0);
@@ -1464,6 +1635,138 @@ final class FaceRenderer {
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+        return flight;
+    }
+
+    /** Whether reading into a pixel buffer object was checked for errors once. */
+    private static boolean pboChecked;
+
+    /**
+     * Takes the batch's pictures out of the pixels read back ({@code all}, rows bottom-up) and gives them their ids.
+     * The work on each picture (copying it out, taking the side's shade out, its fingerprints) is shared by the
+     * picture hash threads; the shade is worked out first here (it reads the blocks' looks, render thread only).
+     */
+    private static void store(List<Pending> batch, int[] all, int cell, int perRow, FacePalette palette,
+        boolean diagnose) throws Exception {
+        long storeStart = System.nanoTime();
+        int slots = slotsUsed(batch);
+        Pending[] owners = new Pending[slots];
+        int[] views = new int[slots];
+        int[][] images = new int[slots][];
+        int[][] tables = new int[slots][];
+        int slot = 0;
+        for (Pending pending : batch) {
+            int pixels = pending.pixels();
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                owners[slot] = pending;
+                views[slot] = view;
+                images[slot] = slotImage(slot, pixels * pixels);
+                int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
+                // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
+                float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view) : 1f;
+                if (pending.shot != null) {
+                    pending.shot.shade[view] = shade;
+                }
+                // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a table
+                // for the shade instead of dividing each color of each pixel.
+                tables[slot] = shade >= 1f ? null : shadeTable(shade);
+            }
+        }
+        // (Another variant's pictures are only compared in the log: they get no ids.)
+        boolean identify = variant == 0;
+        long[][] hashes = new long[slots][];
+        float[][] looks = new float[slots][];
+        long u0 = System.nanoTime();
+        forEachSlot(slots, n -> {
+            Pending pending = owners[n];
+            int pixels = pending.pixels(), view = views[n];
+            int[] image = images[n], table = tables[n];
+            int sx = (n % perRow) * cell, sy = (n / perRow) * cell;
+            for (int row = 0; row < pixels; row++) {
+                // Read back bottom-up; pictures are top-down.
+                int from = (sy + pixels - 1 - row) * SIZE + sx;
+                if (table == null) {
+                    System.arraycopy(all, from, image, row * pixels, pixels);
+                    continue;
+                }
+                for (int column = 0; column < pixels; column++) {
+                    image[row * pixels + column] = unshade(all[from + column], table);
+                }
+            }
+            if (pending.shot != null) {
+                BlockDiag.measure(image, pending.shot, view);
+            }
+            if (identify) {
+                hashes[n] = FacePalette.hashes(image);
+                looks[n] = pending.detached ? look(image) : null;
+            }
+        });
+        unshadeNanos += System.nanoTime() - u0;
+        if (identify) {
+            long idStart = System.nanoTime();
+            for (int n = 0; n < slots; n++) {
+                int id = palette.idOf(images[n], hashes[n]);
+                owners[n].ids[views[n]] = id;
+                if (looks[n] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
+                    if (LOOKS_OF_SPRITES.size() > 200_000) {
+                        LOOKS_OF_SPRITES.clear();
+                    }
+                    LOOKS_OF_SPRITES.put(id, looks[n]);
+                }
+            }
+            idNanos += System.nanoTime() - idStart;
+        }
+        storeNanos += System.nanoTime() - storeStart;
+        if (diagnose && variant == 0 && !inspecting) {
+            for (Pending pending : batch) {
+                BlockDiag.picture(
+                    pending.block,
+                    pending.lookKey,
+                    pending.tileEntity,
+                    pending.x,
+                    pending.y,
+                    pending.z,
+                    pending.cube,
+                    pending.exposed,
+                    pending.why,
+                    pending.ids,
+                    pending.views(),
+                    pending.shot);
+                pending.shot = null;
+            }
+        }
+    }
+
+    /** Runs the work for each slot, shared by the picture hash threads when there are enough. */
+    private static void forEachSlot(int slots, java.util.function.IntConsumer work) throws Exception {
+        if (slots < PARALLEL_FROM) {
+            for (int n = 0; n < slots; n++) {
+                work.accept(n);
+            }
+            return;
+        }
+        int parts = Math.min(
+            slots,
+            4 * Math.max(
+                1,
+                Math.min(
+                    6,
+                    Runtime.getRuntime()
+                        .availableProcessors() / 4)));
+        List<Callable<Void>> tasks = new ArrayList<>(parts);
+        for (int part = 0; part < parts; part++) {
+            int from = slots * part / parts, to = slots * (part + 1) / parts;
+            tasks.add(() -> {
+                for (int n = from; n < to; n++) {
+                    work.accept(n);
+                }
+                return null;
+            });
+        }
+        for (Future<Void> done : HASHERS.invokeAll(tasks)) {
+            // Throws what a task threw.
+            done.get();
         }
     }
 
@@ -1497,63 +1800,6 @@ final class FaceRenderer {
         });
     /** Fewer pictures than this are worked out on the render thread: handing them over would cost more. */
     private static final int PARALLEL_FROM = 8;
-
-    /** Gives each picture of the batch its id in the palette (and a block that can't reach out, its looks). */
-    private static void identify(List<Pending> batch, int[][] images, FacePalette palette) throws Exception {
-        int slots = images.length;
-        long[][] hashes = new long[slots][];
-        float[][] looks = new float[slots][];
-        boolean[] wantLooks = new boolean[slots];
-        int slot = 0;
-        for (Pending pending : batch) {
-            for (int view = 0; view < pending.views(); view++, slot++) {
-                wantLooks[slot] = pending.detached;
-            }
-        }
-        if (slots < PARALLEL_FROM) {
-            for (int n = 0; n < slots; n++) {
-                hashes[n] = FacePalette.hashes(images[n]);
-                looks[n] = wantLooks[n] ? look(images[n]) : null;
-            }
-        } else {
-            int parts = Math.min(
-                slots,
-                4 * Math.max(
-                    1,
-                    Math.min(
-                        6,
-                        Runtime.getRuntime()
-                            .availableProcessors() / 4)));
-            List<Callable<Void>> tasks = new ArrayList<>(parts);
-            for (int part = 0; part < parts; part++) {
-                int from = slots * part / parts, to = slots * (part + 1) / parts;
-                tasks.add(() -> {
-                    for (int n = from; n < to; n++) {
-                        hashes[n] = FacePalette.hashes(images[n]);
-                        looks[n] = wantLooks[n] ? look(images[n]) : null;
-                    }
-                    return null;
-                });
-            }
-            for (Future<Void> done : HASHERS.invokeAll(tasks)) {
-                // Throws what a task threw.
-                done.get();
-            }
-        }
-        slot = 0;
-        for (Pending pending : batch) {
-            for (int view = 0; view < pending.views(); view++, slot++) {
-                int id = palette.idOf(images[slot], hashes[slot]);
-                pending.ids[view] = id;
-                if (looks[slot] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
-                    if (LOOKS_OF_SPRITES.size() > 200_000) {
-                        LOOKS_OF_SPRITES.clear();
-                    }
-                    LOOKS_OF_SPRITES.put(id, looks[slot]);
-                }
-            }
-        }
-    }
 
     /**
      * For the log: whether the pictures just taken could have been skipped. Taken again only because they were too

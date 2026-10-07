@@ -30,6 +30,8 @@ public final class Perf {
         CAPTURE_3D(Where.TICK, "capture3d", null),
         /** Block looks of the chunks copied, worked out ahead a little each tick. */
         LOOKS_TICK(Where.TICK, "3dLooksAhead", CAPTURE_3D),
+        /** Block pictures drawn the tick before, read back from the graphics card and stored. */
+        PICTURES_READ(Where.TICK, "3dPicturesRead", CAPTURE_3D),
         CHUNKLOAD(Where.SERVER, "chunkload", null),
         TEAM_MAP(Where.SERVER, "teamMap", null);
 

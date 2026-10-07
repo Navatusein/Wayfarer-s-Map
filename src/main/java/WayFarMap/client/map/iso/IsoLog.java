@@ -278,7 +278,10 @@ public final class IsoLog {
                 + "taken, not stored (by=render thread, before the pictures; by=writer, after), the chunk is copied "
                 + "again at most every 30 s, and noise is stored at least every 60 s. MARKED changed=x,y,z..x,y,z = "
                 + "the blocks that changed (chunk coordinates): only tiles over them are drawn again (whole = all). "
-                + "TILE_DONE src=composed = a coarse tile made from the 4 finer tiles' files instead of traced.");
+                + "TILE_DONE src=composed = a coarse tile made from the 4 finer tiles' files instead of traced. "
+                + "IN_FLIGHT = a chunk's pictures drawn and read back from the graphics card the next tick (no wait "
+                + "for it): the chunk's CAPTURE follows then; PERF tick: 3dPicturesRead, STATS picturesReadLaterMs = "
+                + "that reading and storing. PICTURES_READBACK says which way pictures are read.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -764,6 +767,40 @@ public final class IsoLog {
                 + " (only fluids, leaves or light changed: not stored, copied again in "
                 + IsoMap.NOISY_RECAPTURE_MS / 1000
                 + "s at the earliest)");
+    }
+
+    /**
+     * Its pictures were drawn and are read back from the graphics card next tick; the chunk is finished then (its
+     * time so far counts in its copying).
+     */
+    static void inFlight(int cx, int cz, long blockNanos, long faceNanos, int flights) {
+        if (!on()) {
+            return;
+        }
+        Trace trace = TRACES.get(key(cx, cz));
+        if (trace != null) {
+            if (trace.firstCapture == 0) {
+                trace.firstCapture = System.nanoTime() - blockNanos - faceNanos;
+            }
+            trace.blockCaptureNanos += blockNanos;
+            trace.facesNanos += faceNanos;
+            trace.captureNanos += blockNanos + faceNanos;
+        }
+        captureNanosSum.addAndGet(blockNanos + faceNanos);
+        picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
+        line(
+            "IN_FLIGHT " + cx
+                + ","
+                + cz
+                + " blocksMs="
+                + ms(blockNanos)
+                + " picturesMs="
+                + ms(faceNanos)
+                + " drawn="
+                + FaceRenderer.lastDrawn
+                + " batchesReadBack="
+                + flights
+                + " (pictures read back next tick, then stored)");
     }
 
     /** Copying it failed or gave nothing. */
@@ -1703,6 +1740,8 @@ public final class IsoLog {
                     + noiseSkipped.getAndSet(0)
                     + " captureMs="
                     + ms(captureNanosSum.getAndSet(0))
+                    + " picturesReadLaterMs="
+                    + ms(takeFinishNanos())
                     + " stored="
                     + stored.getAndSet(0)
                     + " storedUnchanged="
@@ -1804,6 +1843,12 @@ public final class IsoLog {
         viewFrames = viewQuads = viewQuadsMax = 0;
         viewBacklogMax = 0;
         return text;
+    }
+
+    private static long takeFinishNanos() {
+        long nanos = FaceRenderer.finishNanos;
+        FaceRenderer.finishNanos = 0;
+        return nanos;
     }
 
     /** Garbage collections since the last stats line. */
