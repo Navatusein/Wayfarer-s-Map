@@ -191,6 +191,11 @@ public class Config {
     public static int chunkloadServerMs = 20;
     /** {@code /wf chunkload}: chunks per side of a batch (a new command takes it). */
     public static int chunkloadBatch = 8;
+    /**
+     * The world map's area loading view: the chunks picked (and loading all saved ones, deleting) are for the 3D map
+     * too, whatever {@link #record3d} is.
+     */
+    public static boolean chunkload3d = false;
     /** {@code /wf chunkload}: client milliseconds per tick for mapping a batch's chunks. */
     public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
@@ -1250,6 +1255,14 @@ public class Config {
             1,
             () -> chunkloadClientMs,
             v -> chunkloadClientMs = v);
+        bool(
+            c,
+            "chunkload3d",
+            "Area loading view of the world map: the chunks picked go onto the 3D map too (their blocks are recorded "
+                + "for it even with Record blocks off). Also the switch in the view's toolbar.",
+            false,
+            () -> chunkload3d,
+            v -> chunkload3d = v);
     }
 
     private static Configuration configuration;
@@ -1420,6 +1433,12 @@ public class Config {
 
     public static void rotateIso(int quarters) {
         isoRotation = Math.floorMod(isoRotation + quarters, 4);
+        save();
+    }
+
+    /** The 3D switch of the area loading view. */
+    public static void setChunkload3d(boolean on) {
+        chunkload3d = on;
         save();
     }
 

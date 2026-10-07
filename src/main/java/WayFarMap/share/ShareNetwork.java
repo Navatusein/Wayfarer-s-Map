@@ -56,6 +56,7 @@ public final class ShareNetwork {
         channel.registerMessage(SavedRequestToServer.class, SavedRequest.class, 9, Side.SERVER);
         channel.registerMessage(SavedChunksToClient.class, SavedChunks.class, 10, Side.CLIENT);
         channel.registerMessage(LoadAllowedToClient.class, LoadAllowed.class, 11, Side.CLIENT);
+        channel.registerMessage(LoadEndedToClient.class, LoadEnded.class, 12, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -343,14 +344,20 @@ public final class ShareNetwork {
         public boolean with3d;
         /** Only from the world's saved chunks (the region loading view): nothing is generated. */
         public boolean savedOnly;
+        /**
+         * The client's number of the pick (the parts of one pick share it): the server tells it back when the loading
+         * ends ({@link LoadEnded}), so the client knows which of its queued chunks ended with it.
+         */
+        public int seq;
         public long[] chunks = new long[0];
 
         public LoadChunks() {}
 
-        public LoadChunks(boolean remove, boolean with3d, boolean savedOnly, long[] chunks) {
+        public LoadChunks(boolean remove, boolean with3d, boolean savedOnly, int seq, long[] chunks) {
             this.remove = remove;
             this.with3d = with3d;
             this.savedOnly = savedOnly;
+            this.seq = seq;
             this.chunks = chunks;
         }
 
@@ -359,6 +366,7 @@ public final class ShareNetwork {
             remove = buf.readBoolean();
             with3d = buf.readBoolean();
             savedOnly = buf.readBoolean();
+            seq = buf.readInt();
             int count = Math.min(MAX, buf.readInt());
             chunks = new long[count];
             for (int i = 0; i < count; i++) {
@@ -371,6 +379,7 @@ public final class ShareNetwork {
             buf.writeBoolean(remove);
             buf.writeBoolean(with3d);
             buf.writeBoolean(savedOnly);
+            buf.writeInt(seq);
             buf.writeInt(chunks.length);
             for (long chunk : chunks) {
                 buf.writeLong(chunk);
@@ -459,6 +468,38 @@ public final class ShareNetwork {
         }
     }
 
+    /**
+     * The player's area loading ended: finished, stopped ({@code /wf chunkload stop}, the map's Stop button),
+     * replaced by a new command, or none is running when the player joins. The chunks the client still shows queued
+     * from picks up to {@link #seq} are no longer waited for (they would stay red forever).
+     */
+    public static final class LoadEnded implements IMessage {
+
+        /** Picks up to this number ({@link LoadChunks#seq}) ended; {@link Integer#MAX_VALUE} for all of them. */
+        public int seq;
+        /** The area was loaded to the end (not stopped). */
+        public boolean finished;
+
+        public LoadEnded() {}
+
+        public LoadEnded(int seq, boolean finished) {
+            this.seq = seq;
+            this.finished = finished;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            seq = buf.readInt();
+            finished = buf.readBoolean();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(seq);
+            buf.writeBoolean(finished);
+        }
+    }
+
     // Handlers run on the network thread; both sides only queue the message for their own thread.
 
     public static final class LoadBatchToClient implements IMessageHandler<LoadBatch, IMessage> {
@@ -501,6 +542,15 @@ public final class ShareNetwork {
 
         @Override
         public IMessage onMessage(SavedChunks message, MessageContext context) {
+            WayFarMap.proxy.receiveChunkLoad(message);
+            return null;
+        }
+    }
+
+    public static final class LoadEndedToClient implements IMessageHandler<LoadEnded, IMessage> {
+
+        @Override
+        public IMessage onMessage(LoadEnded message, MessageContext context) {
             WayFarMap.proxy.receiveChunkLoad(message);
             return null;
         }

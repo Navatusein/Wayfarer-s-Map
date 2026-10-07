@@ -108,6 +108,8 @@ Map a large area without walking it — the server loads (and generates, if need
 /wf chunkload stop          # stop
 ```
 
+Or do it with the mouse in the world map's **Area loading** mode: drag with **Shift+LMB** to generate and load a rectangle of chunks, **Ctrl+LMB** to load only what is saved in the world, **Ctrl+Shift+LMB** to include caves; **Shift+RMB** cancels queued chunks, **Ctrl+RMB** deletes them from the map, **Esc** drops a drag. A hint by the cursor tells what the drag will do and how many chunks it takes. The toolbar has a **3D map** switch (picked chunks go onto the 3D map too, shown orange while queued — even with block recording off), **Stop**, and a progress bar with speed and time left.
+
 ## 📦 Installation
 
 1. Install **Minecraft Forge 1.7.10** (or play the [GT New Horizons](https://www.gtnewhorizons.com/) pack).

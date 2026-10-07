@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 
@@ -1266,7 +1267,8 @@ public class GuiWorldMap extends ScaledScreen {
         if (exportStatus != null) {
             right = exportStatus;
             rightColor = Theme.ACCENT;
-        } else if (loadStatus != null) {
+        } else if (loadStatus != null && !chunkloadShown()) {
+            // The area loading view has its own progress bar.
             right = loadStatus;
             rightColor = Theme.ACCENT;
         } else if (iso) {
@@ -2372,12 +2374,7 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         if (chunkloadShown() && button == 0 && loadBarSegment(mouseX, mouseY) >= 0) {
-            int segment = loadBarSegment(mouseX, mouseY);
-            if (segment == LOAD_ALL) {
-                confirmLoadAllSaved(mouseX, mouseY);
-            } else if (segment == LOAD_WIPE) {
-                confirmWipeDimension(mouseX, mouseY);
-            }
+            clickLoadBar(loadBarSegment(mouseX, mouseY), mouseX, mouseY);
             return;
         }
         if (chunkloadShown() && overLoadPanel(mouseX, mouseY)) {
@@ -2461,16 +2458,27 @@ public class GuiWorldMap extends ScaledScreen {
         MapManager.INSTANCE.setSurfaceView(Config.isometric || chunkloadView);
     }
 
-    /** The area loading toolbar under the header: its row of buttons, then the lines of hints under it. */
-    private static final int LOAD_ROW = HEADER_HEIGHT + 5, LOAD_HINT_ROW = LOAD_ROW + LOAD_BAR_HEIGHT + 5,
-        LOAD_HINT_LINES = 3, LOAD_PANEL_BOTTOM = LOAD_HINT_ROW + LOAD_HINT_LINES * 11 + 1;
+    /**
+     * The area loading toolbar under the header: its row of buttons (the 3D switch, loading every saved chunk,
+     * stopping, deleting the dimension's map), the progress of the loading while there is one, the colors and the
+     * mouse keys.
+     */
+    private static final int LOAD_ROW = HEADER_HEIGHT + 5, LOAD_PROGRESS_HEIGHT = 12;
     /** Buttons of the area loading toolbar, as {@link #loadBarSegment} tells them. */
-    private static final int LOAD_ALL = 0, LOAD_WIPE = 1;
-    private static final int LOAD_GAP = 8;
+    private static final int LOAD_3D = 0, LOAD_ALL = 1, LOAD_STOP = 2, LOAD_WIPE = 3;
+    private static final int LOAD_GAP = 6;
+    /** Color of the 3D switch when on, as the chunks queued for the 3D map. */
+    private static final int LOAD_3D_COLOR = ChunkLoadView.LEGEND_PENDING_3D;
 
     /** Labels of the toolbar's buttons, by {@code LOAD_*}. */
     private String[] loadLabels() {
-        return new String[] { I18n.format("wayfarmap.gui.load_all_saved"), I18n.format("wayfarmap.gui.load_wipe") };
+        return new String[] { I18n.format("wayfarmap.gui.load_3d"), I18n.format("wayfarmap.gui.load_all_saved"),
+            I18n.format("wayfarmap.gui.load_stop"), I18n.format("wayfarmap.gui.load_wipe") };
+    }
+
+    /** Whether the Stop button does anything: an area is being loaded, or chunks are shown queued. */
+    private static boolean canStopLoading() {
+        return ChunkLoadClient.INSTANCE.isRunning() || ChunkLoadView.pendingCountAll() > 0;
     }
 
     /** Left and right edges of the toolbar's buttons ({@code LOAD_*} twice: x0, x1), centered. */
@@ -2490,6 +2498,22 @@ public class GuiWorldMap extends ScaledScreen {
             x += widths[i] + LOAD_GAP;
         }
         return edges;
+    }
+
+    /** Top of the progress bar, or -1 while no loading is shown. */
+    private int loadProgressRow() {
+        return ChunkLoadClient.INSTANCE.isShown() ? LOAD_ROW + LOAD_BAR_HEIGHT + 5 : -1;
+    }
+
+    /** Top of the legend line: under the progress bar when there is one. */
+    private int loadLegendRow() {
+        int progress = loadProgressRow();
+        return progress >= 0 ? progress + LOAD_PROGRESS_HEIGHT + 5 : LOAD_ROW + LOAD_BAR_HEIGHT + 5;
+    }
+
+    /** Bottom of the whole toolbar. */
+    private int loadPanelBottom() {
+        return loadLegendRow() + (loadHintLines().length + 1) * 11 + 1;
     }
 
     /** What of the area loading toolbar is under the mouse ({@code LOAD_*}), -1 none. */
@@ -2522,16 +2546,33 @@ public class GuiWorldMap extends ScaledScreen {
     /** Whether the mouse is over the area loading toolbar (a drag there doesn't start). */
     private boolean overLoadPanel(int mouseX, int mouseY) {
         int[] edges = loadPanelEdges();
-        return Theme.inside(mouseX, mouseY, edges[0] - 5, LOAD_ROW - 4, edges[1] + 5, LOAD_PANEL_BOTTOM);
+        return Theme.inside(mouseX, mouseY, edges[0] - 5, LOAD_ROW - 4, edges[1] + 5, loadPanelBottom());
+    }
+
+    /** A click on the toolbar's button. */
+    private void clickLoadBar(int segment, int mouseX, int mouseY) {
+        if (segment == LOAD_3D) {
+            Config.setChunkload3d(!Config.chunkload3d);
+        } else if (segment == LOAD_ALL) {
+            confirmLoadAllSaved(mouseX, mouseY);
+        } else if (segment == LOAD_STOP) {
+            if (canStopLoading()) {
+                // The server ends the loading and tells back: the queued chunks go away then, the batch is dropped.
+                mc.thePlayer.sendChatMessage("/wf chunkload stop");
+            }
+        } else if (segment == LOAD_WIPE) {
+            confirmWipeDimension(mouseX, mouseY);
+        }
     }
 
     /**
-     * Asks before deleting the whole map of the player's dimension: the 2D map, and the 3D map with it while blocks
-     * are recorded. The maps are saved and closed first and opened again empty (as the map data screen does).
+     * Asks before deleting the whole map of the player's dimension: the 2D map, and the 3D map with it while the
+     * view's 3D switch is on. The maps are saved and closed first and opened again empty (as the map data screen
+     * does).
      */
     private void confirmWipeDimension(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
-        boolean with3d = Config.record3d;
+        boolean with3d = Config.chunkload3d;
         List<MenuEntry> entries = new ArrayList<>();
         entries.add(
             new MenuEntry(
@@ -2564,16 +2605,21 @@ public class GuiWorldMap extends ScaledScreen {
 
     /**
      * Asks before mapping every chunk saved in the world's region files of this dimension ({@code /wf regionload
-     * full}, for the 3D map too while blocks are recorded): it can be a lot, and it takes the place of the chunks
-     * queued so far.
+     * full}, for the 3D map too while the view's 3D switch is on): it can be a lot, and it takes the place of the
+     * chunks queued so far.
      */
     private void confirmLoadAllSaved(int mouseX, int mouseY) {
         int dimension = mc.theWorld.provider.dimensionId;
+        boolean with3d = Config.chunkload3d;
         List<MenuEntry> entries = new ArrayList<>();
-        entries.add(new MenuEntry(I18n.format("wayfarmap.gui.load_all_saved_yes"), true, () -> {
-            ChunkLoadView.clearPending(dimension);
-            mc.thePlayer.sendChatMessage("/wf regionload " + (Config.record3d ? "3d" : "2d") + " full");
-        }));
+        entries.add(
+            new MenuEntry(
+                I18n.format(with3d ? "wayfarmap.gui.load_all_saved_yes_3d" : "wayfarmap.gui.load_all_saved_yes"),
+                true,
+                () -> {
+                    ChunkLoadView.clearPending(dimension);
+                    mc.thePlayer.sendChatMessage("/wf regionload " + (with3d ? "3d" : "2d") + " full");
+                }));
         entries.add(new MenuEntry(I18n.format("gui.cancel"), true, () -> {}));
         showMenu(entries, MENU_CONFIRM, mouseX, mouseY + 4);
     }
@@ -2586,7 +2632,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     private String[] legendWords() {
         return new String[] { I18n.format("wayfarmap.gui.load_legend_mapped"),
-            I18n.format("wayfarmap.gui.load_legend_saved"), I18n.format("wayfarmap.gui.load_legend_pending") };
+            I18n.format("wayfarmap.gui.load_legend_saved"), I18n.format("wayfarmap.gui.load_legend_pending"),
+            I18n.format("wayfarmap.gui.load_legend_pending_3d") };
     }
 
     /** Width of the legend line: a square before each color's word. */
@@ -2599,54 +2646,183 @@ public class GuiWorldMap extends ScaledScreen {
         return w;
     }
 
+    /** Minutes and seconds (or hours too) of a time in milliseconds. */
+    private static String clock(long ms) {
+        long seconds = Math.max(0, ms) / 1000;
+        if (seconds >= 3600) {
+            return String.format(Locale.ROOT, "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
+        }
+        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    /** The text on the progress bar: how many, how fast, the time left (or how long it took once done). */
+    private static String loadProgressText() {
+        ChunkLoadClient load = ChunkLoadClient.INSTANCE;
+        String counts = String.format(Locale.US, "%,d / %,d", load.done(), load.total());
+        String map = load.isWith3d() ? "2D + 3D" : "2D";
+        if (load.isFinished()) {
+            return I18n.format("wayfarmap.gui.load_progress_done", map, counts, clock(load.elapsedMs()));
+        }
+        long percent = Math.round(load.fraction() * 100);
+        double speed = load.chunksPerSecond();
+        long left = load.remainingMs();
+        String rate = speed > 0 ? String.format(Locale.US, "%.1f", speed) : "...";
+        String eta = left >= 0 ? clock(left) : "...";
+        return I18n.format("wayfarmap.gui.load_progress", map, counts, percent, rate, clock(load.elapsedMs()), eta);
+    }
+
     /**
-     * The toolbar under the header of the area loading view: loading every saved chunk, deleting the dimension's
-     * whole map; under it the colors and the mouse keys.
+     * The toolbar under the header of the area loading view: the 3D switch, loading every saved chunk, stopping,
+     * deleting the dimension's whole map; under it the progress, the colors and the mouse keys.
      */
     private void drawLoadBar(int mouseX, int mouseY) {
         int[] edges = loadLayout();
         String[] labels = loadLabels();
         int[] panel = loadPanelEdges();
-        Theme.fill(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, LOAD_PANEL_BOTTOM, Theme.PANEL);
-        Theme.outline(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, LOAD_PANEL_BOTTOM, Theme.BORDER);
+        int bottom = loadPanelBottom();
+        Theme.fill(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, bottom, Theme.PANEL);
+        Theme.outline(panel[0] - 5, LOAD_ROW - 4, panel[1] + 5, bottom, Theme.BORDER);
         int hovered = menu == null && dimensionList == null ? loadBarSegment(mouseX, mouseY) : -1;
         int y0 = LOAD_ROW, y1 = LOAD_ROW + LOAD_BAR_HEIGHT;
+        boolean canStop = canStopLoading();
 
         for (int i = 0; i < labels.length; i++) {
             int sx = edges[2 * i], ex = edges[2 * i + 1];
             boolean over = hovered == i;
-            int line = i == LOAD_WIPE ? Theme.DANGER : Theme.ACCENT;
-            Theme.fill(sx, y0, ex, y1, over ? Theme.CONTROL_HOVER : Theme.CONTROL);
-            Theme.outline(sx, y0, ex, y1, over ? line : Theme.BORDER);
-            // A mark in the color of what it does: gray like the saved chunks, red for deleting.
-            Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
-            int color = i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A) : over ? Theme.TEXT : Theme.TEXT_MUTED;
+            boolean disabled = i == LOAD_STOP && !canStop;
+            boolean on = i == LOAD_3D && Config.chunkload3d;
+            int line = i == LOAD_WIPE || i == LOAD_STOP ? Theme.DANGER : on ? LOAD_3D_COLOR : Theme.ACCENT;
+            Theme.fill(sx, y0, ex, y1, disabled ? Theme.CONTROL_DISABLED : over ? Theme.CONTROL_HOVER : Theme.CONTROL);
+            Theme.outline(sx, y0, ex, y1, on ? LOAD_3D_COLOR : over && !disabled ? line : Theme.BORDER);
+            if (i == LOAD_3D) {
+                // A check box: filled with the 3D color and ticked when on.
+                Theme.outline(sx + 5, y0 + 3, sx + 13, y0 + 11, on ? LOAD_3D_COLOR : Theme.TEXT_MUTED);
+                if (on) {
+                    Theme.fill(sx + 7, y0 + 5, sx + 11, y0 + 9, LOAD_3D_COLOR);
+                }
+            } else if (i == LOAD_STOP) {
+                // A stop square, red while there is something to stop.
+                Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, disabled ? Theme.TEXT_DISABLED : Theme.DANGER);
+            } else {
+                // A mark in the color of what it does: gray like the saved chunks, red for deleting.
+                Theme
+                    .fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
+            }
+            int color = disabled ? Theme.TEXT_DISABLED
+                : i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A)
+                    : on ? LOAD_3D_COLOR : over ? Theme.TEXT : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, labels[i], sx + 17, y0 + 3, color);
         }
 
+        // The loading going on: a bar filling up, with how many, how fast and the time left on it.
+        int progressRow = loadProgressRow();
+        if (progressRow >= 0) {
+            ChunkLoadClient load = ChunkLoadClient.INSTANCE;
+            int bx0 = panel[0], bx1 = panel[1], by0 = progressRow, by1 = progressRow + LOAD_PROGRESS_HEIGHT;
+            int barColor = load.isFinished() ? Theme.SUCCESS : load.isWith3d() ? LOAD_3D_COLOR : Theme.ACCENT;
+            Theme.fill(bx0, by0, bx1, by1, Theme.CONTROL);
+            int filled = bx0 + (int) Math.round((bx1 - bx0) * load.fraction());
+            Theme.fill(bx0, by0, filled, by1, (barColor & 0xFFFFFF) | 0x80000000);
+            Theme.outline(bx0, by0, bx1, by1, barColor);
+            String text = Theme.ellipsize(fontRendererObj, loadProgressText(), bx1 - bx0 - 8);
+            Theme.centered(fontRendererObj, text, (bx0 + bx1) / 2, by0 + 2, Theme.TEXT);
+        }
+
         // The colors: each word after a square of it.
+        int legendRow = loadLegendRow();
         String[] words = legendWords();
-        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING };
+        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING,
+            ChunkLoadView.LEGEND_PENDING_3D };
         int hx = width / 2 - legendWidth() / 2;
         for (int i = 0; i < words.length; i++) {
-            Theme.fill(hx, LOAD_HINT_ROW + 1, hx + 6, LOAD_HINT_ROW + 7, squares[i]);
+            Theme.fill(hx, legendRow + 1, hx + 6, legendRow + 7, squares[i]);
             hx += 9;
-            Theme.text(fontRendererObj, words[i], hx, LOAD_HINT_ROW, Theme.TEXT_MUTED);
+            Theme.text(fontRendererObj, words[i], hx, legendRow, Theme.TEXT_MUTED);
             hx += fontRendererObj.getStringWidth(words[i]) + 16;
         }
         // The mouse keys.
         String[] lines = loadHintLines();
         for (int i = 0; i < lines.length; i++) {
-            Theme.centered(fontRendererObj, lines[i], width / 2, LOAD_HINT_ROW + 11 * (i + 1), Theme.TEXT_MUTED);
+            Theme.centered(fontRendererObj, lines[i], width / 2, legendRow + 11 * (i + 1), Theme.TEXT_MUTED);
         }
 
         if (hovered >= 0) {
-            String[] descriptions = { "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_wipe.desc" };
+            String[] descriptions = { Config.chunkload3d ? "wayfarmap.gui.load_3d.desc_on" : "wayfarmap.gui.load_3d.desc",
+                "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_stop.desc", "wayfarmap.gui.load_wipe.desc" };
             drawHoveringText(
                 fontRendererObj.listFormattedStringToWidth(I18n.format(descriptions[hovered]), 240),
                 mouseX,
                 mouseY,
                 fontRendererObj);
+        } else if (pickButton >= 0 && !pickSelection.isEmpty()) {
+            drawPickInfo(mouseX, mouseY);
+        }
+    }
+
+    /**
+     * By the mouse while dragging: what the drag does, how big the rectangle is and how many of its chunks it takes.
+     */
+    private void drawPickInfo(int mouseX, int mouseY) {
+        int dimension = mc.theWorld.provider.dimensionId;
+        int w = Math.min(Math.abs(pickEndX - pickStartX) + 1, ChunkLoadView.MAX_SIDE);
+        int h = Math.min(Math.abs(pickEndZ - pickStartZ) + 1, ChunkLoadView.MAX_SIDE);
+        String size = I18n.format("wayfarmap.gui.pick_size", w, h, pickSelection.size());
+        String action;
+        String count;
+        int color;
+        switch (pickMode) {
+            case PICK_SAVED:
+                action = I18n.format("wayfarmap.gui.pick_saved");
+                count = I18n.format("wayfarmap.gui.pick_count_saved", ChunkLoadView.countSaved(dimension, pickSelection));
+                color = Config.chunkload3d ? LOAD_3D_COLOR : ChunkLoadView.LEGEND_PENDING;
+                break;
+            case PICK_GENERATE:
+                action = I18n.format("wayfarmap.gui.pick_generate");
+                count = null;
+                color = Config.chunkload3d ? LOAD_3D_COLOR : ChunkLoadView.LEGEND_PENDING;
+                break;
+            case PICK_GENERATE_CAVES:
+                action = I18n.format("wayfarmap.gui.pick_generate_caves");
+                count = null;
+                color = 0xFF58A6FF;
+                break;
+            case PICK_CANCEL:
+                action = I18n.format("wayfarmap.gui.pick_cancel");
+                count = I18n.format("wayfarmap.gui.pick_count_queued", ChunkLoadView.countPending(dimension, pickSelection));
+                color = Theme.TEXT;
+                break;
+            case PICK_DELETE:
+                action = I18n.format(Config.chunkload3d ? "wayfarmap.gui.pick_delete_3d" : "wayfarmap.gui.pick_delete");
+                count = I18n.format(
+                    "wayfarmap.gui.pick_count_mapped",
+                    ChunkLoadView.countOnMap(MapManager.INSTANCE.getViewMap(), pickSelection));
+                color = Theme.DANGER;
+                break;
+            default:
+                return;
+        }
+        if (Config.chunkload3d && (pickMode == PICK_SAVED || pickMode == PICK_GENERATE
+            || pickMode == PICK_GENERATE_CAVES)) {
+            action += " §6+3D";
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add(action);
+        lines.add("§7" + size);
+        if (count != null) {
+            lines.add("§7" + count);
+        }
+        int textWidth = 0;
+        for (String line : lines) {
+            textWidth = Math.max(textWidth, fontRendererObj.getStringWidth(line));
+        }
+        int x = Math.min(mouseX + 12, width - textWidth - 6), y = mouseY + 12;
+        if (y + lines.size() * 10 + 4 > height - FOOTER_HEIGHT) {
+            y = mouseY - lines.size() * 10 - 8;
+        }
+        Theme.fill(x - 4, y - 3, x + textWidth + 4, y + lines.size() * 10 + 1, Theme.LABEL_BG);
+        Theme.fill(x - 4, y - 3, x - 2, y + lines.size() * 10 + 1, color);
+        for (int i = 0; i < lines.size(); i++) {
+            Theme.text(fontRendererObj, lines.get(i), x + 1, y + i * 10, i == 0 ? color : Theme.TEXT);
         }
     }
 
@@ -2739,7 +2915,7 @@ public class GuiWorldMap extends ScaledScreen {
                     ChunkLoadView.pick(dimension, pickSelection, true, true, false);
                 }
                 if (ChunkLoadView.countOnMap(MapManager.INSTANCE.getViewMap(), pickSelection) > 0) {
-                    deleteChunks(dimension, new ArrayList<>(pickSelection), Config.record3d);
+                    deleteChunks(dimension, new ArrayList<>(pickSelection), Config.chunkload3d);
                 }
                 break;
             default:
@@ -2856,6 +3032,13 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (menu != null && keyCode == Keyboard.KEY_ESCAPE) {
             menu = null;
+            return;
+        }
+        if (pickButton >= 0 && keyCode == Keyboard.KEY_ESCAPE) {
+            // A drag of the area loading view is let go without doing anything.
+            pickButton = -1;
+            pickMode = -1;
+            pickSelection.clear();
             return;
         }
         if (searchAvailable() && searchField.isFocused()) {

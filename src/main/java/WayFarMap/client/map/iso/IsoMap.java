@@ -605,12 +605,14 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /**
-     * Copies a chunk sent for {@code /wf chunkload} (render thread), for up to the deadline. False until it is done:
+     * Copies a chunk sent for {@code /wf chunkload} (render thread), for up to the deadline, also with block recording
+     * off (the loading was asked for the 3D map). False until it is done:
      * its stored copy is looked at first (unchanged: nothing to do), then its pictures may take several ticks. The
      * chunk is let go after, so it isn't put in the queues.
      */
     public boolean captureForLoad(World world, Chunk chunk, long deadline) {
-        if (!Config.record3d || writer == null || chunk == null || chunk.isEmpty()) {
+        // Not tied to Config.record3d: the area loading view's 3D switch asks for it on its own.
+        if (writer == null || chunk == null || chunk.isEmpty()) {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
