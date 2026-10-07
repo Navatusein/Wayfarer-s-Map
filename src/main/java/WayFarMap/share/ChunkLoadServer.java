@@ -715,7 +715,10 @@ public final class ChunkLoadServer {
         return seq == null ? 0 : seq;
     }
 
-    /** Tells the player's map that the loading of its picks up to {@code seq} ended (see {@link ShareNetwork.LoadEnded}). */
+    /**
+     * Tells the player's map that the loading of its picks up to {@code seq} ended (see
+     * {@link ShareNetwork.LoadEnded}).
+     */
     private static void ended(EntityPlayerMP player, int seq, boolean finished) {
         if (player != null) {
             ShareNetwork.sendTo(new ShareNetwork.LoadEnded(seq, finished), player);

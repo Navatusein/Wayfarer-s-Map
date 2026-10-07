@@ -83,8 +83,7 @@ public final class MobPreview {
                     EntityBat bat = new EntityBat(world);
                     bat.setIsBatHanging(true);
                     return bat;
-                }) },
-                { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) }, { make(() -> {
+                }) }, { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) }, { make(() -> {
                     EntityWolf wolf = new EntityWolf(world);
                     wolf.setTamed(true);
                     wolf.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.pet_name"));

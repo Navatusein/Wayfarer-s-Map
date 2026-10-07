@@ -333,18 +333,16 @@ public final class MobIconDump extends CommandBase {
                 frame = (float[]) trace.get("frame");
                 Object result = trace.get("result");
                 mob.summary = icon == null ? "NO ICON" + (trace.containsKey("error") ? ": " + trace.get("error") : "")
-                    : "head".equals(result) ? "head = part " + trace.get("headPart")
-                        + name(main, (Integer) trace.get("headPart"))
-                    : String.valueOf(result);
+                    : "head".equals(result)
+                        ? "head = part " + trace.get("headPart") + name(main, (Integer) trace.get("headPart"))
+                        : String.valueOf(result);
             } else {
                 trace.put("result", "not a living renderer: no icon, a dot on the map");
                 mob.summary = "not a living renderer";
             }
             info.put("icon", trace);
             info.put("iconSummary", mob.summary);
-            mob.shots[FALLBACK] = shot(
-                () -> EntityIcons.drawFace(entity, SIZE / 2.0, SIZE / 2.0, SIZE - 16),
-                true);
+            mob.shots[FALLBACK] = shot(() -> EntityIcons.drawFace(entity, SIZE / 2.0, SIZE / 2.0, SIZE - 16), true);
             if (frame == null) {
                 frame = new float[] { 0f, entity.height / 2f, Math.max(entity.height, entity.width) * 0.6f + 0.2f };
             }

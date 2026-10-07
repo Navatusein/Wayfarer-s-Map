@@ -135,8 +135,7 @@ public final class Perf {
         synchronized long[] take() {
             long[] sorted = Arrays.copyOf(times, kept);
             Arrays.sort(sorted);
-            long[] result = { count, sum, max, percentile(sorted, 50), percentile(sorted, 95),
-                percentile(sorted, 99) };
+            long[] result = { count, sum, max, percentile(sorted, 50), percentile(sorted, 95), percentile(sorted, 99) };
             count = sum = max = 0;
             kept = 0;
             return result;

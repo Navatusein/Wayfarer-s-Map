@@ -289,22 +289,40 @@ public class GuiMapPictures extends ScaledScreen {
         MapDimension surface = maps.getViewSurfaceMap();
         if (surface != null) {
             MapDimension bare = surface.plantless() != null ? surface.plantless() : surface;
-            layers.add(new Layer("2d", I18n.format("wayfarmap.pictures.layer.2d"), Icons.MAP2D, FLAT_COLOR, surface,
-                false));
-            layers.add(new Layer("bare", I18n.format("wayfarmap.pictures.layer.bare"), Icons.NO_PLANTS, BARE_COLOR,
-                bare, false));
-            layers.add(new Layer("topo", I18n.format("wayfarmap.pictures.layer.topo"), Icons.TOPO, TOPO_COLOR,
-                surface, true));
+            layers.add(
+                new Layer("2d", I18n.format("wayfarmap.pictures.layer.2d"), Icons.MAP2D, FLAT_COLOR, surface, false));
+            layers.add(
+                new Layer(
+                    "bare",
+                    I18n.format("wayfarmap.pictures.layer.bare"),
+                    Icons.NO_PLANTS,
+                    BARE_COLOR,
+                    bare,
+                    false));
+            layers.add(
+                new Layer("topo", I18n.format("wayfarmap.pictures.layer.topo"), Icons.TOPO, TOPO_COLOR, surface, true));
         }
         MapDimension biomes = maps.getViewBiomeMap();
         if (biomes != null) {
-            layers.add(new Layer("biomes", I18n.format("wayfarmap.pictures.layer.biomes"), Icons.BIOMES,
-                BIOMES_COLOR, biomes, false));
+            layers.add(
+                new Layer(
+                    "biomes",
+                    I18n.format("wayfarmap.pictures.layer.biomes"),
+                    Icons.BIOMES,
+                    BIOMES_COLOR,
+                    biomes,
+                    false));
         }
         if (flatWhat.startsWith("caves_") && maps.getViewMap() != null) {
             String range = flatWhat.substring("caves_".length());
-            layers.add(new Layer(flatWhat, I18n.format("wayfarmap.pictures.layer.caves", range), Icons.CAVES,
-                CAVES_COLOR, maps.getViewMap(), false));
+            layers.add(
+                new Layer(
+                    flatWhat,
+                    I18n.format("wayfarmap.pictures.layer.caves", range),
+                    Icons.CAVES,
+                    CAVES_COLOR,
+                    maps.getViewMap(),
+                    false));
         }
         // Layers once chosen that this map has not (another cave layer) are dropped.
         Set<String> keys = new HashSet<>();
@@ -565,9 +583,17 @@ public class GuiMapPictures extends ScaledScreen {
             width - 30);
         deleteButton.danger = true;
         deleteButton.iconColor = Theme.DANGER;
-        openButton = viewButton(ID_VIEW_OPEN, "wayfarmap.pictures.open", null, Icons.SMALL_EYE,
+        openButton = viewButton(
+            ID_VIEW_OPEN,
+            "wayfarmap.pictures.open",
+            null,
+            Icons.SMALL_EYE,
             deleteButton.xPosition - 4);
-        copyButton = viewButton(ID_VIEW_COPY, "wayfarmap.pictures.copy", null, Icons.SMALL_COPY,
+        copyButton = viewButton(
+            ID_VIEW_COPY,
+            "wayfarmap.pictures.copy",
+            null,
+            Icons.SMALL_COPY,
             openButton.xPosition - 4);
         int middle = (VIEW_BAR + height - STRIP) / 2;
         previousButton = new FlatButton(ID_VIEW_PREVIOUS, 6, middle - 22, 18, 44, "<");
@@ -706,16 +732,36 @@ public class GuiMapPictures extends ScaledScreen {
             case "3d":
                 return new Kind(what, "3D", Icons.ISO, ISO_COLOR, pixels, night);
             case "bare":
-                return new Kind(what, I18n.format("wayfarmap.pictures.layer.bare"), Icons.NO_PLANTS, BARE_COLOR,
-                    pixels, false);
+                return new Kind(
+                    what,
+                    I18n.format("wayfarmap.pictures.layer.bare"),
+                    Icons.NO_PLANTS,
+                    BARE_COLOR,
+                    pixels,
+                    false);
             case "topo":
-                return new Kind(what, I18n.format("wayfarmap.pictures.layer.topo"), Icons.TOPO, TOPO_COLOR, pixels,
+                return new Kind(
+                    what,
+                    I18n.format("wayfarmap.pictures.layer.topo"),
+                    Icons.TOPO,
+                    TOPO_COLOR,
+                    pixels,
                     false);
             case "biomes":
-                return new Kind(what, I18n.format("wayfarmap.pictures.layer.biomes"), Icons.BIOMES, BIOMES_COLOR,
-                    pixels, false);
+                return new Kind(
+                    what,
+                    I18n.format("wayfarmap.pictures.layer.biomes"),
+                    Icons.BIOMES,
+                    BIOMES_COLOR,
+                    pixels,
+                    false);
             default:
-                return new Kind(what, I18n.format("wayfarmap.pictures.layer.2d"), Icons.MAP2D, FLAT_COLOR, pixels,
+                return new Kind(
+                    what,
+                    I18n.format("wayfarmap.pictures.layer.2d"),
+                    Icons.MAP2D,
+                    FLAT_COLOR,
+                    pixels,
                     false);
         }
     }
@@ -1352,22 +1398,43 @@ public class GuiMapPictures extends ScaledScreen {
         Theme.outline(x - 4, contentTop - 4, x1 + 4, contentBottom + 4, Theme.BORDER);
 
         // What to save: the 2D maps (any of them, each a picture of its own), or 3D at night.
-        sectionLabel(I18n.format(iso ? "wayfarmap.pictures.options" : "wayfarmap.pictures.layers"), x,
-            layersTop() - 12, x1);
+        sectionLabel(
+            I18n.format(iso ? "wayfarmap.pictures.options" : "wayfarmap.pictures.layers"),
+            x,
+            layersTop() - 12,
+            x1);
         if (iso) {
             int[] t = tile(0);
-            drawTile(t, Icons.NIGHT, NIGHT_COLOR, I18n.format("wayfarmap.pictures.night"), night, !running,
-                Theme.inside(mouseX, mouseY, t[0], t[1], t[2], t[3]), nightHover);
+            drawTile(
+                t,
+                Icons.NIGHT,
+                NIGHT_COLOR,
+                I18n.format("wayfarmap.pictures.night"),
+                night,
+                !running,
+                Theme.inside(mouseX, mouseY, t[0], t[1], t[2], t[3]),
+                nightHover);
         } else if (layers.isEmpty()) {
-            Theme.text(fontRendererObj, I18n.format("wayfarmap.pictures.no_map"), x, layersTop() + 6,
+            Theme.text(
+                fontRendererObj,
+                I18n.format("wayfarmap.pictures.no_map"),
+                x,
+                layersTop() + 6,
                 Theme.TEXT_DISABLED);
         } else {
             for (int i = 0; i < layers.size(); i++) {
                 Layer layer = layers.get(i);
                 int[] t = tile(i);
                 boolean hovered = Theme.inside(mouseX, mouseY, t[0], t[1], t[2], t[3]);
-                drawTile(t, layer.icon, layer.color, layer.label, chosenLayers.contains(layer.key) && layer.usable,
-                    !running && layer.usable, hovered, layer.hover);
+                drawTile(
+                    t,
+                    layer.icon,
+                    layer.color,
+                    layer.label,
+                    chosenLayers.contains(layer.key) && layer.usable,
+                    !running && layer.usable,
+                    hovered,
+                    layer.hover);
                 if (hovered && !layer.usable) {
                     tooltip = Collections.singletonList(I18n.format("wayfarmap.pictures.layer_empty"));
                 }
@@ -1465,8 +1532,8 @@ public class GuiMapPictures extends ScaledScreen {
         String percent = overall < 0 ? I18n.format("wayfarmap.export.preparing")
             : (int) Math.floor((position != null && position[1] > 1 ? one : overall) * 100) + "%";
         int percentWidth = fontRendererObj.getStringWidth(percent);
-        Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, left, x1 - x - percentWidth - 6), x, y,
-            Theme.TEXT);
+        Theme
+            .text(fontRendererObj, Theme.ellipsize(fontRendererObj, left, x1 - x - percentWidth - 6), x, y, Theme.TEXT);
         Theme.text(fontRendererObj, percent, x1 - percentWidth, y, Theme.ACCENT);
         int barY = y + 12, barH = 6;
         Theme.fill(x, barY, x1, barY + barH, Theme.CONTROL);
@@ -1493,8 +1560,8 @@ public class GuiMapPictures extends ScaledScreen {
     }
 
     /** A tile to switch on and off: its icon in its color, the name, a box marked when on. */
-    private void drawTile(int[] t, String[] icon, int color, String label, boolean on, boolean enabled,
-        boolean hovered, Smooth hover) {
+    private void drawTile(int[] t, String[] icon, int color, String label, boolean on, boolean enabled, boolean hovered,
+        Smooth hover) {
         double lit = hover.update(hovered && enabled ? 1 : 0, 22);
         int x0 = t[0], y0 = t[1], x1 = t[2], y1 = t[3];
         int background = on ? Theme.blend(Theme.CONTROL, color, 0.16 + 0.08 * lit)
@@ -1502,8 +1569,7 @@ public class GuiMapPictures extends ScaledScreen {
         if (!enabled && !on) {
             background = Theme.CONTROL_DISABLED;
         }
-        int border = on ? Theme.blend(color, 0xFFFFFFFF, 0.15 * lit)
-            : Theme.blend(Theme.BORDER, color, 0.6 * lit);
+        int border = on ? Theme.blend(color, 0xFFFFFFFF, 0.15 * lit) : Theme.blend(Theme.BORDER, color, 0.6 * lit);
         Theme.fill(x0, y0, x1, y1, background);
         Theme.outline(x0, y0, x1, y1, border);
         if (on) {
@@ -1604,7 +1670,13 @@ public class GuiMapPictures extends ScaledScreen {
         }
         if (maxScroll > 0) {
             int visible = contentBottom - gridTop;
-            Theme.scrollbar(x1 + 4, gridTop, contentBottom, visible, visible + maxScroll, shownScroll / maxScroll,
+            Theme.scrollbar(
+                x1 + 4,
+                gridTop,
+                contentBottom,
+                visible,
+                visible + maxScroll,
+                shownScroll / maxScroll,
                 Theme.inside(mouseX, mouseY, galleryLeft, gridTop, x1 + 8, contentBottom));
         }
     }
@@ -1616,7 +1688,11 @@ public class GuiMapPictures extends ScaledScreen {
             boolean on = filter == i;
             boolean hovered = Theme.inside(mouseX, mouseY, chips[i][0], y0, chips[i][1], y1);
             int count = count(i);
-            Theme.fill(chips[i][0], y0, chips[i][1], y1,
+            Theme.fill(
+                chips[i][0],
+                y0,
+                chips[i][1],
+                y1,
                 on ? Theme.ACCENT_DIM : hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
             int border = on ? Theme.ACCENT : hovered ? Theme.ACCENT_DIM : Theme.BORDER;
             Theme.outline(chips[i][0], y0, chips[i][1], y1, border);
@@ -1625,7 +1701,11 @@ public class GuiMapPictures extends ScaledScreen {
             int color = on ? Theme.TEXT : count == 0 ? Theme.TEXT_DISABLED : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, label, textX, y0 + 3, color);
             String number = String.valueOf(count);
-            Theme.text(fontRendererObj, number, chips[i][1] - 6 - fontRendererObj.getStringWidth(number), y0 + 3,
+            Theme.text(
+                fontRendererObj,
+                number,
+                chips[i][1] - 6 - fontRendererObj.getStringWidth(number),
+                y0 + 3,
                 on ? 0xFFBFD9FF : Theme.TEXT_DISABLED);
         }
     }
@@ -1646,7 +1726,11 @@ public class GuiMapPictures extends ScaledScreen {
         Theme.outline(cx, cy, cx + cardWidth, cy + cardHeight, border);
         drawCover(thumb(picture), cx + 1, cy + 1, cx + cardWidth - 1, cy + 1 + thumbHeight, lit);
         // A line in the color of what it shows, under the picture.
-        Theme.fill(cx + 1, cy + 1 + thumbHeight, cx + cardWidth - 1, cy + 2 + thumbHeight,
+        Theme.fill(
+            cx + 1,
+            cy + 1 + thumbHeight,
+            cx + cardWidth - 1,
+            cy + 2 + thumbHeight,
             Theme.blend(Theme.blend(kind.color, Theme.CONTROL, 0.5), kind.color, lit));
 
         // What it shows, top left; a page for the browser and a new one, top right.
@@ -1696,11 +1780,13 @@ public class GuiMapPictures extends ScaledScreen {
                 }
                 String[] icon = icons[q];
                 int iconColor = armedHere ? 0xFFFFFFFF : q == 2 ? Theme.DANGER : Theme.TEXT;
-                Icons.draw(icon, x0 + (QUICK - Icons.width(icon)) / 2, y0 + (QUICK - icon.length) / 2,
+                Icons.draw(
+                    icon,
+                    x0 + (QUICK - Icons.width(icon)) / 2,
+                    y0 + (QUICK - icon.length) / 2,
                     Theme.blend(iconColor & 0x00FFFFFF, iconColor, lit));
                 if (q == quick) {
-                    tooltip = Collections.singletonList(
-                        I18n.format(armedHere ? "wayfarmap.pictures.sure" : keys[q]));
+                    tooltip = Collections.singletonList(I18n.format(armedHere ? "wayfarmap.pictures.sure" : keys[q]));
                 }
             }
             if (hovered && quick < 0 && mouseY < cy + thumbHeight) {
@@ -1851,8 +1937,7 @@ public class GuiMapPictures extends ScaledScreen {
             Theme.outline(ix0 - 1, iy0 - 1, ix1 + 1, iy1 + 1, Theme.blend(Theme.BORDER, kind.color, 0.35));
             Theme.unclip();
             // How close, bottom right of the picture's area.
-            String zoom = viewZoom <= 1 ? I18n.format("wayfarmap.pictures.fit")
-                : String.format("×%.1f", viewZoom);
+            String zoom = viewZoom <= 1 ? I18n.format("wayfarmap.pictures.fit") : String.format("×%.1f", viewZoom);
             int zw = fontRendererObj.getStringWidth(zoom) + 8;
             Theme.fill(width - 30 - zw, areaBottom - 16, width - 30, areaBottom - 4, BADGE);
             Theme.text(fontRendererObj, zoom, width - 30 - zw + 4, areaBottom - 14, Theme.TEXT_MUTED);
@@ -1872,8 +1957,10 @@ public class GuiMapPictures extends ScaledScreen {
         Icons.draw(kind.icon, textX, (VIEW_BAR - kind.icon.length) / 2, kind.color);
         textX += Icons.width(kind.icon) + 6;
         int[] size = dimensions(picture);
-        String details = (size == null ? "" : size[0] + "×" + size[1] + " · ") + bytes(picture.bytes) + " · "
-            + when(picture.modified) + (picture.site ? " · " + I18n.format("wayfarmap.pictures.web") : "");
+        String details = (size == null ? "" : size[0] + "×" + size[1] + " · ") + bytes(picture.bytes)
+            + " · "
+            + when(picture.modified)
+            + (picture.site ? " · " + I18n.format("wayfarmap.pictures.web") : "");
         int textRoom = copyButton.xPosition - 8 - textX;
         Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, title(picture), textRoom), textX, 5, Theme.TEXT);
         Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, details, textRoom), textX, 16, Theme.TEXT_MUTED);

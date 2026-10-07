@@ -844,8 +844,8 @@ public class GuiWorldMap extends ScaledScreen {
     /** Colors of the header's icons. */
     private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
         COLOR_EXPORT = 0xFFF2C14E, COLOR_ADDONS = 0xFF5BD6E0, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
-        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF,
-        COLOR_SUN = 0xFFFFD23F, COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
+        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F,
+        COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
     /**
      * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
      * loaded.
@@ -2701,8 +2701,7 @@ public class GuiWorldMap extends ScaledScreen {
                 Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, disabled ? Theme.TEXT_DISABLED : Theme.DANGER);
             } else {
                 // A mark in the color of what it does: gray like the saved chunks, red for deleting.
-                Theme
-                    .fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
+                Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
             }
             int color = disabled ? Theme.TEXT_DISABLED
                 : i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A)
@@ -2743,7 +2742,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
 
         if (hovered >= 0) {
-            String[] descriptions = { Config.chunkload3d ? "wayfarmap.gui.load_3d.desc_on" : "wayfarmap.gui.load_3d.desc",
+            String[] descriptions = {
+                Config.chunkload3d ? "wayfarmap.gui.load_3d.desc_on" : "wayfarmap.gui.load_3d.desc",
                 "wayfarmap.gui.load_all_saved.desc", "wayfarmap.gui.load_stop.desc", "wayfarmap.gui.load_wipe.desc" };
             drawHoveringText(
                 fontRendererObj.listFormattedStringToWidth(I18n.format(descriptions[hovered]), 240),
@@ -2769,7 +2769,8 @@ public class GuiWorldMap extends ScaledScreen {
         switch (pickMode) {
             case PICK_SAVED:
                 action = I18n.format("wayfarmap.gui.pick_saved");
-                count = I18n.format("wayfarmap.gui.pick_count_saved", ChunkLoadView.countSaved(dimension, pickSelection));
+                count = I18n
+                    .format("wayfarmap.gui.pick_count_saved", ChunkLoadView.countSaved(dimension, pickSelection));
                 color = Config.chunkload3d ? LOAD_3D_COLOR : ChunkLoadView.LEGEND_PENDING;
                 break;
             case PICK_GENERATE:
@@ -2784,7 +2785,8 @@ public class GuiWorldMap extends ScaledScreen {
                 break;
             case PICK_CANCEL:
                 action = I18n.format("wayfarmap.gui.pick_cancel");
-                count = I18n.format("wayfarmap.gui.pick_count_queued", ChunkLoadView.countPending(dimension, pickSelection));
+                count = I18n
+                    .format("wayfarmap.gui.pick_count_queued", ChunkLoadView.countPending(dimension, pickSelection));
                 color = Theme.TEXT;
                 break;
             case PICK_DELETE:
@@ -2797,8 +2799,8 @@ public class GuiWorldMap extends ScaledScreen {
             default:
                 return;
         }
-        if (Config.chunkload3d && (pickMode == PICK_SAVED || pickMode == PICK_GENERATE
-            || pickMode == PICK_GENERATE_CAVES)) {
+        if (Config.chunkload3d
+            && (pickMode == PICK_SAVED || pickMode == PICK_GENERATE || pickMode == PICK_GENERATE_CAVES)) {
             action += " §6+3D";
         }
         List<String> lines = new ArrayList<>();

@@ -383,7 +383,8 @@ public final class MapDrawer {
 
     /**
      * Draws chunk borders (every 16 blocks) over the map rectangle, with region borders (every 512 blocks) as the
-     * stronger lines. Chunk lines are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is drawn once:
+     * stronger lines. Chunk lines are left out when zoomed out so far that they would be closer than a few pixels.
+     * Every pixel of the grid is drawn once:
      * where lines cross, see-through lines drawn over each other made the crossings brighter.
      */
     public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,

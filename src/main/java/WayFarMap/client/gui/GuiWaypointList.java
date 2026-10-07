@@ -64,8 +64,8 @@ public class GuiWaypointList extends ScaledScreen {
     private static final int TILE = 0xFF0F1216, SECTION = 0xFF161B22, SIDEBAR = 0xFF12161B;
 
     /** Colors of the groups, picked by their names, so a group keeps its color. */
-    private static final int[] GROUP_COLORS = { 0xFF4C9AFF, 0xFF3FB950, 0xFFF2C14E, 0xFFE5534B, 0xFFB37FEB,
-        0xFF39C5CF, 0xFFFF8C42, 0xFFE67AB8, 0xFF8BD450, 0xFF6C8CFF };
+    private static final int[] GROUP_COLORS = { 0xFF4C9AFF, 0xFF3FB950, 0xFFF2C14E, 0xFFE5534B, 0xFFB37FEB, 0xFF39C5CF,
+        0xFFFF8C42, 0xFFE67AB8, 0xFF8BD450, 0xFF6C8CFF };
 
     /** An arrow pointing up, turned to point at a waypoint. */
     private static final String[] ARROW = { "...#...", "..###..", ".#####.", "#######", "..###..", "..###..",
@@ -74,8 +74,8 @@ public class GuiWaypointList extends ScaledScreen {
         "...#..." };
     private static final String[] SMALL_MAP = { "#######", "#..#..#", "#.##..#", "#..#.##", "#.....#", "#..##.#",
         "#######" };
-    private static final String[] SMALL_TELEPORT = { "..###..", ".#...#.", "#..#..#", "#.###.#", "#..#..#",
-        ".#...#.", "..###.." };
+    private static final String[] SMALL_TELEPORT = { "..###..", ".#...#.", "#..#..#", "#.###.#", "#..#..#", ".#...#.",
+        "..###.." };
     private static final String[] SMALL_SORT = { ".#.....", "###....", ".#..###", ".#.....", ".#..##.", ".#.....",
         ".#..#.." };
 
@@ -375,7 +375,8 @@ public class GuiWaypointList extends ScaledScreen {
 
     /** Distance from the player on the ground, infinite for another dimension (sorted last). */
     private double distanceTo(Waypoint waypoint) {
-        if (mc == null || mc.thePlayer == null || mc.theWorld == null
+        if (mc == null || mc.thePlayer == null
+            || mc.theWorld == null
             || waypoint.dimension != mc.theWorld.provider.dimensionId) {
             return Double.MAX_VALUE;
         }
@@ -949,8 +950,7 @@ public class GuiWaypointList extends ScaledScreen {
 
     /** Registers a clickable area, cut to the pane being drawn. */
     private void hit(int x0, int y0, int x1, int y1, Runnable action, String tip) {
-        int cx0 = Math.max(x0, hitX0), cy0 = Math.max(y0, hitY0), cx1 = Math.min(x1, hitX1),
-            cy1 = Math.min(y1, hitY1);
+        int cx0 = Math.max(x0, hitX0), cy0 = Math.max(y0, hitY0), cx1 = Math.min(x1, hitX1), cy1 = Math.min(y1, hitY1);
         if (cx1 > cx0 && cy1 > cy0) {
             hits.add(new Hit(cx0, cy0, cx1, cy1, action, tip));
         }
@@ -1198,7 +1198,12 @@ public class GuiWaypointList extends ScaledScreen {
         } else {
             drawEyeOff(ex + 2, ey + 3, over ? Theme.TEXT : Theme.TEXT_DISABLED);
         }
-        hit(ex, ey, ex + ENTRY_ACTION, ey + ENTRY_ACTION, () -> toggleGroup(entry.key),
+        hit(
+            ex,
+            ey,
+            ex + ENTRY_ACTION,
+            ey + ENTRY_ACTION,
+            () -> toggleGroup(entry.key),
             I18n.format(visible ? "wayfarmap.gui.hide_group" : "wayfarmap.gui.show_group"));
         return x - 2;
     }
@@ -1520,21 +1525,69 @@ public class GuiWaypointList extends ScaledScreen {
         int background) {
         int x = right - ACTION_SIZE;
         boolean pending = isPendingDelete(waypoint);
-        action(x, y, Icons.SMALL_TRASH, pending ? Theme.TEXT : Theme.DANGER, pending ? Theme.DANGER : 0, lit,
-            background, mouseX, mouseY,
+        action(
+            x,
+            y,
+            Icons.SMALL_TRASH,
+            pending ? Theme.TEXT : Theme.DANGER,
+            pending ? Theme.DANGER : 0,
+            lit,
+            background,
+            mouseX,
+            mouseY,
             () -> confirmDelete(waypoint, () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)),
             I18n.format(pending ? "wayfarmap.gui.delete_sure" : "wayfarmap.gui.delete"));
         x -= ACTION_STEP;
-        action(x, y, Icons.SMALL_PENCIL, Theme.TEXT, 0, lit, background, mouseX, mouseY, () -> edit(waypoint),
+        action(
+            x,
+            y,
+            Icons.SMALL_PENCIL,
+            Theme.TEXT,
+            0,
+            lit,
+            background,
+            mouseX,
+            mouseY,
+            () -> edit(waypoint),
             I18n.format("wayfarmap.gui.edit"));
         x -= ACTION_STEP;
-        action(x, y, Icons.SMALL_CHAT, Theme.TEXT, 0, lit, background, mouseX, mouseY,
-            () -> WaypointShare.share(waypoint), I18n.format("wayfarmap.gui.share_chat"));
+        action(
+            x,
+            y,
+            Icons.SMALL_CHAT,
+            Theme.TEXT,
+            0,
+            lit,
+            background,
+            mouseX,
+            mouseY,
+            () -> WaypointShare.share(waypoint),
+            I18n.format("wayfarmap.gui.share_chat"));
         x -= ACTION_STEP;
-        action(x, y, Icons.SMALL_COPY, Theme.TEXT, 0, lit, background, mouseX, mouseY, () -> copyPlace(waypoint),
+        action(
+            x,
+            y,
+            Icons.SMALL_COPY,
+            Theme.TEXT,
+            0,
+            lit,
+            background,
+            mouseX,
+            mouseY,
+            () -> copyPlace(waypoint),
             I18n.format("wayfarmap.gui.copy_coords"));
         x -= ACTION_STEP;
-        action(x, y, SMALL_MAP, Theme.ACCENT, 0, lit, background, mouseX, mouseY, () -> showOnMap(waypoint),
+        action(
+            x,
+            y,
+            SMALL_MAP,
+            Theme.ACCENT,
+            0,
+            lit,
+            background,
+            mouseX,
+            mouseY,
+            () -> showOnMap(waypoint),
             I18n.format("wayfarmap.gui.show_on_map_hint"));
         x -= ACTION_STEP;
         // Teleporting needs /tp permission and the same dimension.

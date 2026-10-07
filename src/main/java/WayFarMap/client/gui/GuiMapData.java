@@ -72,8 +72,8 @@ public class GuiMapData extends ScaledScreen {
     private static final String[] REFRESH = { "...#####.#.", "..#.....##.", ".#.....###.", "#..........", "#..........",
         "#.........#", "..........#", "..........#", ".###.....#.", ".##.....#..", ".#.#####..." };
     /** A folder. */
-    private static final String[] FOLDER = { "####.......", "#...#######", "#.........#", "###########",
-        "#.........#", "#.........#", "#.........#", "#.........#", "###########" };
+    private static final String[] FOLDER = { "####.......", "#...#######", "#.........#", "###########", "#.........#",
+        "#.........#", "#.........#", "#.........#", "###########" };
 
     /** One count of the map folders. */
     private static final class Data {
@@ -133,7 +133,12 @@ public class GuiMapData extends ScaledScreen {
             Theme.fill(xPosition, yPosition, x1, y1, hovered ? 0xFF5A2224 : 0xFF3D1A1C);
             Theme.outline(xPosition, yPosition, x1, y1, Theme.DANGER);
             double left = 1 - Math.min(1, (System.currentTimeMillis() - armedAt) / (double) CONFIRM_MS);
-            Theme.fill(xPosition + 1, y1 - 2, xPosition + 1 + (int) Math.round((width - 2) * left), y1 - 1, Theme.DANGER);
+            Theme.fill(
+                xPosition + 1,
+                y1 - 2,
+                xPosition + 1 + (int) Math.round((width - 2) * left),
+                y1 - 1,
+                Theme.DANGER);
         }
     }
 
@@ -915,9 +920,12 @@ public class GuiMapData extends ScaledScreen {
                 long all = data.all[0] + data.all[1] + data.all[2];
                 tooltip = Arrays.asList(
                     labels[i] + ": " + values[i],
-                    "§7" + I18n.format("wayfarmap.stats.flat") + ": " + bytes(data.all[0]) + "  " + percent(data.all[0], all),
-                    "§7" + I18n.format("wayfarmap.stats.iso") + ": " + bytes(data.all[1]) + "  " + percent(data.all[1], all),
-                    "§7" + I18n.format("wayfarmap.data.other") + ": " + bytes(data.all[2]) + "  " + percent(data.all[2], all));
+                    "§7" + I18n
+                        .format("wayfarmap.stats.flat") + ": " + bytes(data.all[0]) + "  " + percent(data.all[0], all),
+                    "§7" + I18n
+                        .format("wayfarmap.stats.iso") + ": " + bytes(data.all[1]) + "  " + percent(data.all[1], all),
+                    "§7" + I18n
+                        .format("wayfarmap.data.other") + ": " + bytes(data.all[2]) + "  " + percent(data.all[2], all));
             }
         }
         // What all worlds' files are: 2D, 3D, other.
@@ -990,9 +998,19 @@ public class GuiMapData extends ScaledScreen {
             int idWidth = fontRendererObj.getStringWidth(id);
             String label = dimension == null ? I18n.format("wayfarmap.stats.all_dims") : dimensionName(dimension);
             label = Theme.ellipsize(fontRendererObj, label, rowRight - 6 - sizeWidth - 6 - idWidth - textX);
-            Theme.text(fontRendererObj, label, textX, y + 3, current ? Theme.TEXT : Theme.blend(Theme.TEXT, Theme.TEXT_MUTED, 0.3));
+            Theme.text(
+                fontRendererObj,
+                label,
+                textX,
+                y + 3,
+                current ? Theme.TEXT : Theme.blend(Theme.TEXT, Theme.TEXT_MUTED, 0.3));
             Theme.text(fontRendererObj, id, textX + fontRendererObj.getStringWidth(label), y + 3, Theme.TEXT_DISABLED);
-            Theme.text(fontRendererObj, size, rowRight - 6 - sizeWidth, y + 3, current ? Theme.ACCENT : Theme.TEXT_MUTED);
+            Theme.text(
+                fontRendererObj,
+                size,
+                rowRight - 6 - sizeWidth,
+                y + 3,
+                current ? Theme.ACCENT : Theme.TEXT_MUTED);
             // Its 2D and 3D map, beside the biggest dimension's (all of them: the whole bar).
             if (sizes != null) {
                 int barX0 = textX, barX1 = rowRight - 6;
@@ -1098,7 +1116,8 @@ public class GuiMapData extends ScaledScreen {
             placeholder(cx - 15, cy - 8, 30);
         } else {
             String shown = Theme.ellipsize(fontRendererObj, center, hole);
-            fontRendererObj.drawStringWithShadow(shown, cx - fontRendererObj.getStringWidth(shown) / 2, cy - 8, centerColor);
+            fontRendererObj
+                .drawStringWithShadow(shown, cx - fontRendererObj.getStringWidth(shown) / 2, cy - 8, centerColor);
         }
         Theme.centered(fontRendererObj, Theme.ellipsize(fontRendererObj, under, hole), cx, cy + 2, Theme.TEXT_MUTED);
 
@@ -1107,8 +1126,7 @@ public class GuiMapData extends ScaledScreen {
         for (int row = 0; row < 3; row++) {
             int id = ID_DEL_2D + row, y = rowY(row);
             int buttonLeft = deleteButtons.get(row).xPosition;
-            boolean lit = row < 2 && part == (row == 0 ? PART_FLAT : PART_ISO)
-                || armed == id;
+            boolean lit = row < 2 && part == (row == 0 ? PART_FLAT : PART_ISO) || armed == id;
             if (lit) {
                 Theme.fill(rowX - 6, y, x1 - 1, y + ROW, armed == id ? 0x30E5534B : Theme.ROW_HOVER);
             }
@@ -1132,7 +1150,12 @@ public class GuiMapData extends ScaledScreen {
                 placeholder(textX, y + 13, 36);
             } else {
                 String sizeText = bytes(size);
-                Theme.text(fontRendererObj, sizeText, textX, y + 13, row == 2 ? value : value == Theme.TEXT ? color : value);
+                Theme.text(
+                    fontRendererObj,
+                    sizeText,
+                    textX,
+                    y + 13,
+                    row == 2 ? value : value == Theme.TEXT ? color : value);
                 if (row < 2 && whole > 0) {
                     Theme.text(
                         fontRendererObj,
@@ -1182,7 +1205,12 @@ public class GuiMapData extends ScaledScreen {
             int cx0 = x0 + 10 + i * (chipWidth + gap), cx1 = cx0 + chipWidth;
             boolean hovered = Theme.inside(mouseX, mouseY, cx0, chipY, cx1, chipY + CHIP);
             Theme.fill(cx0, chipY, cx1, chipY + CHIP, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
-            Theme.outline(cx0, chipY, cx1, chipY + CHIP, hovered ? Theme.blend(Theme.BORDER, colors.get(i), 0.6) : Theme.BORDER);
+            Theme.outline(
+                cx0,
+                chipY,
+                cx1,
+                chipY + CHIP,
+                hovered ? Theme.blend(Theme.BORDER, colors.get(i), 0.6) : Theme.BORDER);
             String[] icon = icons.get(i);
             Icons.draw(icon, cx0 + 6, chipY + (CHIP - icon.length) / 2, colors.get(i));
             int textX = cx0 + 6 + Math.max(9, Icons.width(icon)) + 5;
@@ -1268,7 +1296,8 @@ public class GuiMapData extends ScaledScreen {
     /** Dimension of the bar of shares under the mouse, null if none. */
     private Integer shareAt(int mouseX, int mouseY) {
         Data data = visibleData();
-        if (data == null || shareBarY < 0 || !Theme.inside(mouseX, mouseY, shareX0, shareBarY, shareX1, shareBarY + SHARE_HEIGHT)) {
+        if (data == null || shareBarY < 0
+            || !Theme.inside(mouseX, mouseY, shareX0, shareBarY, shareX1, shareBarY + SHARE_HEIGHT)) {
             return null;
         }
         List<Integer> ids = bySize(data);

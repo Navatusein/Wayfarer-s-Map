@@ -1183,7 +1183,8 @@ public class MapManager implements IResourceManagerReloadListener {
      */
     private static void checkSameWorld(Minecraft mc, File directory) {
         IntegratedServer server = mc.getIntegratedServer();
-        if (!mc.isSingleplayer() || server == null || server.worldServers == null
+        if (!mc.isSingleplayer() || server == null
+            || server.worldServers == null
             || server.worldServers.length == 0
             || server.worldServers[0] == null) {
             return;

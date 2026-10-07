@@ -435,7 +435,8 @@ final class FaceRenderer {
             return;
         }
         IsoLog.log(
-            what + " " + BlockDiag.name(pending.lookKey)
+            what + " "
+                + BlockDiag.name(pending.lookKey)
                 + " openSides="
                 + pending.exposed
                 + " detached="
@@ -1515,7 +1516,14 @@ final class FaceRenderer {
                 looks[n] = wantLooks[n] ? look(images[n]) : null;
             }
         } else {
-            int parts = Math.min(slots, 4 * Math.max(1, Math.min(6, Runtime.getRuntime().availableProcessors() / 4)));
+            int parts = Math.min(
+                slots,
+                4 * Math.max(
+                    1,
+                    Math.min(
+                        6,
+                        Runtime.getRuntime()
+                            .availableProcessors() / 4)));
             List<Callable<Void>> tasks = new ArrayList<>(parts);
             for (int part = 0; part < parts; part++) {
                 int from = slots * part / parts, to = slots * (part + 1) / parts;

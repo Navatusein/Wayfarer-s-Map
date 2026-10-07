@@ -77,7 +77,8 @@ public final class ChunkLoadClient {
             return null;
         }
         long percent = done * 100 / total;
-        String elapsed = I18n.format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", elapsedMs() / 1000));
+        String elapsed = I18n
+            .format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", elapsedMs() / 1000));
         return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
     }
 

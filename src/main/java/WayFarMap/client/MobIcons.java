@@ -66,10 +66,7 @@ public final class MobIcons {
     private static final int FRAMEBUFFER_BINDING = 0x8CA6;
 
     /** Textures of the icons by {@link #key}. */
-    private static final Map<String, Integer> ICONS = new LinkedHashMap<String, Integer>(
-        64,
-        0.75f,
-        true) {
+    private static final Map<String, Integer> ICONS = new LinkedHashMap<String, Integer>(64, 0.75f, true) {
 
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
@@ -663,7 +660,7 @@ public final class MobIcons {
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
         int levels = 0;
         int[] level = pixels;
-        for (int side = ICON; ; side /= 2, levels++) {
+        for (int side = ICON;; side /= 2, levels++) {
             IntBuffer buffer = BufferUtils.createIntBuffer(side * side);
             buffer.put(level)
                 .flip();

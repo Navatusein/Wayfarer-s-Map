@@ -191,8 +191,7 @@ public final class MapExport {
         thread.start();
     }
 
-    private static void run(Batch current, List<Request> requests, String date, boolean site,
-        List<Future<?>> saving) {
+    private static void run(Batch current, List<Request> requests, String date, boolean site, List<Future<?>> saving) {
         try {
             for (Future<?> future : saving) {
                 future.get();

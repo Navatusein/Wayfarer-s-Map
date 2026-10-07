@@ -31,15 +31,15 @@ public final class Topography {
     /** Height the last land color is reached at. */
     private static final int TOP = 170;
     /** Land from just above the sea up to the top. */
-    private static final int[] LAND = { 0x5E8F45, 0x6C9B4B, 0x7BA652, 0x8DB15A, 0xA1BA63, 0xB5C16D, 0xC7C478,
-        0xD3BE7E, 0xD6B07A, 0xCF9F6F, 0xC28D63, 0xB27C59, 0xA06E53, 0x8F6752, 0x8A7466, 0x968A82, 0xACA49F, 0xC5C0BC,
-        0xDDDAD8, 0xF3F2F1 };
+    private static final int[] LAND = { 0x5E8F45, 0x6C9B4B, 0x7BA652, 0x8DB15A, 0xA1BA63, 0xB5C16D, 0xC7C478, 0xD3BE7E,
+        0xD6B07A, 0xCF9F6F, 0xC28D63, 0xB27C59, 0xA06E53, 0x8F6752, 0x8A7466, 0x968A82, 0xACA49F, 0xC5C0BC, 0xDDDAD8,
+        0xF3F2F1 };
     /** Nether ground from just above the lava sea up. */
     private static final int[] NETHER_LAND = { 0x4A1D1A, 0x5A2420, 0x6B2C25, 0x7C352A, 0x8C4130, 0x9A4E38, 0xA75D41,
         0xB26D4C, 0xBC7E59, 0xC59068, 0xCDA27A, 0xD5B48D };
     /** Water from the shallows to the deep, one color per {@link #WATER_STEP} blocks of depth. */
-    private static final int[] WATER = { 0x9CCBEA, 0x80B9E2, 0x67A6D8, 0x5193CB, 0x4080BC, 0x346EAA, 0x2A5D96,
-        0x214C80, 0x1A3D6A };
+    private static final int[] WATER = { 0x9CCBEA, 0x80B9E2, 0x67A6D8, 0x5193CB, 0x4080BC, 0x346EAA, 0x2A5D96, 0x214C80,
+        0x1A3D6A };
     private static final int WATER_STEP = 4;
     /** Water of maps scanned before its depth was kept: along the shore and away from it. */
     private static final int OLD_SHALLOW = 0x67A6D8, OLD_DEEP = 0x346EAA;

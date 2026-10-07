@@ -1728,8 +1728,9 @@ public final class IsoLog {
             }
             if (inner.length() > 0) {
                 parts.append(" [")
-                    .append(inner.toString()
-                        .trim())
+                    .append(
+                        inner.toString()
+                            .trim())
                     .append(']');
             }
         }
@@ -1829,7 +1830,10 @@ public final class IsoLog {
         double seconds = Math.max(0.001, (System.nanoTime() - perfStart) / 1e9);
         String t = title + " BOTTLENECK";
         line(
-            t + " over " + Math.round(seconds) + "s: fps=" + f1(frames[0] / seconds)
+            t + " over "
+                + Math.round(seconds)
+                + "s: fps="
+                + f1(frames[0] / seconds)
                 + " avgFrameMs="
                 + (frames[0] == 0 ? "-" : ms(frames[1] / frames[0]))
                 + " clientTps="
@@ -1865,17 +1869,20 @@ public final class IsoLog {
             }
             if (mod > 0) {
                 line(
-                    t + "   mod's share of " + whats[where.ordinal()] + ": "
+                    t + "   mod's share of "
+                        + whats[where.ordinal()]
+                        + ": "
                         + share(mod, spans[where.ordinal()])
                         + " - by part:"
                         + top);
             }
         }
         if (!THREAD_TOTALS.isEmpty()) {
-            StringBuilder cpu = new StringBuilder(t + "   threads' cpu (100% = one core) of "
-                + Runtime.getRuntime()
-                    .availableProcessors()
-                + " cores:");
+            StringBuilder cpu = new StringBuilder(
+                t + "   threads' cpu (100% = one core) of "
+                    + Runtime.getRuntime()
+                        .availableProcessors()
+                    + " cores:");
             List<Map.Entry<String, Long>> groups = new ArrayList<>(THREAD_TOTALS.entrySet());
             groups.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
             for (Map.Entry<String, Long> group : groups) {
@@ -1978,8 +1985,7 @@ public final class IsoLog {
                     + ")");
         }
         if (minimap > 2) {
-            advice.add(
-                "the minimap takes " + f1(minimap) + "ms a frame: a smaller minimap or zoom, fewer mob icons");
+            advice.add("the minimap takes " + f1(minimap) + "ms a frame: a smaller minimap or zoom, fewer mob icons");
         }
         if (markers > 2) {
             advice.add(
@@ -2164,7 +2170,8 @@ public final class IsoLog {
         }
         int[] learned = FaceRenderer.learnedKinds();
         line(
-            title + " learned pictures: reused without drawing=" + reused
+            title + " learned pictures: reused without drawing="
+                + reused
                 + " drawn="
                 + drawn
                 + " (all empty "
@@ -2191,8 +2198,10 @@ public final class IsoLog {
             StringBuilder b = new StringBuilder(title).append("   kind#")
                 .append(n + 1)
                 .append(' ')
-                .append(BlockDiag.name(kinds.get(n)
-                    .getKey()));
+                .append(
+                    BlockDiag.name(
+                        kinds.get(n)
+                            .getKey()));
             for (int f = 0; f < FaceRenderer.KIND_FIELDS.length; f++) {
                 b.append(' ')
                     .append(FaceRenderer.KIND_FIELDS[f])

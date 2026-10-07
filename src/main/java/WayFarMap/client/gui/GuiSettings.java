@@ -159,8 +159,8 @@ public class GuiSettings extends ScaledScreen {
             this.indent = indent;
         }
 
-        static Row title(String title, String section, String group, int color, List<Config.Option> options,
-            int hidden, int y) {
+        static Row title(String title, String section, String group, int color, List<Config.Option> options, int hidden,
+            int y) {
             Row row = new Row(null, title, section, hidden, y, HEADER_HEIGHT, 0);
             row.group = group;
             row.color = color;

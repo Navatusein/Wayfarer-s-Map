@@ -61,8 +61,8 @@ public class KeyHandler {
     public static final KeyBinding LIGHT = unbound("light");
 
     private static final KeyBinding[] UNBOUND = { MODE_BLOCKS, MODE_PLANTLESS, MODE_TOPO, MODE_BIOMES, ORES, FLUIDS,
-        CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS,
-        FRIENDLY_MOBS, PETS, PLAYERS, LIGHT };
+        CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS, FRIENDLY_MOBS, PETS, PLAYERS,
+        LIGHT };
 
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };

@@ -200,8 +200,8 @@ public class MinimapRenderer {
      * many screen pixels a unit of the current drawing is, and ({@code screenLeft}, {@code screenTop}) the screen
      * pixel (x, y) ends up at, from the window's top left.
      */
-    private static void draw(Minecraft mc, MapDimension dimension, List<String> lines, int x, int y,
-        float partialTicks, double pixelsPerUnit, double screenLeft, double screenTop, boolean preview) {
+    private static void draw(Minecraft mc, MapDimension dimension, List<String> lines, int x, int y, float partialTicks,
+        double pixelsPerUnit, double screenLeft, double screenTop, boolean preview) {
         EntityClientPlayerMP player = mc.thePlayer;
         double px = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
         double pz = player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks;
