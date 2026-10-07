@@ -137,14 +137,20 @@ public class GuiWaypointList extends ScaledScreen {
         String oldSearch = searchField != null ? searchField.getText() : searchText;
         int searchX = listLeft + pickerWidth + 6;
         searchField = new FlatTextField(fontRendererObj, searchX, filterY, listRight - searchX, 16)
-            .setHint(I18n.format("wayfarmap.gui.search_waypoints"));
+            .setHint(I18n.format("wayfarmap.gui.search_waypoints"))
+            .setOnCleared(() -> {
+                searchText = "";
+                scroll = 0;
+                rebuildRows();
+            });
         searchField.setMaxStringLength(48);
         searchField.setText(oldSearch);
         choicesOpen = false;
         int bottom = height - 50;
         String oldText = groupField != null ? groupField.getText() : "";
         groupField = new FlatTextField(fontRendererObj, listLeft, bottom, panelWidth - 124, 18)
-            .setHint(I18n.format("wayfarmap.gui.new_group_hint"));
+            .setHint(I18n.format("wayfarmap.gui.new_group_hint"))
+            .setOnCleared(this::updateGroupButton);
         groupField.setMaxStringLength(32);
         groupField.setText(oldText);
         groupActionButton = new FlatButton(ID_GROUP_ACTION, listRight - 120, bottom, 120, 18, "");

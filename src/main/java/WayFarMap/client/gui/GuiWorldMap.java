@@ -344,7 +344,11 @@ public class GuiWorldMap extends ScaledScreen {
 
         Keyboard.enableRepeatEvents(true);
         searchField = new FlatTextField(fontRendererObj, width / 2 - 90, HEADER_HEIGHT + 4, 180, 14)
-            .setHint(I18n.format("wayfarmap.gui.search_hint"));
+            .setHint(I18n.format("wayfarmap.gui.search_hint"))
+            .setOnCleared(() -> {
+                searchText = "";
+                applySearch();
+            });
         searchField.setMaxStringLength(40);
         searchField.setText(searchText);
         applySearch();

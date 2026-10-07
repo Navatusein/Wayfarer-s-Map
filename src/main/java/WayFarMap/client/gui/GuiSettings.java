@@ -181,7 +181,8 @@ public class GuiSettings extends ScaledScreen {
 
         boolean searchFocused = searchField != null && searchField.isFocused();
         searchField = new FlatTextField(fontRendererObj, right - 10 - SEARCH_WIDTH, top + 5, SEARCH_WIDTH, 15)
-            .setHint(I18n.format("wayfarmap.settings.search"));
+            .setHint(I18n.format("wayfarmap.settings.search"))
+            .setOnCleared(this::searchChanged);
         searchField.setMaxStringLength(40);
         searchField.setText(searchText);
         searchField.setFocused(searchFocused);

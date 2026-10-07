@@ -103,6 +103,8 @@ public class Config {
     public static int playerMarkerOutlineColor = PLAYER_MARKER_OUTLINE_COLOR;
     /** Scale of the mod's screens (screen pixels per GUI pixel), independent of Minecraft's; 0 = auto. */
     public static int uiScale = 0;
+    /** A right click on a text field of the mod's screens clears its text. */
+    public static boolean rightClickClearsText = true;
 
     /** Map lighting: {@link #LIGHT_AUTO} follows the day/night cycle. */
     public static int mapLightMode = LIGHT_AUTO;
@@ -400,6 +402,13 @@ public class Config {
             new String[] { "auto", "s1", "s2", "s3", "s4", "s5", "s6" },
             () -> uiScale,
             v -> uiScale = v);
+        bool(
+            c,
+            "rightClickClearsText",
+            "Clear a text field of the mod's screens (a search, a name) by right-clicking it.",
+            true,
+            () -> rightClickClearsText,
+            v -> rightClickClearsText = v);
         group("buttons");
         for (int i = 0; i < MAP_BUTTONS.length; i++) {
             final int index = i;
