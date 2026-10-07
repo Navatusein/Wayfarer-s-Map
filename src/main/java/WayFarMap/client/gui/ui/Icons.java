@@ -174,6 +174,10 @@ public final class Icons {
         "#......" };
     public static final String[] SMALL_CHAT = { "#######", "#.....#", "#.###.#", "#.....#", "#######", ".##....",
         "#......" };
+    public static final String[] SMALL_COPY = { "####...", "#..#...", "#.#####", "#.#...#", "###...#", "..#...#",
+        "..#####" };
+    public static final String[] SMALL_PASTE = { "..###..", "##...##", "#.###.#", "#.....#", "#.###.#", "#.....#",
+        "#######" };
     public static final String[] SMALL_EYE = { "..###..", ".#...#.", "#..#..#", ".#...#.", "..###.." };
     public static final String[] SMALL_DROP = { "...#...", "..###..", ".#####.", "#######", "#######", ".#####.",
         "..###.." };

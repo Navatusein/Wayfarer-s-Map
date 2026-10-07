@@ -148,6 +148,8 @@ public class GuiWorldMap extends ScaledScreen {
     private int menuX, menuY;
     private int menuKind;
     private int menuWidth = MENU_WIDTH;
+    /** Waypoint copied with the menu or Ctrl+C, pasted with the map's menu or Ctrl+V; null when nothing is copied. */
+    private static Waypoint copiedWaypoint;
     private boolean draggingCaveSlider;
 
     /** One line of the right click menu. */
@@ -188,6 +190,12 @@ public class GuiWorldMap extends ScaledScreen {
         /** The key bound to the mod's binding of that name, shown on the right; nothing if it has none. */
         MenuEntry key(String binding) {
             this.hint = KeyHandler.keyName(binding);
+            return this;
+        }
+
+        /** Muted text on the right, e.g. a key combination. */
+        MenuEntry hint(String hint) {
+            this.hint = hint;
             return this;
         }
 
@@ -1808,6 +1816,12 @@ public class GuiWorldMap extends ScaledScreen {
                             .key("new_waypoint"));
         // A waypoint at once, without its editor: named by its coordinates, no icon.
         final int markY = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
+        if (copiedWaypoint != null) {
+            entries.add(
+                new MenuEntry(I18n.format("wayfarmap.gui.paste"), true, () -> pasteWaypoint(bx, markY, bz))
+                    .icon(Icons.SMALL_PASTE)
+                    .hint("Ctrl+V"));
+        }
         entries.add(
             new MenuEntry(
                 I18n.format("wayfarmap.gui.quick_waypoint"),
@@ -1845,6 +1859,10 @@ public class GuiWorldMap extends ScaledScreen {
                 I18n.format("wayfarmap.gui.edit"),
                 true,
                 () -> mc.displayGuiScreen(GuiEditWaypoint.edit(this, waypoint))).icon(Icons.SMALL_PENCIL));
+        entries.add(
+            new MenuEntry(I18n.format("wayfarmap.gui.copy"), true, () -> copiedWaypoint = waypoint.copy())
+                .icon(Icons.SMALL_COPY)
+                .hint("Ctrl+C"));
         // Disabled: gone from the world and the minimap, faded on this map.
         String toggle = I18n.format(waypoint.enabled ? "wayfarmap.gui.disable" : "wayfarmap.gui.enable");
         entries.add(new MenuEntry(toggle, true, () -> {
@@ -1859,6 +1877,40 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)).icon(Icons.SMALL_TRASH)
                     .danger());
         showMenu(entries, MENU_WAYPOINT, mouseX, mouseY);
+    }
+
+    /** Places a copy of the copied waypoint at the block, in the dimension the map shows. */
+    private void pasteWaypoint(int x, int y, int z) {
+        if (copiedWaypoint == null) {
+            return;
+        }
+        Waypoint pasted = copiedWaypoint.copy();
+        pasted.x = x;
+        pasted.y = y;
+        pasted.z = z;
+        pasted.dimension = viewDimension();
+        // A copy of a death marker is an ordinary waypoint, not one more death to keep or drop.
+        pasted.death = false;
+        pasted.diedAt = 0;
+        WaypointManager.INSTANCE.addWaypoint(pasted);
+    }
+
+    /** Ctrl+C on a waypoint copies it; anywhere else it forgets the copied one. */
+    private void copyAtMouse(int mouseX, int mouseY) {
+        Waypoint hovered = waypointAt(mouseX, mouseY);
+        copiedWaypoint = hovered != null ? hovered.copy() : null;
+    }
+
+    /** Ctrl+V pastes the copied waypoint under the mouse, at the same height a quick waypoint would get. */
+    private void pasteAtMouse(int mouseX, int mouseY) {
+        if (copiedWaypoint == null || chunkloadShown()) {
+            return;
+        }
+        int[] block = blockAt(mouseX, mouseY);
+        int bx = block[0], bz = block[2];
+        int seenY = block[1] >= 0 ? Math.min(255, block[1] + 1) : 0;
+        int safeY = MapManager.INSTANCE.isViewingOtherDimension() ? 0 : Teleport.findSafeY(mc.theWorld, bx, bz);
+        pasteWaypoint(bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz);
     }
 
     /** Opens a menu at the point, as wide as its longest entry. */
@@ -2799,6 +2851,17 @@ public class GuiWorldMap extends ScaledScreen {
                 .equals(searchText)) {
                 searchText = searchField.getText();
                 applySearch();
+            }
+            return;
+        }
+        if ((keyCode == Keyboard.KEY_C || keyCode == Keyboard.KEY_V) && isCtrlKeyDown()) {
+            int mouseX = Mouse.getX() * width / mc.displayWidth;
+            int mouseY = height - Mouse.getY() * height / mc.displayHeight - 1;
+            menu = null;
+            if (keyCode == Keyboard.KEY_C) {
+                copyAtMouse(mouseX, mouseY);
+            } else {
+                pasteAtMouse(mouseX, mouseY);
             }
             return;
         }
