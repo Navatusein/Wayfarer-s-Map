@@ -709,7 +709,9 @@ public class GuiWorldMap extends ScaledScreen {
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
         // peaceful mobs are left.
-        boolean peaceful = Config.showPassiveMobs || Config.showAmbientMobs || Config.showOtherEntities || Config.showPets;
+        boolean peaceful = Config.showPassiveMobs || Config.showAmbientMobs
+            || Config.showOtherEntities
+            || Config.showPets;
         boolean hostile = Config.showHostileMobs;
         mobsButton.active = !Config.allMobsShown();
         mobsButton.dim = Config.noMobsShown();

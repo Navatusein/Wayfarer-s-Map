@@ -1309,12 +1309,20 @@ public class Config {
 
     /** Whether every kind of mob and other players are shown (the "Mobs" button is not highlighted then). */
     public static boolean allMobsShown() {
-        return showHostileMobs && showPassiveMobs && showAmbientMobs && showOtherEntities && showPets && showOtherPlayers;
+        return showHostileMobs && showPassiveMobs
+            && showAmbientMobs
+            && showOtherEntities
+            && showPets
+            && showOtherPlayers;
     }
 
     /** Whether nothing at all is shown: no kind of mob, no other players. */
     public static boolean noMobsShown() {
-        return !showHostileMobs && !showPassiveMobs && !showAmbientMobs && !showOtherEntities && !showPets && !showOtherPlayers;
+        return !showHostileMobs && !showPassiveMobs
+            && !showAmbientMobs
+            && !showOtherEntities
+            && !showPets
+            && !showOtherPlayers;
     }
 
     public static void toggleNeutralMobs() {
