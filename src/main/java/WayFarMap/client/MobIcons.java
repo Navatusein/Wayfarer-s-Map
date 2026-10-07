@@ -5,9 +5,12 @@ import java.lang.reflect.Method;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.ModelBase;
@@ -15,6 +18,8 @@ import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.model.ModelBox;
 import net.minecraft.client.model.ModelQuadruped;
 import net.minecraft.client.model.ModelRenderer;
+import net.minecraft.client.model.PositionTextureVertex;
+import net.minecraft.client.model.TexturedQuad;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.Render;
@@ -85,7 +90,7 @@ public final class MobIcons {
     private static Object iconWorld;
 
     private static Method textureMethod;
-    private static Field mainModelField, renderPassModelField;
+    private static Field mainModelField, renderPassModelField, quadListField;
     private static boolean reflectionFailed;
 
     private MobIcons() {}
@@ -249,9 +254,12 @@ public final class MobIcons {
                 ModelRenderer passHead = pass != null && pass.getClass() == main.getClass()
                     ? part(pass, candidates.get(n))
                     : passHeadOf(pass);
+                List<ModelRenderer> hide = group(main, head);
+                attempt.put("groupSize", hide.size());
+                hide.addAll(group(pass, passHead));
                 attempt.put("name", head == null ? null : head.boxName);
                 attempt.put("passPart", passHead != null);
-                int[] headless = shot(entity, 0f, centerY, half, head, passHead);
+                int[] headless = shot(entity, 0f, centerY, half, hide);
                 if (headless == null) {
                     attempt.put("result", "no picture without it");
                     continue;
@@ -265,10 +273,20 @@ public final class MobIcons {
                     attempt.put("result", "too small (under " + MIN_HEAD_SHARE + " of the mob)");
                     continue;
                 }
+                // Its face in the skin when that is a proper face: sharp texture pixels, nothing in front of it.
+                int[] face = skinFace(entity, render, main, head, attempt);
+                if (face != null) {
+                    attempt.put("result", "chosen (face from the skin)");
+                    if (trace != null) {
+                        trace.put("result", "skin face");
+                        trace.put("headPart", candidates.get(n));
+                    }
+                    return face;
+                }
                 // The head up close: framed on what differed, drawn again with and without it.
                 float[] frame = frame(headBox, 0f, centerY, half);
-                int[] near = shot(entity, frame[0], frame[1], frame[2], null, null);
-                int[] nearHeadless = shot(entity, frame[0], frame[1], frame[2], head, passHead);
+                int[] near = shot(entity, frame[0], frame[1], frame[2], new ArrayList<>());
+                int[] nearHeadless = shot(entity, frame[0], frame[1], frame[2], hide);
                 if (near == null || nearHeadless == null) {
                     attempt.put("result", "close-up failed");
                     continue;
@@ -304,6 +322,148 @@ public final class MobIcons {
     }
 
     /**
+     * The front of the head's main box as its skin paints it, fitted in the icon: the faces the map had before the
+     * icons were drawn by the game, sharp and plain, for heads whose front is a proper face (about square, fully
+     * painted, more than one color). Null otherwise (a rod, a see-through or one-colored square), and the head is
+     * drawn by the game instead.
+     */
+    private static int[] skinFace(EntityLivingBase entity, RendererLivingEntity render, ModelBase model,
+        ModelRenderer head, Map<String, Object> attempt) {
+        if (head == null || model == null || !usableBoxes(head) || quadListField == null) {
+            return null;
+        }
+        ModelBox box = largest(head);
+        float width = box.posX2 - box.posX1, height = box.posY2 - box.posY1;
+        if (width < 3 || height < 3 || width > height * 1.6f || height > width * 1.6f) {
+            attempt.put("skinFace", "not about square: " + width + "x" + height);
+            return null;
+        }
+        float[] uv;
+        ResourceLocation texture;
+        try {
+            TexturedQuad[] quads = (TexturedQuad[]) quadListField.get(box);
+            float u0 = 1, v0 = 1, u1 = 0, v1 = 0;
+            // ModelBox makes its faces in a fixed order: index 4 is the front (-Z), where mobs have their face.
+            for (PositionTextureVertex vertex : quads[4].vertexPositions) {
+                u0 = Math.min(u0, vertex.texturePositionX);
+                u1 = Math.max(u1, vertex.texturePositionX);
+                v0 = Math.min(v0, vertex.texturePositionY);
+                v1 = Math.max(v1, vertex.texturePositionY);
+            }
+            uv = new float[] { u0, v0, u1, v1 };
+            texture = (ResourceLocation) textureMethod.invoke(render, entity);
+        } catch (Throwable t) {
+            return null;
+        }
+        if (texture == null || uv[2] <= uv[0] || uv[3] <= uv[1]) {
+            return null;
+        }
+        // Fitted in the square, a little in from its edges like the heads drawn by the game.
+        float scale = SIZE * 0.92f / Math.max(width, height);
+        int fw = Math.round(width * scale), fh = Math.round(height * scale);
+        int x0 = (SIZE - fw) / 2, y0 = (SIZE - fh) / 2;
+        int[] pixels = faceShot(texture, uv, x0, y0, fw, fh);
+        if (pixels == null) {
+            return null;
+        }
+        int painted = 0;
+        Set<Integer> colors = new HashSet<>();
+        for (int y = y0; y < y0 + fh; y++) {
+            for (int x = x0; x < x0 + fw; x++) {
+                int c = pixels[y * SIZE + x];
+                if (c >>> 24 >= 0x80) {
+                    painted++;
+                    colors.add(c >> 4 & 0x0F0F0F);
+                }
+            }
+        }
+        float share = (float) painted / Math.max(1, fw * fh);
+        attempt.put("skinFacePainted", share);
+        attempt.put("skinFaceColors", colors.size());
+        if (share < 0.85f || colors.size() < 3) {
+            attempt.put("skinFace", "not a proper face");
+            return null;
+        }
+        return pixels;
+    }
+
+    /** The texture square {@code uv} drawn into the rectangle (x, y, w, h) of the buffer; pixels top row first. */
+    private static int[] faceShot(ResourceLocation texture, float[] uv, int x, int y, int w, int h) {
+        Minecraft mc = Minecraft.getMinecraft();
+        int previous = GL11.glGetInteger(FRAMEBUFFER_BINDING);
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPushMatrix();
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPushMatrix();
+        boolean bound = false;
+        try {
+            if (framebuffer == null) {
+                framebuffer = new Framebuffer(SIZE, SIZE, true);
+                readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
+            }
+            framebuffer.bindFramebuffer(true);
+            bound = true;
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            GL11.glDisable(GL11.GL_STENCIL_TEST);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glDisable(GL11.GL_LIGHTING);
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glClearColor(0f, 0f, 0f, 0f);
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glLoadIdentity();
+            // Screen pixels, y down: read back bottom-up, the rows come out top first after turning them around.
+            GL11.glOrtho(0, SIZE, SIZE, 0, -1, 1);
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glLoadIdentity();
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            mc.getTextureManager()
+                .bindTexture(texture);
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            GL11.glBegin(GL11.GL_QUADS);
+            GL11.glTexCoord2f(uv[0], uv[3]);
+            GL11.glVertex2f(x, y + h);
+            GL11.glTexCoord2f(uv[2], uv[3]);
+            GL11.glVertex2f(x + w, y + h);
+            GL11.glTexCoord2f(uv[2], uv[1]);
+            GL11.glVertex2f(x + w, y);
+            GL11.glTexCoord2f(uv[0], uv[1]);
+            GL11.glVertex2f(x, y);
+            GL11.glEnd();
+            readBuffer.clear();
+            GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
+            int[] all = new int[SIZE * SIZE];
+            readBuffer.get(all);
+            int[] pixels = new int[SIZE * SIZE];
+            for (int row = 0; row < SIZE; row++) {
+                System.arraycopy(all, (SIZE - 1 - row) * SIZE, pixels, row * SIZE, SIZE);
+            }
+            return pixels;
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (bound) {
+                Framebuffer game = mc.getFramebuffer();
+                if (game != null && previous != 0 && previous == game.framebufferObject) {
+                    game.bindFramebuffer(false);
+                } else {
+                    framebuffer.unbindFramebuffer();
+                }
+            }
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glPopMatrix();
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
+        }
+    }
+
+    /**
      * Parts of the model that may be its head, best first: the head of bipeds and four-legged models, then the
      * parts with a box about as wide as tall and deep (not legs, arms or rods), highest and most in front first.
      */
@@ -318,16 +478,24 @@ public final class MobIcons {
         if (knownIndex >= 0) {
             candidates.add(knownIndex);
         }
+        // Then the parts called a head (an ender dragon's head isn't its first part, nor its most cube-like).
+        for (int i = 0; i < model.boxList.size(); i++) {
+            Object o = model.boxList.get(i);
+            if (i != knownIndex && o instanceof ModelRenderer
+                && usableBoxes((ModelRenderer) o)
+                && ((ModelRenderer) o).boxName != null
+                && ((ModelRenderer) o).boxName.toLowerCase(Locale.ROOT)
+                    .contains("head")) {
+                candidates.add(i);
+            }
+        }
         List<float[]> scored = new ArrayList<>();
         for (int i = 0; i < model.boxList.size(); i++) {
             Object o = model.boxList.get(i);
-            if (i == knownIndex || !(o instanceof ModelRenderer)) {
+            if (candidates.contains(i) || !(o instanceof ModelRenderer) || !usableBoxes((ModelRenderer) o)) {
                 continue;
             }
             ModelRenderer part = (ModelRenderer) o;
-            if (part.cubeList == null || part.cubeList.isEmpty() || !(part.cubeList.get(0) instanceof ModelBox)) {
-                continue;
-            }
             ModelBox box = largest(part);
             float w = box.posX2 - box.posX1, h = box.posY2 - box.posY1, d = box.posZ2 - box.posZ1;
             float min = Math.min(w, Math.min(h, d)), max = Math.max(w, Math.max(h, d));
@@ -342,6 +510,56 @@ public final class MobIcons {
             candidates.add((int) s[0]);
         }
         return candidates;
+    }
+
+    private static boolean usableBoxes(ModelRenderer part) {
+        return part.cubeList != null && !part.cubeList.isEmpty() && part.cubeList.get(0) instanceof ModelBox;
+    }
+
+    /**
+     * The head and the parts moving with it as one piece: the second layer of a biped's head, a chicken's beak and
+     * wattle (parts of their own turning about the same point, lying in or against the head). Hidden together, or
+     * the head shows with holes or without them.
+     */
+    static List<ModelRenderer> group(ModelBase model, ModelRenderer head) {
+        List<ModelRenderer> group = new ArrayList<>();
+        if (head == null) {
+            return group;
+        }
+        group.add(head);
+        if (model instanceof ModelBiped && head == ((ModelBiped) model).bipedHead
+            && ((ModelBiped) model).bipedHeadwear != null) {
+            group.add(((ModelBiped) model).bipedHeadwear);
+        }
+        if (model == null || model.boxList == null || !usableBoxes(head)) {
+            return group;
+        }
+        ModelBox headBox = largest(head);
+        for (Object o : model.boxList) {
+            if (!(o instanceof ModelRenderer) || group.contains(o) || !usableBoxes((ModelRenderer) o)) {
+                continue;
+            }
+            ModelRenderer part = (ModelRenderer) o;
+            if (Math.abs(part.rotationPointX - head.rotationPointX) > 0.01f
+                || Math.abs(part.rotationPointY - head.rotationPointY) > 0.01f
+                || Math.abs(part.rotationPointZ - head.rotationPointZ) > 0.01f
+                || Math.abs(part.rotateAngleX - head.rotateAngleX) > 0.01f
+                || Math.abs(part.rotateAngleY - head.rotateAngleY) > 0.01f
+                || Math.abs(part.rotateAngleZ - head.rotateAngleZ) > 0.01f) {
+                continue;
+            }
+            ModelBox box = largest(part);
+            float margin = 1.5f;
+            float x = (box.posX1 + box.posX2) / 2, y = (box.posY1 + box.posY2) / 2, z = (box.posZ1 + box.posZ2) / 2;
+            if (x >= headBox.posX1 - margin && x <= headBox.posX2 + margin
+                && y >= headBox.posY1 - margin
+                && y <= headBox.posY2 + margin
+                && z >= headBox.posZ1 - margin
+                && z <= headBox.posZ2 + margin) {
+                group.add(part);
+            }
+        }
+        return group;
     }
 
     private static ModelBox largest(ModelRenderer part) {
@@ -567,9 +785,24 @@ public final class MobIcons {
      */
     static int[] shot(EntityLivingBase entity, float cx, float cy, float half, ModelRenderer hide,
         ModelRenderer hidePass) {
+        List<ModelRenderer> parts = new ArrayList<>();
+        if (hide != null) {
+            parts.add(hide);
+        }
+        if (hidePass != null) {
+            parts.add(hidePass);
+        }
+        return shot(entity, cx, cy, half, parts);
+    }
+
+    /** The same with all the given parts hidden. */
+    static int[] shot(EntityLivingBase entity, float cx, float cy, float half, List<ModelRenderer> hide) {
         Minecraft mc = Minecraft.getMinecraft();
         int previous = GL11.glGetInteger(FRAMEBUFFER_BINDING);
-        boolean hidden = hide != null && hide.isHidden, passHidden = hidePass != null && hidePass.isHidden;
+        boolean[] hidden = new boolean[hide.size()];
+        for (int i = 0; i < hidden.length; i++) {
+            hidden[i] = hide.get(i).isHidden;
+        }
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -612,11 +845,8 @@ public final class MobIcons {
             // Unlit: the skin's own colors, like its texture (lit as in the inventory, faces came out dark).
             RenderHelper.disableStandardItemLighting();
             GL11.glDisable(GL11.GL_LIGHTING);
-            if (hide != null) {
-                hide.isHidden = true;
-            }
-            if (hidePass != null) {
-                hidePass.isHidden = true;
+            for (ModelRenderer part : hide) {
+                part.isHidden = true;
             }
             RenderManager manager = RenderManager.instance;
             float viewY = manager.playerViewY;
@@ -639,11 +869,8 @@ public final class MobIcons {
         } catch (Throwable t) {
             return null;
         } finally {
-            if (hide != null) {
-                hide.isHidden = hidden;
-            }
-            if (hidePass != null) {
-                hidePass.isHidden = passHidden;
+            for (int i = 0; i < hidden.length; i++) {
+                hide.get(i).isHidden = hidden[i];
             }
             if (bound) {
                 Framebuffer game = mc.getFramebuffer();
@@ -752,6 +979,13 @@ public final class MobIcons {
                         renderPassModelField = field;
                         break;
                     }
+                }
+            }
+            for (Field field : ModelBox.class.getDeclaredFields()) {
+                if (field.getType() == TexturedQuad[].class) {
+                    field.setAccessible(true);
+                    quadListField = field;
+                    break;
                 }
             }
         } catch (Throwable t) {
