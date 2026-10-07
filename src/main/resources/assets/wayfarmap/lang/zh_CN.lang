@@ -171,8 +171,8 @@ wayfarmap.option.map.useTextureColors=纹理颜色
 wayfarmap.option.map.useTextureColors.desc=根据方块纹理为方块着色（支持资源包和模组）。关闭：使用原版地图颜色。将在区块重新扫描时生效。
 wayfarmap.option.map.seeThroughGlass=透过玻璃查看
 wayfarmap.option.map.seeThroughGlass.desc=显示玻璃下方的内容，并以玻璃颜色进行淡淡的染色。将在区块重新扫描时生效。
-wayfarmap.option.map.biomeColorContrast=生物群系颜色对比度
-wayfarmap.option.map.biomeColorContrast.desc=2D 地图上草、树叶和水的颜色饱和度与对比度（1.0 = 游戏原本的效果）。生物群系之间的过渡仍会保持平滑。将在区块重新扫描时生效。
+wayfarmap.option.map.biomeColorSaturation=生物群系颜色饱和度
+wayfarmap.option.map.biomeColorSaturation.desc=2D 地图上草、树叶和水的颜色饱和度与对比度（1.0 = 游戏原本的效果，更低更柔和，更高更鲜艳）。生物群系之间的过渡仍会保持平滑。将在区块重新扫描时生效。
 wayfarmap.option.map.isoPlayerModel=以 3D 模型显示玩家
 wayfarmap.option.map.isoPlayerModel.desc=在 3D 地图上以你的 3D 模型（皮肤、盔甲、行走动画、朝向）代替箭头显示你自己。
 wayfarmap.option.map.showPlants=草和花

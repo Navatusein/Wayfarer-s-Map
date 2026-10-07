@@ -192,8 +192,11 @@ public class Config {
     public static boolean useTextureColors = true;
     /** Clear glass shows what is under it, lightly tinted with the glass color. */
     public static boolean seeThroughGlass = true;
-    /** Saturation and contrast of biome-tinted colors on the 2D map (grass, leaves, water): 1 = the game's own. */
-    public static double biomeColorContrast = 1.3;
+    /**
+     * Saturation and contrast of biome-tinted colors on the 2D map (grass, leaves, water): 1 = the game's own, below 1
+     * more muted, above 1 more vivid.
+     */
+    public static double biomeColorSaturation = 1.0;
     /** Grass and flowers drawn on the flat map (off: the block under them shows, the "2D map without plants"). */
     public static boolean showPlants = true;
     public static int chunksScannedPerTick = 16;
@@ -610,15 +613,17 @@ public class Config {
             v -> seeThroughGlass = v);
         decimal(
             c,
-            "biomeColorContrast",
+            // Was "biomeColorContrast" with 1.3 by default, too bright: the new key starts saved configs at 1.0.
+            "biomeColorSaturation",
             "Saturation and contrast of biome-tinted colors (grass, leaves, water) on the 2D map: 1.0 = the game's "
-                + "own colors. Transitions between biomes stay smooth. Applies as chunks are rescanned.",
-            1.3,
+                + "own colors, lower is more muted, higher more vivid. Transitions between biomes stay smooth. "
+                + "Applies as chunks are rescanned.",
             1.0,
+            0.5,
             2.0,
             0.05,
-            () -> biomeColorContrast,
-            v -> biomeColorContrast = v);
+            () -> biomeColorSaturation,
+            v -> biomeColorSaturation = v);
         bool(
             c,
             "showPlants",
