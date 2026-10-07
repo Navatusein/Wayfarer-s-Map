@@ -25,13 +25,17 @@ import WayFarMap.share.ShareNetwork;
  * ({@code /wf regionload}'s way); picked "generate new", chunks never made are generated too.
  * <p>
  * Picked with Shift too, every cave layer of the chunks is mapped as well, not only the surface.
+ * <p>
+ * With the view's 3D switch on ({@link Config#chunkload3d}), the picked chunks go onto the 3D map too (shown in
+ * orange while queued), whether or not blocks are recorded while playing.
  */
 public final class ChunkLoadView {
 
-    private static final int NONE = 0, MAPPED = 1, PENDING = 2, SAVED = 3;
+    private static final int NONE = 0, MAPPED = 1, PENDING = 2, SAVED = 3, PENDING_3D = 4;
     private static final int SAVED_FILL = 0x8B949E, SAVED_BORDER = 0x6E7681;
     private static final int MAPPED_FILL = 0x3FB950, MAPPED_BORDER = 0x2EA043;
     private static final int PENDING_FILL = 0xE5534B, PENDING_BORDER = 0xFF5050;
+    private static final int PENDING_3D_FILL = 0xF0883E, PENDING_3D_BORDER = 0xFFA657;
     private static final int FILL_ALPHA = 80, PENDING_ALPHA = 120, BORDER_ALPHA = 230;
     /** Chunks a drag can pick at most (a square of this side). */
     public static final int MAX_SIDE = 128;
@@ -61,7 +65,7 @@ public final class ChunkLoadView {
 
     /** Colors of the view's legend: on the map, saved in the world, picked. */
     public static final int LEGEND_MAPPED = 0xFF000000 | MAPPED_FILL, LEGEND_SAVED = 0xFF000000 | SAVED_FILL,
-        LEGEND_PENDING = 0xFF000000 | PENDING_FILL;
+        LEGEND_PENDING = 0xFF000000 | PENDING_FILL, LEGEND_PENDING_3D = 0xFF000000 | PENDING_3D_FILL;
 
     public static boolean isAllowed() {
         return allowed;
@@ -76,6 +80,13 @@ public final class ChunkLoadView {
 
     /** Picked chunks of each dimension, with when they were sent: red until mapped after that. */
     private static final Map<Integer, Map<Long, Long>> PENDING_CHUNKS = new HashMap<>();
+    /** The pick each queued chunk came with ({@link ShareNetwork.LoadChunks#seq}), to know which ended with it. */
+    private static final Map<Long, Integer> PENDING_SEQ = new HashMap<>();
+    /**
+     * Number of the last pick sent. Started from the clock in seconds so it keeps growing across games: the server
+     * tells back the picks a loading took when it ends.
+     */
+    private static int seq;
 
     private ChunkLoadView() {}
 
@@ -112,16 +123,20 @@ public final class ChunkLoadView {
         }
         Map<Long, Long> pending = PENDING_CHUNKS.computeIfAbsent(dimension, d -> new HashMap<>());
         long now = System.currentTimeMillis();
+        seq = Math.max(seq + 1, (int) (now / 1000));
+        boolean with3d = Config.chunkload3d;
         // The far view shows the change at once.
         REGION_STATES.clear();
         for (long chunk : chunks) {
             if (remove) {
                 pending.remove(chunk);
+                PENDING_SEQ.remove(chunk);
                 WITH_3D.remove(chunk);
                 WITH_CAVES.remove(chunk);
             } else {
                 pending.put(chunk, now);
-                if (Config.record3d) {
+                PENDING_SEQ.put(chunk, seq);
+                if (with3d) {
                     WITH_3D.add(chunk);
                 } else {
                     WITH_3D.remove(chunk);
@@ -140,7 +155,7 @@ public final class ChunkLoadView {
         }
         for (int from = 0; from < all.length; from += ShareNetwork.LoadChunks.MAX) {
             long[] part = Arrays.copyOfRange(all, from, Math.min(all.length, from + ShareNetwork.LoadChunks.MAX));
-            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, Config.record3d, regions, part));
+            ShareNetwork.sendToServer(new ShareNetwork.LoadChunks(remove, with3d, regions, seq, part));
         }
     }
 
@@ -200,7 +215,7 @@ public final class ChunkLoadView {
                             cell * (i - start),
                             cell,
                             fill(s),
-                            s == PENDING ? PENDING_ALPHA : FILL_ALPHA,
+                            isPending(s) ? PENDING_ALPHA : FILL_ALPHA,
                             x,
                             y,
                             width,
@@ -215,7 +230,7 @@ public final class ChunkLoadView {
                     if (s == NONE) {
                         continue;
                     }
-                    int color = s == PENDING ? PENDING_BORDER : s == SAVED ? SAVED_BORDER : MAPPED_BORDER;
+                    int color = border(s);
                     double sx = x + ((minX - 1 + i) * 16 - left) * scale;
                     double sy = y + ((minZ - 1 + j) * 16 - top) * scale;
                     if (state[(j - 1) * w + i] != s) {
@@ -277,8 +292,8 @@ public final class ChunkLoadView {
                                 sy,
                                 Math.max(pixel, cell * (lx - start)),
                                 Math.max(pixel, cell),
-                                st == PENDING ? PENDING_BORDER : fill(st),
-                                st == PENDING ? BORDER_ALPHA : FILL_ALPHA + 40,
+                                isPending(st) ? border(st) : fill(st),
+                                isPending(st) ? BORDER_ALPHA : FILL_ALPHA + 40,
                                 x,
                                 y,
                                 width,
@@ -292,7 +307,8 @@ public final class ChunkLoadView {
             }
         }
         if (selection != null && !selection.isEmpty()) {
-            int color = removing ? DELETE_BORDER : caves ? CAVES_BORDER : PENDING_BORDER;
+            int color = removing ? DELETE_BORDER
+                : caves ? CAVES_BORDER : Config.chunkload3d ? PENDING_3D_BORDER : PENDING_BORDER;
             for (long chunk : selection) {
                 double sx = x + (unpackX(chunk) * 16 - left) * scale, sy = y + (unpackZ(chunk) * 16 - top) * scale;
                 if (cancelling) {
@@ -374,11 +390,13 @@ public final class ChunkLoadView {
         if (!pending.isEmpty()) {
             Long picked = pending.get(pack(chunkX, chunkZ));
             if (picked != null) {
-                if (time > picked && !WITH_3D.contains(pack(chunkX, chunkZ))
-                    && !WITH_CAVES.contains(pack(chunkX, chunkZ))) {
-                    pending.remove(pack(chunkX, chunkZ));
+                long key = pack(chunkX, chunkZ);
+                boolean with3d = WITH_3D.contains(key);
+                if (time > picked && !with3d && !WITH_CAVES.contains(key)) {
+                    pending.remove(key);
+                    PENDING_SEQ.remove(key);
                 } else {
-                    return PENDING;
+                    return with3d ? PENDING_3D : PENDING;
                 }
             }
         }
@@ -389,7 +407,17 @@ public final class ChunkLoadView {
     }
 
     private static int fill(int state) {
-        return state == PENDING ? PENDING_FILL : state == SAVED ? SAVED_FILL : MAPPED_FILL;
+        return state == PENDING ? PENDING_FILL
+            : state == PENDING_3D ? PENDING_3D_FILL : state == SAVED ? SAVED_FILL : MAPPED_FILL;
+    }
+
+    private static int border(int state) {
+        return state == PENDING ? PENDING_BORDER
+            : state == PENDING_3D ? PENDING_3D_BORDER : state == SAVED ? SAVED_BORDER : MAPPED_BORDER;
+    }
+
+    private static boolean isPending(int state) {
+        return state == PENDING || state == PENDING_3D;
     }
 
     /** Whether the server said the chunk is saved in the world (region loading view); false if not known yet. */
@@ -464,8 +492,31 @@ public final class ChunkLoadView {
             // The far view shows it green at once.
             REGION_STATES.clear();
         }
+        PENDING_SEQ.remove(pack(chunkX, chunkZ));
         WITH_3D.remove(pack(chunkX, chunkZ));
         WITH_CAVES.remove(pack(chunkX, chunkZ));
+    }
+
+    /**
+     * The loading of the picks up to {@code upTo} ended (finished, stopped or replaced): their chunks still queued
+     * are no longer waited for, in every dimension. Chunks picked since (on their way to the server) stay.
+     */
+    public static void ended(int upTo) {
+        for (Map<Long, Long> pending : PENDING_CHUNKS.values()) {
+            java.util.Iterator<Long> it = pending.keySet()
+                .iterator();
+            while (it.hasNext()) {
+                long chunk = it.next();
+                Integer picked = PENDING_SEQ.get(chunk);
+                if (picked == null || picked <= upTo) {
+                    it.remove();
+                    PENDING_SEQ.remove(chunk);
+                    WITH_3D.remove(chunk);
+                    WITH_CAVES.remove(chunk);
+                }
+            }
+        }
+        REGION_STATES.clear();
     }
 
     /** Whether the chunk was picked with its cave layers (they are mapped along with the surface). */
@@ -473,7 +524,6 @@ public final class ChunkLoadView {
         return WITH_CAVES.contains(pack(chunkX, chunkZ));
     }
 
-    /** Picked chunks still waiting, for the footer. */
     /**
      * Forgets the chunks picked in a dimension: a new loading of the whole area ({@code /wf regionload full}) takes
      * the place of the one they were in.
@@ -482,6 +532,7 @@ public final class ChunkLoadView {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
         if (pending != null) {
             for (long chunk : pending.keySet()) {
+                PENDING_SEQ.remove(chunk);
                 WITH_3D.remove(chunk);
                 WITH_CAVES.remove(chunk);
             }
@@ -504,6 +555,21 @@ public final class ChunkLoadView {
         return false;
     }
 
+    /** How many of the chunks are queued to be loaded. */
+    public static int countPending(int dimension, Set<Long> chunks) {
+        Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
+        if (pending == null || pending.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (long chunk : chunks) {
+            if (pending.containsKey(chunk)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     /** How many of the chunks are on the map (or may be: their region isn't read yet). */
     public static int countOnMap(MapDimension surface, Set<Long> chunks) {
         if (surface == null) {
@@ -523,9 +589,30 @@ public final class ChunkLoadView {
         REGION_STATES.clear();
     }
 
+    /** Picked chunks still waiting, for the footer and the toolbar. */
     public static int pendingCount(int dimension) {
         Map<Long, Long> pending = PENDING_CHUNKS.get(dimension);
         return pending == null ? 0 : pending.size();
+    }
+
+    /** Picked chunks still waiting in any dimension (the Stop button is offered while there are). */
+    public static int pendingCountAll() {
+        int count = 0;
+        for (Map<Long, Long> pending : PENDING_CHUNKS.values()) {
+            count += pending.size();
+        }
+        return count;
+    }
+
+    /** How many of the chunks a "saved only" pick would take (those saved in the world). */
+    public static int countSaved(int dimension, Set<Long> chunks) {
+        int count = 0;
+        for (long chunk : chunks) {
+            if (isSaved(dimension, unpackX(chunk), unpackZ(chunk))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** The chunks of the rectangle between two chunks (capped to {@link #MAX_SIDE} a side). */

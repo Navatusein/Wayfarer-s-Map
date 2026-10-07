@@ -3,12 +3,18 @@ package WayFarMap.client.gui.ui;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiTextField;
 
-/** Text field drawn as a flat box, with an optional grey hint while it is empty. */
+import WayFarMap.Config;
+
+/**
+ * Text field drawn as a flat box, with an optional grey hint while it is empty. A right click on it clears its text
+ * (see {@link Config#rightClickClearsText}).
+ */
 public class FlatTextField extends GuiTextField {
 
     private final FontRenderer font;
     public final int boxX, boxY, boxWidth, boxHeight;
     private String hint = "";
+    private Runnable onCleared;
 
     public FlatTextField(FontRenderer font, int x, int y, int width, int height) {
         // The vanilla field only draws the text; the box around it is drawn here.
@@ -26,6 +32,12 @@ public class FlatTextField extends GuiTextField {
         return this;
     }
 
+    /** Called after a right click cleared the text, so the screen can follow it (a search, a check). */
+    public FlatTextField setOnCleared(Runnable onCleared) {
+        this.onCleared = onCleared;
+        return this;
+    }
+
     public boolean isMouseOver(int mouseX, int mouseY) {
         return Theme.inside(mouseX, mouseY, boxX, boxY, boxX + boxWidth, boxY + boxHeight);
     }
@@ -36,6 +48,13 @@ public class FlatTextField extends GuiTextField {
             // Clamp into the text area so clicks anywhere in the box focus the field.
             int textY = boxY + (boxHeight - 8) / 2 + 4;
             super.mouseClicked(Math.max(boxX + 4, Math.min(boxX + boxWidth - 5, mouseX)), textY, button);
+            if (button == 1 && Config.rightClickClearsText && !getText().isEmpty()) {
+                setText("");
+                setFocused(true);
+                if (onCleared != null) {
+                    onCleared.run();
+                }
+            }
         } else {
             super.mouseClicked(mouseX, mouseY, button);
         }

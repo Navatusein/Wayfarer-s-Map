@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 
 /**
@@ -161,6 +162,21 @@ public final class IsoLog {
         writer.start();
         thread = writer;
         WayFarMap.LOG.info("3D map log: {}", target);
+        Perf.reset();
+        Perf.on = true;
+        lastPerf = System.currentTimeMillis();
+        lastPerfNanos = System.nanoTime();
+        THREAD_CPU.clear();
+        THREAD_TOTALS.clear();
+        FRESH_TIMES.clear();
+        LEVEL_COUNTS.clear();
+        LEVEL_TIMES.clear();
+        synchronized (FRESH_ATTEMPTS) {
+            FRESH_ATTEMPTS.clear();
+        }
+        FaceRenderer.kindStats()
+            .clear();
+        perfStart = System.nanoTime();
         Runtime runtime = Runtime.getRuntime();
         line(
             "START world=" + worldDirectory
@@ -190,6 +206,23 @@ public final class IsoLog {
                 + "finish drawing too), storing sprites. STALL: no client tick for a while. STATS every second while "
                 + "busy, SUMMARY every 5 minutes and at the end (with the kinds of blocks whose pictures cost most).");
         line(
+            "LEGEND PERF every 5 seconds: frames per second and how long frames took, client ticks per second and "
+                + "their time, the integrated server's ticks per second and milliseconds per tick (single player), "
+                + "the mod's parts per frame / tick / server tick (ms each on average, share of that time, slowest), "
+                + "cpu% of the mod's threads and the game's own (100 = one core busy), chunks put on the 3D map per "
+                + "second and how long new ones took, pictures[reused/drawn] blocks given pictures from a cache or "
+                + "drawn. BOTTLENECK in each SUMMARY: what costs most and what to change.");
+        line(
+            "LEGEND pictures learned by kind (a block open on the same sides next to the same blocks): after "
+                + "3 times alike, the next ones are not drawn (every 16th is, to check); KIND_UNRELIABLE when a "
+                + "kind gave other pictures (drawn every time from then on). Also by block alone (whatever is next "
+                + "to it): after 6 alike in 3 kinds of places, for blocks inside their cell (detached: plants) or "
+                + "all empty (ores); BLOCK_UNRELIABLE when not. Alike = the same, or for a detached block about the "
+                + "same coverage and color (plants moved a little from place to place). In each SUMMARY: learned "
+                + "pictures (per kind reused/drawn/drawnEmpty/confirmed/conflicts/alike/reusedByBlock/"
+                + "blockConflicts), tiles per level of the 3D view (queued with nothing yet / only out of date, "
+                + "drawn, drawing times), copies per new chunk (more than one = pictures not all taken at once).");
+        line(
             "LEGEND tiles of the 3D view: VIEW_START (the view opened, zoomed, turned or moved to another dimension) "
                 + "-> TILE_QUEUED -> TILE_DONE (a renderer made it: disk=what reading its saved file gave, "
                 + "chunks=where the rays found blocks: store (3D blocks) / none, "
@@ -208,6 +241,7 @@ public final class IsoLog {
             return;
         }
         summary("END");
+        Perf.on = false;
         LINES.add("\u0000");
         try {
             writer.join(5000);
@@ -439,6 +473,8 @@ public final class IsoLog {
         }
         long key = key(cx, cz);
         long now = System.nanoTime();
+        picturesReused.addAndGet(FaceRenderer.kindHit + FaceRenderer.surroundingsHit + FaceRenderer.placeHit);
+        picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
         Trace trace = TRACES.get(key);
         if (trace == null) {
             trace = new Trace(cx, cz);
@@ -524,6 +560,8 @@ public final class IsoLog {
                     + FaceRenderer.surroundingsHit
                     + " sharedInChunk="
                     + FaceRenderer.surroundingsShared
+                    + " kindHit="
+                    + FaceRenderer.kindHit
                     + "] batches="
                     + FaceRenderer.batches
                     + " slots="
@@ -550,6 +588,8 @@ public final class IsoLog {
                     + ms(FaceRenderer.unshadeNanos)
                     + " idMs="
                     + ms(FaceRenderer.idNanos)
+                    + " learnMs="
+                    + ms(FaceRenderer.learnNanos)
                     + "] skippable[expiredSame="
                     + FaceRenderer.expiredSame
                     + " expiredDiffer="
@@ -740,6 +780,21 @@ public final class IsoLog {
         if (DONE.size() < MAX_DONE) {
             DONE.add(phases);
             DONE_NAMES.add(t.cx + "," + t.cz + " " + t.reason);
+        }
+        if ("fresh".equals(t.reason)) {
+            freshStored.incrementAndGet();
+            synchronized (FRESH_ATTEMPTS) {
+                if (FRESH_ATTEMPTS.size() < 200_000) {
+                    FRESH_ATTEMPTS.add(t.captures);
+                }
+            }
+            synchronized (FRESH_TIMES) {
+                if (FRESH_TIMES.size() < 100_000) {
+                    FRESH_TIMES.add(phases[0]);
+                }
+            }
+        } else {
+            againStored.incrementAndGet();
         }
     }
 
@@ -1003,7 +1058,19 @@ public final class IsoLog {
     static void tileQueued(IsoTiles.Key key, boolean stale, int queueSize) {
         if (on()) {
             line("TILE_QUEUED " + tile(key) + (stale ? " stale" : " new") + " queue=" + queueSize);
+            levelStats(key.level)[stale ? 1 : 0]++;
         }
+    }
+
+    /**
+     * Per level of the 3D view: tiles queued with nothing to show yet, queued only out of date, drawn, and their
+     * drawing times (ms) for percentiles.
+     */
+    private static final Map<Integer, long[]> LEVEL_COUNTS = new ConcurrentHashMap<>();
+    private static final Map<Integer, List<Long>> LEVEL_TIMES = new ConcurrentHashMap<>();
+
+    private static long[] levelStats(int level) {
+        return LEVEL_COUNTS.computeIfAbsent(level, k -> new long[3]);
     }
 
     /** What one tile renderer met while making a tile (its own thread). */
@@ -1115,6 +1182,11 @@ public final class IsoLog {
         boolean empty = pixels == null;
         tilesDrawn.incrementAndGet();
         tileNanos.addAndGet(nanos);
+        levelStats(key.level)[2]++;
+        List<Long> times = LEVEL_TIMES.computeIfAbsent(key.level, k -> Collections.synchronizedList(new ArrayList<>()));
+        if (times.size() < 50_000) {
+            times.add(nanos / 1_000_000);
+        }
         if ("disk".equals(source)) {
             tilesFromDisk.incrementAndGet();
         }
@@ -1500,6 +1572,10 @@ public final class IsoLog {
                     + " heapUsedMB="
                     + ((runtime.totalMemory() - runtime.freeMemory()) >> 20));
         }
+        if (now - lastPerf >= PERF_MS) {
+            lastPerf = now;
+            perf();
+        }
         if (lastSummary == 0) {
             lastSummary = now;
         } else if (now - lastSummary >= 300_000) {
@@ -1522,6 +1598,434 @@ public final class IsoLog {
         return text;
     }
 
+    // ---------------------------------------------------------------- performance
+
+    /** How often a PERF line is written. */
+    private static final long PERF_MS = 5000;
+    private static long lastPerf, lastPerfNanos, perfStart;
+    /** Each thread's CPU time when last looked at, and each group of threads' CPU time since the log started. */
+    private static final Map<Long, Long> THREAD_CPU = new ConcurrentHashMap<>();
+    private static final Map<String, Long> THREAD_TOTALS = new ConcurrentHashMap<>();
+    /** Chunks put on the 3D map since the last PERF line: new ones and ones copied again; how long new ones took. */
+    private static final AtomicLong freshStored = new AtomicLong(), againStored = new AtomicLong();
+    /** Blocks given pictures from a cache (by kind, surroundings or place) and blocks drawn, since the last PERF. */
+    private static final AtomicLong picturesReused = new AtomicLong(), picturesDrawn = new AtomicLong();
+    private static final List<Long> FRESH_TIMES = new ArrayList<>();
+
+    /** One decimal. */
+    private static String f1(double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    /** Percent of {@code part} in {@code whole}, no decimals. */
+    private static String share(long part, long whole) {
+        return whole <= 0 ? "-" : Math.round(part * 100.0 / whole) + "%";
+    }
+
+    /**
+     * PERF: frames and ticks and what the mod took of them, the threads' CPU, and how fast chunks get onto the 3D
+     * map, since the last one.
+     */
+    private static void perf() {
+        long nanos = System.nanoTime();
+        double seconds = Math.max(0.001, (nanos - lastPerfNanos) / 1e9);
+        lastPerfNanos = nanos;
+        Perf.Sample sample = Perf.take();
+        StringBuilder b = new StringBuilder("PERF");
+        long[] frames = sample.frames, ticks = sample.ticks, server = sample.serverTicks;
+        b.append(" fps=")
+            .append(f1(frames[0] / seconds));
+        if (frames[0] > 0) {
+            b.append(" frameMs[avg=")
+                .append(ms(frames[1] / frames[0]))
+                .append(" p50=")
+                .append(ms(frames[3]))
+                .append(" p95=")
+                .append(ms(frames[4]))
+                .append(" p99=")
+                .append(ms(frames[5]))
+                .append(" max=")
+                .append(ms(frames[2]))
+                .append(']');
+        }
+        b.append(" clientTps=")
+            .append(f1(ticks[0] / seconds));
+        if (ticks[0] > 0) {
+            b.append(" tickMs[avg=")
+                .append(ms(ticks[1] / ticks[0]))
+                .append(" p95=")
+                .append(ms(ticks[4]))
+                .append(" max=")
+                .append(ms(ticks[2]))
+                .append(']');
+        }
+        if (server[0] > 0) {
+            // Single player: the game's own server, in the same process.
+            b.append(" serverTps=")
+                .append(f1(Math.min(20, server[0] / seconds)))
+                .append(" mspt[avg=")
+                .append(ms(server[1] / server[0]))
+                .append(" p95=")
+                .append(ms(server[4]))
+                .append(" max=")
+                .append(ms(server[2]))
+                .append(']');
+        }
+        parts(b, sample, Perf.Where.FRAME, " frame:", frames);
+        parts(b, sample, Perf.Where.TICK, " tick:", ticks);
+        parts(b, sample, Perf.Where.SERVER, " server:", server);
+        b.append(threadCpu(nanos - perfStart, seconds));
+        long reused = picturesReused.getAndSet(0), drawnBlocks = picturesDrawn.getAndSet(0);
+        if (reused + drawnBlocks > 0) {
+            b.append(" pictures[reused=")
+                .append(reused)
+                .append(" drawn=")
+                .append(drawnBlocks)
+                .append(" saved=")
+                .append(share(reused, reused + drawnBlocks))
+                .append(']');
+        }
+        long fresh = freshStored.getAndSet(0), again = againStored.getAndSet(0);
+        b.append(" chunks/s[new=")
+            .append(f1(fresh / seconds))
+            .append(" again=")
+            .append(f1(again / seconds))
+            .append(']');
+        List<Long> times;
+        synchronized (FRESH_TIMES) {
+            times = new ArrayList<>(FRESH_TIMES);
+            FRESH_TIMES.clear();
+        }
+        if (!times.isEmpty()) {
+            Collections.sort(times);
+            b.append(" newChunkMs[p50=")
+                .append(ms(times.get(times.size() / 2)))
+                .append(" p90=")
+                .append(ms(times.get(times.size() * 9 / 10)))
+                .append(" max=")
+                .append(ms(times.get(times.size() - 1)))
+                .append(']');
+        }
+        line(b.toString());
+    }
+
+    /**
+     * The mod's parts that ran in frames, ticks or server ticks: ms per frame (or tick) on average, their share of
+     * the time those took, and the slowest single run; parts inside another in brackets after it.
+     */
+    private static void parts(StringBuilder b, Perf.Sample sample, Perf.Where where, String title, long[] span) {
+        StringBuilder parts = new StringBuilder();
+        for (Perf.Part part : Perf.Part.values()) {
+            if (part.where != where || part.inside != null) {
+                continue;
+            }
+            appendPart(parts, sample, part, span);
+            StringBuilder inner = new StringBuilder();
+            for (Perf.Part child : Perf.Part.values()) {
+                if (child.inside == part || (child.inside != null && child.inside.inside == part)) {
+                    appendPart(inner, sample, child, span);
+                }
+            }
+            if (inner.length() > 0) {
+                parts.append(" [")
+                    .append(inner.toString()
+                        .trim())
+                    .append(']');
+            }
+        }
+        if (parts.length() > 0) {
+            b.append(title)
+                .append(parts);
+        }
+    }
+
+    private static void appendPart(StringBuilder b, Perf.Sample sample, Perf.Part part, long[] span) {
+        long[] measured = sample.parts[part.ordinal()];
+        if (measured[1] == 0) {
+            return;
+        }
+        // Per frame or tick of the game (not per run): what it costs each one on average.
+        long per = span[0] > 0 ? measured[0] / span[0] : measured[0] / measured[1];
+        b.append(' ')
+            .append(part.label)
+            .append('=')
+            .append(ms(per))
+            .append("ms(")
+            .append(share(measured[0], span[1]))
+            .append(" max=")
+            .append(ms(measured[2]))
+            .append(')');
+    }
+
+    /** cpu%[...]: the mod's threads (renderers counted together) and the game's own, of one core each. */
+    private static String threadCpu(long sinceStart, double seconds) {
+        java.lang.management.ThreadMXBean bean = java.lang.management.ManagementFactory.getThreadMXBean();
+        if (!bean.isThreadCpuTimeSupported() || !bean.isThreadCpuTimeEnabled()) {
+            return "";
+        }
+        Map<String, Long> groups = new java.util.TreeMap<>();
+        java.util.Set<Long> alive = new java.util.HashSet<>();
+        for (long id : bean.getAllThreadIds()) {
+            java.lang.management.ThreadInfo info = bean.getThreadInfo(id);
+            if (info == null) {
+                continue;
+            }
+            String group = threadGroup(info.getThreadName());
+            long cpu = bean.getThreadCpuTime(id);
+            if (group == null || cpu < 0) {
+                continue;
+            }
+            alive.add(id);
+            Long before = THREAD_CPU.put(id, cpu);
+            long used = before == null ? 0 : cpu - before;
+            groups.merge(group, used, Long::sum);
+            THREAD_TOTALS.merge(group, used, Long::sum);
+        }
+        THREAD_CPU.keySet()
+            .retainAll(alive);
+        StringBuilder b = new StringBuilder(" cpu%[");
+        boolean first = true;
+        for (Map.Entry<String, Long> group : groups.entrySet()) {
+            if (!first) {
+                b.append(' ');
+            }
+            first = false;
+            b.append(
+                group.getKey()
+                    .replace(' ', '_'))
+                .append('=')
+                .append(Math.round(group.getValue() / 1e9 / seconds * 100));
+        }
+        return b.append(" cores=")
+            .append(
+                Runtime.getRuntime()
+                    .availableProcessors())
+            .append(']')
+            .toString();
+    }
+
+    /** The group a thread is counted in: the mod's by name (its numbered ones together), the game's main ones. */
+    private static String threadGroup(String name) {
+        if (name.startsWith("WayFarMap ")) {
+            return name.substring("WayFarMap ".length())
+                .replaceAll(" \\d+$", "");
+        }
+        if (name.equals("Client thread")) {
+            return "game";
+        }
+        if (name.equals("Server thread")) {
+            return "game server";
+        }
+        return null;
+    }
+
+    /**
+     * BOTTLENECK: since the log started, what of the mod costs frames, ticks and the server most, its threads'
+     * CPU, which wait new chunks spend longest in, and what to change for each.
+     */
+    private static void bottleneck(String title, List<long[]> all, List<String> names) {
+        long[][] totals = Perf.totals();
+        long[] frames = totals[0], ticks = totals[1], server = totals[2], parts = totals[3];
+        double seconds = Math.max(0.001, (System.nanoTime() - perfStart) / 1e9);
+        String t = title + " BOTTLENECK";
+        line(
+            t + " over " + Math.round(seconds) + "s: fps=" + f1(frames[0] / seconds)
+                + " avgFrameMs="
+                + (frames[0] == 0 ? "-" : ms(frames[1] / frames[0]))
+                + " clientTps="
+                + f1(ticks[0] / seconds)
+                + " avgTickMs="
+                + (ticks[0] == 0 ? "-" : ms(ticks[1] / ticks[0]))
+                + (server[0] == 0 ? ""
+                    : " serverTps=" + f1(Math.min(20, server[0] / seconds)) + " avgMspt=" + ms(server[1] / server[0])));
+        // The mod's share of each, from its top parts (the ones inside others are in them).
+        long[] spans = { frames[1], ticks[1], server[1] };
+        long[] counts = { frames[0], ticks[0], server[0] };
+        String[] whats = { "frame time", "client tick time", "server tick time" };
+        List<Perf.Part> ranked = new ArrayList<>(Arrays.asList(Perf.Part.values()));
+        ranked.sort((a, b) -> Long.compare(parts[b.ordinal()], parts[a.ordinal()]));
+        for (Perf.Where where : Perf.Where.values()) {
+            long mod = 0;
+            StringBuilder top = new StringBuilder();
+            for (Perf.Part part : ranked) {
+                if (part.where != where || parts[part.ordinal()] == 0) {
+                    continue;
+                }
+                if (part.inside == null) {
+                    mod += parts[part.ordinal()];
+                }
+                long count = counts[where.ordinal()];
+                top.append(' ')
+                    .append(part.label)
+                    .append('=')
+                    .append(count == 0 ? "-" : ms(parts[part.ordinal()] / count))
+                    .append("ms(")
+                    .append(share(parts[part.ordinal()], spans[where.ordinal()]))
+                    .append(')');
+            }
+            if (mod > 0) {
+                line(
+                    t + "   mod's share of " + whats[where.ordinal()] + ": "
+                        + share(mod, spans[where.ordinal()])
+                        + " - by part:"
+                        + top);
+            }
+        }
+        if (!THREAD_TOTALS.isEmpty()) {
+            StringBuilder cpu = new StringBuilder(t + "   threads' cpu (100% = one core) of "
+                + Runtime.getRuntime()
+                    .availableProcessors()
+                + " cores:");
+            List<Map.Entry<String, Long>> groups = new ArrayList<>(THREAD_TOTALS.entrySet());
+            groups.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+            for (Map.Entry<String, Long> group : groups) {
+                cpu.append(' ')
+                    .append(
+                        group.getKey()
+                            .replace(' ', '_'))
+                    .append('=')
+                    .append(Math.round(group.getValue() / 1e9 / seconds * 100))
+                    .append('%');
+            }
+            line(cpu.toString());
+        }
+        String wait = slowestWait(all, names);
+        if (wait != null) {
+            line(t + "   new chunks wait longest in: " + wait);
+        }
+        for (String advice : advice(frames, ticks, server, parts, seconds, wait)) {
+            line(t + "   ADVICE " + advice);
+        }
+    }
+
+    /** The phase new chunks spend longest in (by its median), with its share of their whole way, or null. */
+    private static String slowestWait(List<long[]> all, List<String> names) {
+        // The waits between steps and the steps themselves; not "total" (0) or the copying's CPU (6, inside 5).
+        int[] phases = { 1, 2, 3, 4, 5, 7, 8 };
+        String best = null;
+        long bestMedian = -1, totalMedian = 0;
+        List<Long> totals = new ArrayList<>();
+        for (int i = 0; i < all.size(); i++) {
+            if (names.get(i)
+                .endsWith(" fresh")) {
+                totals.add(all.get(i)[0]);
+            }
+        }
+        for (int p : phases) {
+            List<Long> values = new ArrayList<>();
+            for (int i = 0; i < all.size(); i++) {
+                long[] row = all.get(i);
+                if (names.get(i)
+                    .endsWith(" fresh") && row[p] >= 0) {
+                    values.add(row[p]);
+                }
+            }
+            if (values.isEmpty()) {
+                continue;
+            }
+            Collections.sort(values);
+            long median = values.get(values.size() / 2);
+            if (median > bestMedian) {
+                bestMedian = median;
+                best = PHASES[p];
+            }
+        }
+        if (best == null) {
+            return null;
+        }
+        if (!totals.isEmpty()) {
+            Collections.sort(totals);
+            totalMedian = totals.get(totals.size() / 2);
+        }
+        return best + " (median " + ms(bestMedian) + "ms of " + ms(totalMedian) + "ms from seen to stored)";
+    }
+
+    /** What to change, from what costs most. */
+    private static List<String> advice(long[] frames, long[] ticks, long[] server, long[] parts, double seconds,
+        String wait) {
+        List<String> advice = new ArrayList<>();
+        long frameCount = Math.max(1, frames[0]), tickCount = Math.max(1, ticks[0]);
+        double capture = parts[Perf.Part.CAPTURE_3D.ordinal()] / 1e6 / tickCount;
+        double scan = parts[Perf.Part.SCAN_2D.ordinal()] / 1e6 / tickCount;
+        double minimap = parts[Perf.Part.MINIMAP.ordinal()] / 1e6 / frameCount;
+        double markers = parts[Perf.Part.MARKERS.ordinal()] / 1e6 / frameCount;
+        double upload = parts[Perf.Part.ISO_UPLOAD.ordinal()] / 1e6 / frameCount;
+        double isoDraw = parts[Perf.Part.ISO_DRAW.ordinal()] / 1e6 / frameCount;
+        double items = parts[Perf.Part.ITEM_PICTURES.ordinal()] / 1e6 / frameCount;
+        if (capture > 4) {
+            advice.add(
+                "copying blocks for the 3D map takes " + f1(capture)
+                    + "ms a tick: lower isoCaptureMs (now "
+                    + Config.isoCaptureMs
+                    + ") for more FPS/TPS, new chunks come slower");
+        }
+        if (scan > 3) {
+            advice.add(
+                "scanning chunks for the 2D map takes " + f1(scan)
+                    + "ms a tick: lower chunksScannedPerTick (now "
+                    + Config.chunksScannedPerTick
+                    + ")");
+        }
+        if (isoDraw > 4) {
+            advice.add(
+                "the 3D view takes " + f1(isoDraw)
+                    + "ms a frame (uploads "
+                    + f1(upload)
+                    + "ms): lower isoQuality (now "
+                    + Config.isoQuality
+                    + ") or turn isoSmooth off (now "
+                    + Config.isoSmooth
+                    + ")");
+        }
+        if (minimap > 2) {
+            advice.add(
+                "the minimap takes " + f1(minimap) + "ms a frame: a smaller minimap or zoom, fewer mob icons");
+        }
+        if (markers > 2) {
+            advice.add(
+                "markers in the world take " + f1(markers)
+                    + "ms a frame: fewer waypoints shown (groups hidden, max distance) or beams off");
+        }
+        if (items > 1) {
+            advice.add("waypoint icon pictures take " + f1(items) + "ms a frame (only while new icons are taken)");
+        }
+        long chunkload = parts[Perf.Part.CHUNKLOAD.ordinal()];
+        if (server[0] > 0 && chunkload / 1e6 / server[0] > 10) {
+            advice.add(
+                "chunk loading (/wf chunkload, regionload) takes " + f1(chunkload / 1e6 / server[0])
+                    + "ms of each server tick: it is what costs TPS while it runs");
+        }
+        long renderers = THREAD_TOTALS.getOrDefault("3D renderer", 0L);
+        int cores = Runtime.getRuntime()
+            .availableProcessors();
+        if (renderers / 1e9 / seconds > Math.max(1, cores - 2)) {
+            advice.add(
+                "the 3D renderers use " + Math.round(renderers / 1e9 / seconds * 100)
+                    + "% CPU of "
+                    + cores
+                    + " cores: they may slow the game; lower isoQuality or isoSmooth off");
+        }
+        if (wait != null) {
+            if (wait.startsWith("settle")) {
+                advice.add(
+                    "new chunks wait most for the game to finish them (neighbours loaded, decorated): that is the "
+                        + "game's chunk loading, not the mod");
+            } else if (wait.startsWith("settled->scan") || wait.startsWith("scan->queue")) {
+                advice.add("new chunks wait most for the scanner: raise chunksScannedPerTick (costs a little TPS)");
+            } else if (wait.startsWith("queue->capture") || wait.startsWith("capturing")) {
+                advice.add(
+                    "new chunks wait most to be copied: raise isoCaptureMs (now " + Config.isoCaptureMs
+                        + ", costs FPS/TPS); 'capturing' long = copied again for pictures still missing");
+            } else if (wait.startsWith("submit->writer") || wait.startsWith("writer")) {
+                advice.add("new chunks wait most for the writer thread: the disk or the CPU is the limit");
+            }
+        }
+        if (advice.isEmpty()) {
+            advice.add("nothing of the mod stands out");
+        }
+        return advice;
+    }
+
     // ---------------------------------------------------------------- summaries
 
     private static void summary(String title) {
@@ -1532,7 +2036,11 @@ public final class IsoLog {
             names = new ArrayList<>(DONE_NAMES);
         }
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
+        bottleneck(title, all, names);
         tileSummary(title);
+        levelSummary(title);
+        attemptSummary(title);
+        kindSummary(title);
         blockSummary(title);
         changeSummary(title);
         BlockDiag.fallbackSummary(title);
@@ -1565,6 +2073,136 @@ public final class IsoLog {
                     + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** Per level of the 3D view: tiles with nothing yet / only out of date queued, drawn, and drawing times. */
+    private static void levelSummary(String title) {
+        List<Integer> levels = new ArrayList<>(LEVEL_COUNTS.keySet());
+        Collections.sort(levels);
+        for (int level : levels) {
+            long[] c = LEVEL_COUNTS.get(level);
+            StringBuilder b = new StringBuilder(title).append(" tiles L")
+                .append(level)
+                .append(": queuedMissing=")
+                .append(c[0])
+                .append(" queuedRefresh=")
+                .append(c[1])
+                .append(" drawn=")
+                .append(c[2]);
+            List<Long> times = LEVEL_TIMES.get(level);
+            if (times != null && !times.isEmpty()) {
+                List<Long> sorted;
+                synchronized (times) {
+                    sorted = new ArrayList<>(times);
+                }
+                Collections.sort(sorted);
+                long sum = 0;
+                for (long t : sorted) {
+                    sum += t;
+                }
+                b.append(" drawMs[p50=")
+                    .append(sorted.get(sorted.size() / 2))
+                    .append(" p90=")
+                    .append(sorted.get(sorted.size() * 9 / 10))
+                    .append(" max=")
+                    .append(sorted.get(sorted.size() - 1))
+                    .append(" totalS=")
+                    .append(sum / 1000)
+                    .append(']');
+            }
+            line(b.toString());
+        }
+    }
+
+    /** How many copies new chunks needed (more than one: pictures not all taken in one go). */
+    private static void attemptSummary(String title) {
+        long[] buckets = new long[5];
+        String[] names = { "1", "2-3", "4-6", "7-10", ">10" };
+        synchronized (FRESH_ATTEMPTS) {
+            for (int attempts : FRESH_ATTEMPTS) {
+                buckets[attempts <= 1 ? 0 : attempts <= 3 ? 1 : attempts <= 6 ? 2 : attempts <= 10 ? 3 : 4]++;
+            }
+        }
+        long total = 0;
+        for (long n : buckets) {
+            total += n;
+        }
+        if (total == 0) {
+            return;
+        }
+        StringBuilder b = new StringBuilder(title).append(" copies per new chunk:");
+        for (int i = 0; i < buckets.length; i++) {
+            b.append(' ')
+                .append(names[i])
+                .append('=')
+                .append(buckets[i])
+                .append('(')
+                .append(share(buckets[i], total))
+                .append(')');
+        }
+        line(b.toString());
+    }
+
+    /** How many copies each new chunk stored needed. */
+    private static final List<Integer> FRESH_ATTEMPTS = new ArrayList<>();
+
+    /**
+     * Pictures learned by kind: per block, how many were reused without drawing, drawn, drawn and all empty, drawn and
+     * the same as learned, and drawn different (the kind is then drawn every time); the share of drawing saved.
+     */
+    private static void kindSummary(String title) {
+        Map<Integer, long[]> stats = FaceRenderer.kindStats();
+        if (stats.isEmpty()) {
+            return;
+        }
+        long reused = 0, drawn = 0, empty = 0;
+        List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(stats.entrySet());
+        for (Map.Entry<Integer, long[]> kind : kinds) {
+            reused += kind.getValue()[0];
+            drawn += kind.getValue()[1];
+            empty += kind.getValue()[2];
+        }
+        int[] learned = FaceRenderer.learnedKinds();
+        line(
+            title + " learned pictures: reused without drawing=" + reused
+                + " drawn="
+                + drawn
+                + " (all empty "
+                + empty
+                + ") drawingSaved="
+                + share(reused, reused + drawn)
+                + " kinds[learned="
+                + learned[0]
+                + " unreliable="
+                + learned[1]
+                + " seen="
+                + learned[2]
+                + "] byBlock[learned="
+                + learned[3]
+                + " unreliable="
+                + learned[4]
+                + " seen="
+                + learned[5]
+                + "]");
+        kinds.sort((a, b) -> Long.compare(b.getValue()[0] + b.getValue()[1], a.getValue()[0] + a.getValue()[1]));
+        for (int n = 0; n < Math.min(25, kinds.size()); n++) {
+            long[] v = kinds.get(n)
+                .getValue();
+            StringBuilder b = new StringBuilder(title).append("   kind#")
+                .append(n + 1)
+                .append(' ')
+                .append(BlockDiag.name(kinds.get(n)
+                    .getKey()));
+            for (int f = 0; f < FaceRenderer.KIND_FIELDS.length; f++) {
+                b.append(' ')
+                    .append(FaceRenderer.KIND_FIELDS[f])
+                    .append('=')
+                    .append(v[f]);
+            }
+            b.append(" saved=")
+                .append(share(v[0], v[0] + v[1]));
+            line(b.toString());
+        }
     }
 
     /** Tiles of the 3D view: what reading and saving them gave, warnings, and how long the screen took. */

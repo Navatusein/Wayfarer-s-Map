@@ -47,6 +47,8 @@ public final class ChunkLoadClient {
     private long done, total;
     private boolean with3d;
     private long startedAt;
+    /** Chunks done when {@link #startedAt} was set: the speed (and the time left) is worked out from there. */
+    private long doneAtStart;
     /** When the last chunk of the area was mapped, 0 while it isn't done. */
     private long finishedAt;
     private long lastBatchAt;
@@ -71,15 +73,68 @@ public final class ChunkLoadClient {
      * What the world map shows while an area is being loaded, null when none is (or it ended over a minute ago).
      */
     public String statusText() {
-        if (total <= 0 || System.currentTimeMillis() - lastBatchAt > 60_000 && batch == null) {
+        if (!isShown()) {
             return null;
         }
         long percent = done * 100 / total;
-        // Seconds since the area was started (or taken up again), stopped once it is done.
-        long end = finishedAt != 0 ? finishedAt : System.currentTimeMillis();
-        long seconds = Math.max(0, end - startedAt) / 1000;
-        String elapsed = I18n.format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", seconds));
+        String elapsed = I18n.format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", elapsedMs() / 1000));
         return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
+    }
+
+    /** Whether there is a loading to show: going on, or ended less than a minute ago. */
+    public boolean isShown() {
+        return total > 0 && (batch != null || System.currentTimeMillis() - lastBatchAt <= 60_000);
+    }
+
+    /** Whether an area is being loaded now (not done, not stopped). */
+    public boolean isRunning() {
+        return isShown() && finishedAt == 0;
+    }
+
+    /** Whether the area was loaded to the end (shown for a minute after). */
+    public boolean isFinished() {
+        return isShown() && finishedAt != 0;
+    }
+
+    public boolean isWith3d() {
+        return with3d;
+    }
+
+    public long done() {
+        return done;
+    }
+
+    public long total() {
+        return total;
+    }
+
+    /** How far it got, 0 to 1. */
+    public double fraction() {
+        return total <= 0 ? 0 : Math.min(1, (double) done / total);
+    }
+
+    /** Milliseconds since the area was started (or taken up again), stopped once it is done. */
+    public long elapsedMs() {
+        long end = finishedAt != 0 ? finishedAt : System.currentTimeMillis();
+        return Math.max(0, end - startedAt);
+    }
+
+    /** Milliseconds left at the speed so far, or -1 while it is too early to tell. */
+    public long remainingMs() {
+        long elapsed = elapsedMs(), since = done - doneAtStart;
+        if (finishedAt != 0) {
+            return 0;
+        }
+        if (elapsed < 3000 || since <= 0) {
+            return -1;
+        }
+        return (long) ((total - done) * (double) elapsed / since);
+    }
+
+    /** Chunks a second at the speed so far, 0 while it is too early to tell. */
+    public double chunksPerSecond() {
+        long elapsed = elapsedMs(), since = done - doneAtStart;
+        return elapsed < 1000 || since <= 0 ? 0 : since * 1000.0 / elapsed;
     }
 
     @SubscribeEvent
@@ -96,7 +151,7 @@ public final class ChunkLoadClient {
                 ChunkLoadView.setAllowed(false);
             }
             // That word may come while joining, before the world is there: it is kept.
-            inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed));
+            inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed) && !(m instanceof ShareNetwork.LoadEnded));
             batch = null;
             total = 0;
             return;
@@ -110,6 +165,8 @@ public final class ChunkLoadClient {
                 ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
             } else if (message instanceof ShareNetwork.LoadAllowed) {
                 ChunkLoadView.setAllowed(((ShareNetwork.LoadAllowed) message).allowed);
+            } else if (message instanceof ShareNetwork.LoadEnded) {
+                ended(world, (ShareNetwork.LoadEnded) message, mc);
             }
         }
         ShareNetwork.LoadBatch b = batch;
@@ -147,7 +204,9 @@ public final class ChunkLoadClient {
             // The client's chunk provider says every chunk exists: one not received is empty.
             Chunk chunk = ChunkScanner.isChunkReady(world, cx, cz) ? world.getChunkFromChunkCoords(cx, cz) : null;
             if (chunk == null) {
-                // Never came (waited for above): a hole in the map.
+                // Never came (waited for above): a hole in the map. No longer waited for on the map either, or it
+                // would stay queued (red) for good.
+                ChunkLoadView.mapped(b.dimension, cx, cz);
                 skippedCount++;
                 if (skippedList.length() < 600) {
                     skippedList.append(' ')
@@ -181,7 +240,8 @@ public final class ChunkLoadClient {
                     caveAt++;
                 }
             }
-            if (chunk != null && b.with3d && Config.record3d) {
+            if (chunk != null && b.with3d) {
+                // Asked for the 3D map (the view's 3D switch): recorded whether or not blocks are while playing.
                 // The 3D map's own time per tick; a chunk with many pictures takes several ticks.
                 long deadline = System.nanoTime() + Math.max(2, Config.isoCaptureMs) * 1_000_000L;
                 if (!IsoMap.INSTANCE.captureForLoad(world, chunk, deadline)) {
@@ -218,6 +278,7 @@ public final class ChunkLoadClient {
         if (total <= 0 || b.doneBefore < done - 64 || b.total != total || b.with3d != with3d) {
             // A new area (or one taken up again): the time left is worked out from here.
             startedAt = System.currentTimeMillis();
+            doneAtStart = b.doneBefore;
             finishedAt = 0;
         }
         batch = b;
@@ -280,8 +341,33 @@ public final class ChunkLoadClient {
         return ready >= b.sent;
     }
 
-    /** Lets go of the batch's chunks the game doesn't need, and asks for the next batch. */
-    private void finish(WorldClient world, ShareNetwork.LoadBatch b, Minecraft mc) {
+    /**
+     * The server says the loading ended. Stopped (or replaced): the batch being mapped is dropped (its chunks let
+     * go, the server doesn't wait for it anymore) and the progress goes away. Finished: shown done for a while. Either
+     * way the chunks the map shows queued for it are no longer waited for.
+     */
+    private void ended(WorldClient world, ShareNetwork.LoadEnded message, Minecraft mc) {
+        ChunkLoadView.ended(message.seq);
+        ShareNetwork.LoadBatch b = batch;
+        if (b != null && !message.finished) {
+            letGo(world, b, mc);
+            batch = null;
+            IsoLog.log("CHUNKLOAD_STOPPED batch " + b.index + " dropped");
+            FlatLog.log("CHUNKLOAD_STOPPED batch " + b.index + " dropped");
+        }
+        if (message.finished) {
+            if (total > 0 && finishedAt == 0) {
+                done = total;
+                finishedAt = System.currentTimeMillis();
+            }
+        } else if (batch == null) {
+            total = 0;
+            done = 0;
+        }
+    }
+
+    /** Lets go of the batch's chunks the game doesn't need. */
+    private void letGo(WorldClient world, ShareNetwork.LoadBatch b, Minecraft mc) {
         int pcx = MathHelper.floor_double(mc.thePlayer.posX) >> 4;
         int pcz = MathHelper.floor_double(mc.thePlayer.posZ) >> 4;
         int keep = b.viewDistance + 1;
@@ -306,6 +392,11 @@ public final class ChunkLoadClient {
         } finally {
             lettingGo = false;
         }
+    }
+
+    /** Lets go of the batch's chunks the game doesn't need, and asks for the next batch. */
+    private void finish(WorldClient world, ShareNetwork.LoadBatch b, Minecraft mc) {
+        letGo(world, b, mc);
         long innerCount = (long) (b.innerX1 - b.innerX0 + 1) * (b.innerZ1 - b.innerZ0 + 1);
         // Picked chunks: only those count (the others were loaded for them, not mapped).
         done = b.doneBefore + (b.picked == null ? innerCount : pickedBefore(b, (int) innerCount));

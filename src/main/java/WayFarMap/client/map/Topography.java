@@ -15,26 +15,43 @@ import org.lwjgl.opengl.GL14;
 import WayFarMap.Config;
 
 /**
- * Topographic view in JourneyMap's look: water in flat dark blue (lighter along the shore), land in flat bands of
- * height from dark green at the shore through gray-green and slate to lavender and nearly white peaks, with dark
- * brown contour lines between the bands. Made from the heights the surface map keeps, as one texture per region
- * drawn over it; rebuilt when the region or the settings change.
+ * Topographic view: land in flat bands of height (hypsometric tints, from green lowlands through yellow and brown
+ * hills to gray rock and snowy peaks) with contour lines between them, a heavier one every
+ * {@link #INDEX_CONTOUR}th; water in blues by its depth with a line along the shore; lava in orange. Made from the
+ * ground the map without plants keeps (trees looked through, water down to its floor, which pixels are water or
+ * lava), as one texture per region drawn over the map; rebuilt when the region or the settings change. In
+ * dimensions under a ceiling (the Nether) the bands start at the lava sea and use the Nether's own colors.
  */
 public final class Topography {
 
-    /** Height of the top block of the sea: up to it is water, land from one above. */
+    /** Top block of the sea: land starts above it; on maps scanned before water was kept, water up to it. */
     private static final int SEA_LEVEL = 62;
-    /** Water, and water along the shore (JourneyMap's colors). */
-    private static final int DEEP_WATER = 0x10108A, SHALLOW_WATER = 0x0707B8;
-    /** How far from land water counts as along the shore, in pixels. */
-    private static final int SHORE = 2;
-    /** Land from the shore up to {@link #TOP} and above, one color per band (JourneyMap's colors). */
-    private static final int[] LAND = { 0x25432A, 0x2B4D30, 0x33533B, 0x3B5944, 0x435F4F, 0x4B6459, 0x536A63, 0x5B706D,
-        0x637678, 0x6A7C82, 0x72818C, 0x7A8896, 0x828DA0, 0x8A92AA, 0x9198B4, 0x9DA5C4, 0xAAB2D3, 0xAAB9D3, 0xAAC1D3,
-        0xAACBD3, 0xBCD0D3, 0xD0D3D3 };
+    /** The Nether: its lava sea, and the height the last band color is reached at. */
+    private static final int NETHER_SEA_LEVEL = 31, NETHER_TOP = 120;
     /** Height the last land color is reached at. */
-    private static final int TOP = 180;
-    private static final int CONTOUR_COLOR = 0x392410;
+    private static final int TOP = 170;
+    /** Land from just above the sea up to the top. */
+    private static final int[] LAND = { 0x5E8F45, 0x6C9B4B, 0x7BA652, 0x8DB15A, 0xA1BA63, 0xB5C16D, 0xC7C478,
+        0xD3BE7E, 0xD6B07A, 0xCF9F6F, 0xC28D63, 0xB27C59, 0xA06E53, 0x8F6752, 0x8A7466, 0x968A82, 0xACA49F, 0xC5C0BC,
+        0xDDDAD8, 0xF3F2F1 };
+    /** Nether ground from just above the lava sea up. */
+    private static final int[] NETHER_LAND = { 0x4A1D1A, 0x5A2420, 0x6B2C25, 0x7C352A, 0x8C4130, 0x9A4E38, 0xA75D41,
+        0xB26D4C, 0xBC7E59, 0xC59068, 0xCDA27A, 0xD5B48D };
+    /** Water from the shallows to the deep, one color per {@link #WATER_STEP} blocks of depth. */
+    private static final int[] WATER = { 0x9CCBEA, 0x80B9E2, 0x67A6D8, 0x5193CB, 0x4080BC, 0x346EAA, 0x2A5D96,
+        0x214C80, 0x1A3D6A };
+    private static final int WATER_STEP = 4;
+    /** Water of maps scanned before its depth was kept: along the shore and away from it. */
+    private static final int OLD_SHALLOW = 0x67A6D8, OLD_DEEP = 0x346EAA;
+    private static final int LAVA = 0xE0641E, LAVA_SHORE = 0xF29A3A;
+    /** The line along the shore, on the water side. */
+    private static final int SHORE_LINE = 0x1E3F66;
+    /** How far from land water counts as along the shore, in pixels (maps scanned before water was kept). */
+    private static final int SHORE = 2;
+    /** Every so many contour lines one is drawn heavier. */
+    private static final int INDEX_CONTOUR = 5;
+    /** How dark contour lines are drawn over the band color: thin and heavy ones. */
+    private static final float CONTOUR_SHADE = 0.72f, INDEX_CONTOUR_SHADE = 0.5f;
     /** Rebuilding a region's texture while it is being explored is throttled to this interval. */
     private static final long REBUILD_MS = 1000;
     /** Textures (re)built per frame, so turning the view on over many regions spreads over a few frames. */
@@ -58,12 +75,75 @@ public final class Topography {
         return Config.mapDisplayMode == Config.DISPLAY_TOPO;
     }
 
-    /** Draws the topography of the surface map in the given rectangle (same geometry as MapDrawer#drawMap). */
+    /** How far the view has faded in on one map, so turning it on or off fades like a switch of layers. */
+    private static final class Fade {
+
+        float amount;
+        boolean shown;
+        /** When the view was last drawn and when it was turned on or off. */
+        long lastFrame, switched;
+        /** Surface it was last drawn from: fading out goes on over it while the map under it shows another one. */
+        MapDimension surface;
+    }
+
+    private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
+
+    /** Longest wait for the textures to be built before the view fades in anyway. */
+    private static final long FADE_WAIT_MS = 1000;
+
+    /**
+     * Draws the topography in the given rectangle (same geometry as MapDrawer#drawMap), from the surface map without
+     * plants (or the surface itself if it has no such map). Called whether the view is on or not: it fades in and out
+     * over {@link Config#layerFadeMs}, as the map under it does between its layers.
+     *
+     * @param minimap drawn by the minimap (it fades apart from the world map)
+     */
     public static void draw(MapDimension surface, double centerX, double centerZ, double scale, int x, int y, int width,
-        int height) {
-        if (surface == null) {
+        int height, boolean minimap) {
+        Fade fade = minimap ? MINIMAP_FADE : WORLD_MAP_FADE;
+        long now = System.currentTimeMillis();
+        long elapsed = now - fade.lastFrame;
+        fade.lastFrame = now;
+        boolean shown = isShown();
+        if (shown != fade.shown) {
+            fade.shown = shown;
+            fade.switched = now;
+        }
+        long duration = Config.layerFadeMs;
+        float before = fade.amount;
+        if (duration <= 0 || elapsed >= 500) {
+            // No fading, or the map was just opened: straight to where it should be.
+            fade.amount = shown ? 1f : 0f;
+        } else {
+            float step = elapsed / (float) duration;
+            fade.amount = shown ? Math.min(1f, fade.amount + step) : Math.max(0f, fade.amount - step);
+        }
+        if (surface != null && surface.plantless() != null) {
+            surface = surface.plantless();
+        }
+        if (shown) {
+            fade.surface = surface;
+        } else if (fade.surface != null && surface != null && fade.surface.dimensionId == surface.dimensionId) {
+            // The map under it may already be a cave layer or the biomes: the topography fading out stays the ground.
+            surface = fade.surface;
+        }
+        if (fade.amount <= 0f || surface == null) {
+            if (fade.amount <= 0f) {
+                fade.surface = null;
+            }
             return;
         }
+        int waiting = drawTextures(surface, centerX, centerZ, scale, x, y, width, height, fade.amount);
+        if (shown && waiting > 0 && fade.amount < 1f && now - fade.switched < FADE_WAIT_MS) {
+            // Its textures are still being built: it comes in once they are there, not region by region.
+            fade.amount = before;
+        }
+    }
+
+    /** Draws the textures at the given opacity; returns how many regions in view wait for theirs. */
+    private static int drawTextures(MapDimension surface, double centerX, double centerZ, double scale, int x, int y,
+        int width, int height, float alpha) {
+        boolean nether = surface.dimensionId == -1;
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
         double right = left + width / scale;
@@ -76,11 +156,12 @@ public final class Topography {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glColor4f(1f, 1f, 1f, alpha);
         Tessellator tessellator = Tessellator.instance;
         // Same resolution as the map under it.
         boolean lod = WayFarMap.client.MapDrawer.useLod(scale);
         buildsLeft = lod ? LOD_BUILDS_PER_FRAME : BUILDS_PER_FRAME;
+        int waiting = 0;
         for (int rx = rx0; rx <= rx1; rx++) {
             for (int rz = rz0; rz <= rz1; rz++) {
                 PixelSource region = lod ? surface.requestLod(rx, rz) : surface.getLoadedRegion(rx, rz);
@@ -96,8 +177,9 @@ public final class Topography {
                 if (bx1 <= bx0 || bz1 <= bz0) {
                     continue;
                 }
-                int texture = overlayTexture(region);
+                int texture = overlayTexture(region, nether);
                 if (texture == -1) {
+                    waiting++;
                     continue;
                 }
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
@@ -117,10 +199,13 @@ public final class Topography {
                 tessellator.draw();
             }
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        return waiting;
     }
 
     /** Frees all textures (e.g. when leaving the world). */
     public static void clear() {
+        MINIMAP_FADE.surface = WORLD_MAP_FADE.surface = null;
         Iterator<Overlay> it = OVERLAYS.values()
             .iterator();
         while (it.hasNext()) {
@@ -146,7 +231,7 @@ public final class Topography {
     }
 
     /** Texture of the region, or -1 while it waits for its turn to be built. */
-    private static int overlayTexture(PixelSource region) {
+    private static int overlayTexture(PixelSource region, boolean nether) {
         Overlay overlay = OVERLAYS.get(region);
         if (overlay == null) {
             overlay = new Overlay();
@@ -173,7 +258,7 @@ public final class Topography {
             stale = true;
         }
         if (stale) {
-            build(region);
+            build(region, nether);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, overlay.textureId);
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
             GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
@@ -196,61 +281,167 @@ public final class Topography {
         return overlay.textureId;
     }
 
-    /** Fills {@link #buffer} with the topography of the region; transparent where the height is unknown. */
-    private static void build(PixelSource region) {
-        int size = region.size();
-        int interval = Math.max(1, Config.topoContourInterval);
+    /** Kinds of pixel. */
+    private static final int UNKNOWN = 0, LAND_PIXEL = 1, WATER_PIXEL = 2, LAVA_PIXEL = 3;
+
+    /** Work arrays of one build: the render thread keeps its own, a picture being saved makes new ones. */
+    private static final class Scratch {
+
+        final int[] kinds = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] heights = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] smooth = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] pixels = new int[MapRegion.SIZE * MapRegion.SIZE];
+    }
+
+    private static Scratch renderScratch;
+
+    /** Fills {@link #buffer} with the topography of the region (render thread). */
+    private static void build(PixelSource region, boolean nether) {
         if (buffer == null) {
             buffer = BufferUtils.createIntBuffer(MapRegion.SIZE * MapRegion.SIZE);
+            renderScratch = new Scratch();
         }
+        build(region, nether, renderScratch);
         buffer.clear();
+        buffer.put(renderScratch.pixels, 0, region.size() * region.size());
+        buffer.flip();
+    }
+
+    /**
+     * The topography of a whole region as ARGB pixels, transparent where the ground is unknown: for a picture of the
+     * map, on any thread.
+     *
+     * @param nether the bands start at the Nether's lava sea, in its colors
+     */
+    public static int[] picture(MapRegion region, boolean nether) {
+        Scratch scratch = new Scratch();
+        build(region, nether, scratch);
+        return scratch.pixels;
+    }
+
+    /**
+     * Fills the scratch's pixels with the topography of the region; transparent where the ground is unknown.
+     *
+     * @param nether the bands start at the Nether's lava sea, in its colors
+     */
+    private static void build(PixelSource region, boolean nether, Scratch scratch) {
+        int size = region.size();
+        int interval = Math.max(1, Config.topoContourInterval);
+        int sea = nether ? NETHER_SEA_LEVEL : SEA_LEVEL;
+        int[] kinds = scratch.kinds, heights = scratch.heights, smooth = scratch.smooth, out = scratch.pixels;
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
+                int i = z * size + x;
                 int h = height(region, x, z);
-                int argb;
+                int flags = region.getLight(x, z);
+                int kind;
                 if (h < 0) {
-                    argb = 0;
-                } else if (h <= SEA_LEVEL) {
-                    argb = 0xFF000000 | (nearLand(region, x, z) ? SHALLOW_WATER : DEEP_WATER);
+                    kind = UNKNOWN;
+                } else if ((flags & MapRegion.TOPO_KNOWN) != 0) {
+                    kind = (flags & MapRegion.TOPO_LAVA) != 0 ? LAVA_PIXEL
+                        : (flags & MapRegion.TOPO_WATER) != 0 ? WATER_PIXEL : LAND_PIXEL;
                 } else {
-                    int band = band(h, interval);
-                    argb = 0xFF000000 | landColor(band, interval);
-                    if (Config.topoContours) {
-                        // A line where a neighbour is in a lower band: drawn once, on the upper side of the step.
-                        for (int[] d : NEIGHBOURS) {
-                            int other = height(region, x + d[0], z + d[1]);
-                            if (other > SEA_LEVEL && band(other, interval) < band) {
-                                argb = 0xFF000000 | CONTOUR_COLOR;
-                                break;
-                            }
+                    // Scanned before water was kept: below the sea is water, except under a ceiling (no sea there).
+                    kind = !nether && h <= SEA_LEVEL ? WATER_PIXEL : LAND_PIXEL;
+                    flags = 0;
+                }
+                kinds[i] = kind | (flags & MapRegion.TOPO_KNOWN);
+                heights[i] = h;
+            }
+        }
+        // Land heights evened out over their 3x3 land neighbors: single blocks (a boulder, a pit, a house) don't
+        // ring themselves with contour lines, so the lines follow the shape of the land.
+        for (int z = 0; z < size; z++) {
+            for (int x = 0; x < size; x++) {
+                int i = z * size + x;
+                if ((kinds[i] & 3) != LAND_PIXEL) {
+                    smooth[i] = heights[i];
+                    continue;
+                }
+                int sum = 0, count = 0;
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int nx = x + dx, nz = z + dz;
+                        if (nx < 0 || nz < 0 || nx >= size || nz >= size) {
+                            continue;
+                        }
+                        int n = nz * size + nx;
+                        if ((kinds[n] & 3) == LAND_PIXEL) {
+                            sum += heights[n];
+                            count++;
                         }
                     }
                 }
-                buffer.put(argb);
+                smooth[i] = Math.round((float) sum / count);
             }
         }
-        buffer.flip();
+        for (int z = 0; z < size; z++) {
+            for (int x = 0; x < size; x++) {
+                int i = z * size + x;
+                int kind = kinds[i] & 3;
+                int rgb;
+                if (kind == UNKNOWN) {
+                    out[i] = 0;
+                    continue;
+                } else if (kind == WATER_PIXEL) {
+                    rgb = waterColor(scratch, x, z, size, sea, (kinds[i] & MapRegion.TOPO_KNOWN) != 0);
+                } else if (kind == LAVA_PIXEL) {
+                    rgb = touches(kinds, x, z, size, LAND_PIXEL, 1) ? LAVA_SHORE : LAVA;
+                } else {
+                    int band = band(smooth[i], sea, interval);
+                    rgb = landColor(band, interval, sea, nether);
+                    if (Config.topoContours) {
+                        // A line where a neighbour is in a lower band: drawn once, on the upper side of the step.
+                        int lower = Integer.MAX_VALUE;
+                        for (int[] d : NEIGHBOURS) {
+                            int nx = x + d[0], nz = z + d[1];
+                            if (nx < 0 || nz < 0 || nx >= size || nz >= size) {
+                                continue;
+                            }
+                            int n = nz * size + nx;
+                            if ((kinds[n] & 3) == LAND_PIXEL) {
+                                lower = Math.min(lower, band(smooth[n], sea, interval));
+                            }
+                        }
+                        if (lower < band) {
+                            // The heavy line of every few: if any of the steps crossed is one.
+                            boolean index = false;
+                            for (int b = lower + 1; b <= band; b++) {
+                                index |= Math.floorMod(b, INDEX_CONTOUR) == 0;
+                            }
+                            rgb = shade(rgb, index ? INDEX_CONTOUR_SHADE : CONTOUR_SHADE);
+                        }
+                    }
+                }
+                out[i] = 0xFF000000 | rgb;
+            }
+        }
     }
 
     private static final int[][] NEIGHBOURS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
 
-    /** Band of a land height: 0 from just above the sea, one more every {@code interval} blocks. */
-    private static int band(int h, int interval) {
-        return (h - SEA_LEVEL - 1) / interval;
+    /**
+     * Water by its depth below the sea: lighter in the shallows, with a dark line along the shore. Maps scanned
+     * before the depth was kept: lighter along the shore.
+     */
+    private static int waterColor(Scratch scratch, int x, int z, int size, int sea, boolean known) {
+        if (touches(scratch.kinds, x, z, size, LAND_PIXEL, 1)) {
+            return SHORE_LINE;
+        }
+        if (!known) {
+            return touches(scratch.kinds, x, z, size, LAND_PIXEL, SHORE) ? OLD_SHALLOW : OLD_DEEP;
+        }
+        // The water keeps the height of its floor.
+        int depth = Math.max(0, sea - scratch.heights[z * size + x]);
+        return WATER[Math.min(WATER.length - 1, depth / WATER_STEP)];
     }
 
-    /** Flat color of a band: the palette at the band's middle height, so the step only changes how fine it is. */
-    private static int landColor(int band, int interval) {
-        double middle = band * interval + interval / 2.0;
-        int index = (int) Math.round(middle / (TOP - SEA_LEVEL - 1) * (LAND.length - 1));
-        return LAND[Math.max(0, Math.min(LAND.length - 1, index))];
-    }
-
-    /** Land within {@link #SHORE} pixels: the water there is along the shore. */
-    private static boolean nearLand(PixelSource region, int x, int z) {
-        for (int dz = -SHORE; dz <= SHORE; dz++) {
-            for (int dx = -SHORE; dx <= SHORE; dx++) {
-                if (height(region, x + dx, z + dz) > SEA_LEVEL) {
+    /** A pixel of the kind within {@code reach} pixels. */
+    private static boolean touches(int[] kinds, int x, int z, int size, int kind, int reach) {
+        for (int dz = -reach; dz <= reach; dz++) {
+            for (int dx = -reach; dx <= reach; dx++) {
+                int nx = x + dx, nz = z + dz;
+                if (nx >= 0 && nz >= 0 && nx < size && nz < size && (kinds[nz * size + nx] & 3) == kind) {
                     return true;
                 }
             }
@@ -258,13 +449,34 @@ public final class Topography {
         return false;
     }
 
-    /** Height of the top block at the pixel, -1 if unknown or outside the region. */
+    /** Band of a land height: 0 from just above the sea, one more every {@code interval} blocks. */
+    private static int band(int h, int sea, int interval) {
+        return Math.floorDiv(h - sea - 1, interval);
+    }
+
+    /** Flat color of a band: the palette at the band's middle height, so the step only changes how fine it is. */
+    private static int landColor(int band, int interval, int sea, boolean nether) {
+        int[] palette = nether ? NETHER_LAND : LAND;
+        int top = nether ? NETHER_TOP : TOP;
+        double middle = band * interval + interval / 2.0;
+        int index = (int) Math.round(middle / (top - sea - 1) * (palette.length - 1));
+        return palette[Math.max(0, Math.min(palette.length - 1, index))];
+    }
+
+    private static int shade(int rgb, float factor) {
+        int r = (int) (((rgb >> 16) & 0xFF) * factor);
+        int g = (int) (((rgb >> 8) & 0xFF) * factor);
+        int b = (int) ((rgb & 0xFF) * factor);
+        return r << 16 | g << 8 | b;
+    }
+
+    /** Height of the ground at the pixel, -1 if unknown or outside the region. */
     private static int height(PixelSource region, int x, int z) {
         int size = region.size();
         if (x < 0 || z < 0 || x >= size || z >= size || (region.getPixel(x, z) >>> 24) == 0) {
             return -1;
         }
-        // The surface keeps the height to stand on: one above the top block, 0 when unknown.
+        // The map keeps the height one above the ground (or above the top block on older maps), 0 when unknown.
         int extra = region.getExtra(x, z);
         return extra == 0 ? -1 : extra - 1;
     }

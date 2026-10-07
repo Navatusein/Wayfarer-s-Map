@@ -64,10 +64,18 @@ public class MapRegion implements PixelSource {
     private final long[] fromTeam = new long[CHUNKS * CHUNKS / 64];
 
     /**
-     * Block light (torches, lamps, lava) just above the surface of each pixel, 0-15; null while there is none. At
-     * night the map glows there ({@link #bindGlowTexture}).
+     * Block light (torches, lamps, lava) just above the surface of each pixel, 0-15 in the low bits; null while there
+     * is none. At night the map glows there ({@link #bindGlowTexture}). The high bits are the topography's flags (see
+     * {@link #TOPO_KNOWN}).
      */
     private byte[] light;
+    /** Some pixel has block light (not only topography flags): the glow is drawn. */
+    private boolean lit;
+    /**
+     * Topography flags in the light byte of the map without plants: the pixel was scanned with them (older maps don't
+     * have them), and its ground is water or lava.
+     */
+    public static final int TOPO_KNOWN = 0x40, TOPO_WATER = 0x10, TOPO_LAVA = 0x20;
     private int glowTextureId = -1;
     private boolean glowDirty;
     private long lastGlowUpload;
@@ -152,7 +160,7 @@ public class MapRegion implements PixelSource {
         }
     }
 
-    /** Sets the block light (0-15) above the pixel's surface. */
+    /** Sets the block light (0-15) above the pixel's surface, with the topography flags if any. */
     public void setLight(int localX, int localZ, int level) {
         int index = localZ * SIZE + localX;
         if (light == null) {
@@ -162,15 +170,49 @@ public class MapRegion implements PixelSource {
             light = new byte[SIZE * SIZE];
         }
         if (light[index] != (byte) level) {
+            if (((light[index] ^ level) & ~15) != 0) {
+                // The topography flags changed: images derived from them are rebuilt.
+                changes++;
+            }
             light[index] = (byte) level;
             markDirty();
             glowDirty = true;
+            lit |= (level & 15) != 0;
         }
+    }
+
+    /** Light byte of the pixel: block light in the low 4 bits, the topography flags above. */
+    @Override
+    public int getLight(int localX, int localZ) {
+        return light == null ? 0 : light[localZ * SIZE + localX] & 0xFF;
     }
 
     /** Whether any pixel is lit by a block (the map glows there at night). */
     public boolean hasLight() {
-        return light != null;
+        return lit;
+    }
+
+    /** Whether any of the levels has block light (not only topography flags). */
+    static boolean anyLit(byte[] levels) {
+        if (levels != null) {
+            for (byte level : levels) {
+                if ((level & 15) != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** A pixel of the map in the warm light of the given level, as the glow shows it over the dark map. */
+    static int glowTexel(int argb, int level) {
+        if (level == 0 || (argb >>> 24) == 0) {
+            return 0;
+        }
+        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
+        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
+        int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
+        return GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b;
     }
 
     /**
@@ -206,10 +248,7 @@ public class MapRegion implements PixelSource {
                     uploadBuffer.put(0);
                     continue;
                 }
-                int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
-                int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
-                int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
-                uploadBuffer.put(GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b);
+                uploadBuffer.put(glowTexel(argb, level));
             }
             uploadBuffer.flip();
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
@@ -352,6 +391,11 @@ public class MapRegion implements PixelSource {
     }
 
     /** The live extra bytes (null if none), for building the reduced copy on the render thread. */
+    /** Block light of each pixel's surface (0-15), or null if nothing is lit. */
+    byte[] lightArray() {
+        return light;
+    }
+
     byte[] extraArray() {
         return extra;
     }
@@ -892,6 +936,7 @@ public class MapRegion implements PixelSource {
                 + imageType(image.getType()));
         region.extra = readGzip(getExtraFile(file), "dat", "heights lost, the map still shows", trace);
         region.light = readGzip(getLightFile(file), "light", "night glow lost", trace);
+        region.lit = anyLit(region.light);
         File timesFile = getTimesFile(file);
         boolean haveTimes = false;
         long timesStart = System.nanoTime();

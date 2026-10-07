@@ -32,6 +32,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.MapDrawer;
 
@@ -56,6 +57,21 @@ final class IsoTiles {
      */
     private static final int DISK_LEVEL = 3;
     private static final int MAGIC = 0x57465440; // "WFT@"
+    /** Added to the priority of a tile only out of date, so every tile with nothing to show yet goes first. */
+    private static final double STALE_AFTER_MISSING = 1e9;
+    /**
+     * A tile showing an older picture is drawn again at most this often (ms) at the finest levels, twice as seldom
+     * every two coarser ones (up to 16 s): while new chunks keep coming, a coarse tile covering many of them took up
+     * to two seconds and was drawn again for each, keeping the renderers from the tiles just zoomed to.
+     */
+    private static final long REFRESH_MS = 1000, REFRESH_MAX_MS = 16_000;
+
+    /** Whether a tile showing an older picture may be drawn again now. */
+    private static boolean refreshDue(Tile tile, long now) {
+        long interval = Math.min(REFRESH_MAX_MS, REFRESH_MS << Math.min(4, tile.key.level / 2));
+        return now - tile.renderedAt >= interval;
+    }
+
     /** Tiles uploaded to the graphics card per frame. */
     private static final int UPLOADS_PER_FRAME = 12;
     /**
@@ -193,12 +209,11 @@ final class IsoTiles {
 
     IsoTiles(IsoMap map) {
         this.map = map;
-        int threads = Math.max(
-            1,
-            Math.min(
-                3,
-                Runtime.getRuntime()
-                    .availableProcessors() / 2));
+        // Up to 3 on most machines; more where there are cores to spare (8 on 24 cores), so a zoom's new tiles
+        // aren't waiting behind each other.
+        int cores = Runtime.getRuntime()
+            .availableProcessors();
+        int threads = Math.max(1, Math.max(Math.min(3, cores / 2), Math.min(8, (cores - 4) / 2)));
         workers = new Thread[threads];
         for (int i = 0; i < threads; i++) {
             Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
@@ -228,7 +243,9 @@ final class IsoTiles {
             smooth = Config.isoSmooth;
             invalidateAll();
         }
+        long perf = Perf.start();
         int uploaded = uploadResults();
+        Perf.end(Perf.Part.ISO_UPLOAD, perf);
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int onScreen = 0, ready = 0, empty = 0, fromCoarser = 0, holes = 0;
         int blocks = IsoProjection.tileBlocks(level);
@@ -242,8 +259,9 @@ final class IsoTiles {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // By night the night tiles are laid over the day ones, fading in and out with the time of day.
-        float night = MapDrawer.nightAmount(Minecraft.getMinecraft());
+        // By night the night tiles are laid over the day ones, fading in and out with the time of day (always night
+        // where there is no sky, like the Nether).
+        float night = MapDrawer.isoNightAmount(Minecraft.getMinecraft(), dimension.id);
         for (int tv = tv0; tv <= tv1; tv++) {
             for (int tu = tu0; tu <= tu1; tu++) {
                 Key key = new Key(dimension.id, rotation, level, tu, tv);
@@ -255,10 +273,13 @@ final class IsoTiles {
                 tile.wantedAt = now;
                 tile.wantedFrame = frame;
                 tile.lastDrawn = frame;
-                if ((!tile.ready || tile.stale()) && !tile.queued) {
+                if ((!tile.ready || tile.stale() && refreshDue(tile, now)) && !tile.queued) {
                     double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
                     tile.queued = true;
-                    queue.add(new Job(tile, dimension, du * du + dv * dv, order.incrementAndGet()));
+                    // Tiles with nothing to show yet before ones only out of date (those still show their old picture),
+                    // the nearest to the middle first.
+                    double priority = du * du + dv * dv + (tile.ready ? STALE_AFTER_MISSING : 0);
+                    queue.add(new Job(tile, dimension, priority, order.incrementAndGet()));
                     IsoLog.tileQueued(key, tile.ready, queue.size());
                 }
                 double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
@@ -676,7 +697,7 @@ final class IsoTiles {
         if (work != null) {
             work.noPalette = palette == null;
         }
-        IsoTracer tracer = new IsoTracer(dimension.store, palette);
+        IsoTracer tracer = new IsoTracer(dimension.store, palette, dimension.noSky);
         BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);

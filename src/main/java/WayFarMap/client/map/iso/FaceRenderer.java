@@ -9,7 +9,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
@@ -153,6 +158,319 @@ final class FaceRenderer {
 
     /** Sprites of blocks without a tile entity, by block and everything around it. */
     private static final Map<Long, int[]> BY_SURROUNDINGS = new HashMap<>();
+
+    /**
+     * Pictures learned by kind: a block (with its metadata) open on the same sides with the same six blocks next to
+     * it. The surroundings above also hold the place's color and textures, which make nearly every place a key of its
+     * own (the biome's color blends from block to block), yet most blocks look the same wherever they are: grass-like
+     * plants, ores the game draws nothing of here. Once a kind gave the very same pictures {@link #LEARN_CONFIRMATIONS}
+     * times, the next ones get them without being drawn; every {@link #VERIFY_EVERY}th is drawn anyway to check, and a
+     * kind that gave other pictures once is drawn every time from then on. Not for solid cubes (connected textures go
+     * by all 26 blocks around) nor tile entities (kept by place).
+     */
+    private static final Map<Long, Learned> BY_KIND = new HashMap<>();
+    private static final int LEARN_CONFIRMATIONS = 3, VERIFY_EVERY = 16;
+    /**
+     * Pictures learned by block alone (with its metadata and open sides, whatever is next to it), for the blocks
+     * whose six neighbours make nearly every place a kind of its own: grass with a different block under it, ores
+     * between other stones. Learned from {@link #BLOCK_CONFIRMATIONS} pictures alike, taken in at least
+     * {@link #BLOCK_PLACES} kinds of places. Only for blocks that can't reach their neighbours (smaller than their cell
+     * on every side: plants, an unconnected fence post), or whose pictures are all empty (ores the game draws nothing
+     * of here): a block that joins its neighbours looks by them.
+     */
+    private static final Map<Long, Learned> BY_BLOCK = new HashMap<>();
+    private static final int BLOCK_CONFIRMATIONS = 6, BLOCK_PLACES = 3;
+    /**
+     * How far apart pictures of a block that can't reach its neighbours may be and still count as the same: plants
+     * the game moves a little from place to place (tall grass, Biomes O' Plenty's foliage), so no two places give the
+     * very same picture. Share of the picture covered (relative) and average color (per channel, 0-255): loose, as
+     * the part of a moved plant reaching past its cell is cut off.
+     */
+    private static final float ALIKE_COVERAGE = 0.5f, ALIKE_COLOR = 32f;
+    /**
+     * Coverage and average color of sprites by id, for {@link #alike}: worked out when they are drawn (reading a
+     * sprite back from the palette waited for its saving and made ticks of 200 ms). Cleared with the other caches.
+     */
+    private static final Map<Integer, float[]> LOOKS_OF_SPRITES = new HashMap<>();
+    /** Look keys a kind was found unreliable for, logged only the first few times. */
+    private static final Map<Integer, Integer> UNRELIABLE_LOGGED = new HashMap<>();
+
+    private static final class Learned {
+
+        final int[] ids;
+        int confirmed, reused;
+        boolean unreliable;
+        /** By block: the kinds of places (their {@link #kindKey}) it was confirmed in, the first few. */
+        final long[] places = new long[BLOCK_PLACES];
+        int placeCount;
+
+        Learned(int[] ids) {
+            this.ids = ids;
+        }
+
+        boolean allEmpty() {
+            for (int id : ids) {
+                if (id != FacePalette.EMPTY && id != 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        void place(long kindKey) {
+            for (int n = 0; n < placeCount; n++) {
+                if (places[n] == kindKey) {
+                    return;
+                }
+            }
+            if (placeCount < places.length) {
+                places[placeCount++] = kindKey;
+            }
+        }
+
+        /** Its pictures, to give a block without drawing it, or null: not learned yet, or this one is to check. */
+        int[] reuse(int confirmations, int placesNeeded) {
+            if (unreliable || confirmed < confirmations || placeCount < placesNeeded) {
+                return null;
+            }
+            return ++reused % VERIFY_EVERY != 0 ? ids : null;
+        }
+    }
+
+    /** The key of a block for {@link #BY_BLOCK}: its look, open sides, width and whether it can reach out. */
+    private static long blockKey(int lookKey, int exposed, boolean wide, boolean detached, int tint) {
+        long h = 0x51AFD7ED558CCD1DL
+            ^ ((long) tint << 40 | (long) lookKey << 8 | (long) exposed << 2 | (wide ? 2 : 0) | (detached ? 1 : 0));
+        h = (h ^ h >>> 33) * 0xFF51AFD7ED558CCDL;
+        return h ^ h >>> 33;
+    }
+
+    /**
+     * The color the game tints the block with here (grass and leaves by the biome), 16 steps per channel: the pictures
+     * are taken with it, so a plant of one biome doesn't look like the same plant of another. One biome gives one
+     * key; where biomes blend, a few.
+     */
+    private static int tint(World world, Block block, int x, int y, int z) {
+        try {
+            int c = block.colorMultiplier(world, x, y, z);
+            return (c >> 20 & 0xF) << 8 | (c >> 12 & 0xF) << 4 | (c >> 4 & 0xF);
+        } catch (RuntimeException e) {
+            return 0xFFF;
+        }
+    }
+
+    /**
+     * Whether the block, as it is here, stays inside its cell on all four sides (a plant, a torch, a fence post with
+     * nothing to join): then what is next to it doesn't change how it looks.
+     */
+    private static boolean detached(World world, Block block, int x, int y, int z) {
+        try {
+            block.setBlockBoundsBasedOnState(world, x, y, z);
+            return block.getBlockBoundsMinX() > 0.01 && block.getBlockBoundsMaxX() < 0.99
+                && block.getBlockBoundsMinZ() > 0.01
+                && block.getBlockBoundsMaxZ() < 0.99;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether two blocks' pictures look the same: the very same, or (for a block that can't reach its neighbours)
+     * each view covering about as much with about the same color, as a plant moved a little does.
+     */
+    private static boolean alike(int[] a, int[] b, boolean detached) {
+        if (Arrays.equals(a, b)) {
+            return true;
+        }
+        if (!detached) {
+            return false;
+        }
+        for (int view = 0; view < a.length; view++) {
+            if (a[view] == b[view]) {
+                continue;
+            }
+            if (a[view] <= 0 || b[view] <= 0) {
+                return false;
+            }
+            float[] la = LOOKS_OF_SPRITES.get(a[view]), lb = LOOKS_OF_SPRITES.get(b[view]);
+            if (la == null || lb == null) {
+                return false;
+            }
+            if (Math.abs(la[0] - lb[0]) > ALIKE_COVERAGE * Math.max(la[0], lb[0]) + 0.01f) {
+                return false;
+            }
+            for (int channel = 1; channel <= 3; channel++) {
+                if (Math.abs(la[channel] - lb[channel]) > ALIKE_COLOR) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** A picture's coverage (0-1) and average red, green and blue (every other pixel); any thread. */
+    private static float[] look(int[] pixels) {
+        int side = FacePalette.sideOf(pixels.length);
+        long alpha = 0, r = 0, g = 0, b = 0;
+        int count = 0;
+        for (int y = 0; y < side; y += 2) {
+            for (int x = 0; x < side; x += 2) {
+                int c = pixels[y * side + x], a = c >>> 24;
+                alpha += a;
+                r += (c >> 16 & 0xFF) * a;
+                g += (c >> 8 & 0xFF) * a;
+                b += (c & 0xFF) * a;
+                count++;
+            }
+        }
+        return alpha == 0 ? new float[] { 0, 0, 0, 0 }
+            : new float[] { alpha / (255f * count), r / (float) alpha, g / (float) alpha, b / (float) alpha };
+    }
+
+    /** The kind of a block for {@link #BY_KIND}: its look, open sides, width and the six blocks next to it. */
+    private static long kindKey(World world, int lookKey, int exposed, boolean wide, int tint, int x, int y, int z) {
+        long h = 0x84222325CBF29CE4L ^ ((long) tint << 40 | (long) lookKey << 8 | (long) exposed << 1 | (wide ? 1 : 0));
+        for (int[] offset : OFFSETS) {
+            h = (h ^ blockAt(world, x + offset[0], y + offset[1], z + offset[2])) * 0x9E3779B97F4A7C15L;
+            h ^= h >>> 29;
+        }
+        return h;
+    }
+
+    /** Whether a block's pictures may be learned by kind. */
+    private static boolean learnable(Pending pending) {
+        return !pending.cube && !pending.byPlace() && !pending.ownRenderer;
+    }
+
+    /** What the learned pictures did, by look key, since the log started: see {@link #KIND_FIELDS}. */
+    private static final Map<Integer, long[]> KIND_STATS = new HashMap<>();
+    static final String[] KIND_FIELDS = { "reused", "drawn", "drawnEmpty", "confirmed", "conflicts", "alike",
+        "reusedByBlock", "blockConflicts" };
+
+    private static void kindStat(int lookKey, int field) {
+        if (IsoLog.on()) {
+            KIND_STATS.computeIfAbsent(lookKey, k -> new long[KIND_FIELDS.length])[field]++;
+        }
+    }
+
+    /** The learned pictures' counts by look key (for the log), and how many kinds are learned or unreliable. */
+    static Map<Integer, long[]> kindStats() {
+        return KIND_STATS;
+    }
+
+    /** {learned, unreliable, seen} kinds of places, then the same by block alone. */
+    static int[] learnedKinds() {
+        int learned = 0, unreliable = 0, blockLearned = 0, blockUnreliable = 0;
+        for (Learned l : BY_KIND.values()) {
+            if (l.unreliable) {
+                unreliable++;
+            } else if (l.confirmed >= LEARN_CONFIRMATIONS) {
+                learned++;
+            }
+        }
+        for (Learned l : BY_BLOCK.values()) {
+            if (l.unreliable) {
+                blockUnreliable++;
+            } else if (l.confirmed >= BLOCK_CONFIRMATIONS && l.placeCount >= BLOCK_PLACES) {
+                blockLearned++;
+            }
+        }
+        return new int[] { learned, unreliable, BY_KIND.size(), blockLearned, blockUnreliable, BY_BLOCK.size() };
+    }
+
+    /**
+     * Remembers the pictures just taken of a block for its kind and for the block alone: alike pictures confirm them,
+     * other ones make it be drawn every time. Not from a block at the edge of what is loaded (its pictures may be
+     * wrong).
+     */
+    private static void learn(Pending pending) {
+        boolean empty = true;
+        for (int view = 0; view < pending.views(); view++) {
+            empty &= pending.ids[view] == FacePalette.EMPTY;
+        }
+        kindStat(pending.lookKey, 1);
+        if (empty) {
+            kindStat(pending.lookKey, 2);
+        }
+        if (pending.unsure || !learnable(pending)) {
+            return;
+        }
+        Learned learned = BY_KIND.get(pending.kindKey);
+        if (learned == null) {
+            BY_KIND.put(pending.kindKey, new Learned(pending.ids.clone()));
+        } else if (!learned.unreliable) {
+            if (Arrays.equals(learned.ids, pending.ids)) {
+                learned.confirmed++;
+                kindStat(pending.lookKey, 3);
+            } else if (alike(learned.ids, pending.ids, pending.detached)) {
+                learned.confirmed++;
+                kindStat(pending.lookKey, 5);
+            } else {
+                learned.unreliable = true;
+                kindConflicts++;
+                kindStat(pending.lookKey, 4);
+                logUnreliable("KIND_UNRELIABLE", pending, learned);
+            }
+        }
+        Learned byBlock = BY_BLOCK.get(pending.blockKey);
+        if (byBlock == null) {
+            byBlock = new Learned(pending.ids.clone());
+            byBlock.place(pending.kindKey);
+            BY_BLOCK.put(pending.blockKey, byBlock);
+        } else if (!byBlock.unreliable) {
+            if (alike(byBlock.ids, pending.ids, pending.detached)) {
+                byBlock.confirmed++;
+                byBlock.place(pending.kindKey);
+            } else {
+                byBlock.unreliable = true;
+                kindStat(pending.lookKey, 7);
+                logUnreliable("BLOCK_UNRELIABLE", pending, byBlock);
+            }
+        }
+    }
+
+    /** Logs that a kind gave other pictures, the first few times for each block. */
+    private static void logUnreliable(String what, Pending pending, Learned learned) {
+        if (!IsoLog.on() || UNRELIABLE_LOGGED.merge(pending.lookKey, 1, Integer::sum) > 3) {
+            return;
+        }
+        IsoLog.log(
+            what + " " + BlockDiag.name(pending.lookKey)
+                + " openSides="
+                + pending.exposed
+                + " detached="
+                + pending.detached
+                + " at "
+                + pending.x
+                + ","
+                + pending.y
+                + ","
+                + pending.z
+                + " after "
+                + learned.confirmed
+                + " same: pictures "
+                + Arrays.toString(learned.ids)
+                + " now "
+                + Arrays.toString(pending.ids)
+                + (pending.detached ? " looks[coverage,r,g,b] " + looks(learned.ids) + " now " + looks(pending.ids)
+                    : "")
+                + " (drawn every time from now on; logged 3 times per block at most)");
+    }
+
+    /** For the log: each picture's coverage and average color, as {@link #alike} compares them. */
+    private static String looks(int[] ids) {
+        StringBuilder b = new StringBuilder("[");
+        for (int view = 0; view < ChunkBlocks.VIEWS; view++) {
+            float[] look = LOOKS_OF_SPRITES.get(ids[view]);
+            b.append(view == 0 ? "" : " ")
+                .append(
+                    look == null ? "-"
+                        : String.format(Locale.ROOT, "%.2f,%.0f,%.0f,%.0f", look[0], look[1], look[2], look[3]));
+        }
+        return b.append(']')
+            .toString();
+    }
+
     private static int cacheGeneration;
     /** Whether a block class draws sides depending on the world (overrides the world-aware getIcon). */
     private static final Map<Class<?>, Boolean> WORLD_ICONS = new HashMap<>();
@@ -188,6 +506,10 @@ final class FaceRenderer {
         boolean wide;
         /** A tile entity farther away draws over its place (a stargate's base under its ring): kept by place. */
         boolean overBig;
+        /** Its kind for {@link #BY_KIND} and its key for {@link #BY_BLOCK} (if learnable). */
+        long kindKey, blockKey;
+        /** It stays inside its cell on all four sides here (see {@link #detached}). */
+        boolean detached;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -351,7 +673,7 @@ final class FaceRenderer {
      * and where the time went (finding the blocks, drawing, reading back from the graphics card, storing sprites).
      */
     static int whyComplex, whyOwnRenderer, whyGlass, whySides, placeHit, placeExpired, placeChanged, surroundingsHit,
-        surroundingsShared, batches, slotsUsed, tileEntities;
+        surroundingsShared, batches, slotsUsed, tileEntities, kindHit, kindConflicts;
     static long findNanos, drawNanos, readNanos, storeNanos, setupNanos;
     /**
      * Checks of what could be skipped, for {@link IsoLog}. Where the finding time goes: sides covered, tile entity
@@ -376,6 +698,8 @@ final class FaceRenderer {
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
+    /** Time remembering the pictures taken for their kinds ({@link #learn}). */
+    static long learnNanos;
     /**
      * Pictures of tile entities by block and surroundings (and with their data), to tell whether pictures could be
      * shared between places; for the log only.
@@ -385,18 +709,22 @@ final class FaceRenderer {
     private static void resetStats() {
         lastFound = lastToDraw = lastDrawn = lastMissing = 0;
         whyComplex = whyOwnRenderer = whyGlass = whySides = placeHit = placeExpired = placeChanged = 0;
-        surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = 0;
+        surroundingsHit = surroundingsShared = batches = slotsUsed = tileEntities = kindHit = kindConflicts = 0;
         findNanos = drawNanos = readNanos = storeNanos = setupNanos = 0;
         sessionReused = 0;
         progressDone = progressTotal = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
-        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = 0;
+        exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = learnNanos = 0;
     }
 
     /** Resource packs changed: sprites are taken again. */
     static void clear() {
         BY_SURROUNDINGS.clear();
+        BY_KIND.clear();
+        BY_BLOCK.clear();
+        LOOKS_OF_SPRITES.clear();
+        UNRELIABLE_LOGGED.clear();
         BY_PLACE.clear();
         SESSIONS.clear();
         TWINS.clear();
@@ -421,6 +749,10 @@ final class FaceRenderer {
         }
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
+            BY_KIND.clear();
+            BY_BLOCK.clear();
+            LOOKS_OF_SPRITES.clear();
+            UNRELIABLE_LOGGED.clear();
             BY_PLACE.clear();
             SESSIONS.clear();
             TWINS.clear();
@@ -503,6 +835,9 @@ final class FaceRenderer {
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
                 } else {
+                    long learnStart = System.nanoTime();
+                    learn(pending);
+                    learnNanos += System.nanoTime() - learnStart;
                     if (BY_SURROUNDINGS.size() > 200_000) {
                         // A long game: start over rather than grow without end.
                         BY_SURROUNDINGS.clear();
@@ -694,6 +1029,31 @@ final class FaceRenderer {
                     System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
                     surroundingsHit++;
                     continue;
+                }
+                if (learnable(pending)) {
+                    int tint = tint(world, block, x, y, z);
+                    pending.kindKey = kindKey(world, key, exposed, pending.wide, tint, x, y, z);
+                    pending.detached = detached(world, block, x, y, z);
+                    pending.blockKey = blockKey(key, exposed, pending.wide, pending.detached, tint);
+                    Learned learned = BY_KIND.get(pending.kindKey);
+                    int[] ids = learned == null ? null : learned.reuse(LEARN_CONFIRMATIONS, 0);
+                    if (learned == null || learned.unreliable || learned.confirmed < LEARN_CONFIRMATIONS) {
+                        // Not learned for this kind of place (else this one is drawn to check): by block alone.
+                        Learned byBlock = BY_BLOCK.get(pending.blockKey);
+                        if (byBlock != null && (pending.detached || byBlock.allEmpty())) {
+                            ids = byBlock.reuse(BLOCK_CONFIRMATIONS, BLOCK_PLACES);
+                            if (ids != null) {
+                                kindStat(key, 6);
+                            }
+                        }
+                    }
+                    if (ids != null) {
+                        // Its kind looks the same wherever it is: its pictures without drawing it.
+                        System.arraycopy(ids, 0, pending.ids, 0, pending.ids.length);
+                        kindHit++;
+                        kindStat(key, 0);
+                        continue;
+                    }
                 }
                 List<Pending> same = waiting.get(surroundings);
                 if (same != null) {
@@ -1014,13 +1374,12 @@ final class FaceRenderer {
             long storeStart = System.nanoTime();
             readNanos += storeStart - readStart;
             slot = 0;
-            int[] faceImage = new int[FacePalette.FACE_SIZE * FacePalette.FACE_SIZE];
-            int[] spriteImage = new int[FacePalette.SPRITE_SIZE * FacePalette.SPRITE_SIZE];
-            int[] wideImage = cell > SLOT ? new int[WIDE_SPRITE_SIZE * WIDE_SPRITE_SIZE] : null;
+            int slots = slotsUsed(batch);
+            int[][] images = new int[slots][];
             for (Pending pending : batch) {
                 int pixels = pending.pixels();
-                int[] image = pending.cube ? faceImage : pending.wide ? wideImage : spriteImage;
                 for (int view = 0; view < pending.views(); view++, slot++) {
+                    int[] image = images[slot] = slotImage(slot, pixels * pixels);
                     int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
                     // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                     float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
@@ -1029,25 +1388,32 @@ final class FaceRenderer {
                         pending.shot.shade[view] = shade;
                     }
                     long u0 = System.nanoTime();
+                    // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a
+                    // table for the shade instead of dividing each color of each pixel.
+                    int[] table = shade >= 1f ? null : shadeTable(shade);
                     for (int row = 0; row < pixels; row++) {
                         // Read back bottom-up; pictures are top-down.
                         int from = (sy + pixels - 1 - row) * SIZE + sx;
+                        if (table == null) {
+                            System.arraycopy(all, from, image, row * pixels, pixels);
+                            continue;
+                        }
                         for (int column = 0; column < pixels; column++) {
-                            image[row * pixels + column] = unshade(all[from + column], shade);
+                            image[row * pixels + column] = unshade(all[from + column], table);
                         }
                     }
                     long u1 = System.nanoTime();
                     if (pending.shot != null) {
                         BlockDiag.measure(image, pending.shot, view);
                     }
-                    if (variant != 0) {
-                        // Only to compare, in the log: not a picture of the palette.
-                        continue;
-                    }
-                    pending.ids[view] = palette.idOf(image);
                     unshadeNanos += u1 - u0;
-                    idNanos += System.nanoTime() - u1;
                 }
+            }
+            if (variant == 0) {
+                // (Another variant's pictures are only compared in the log: they get no ids.)
+                long idStart = System.nanoTime();
+                identify(batch, images, palette);
+                idNanos += System.nanoTime() - idStart;
             }
             storeNanos += System.nanoTime() - storeStart;
             if (diagnose && variant == 0 && !inspecting) {
@@ -1097,6 +1463,87 @@ final class FaceRenderer {
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+    }
+
+    /** Pictures of each slot of the buffer, kept from batch to batch (one array per slot and size). */
+    private static int[][] slotImages = new int[SLOTS][];
+
+    private static int[] slotImage(int slot, int length) {
+        int[] image = slotImages[slot];
+        if (image == null || image.length != length) {
+            image = slotImages[slot] = new int[length];
+        }
+        return image;
+    }
+
+    /**
+     * Threads working out the pictures' fingerprints, all of a batch at once: one after the other they took more
+     * than any other part of taking pictures (64 pictures of 128x128 pixels a batch, most of them new).
+     */
+    private static final ExecutorService HASHERS = Executors.newFixedThreadPool(
+        Math.max(
+            1,
+            Math.min(
+                6,
+                Runtime.getRuntime()
+                    .availableProcessors() / 4)),
+        task -> {
+            Thread thread = new Thread(task, "WayFarMap 3D picture hashes");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY - 1);
+            return thread;
+        });
+    /** Fewer pictures than this are worked out on the render thread: handing them over would cost more. */
+    private static final int PARALLEL_FROM = 8;
+
+    /** Gives each picture of the batch its id in the palette (and a block that can't reach out, its looks). */
+    private static void identify(List<Pending> batch, int[][] images, FacePalette palette) throws Exception {
+        int slots = images.length;
+        long[][] hashes = new long[slots][];
+        float[][] looks = new float[slots][];
+        boolean[] wantLooks = new boolean[slots];
+        int slot = 0;
+        for (Pending pending : batch) {
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                wantLooks[slot] = pending.detached;
+            }
+        }
+        if (slots < PARALLEL_FROM) {
+            for (int n = 0; n < slots; n++) {
+                hashes[n] = FacePalette.hashes(images[n]);
+                looks[n] = wantLooks[n] ? look(images[n]) : null;
+            }
+        } else {
+            int parts = Math.min(slots, 4 * Math.max(1, Math.min(6, Runtime.getRuntime().availableProcessors() / 4)));
+            List<Callable<Void>> tasks = new ArrayList<>(parts);
+            for (int part = 0; part < parts; part++) {
+                int from = slots * part / parts, to = slots * (part + 1) / parts;
+                tasks.add(() -> {
+                    for (int n = from; n < to; n++) {
+                        hashes[n] = FacePalette.hashes(images[n]);
+                        looks[n] = wantLooks[n] ? look(images[n]) : null;
+                    }
+                    return null;
+                });
+            }
+            for (Future<Void> done : HASHERS.invokeAll(tasks)) {
+                // Throws what a task threw.
+                done.get();
+            }
+        }
+        slot = 0;
+        for (Pending pending : batch) {
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                int id = palette.idOf(images[slot], hashes[slot]);
+                pending.ids[view] = id;
+                if (looks[slot] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
+                    if (LOOKS_OF_SPRITES.size() > 200_000) {
+                        LOOKS_OF_SPRITES.clear();
+                    }
+                    LOOKS_OF_SPRITES.put(id, looks[slot]);
+                }
+            }
         }
     }
 
@@ -1924,15 +2371,37 @@ final class FaceRenderer {
         GL11.glLoadMatrix(matrixBuffer);
     }
 
-    /** Takes the game's side shading out of a pixel, so the tracer can shade it by the light of its place. */
-    private static int unshade(int argb, float shade) {
-        if (shade >= 1f || (argb >>> 24) == 0) {
+    /**
+     * Takes the game's side shading out of a pixel, so the tracer can shade it by the light of its place: each color
+     * through the table for its shade ({@link #shadeTable}).
+     */
+    private static int unshade(int argb, int[] table) {
+        if ((argb >>> 24) == 0) {
             return argb;
         }
-        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) / shade + 0.5f));
-        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) / shade + 0.5f));
-        int b = Math.min(255, (int) ((argb & 0xFF) / shade + 0.5f));
-        return argb & 0xFF000000 | r << 16 | g << 8 | b;
+        return argb & 0xFF000000 | table[(argb >> 16) & 0xFF] << 16
+            | table[(argb >> 8) & 0xFF] << 8
+            | table[argb & 0xFF];
+    }
+
+    /** Tables for {@link #unshade}, by the shade's bits: a side's few shades come back again and again. */
+    private static final Map<Integer, int[]> SHADE_TABLES = new HashMap<>();
+
+    /** Each color (0-255) with the shade taken out, as dividing it would give. */
+    private static int[] shadeTable(float shade) {
+        int key = Float.floatToIntBits(shade);
+        int[] table = SHADE_TABLES.get(key);
+        if (table == null) {
+            if (SHADE_TABLES.size() > 256) {
+                SHADE_TABLES.clear();
+            }
+            table = new int[256];
+            for (int color = 0; color < 256; color++) {
+                table[color] = Math.min(255, (int) (color / shade + 0.5f));
+            }
+            SHADE_TABLES.put(key, table);
+        }
+        return table;
     }
 
     /**

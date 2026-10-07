@@ -36,7 +36,7 @@ public final class IsoExport implements TilePyramid.Source {
         this.night = night;
         this.pixelsPerBlock = IsoProjection.pixelsPerBlock(level);
         this.tileBlocks = SIZE / pixelsPerBlock;
-        this.tracers = ThreadLocal.withInitial(() -> new IsoTracer(dimension.store, palette));
+        this.tracers = ThreadLocal.withInitial(() -> new IsoTracer(dimension.store, palette, dimension.noSky));
     }
 
     /**

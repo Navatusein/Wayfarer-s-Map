@@ -25,8 +25,10 @@ import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.ChunkScanner;
+import WayFarMap.client.map.MapManager;
 
 /**
  * The 3D (isometric) world map, drawn like Dynmap's HD maps from the blocks themselves: while playing, the blocks
@@ -38,7 +40,7 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 15;
+    private static final int RENDER_VERSION = 16;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /**
@@ -61,6 +63,8 @@ public final class IsoMap implements BlockStore.Listener {
         final int id;
         final File directory;
         final BlockStore store;
+        /** No sky (the Nether): dim at any time of day, lit only by its lava and lamps. */
+        volatile boolean noSky;
 
         Dimension(int id, File directory, BlockStore.Listener listener) {
             this.id = id;
@@ -255,6 +259,9 @@ public final class IsoMap implements BlockStore.Listener {
         if (dimension == null) {
             dimension = new Dimension(id, new File(worldDirectory, "dim" + id), this);
             dimensions.put(id, dimension);
+        }
+        if (!dimension.noSky && MapManager.INSTANCE.hasNoSky(id)) {
+            dimension.noSky = true;
         }
         return dimension;
     }
@@ -598,12 +605,14 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /**
-     * Copies a chunk sent for {@code /wf chunkload} (render thread), for up to the deadline. False until it is done:
+     * Copies a chunk sent for {@code /wf chunkload} (render thread), for up to the deadline, also with block recording
+     * off (the loading was asked for the 3D map). False until it is done:
      * its stored copy is looked at first (unchanged: nothing to do), then its pictures may take several ticks. The
      * chunk is let go after, so it isn't put in the queues.
      */
     public boolean captureForLoad(World world, Chunk chunk, long deadline) {
-        if (!Config.record3d || writer == null || chunk == null || chunk.isEmpty()) {
+        // Not tied to Config.record3d: the area loading view's 3D switch asks for it on its own.
+        if (writer == null || chunk == null || chunk.isEmpty()) {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
@@ -1000,6 +1009,16 @@ public final class IsoMap implements BlockStore.Listener {
      */
     public void draw(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor, int x,
         int y, int width, int height) {
+        long perf = Perf.start();
+        try {
+            drawView(dimensionId, rotation, centerX, centerZ, scale, factor, x, y, width, height);
+        } finally {
+            Perf.end(Perf.Part.ISO_DRAW, perf);
+        }
+    }
+
+    private void drawView(int dimensionId, int rotation, double centerX, double centerZ, double scale, int factor,
+        int x, int y, int width, int height) {
         Dimension dimension = dimension(dimensionId);
         if (dimension == null) {
             return;

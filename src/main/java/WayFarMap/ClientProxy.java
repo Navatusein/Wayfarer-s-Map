@@ -10,6 +10,8 @@ import WayFarMap.client.InspectCommand;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.MinimapRenderer;
+import WayFarMap.client.MobIconDump;
+import WayFarMap.client.PerfTicks;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.integration.ClaimsLayer;
@@ -68,12 +70,18 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(PlayerTrail.INSTANCE);
+        // Times frames and ticks for the 3D log, to tell what costs frames per second and ticks per second.
+        FMLCommonHandler.instance()
+            .bus()
+            .register(PerfTicks.INSTANCE);
 
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
         ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
         // Report of how a block gets onto the 3D map, to send when it looks wrong there.
         ClientCommandHandler.instance.registerCommand(new InspectCommand());
+        // Material to make the map's mob icons from: every mob drawn by the game, its skin and model.
+        ClientCommandHandler.instance.registerCommand(new MobIconDump());
 
         MinecraftForge.EVENT_BUS.register(new IsoEntityDrawer.NameTags());
         MinecraftForge.EVENT_BUS.register(new MinimapRenderer());

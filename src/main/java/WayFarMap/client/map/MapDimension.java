@@ -333,7 +333,7 @@ public class MapDimension {
                         return null;
                     }
                     long start = System.nanoTime();
-                    LodTile built = LodTile.of(read.pixelArray(), read.extraArray());
+                    LodTile built = LodTile.of(read.pixelArray(), read.extraArray(), read.lightArray());
                     FlatLog.lod(name, rx, rz, "file", System.nanoTime() - start);
                     return built;
                 } finally {

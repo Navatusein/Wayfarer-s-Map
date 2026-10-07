@@ -33,6 +33,7 @@ import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -95,6 +96,11 @@ public final class ChunkLoadServer {
          * ring of chunks around them that the game needs to finish them (trees, ores).
          */
         java.util.Set<Long> selected;
+        /**
+         * The last pick of the player's map in it ({@link ShareNetwork.LoadChunks#seq}), told back when it ends so the
+         * map stops showing those chunks queued. All picks for a job of the commands or one taken up after a restart.
+         */
+        int seq = Integer.MAX_VALUE;
 
         Job(UUID player, int dimension, int centerX, int centerZ, int radius, boolean with3d, int id, long started,
             int batch, boolean savedOnly, boolean full) {
@@ -234,6 +240,8 @@ public final class ChunkLoadServer {
     }
 
     private final Map<UUID, Job> jobs = new HashMap<>();
+    /** The last pick number each player's map sent ({@link ShareNetwork.LoadChunks#seq}). */
+    private final Map<UUID, Integer> lastSeq = new HashMap<>();
     /** Progress is saved this often while jobs run, so they go on after a restart. */
     private static final long SAVE_MS = 5000;
     private long lastSave;
@@ -412,6 +420,8 @@ public final class ChunkLoadServer {
             release(old, old.loading, null);
             player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.replaced"));
         }
+        // The chunks queued on the map so far are not loaded anymore: no longer shown waiting.
+        ended(player, seqOf(player), false);
         Job job = new Job(
             player.getUniqueID(),
             player.dimension,
@@ -443,6 +453,8 @@ public final class ChunkLoadServer {
 
     private void stop(EntityPlayerMP player) {
         Job job = jobs.remove(player.getUniqueID());
+        // Told even with nothing running: the map may still show chunks queued from before.
+        ended(player, seqOf(player), false);
         if (job == null) {
             player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.none"));
             return;
@@ -547,6 +559,14 @@ public final class ChunkLoadServer {
             online.add(player.getUniqueID());
             boolean allowed = player.canCommandSenderUseCommand(2, "wf");
             Object[] told = toldAllowed.get(player.getUniqueID());
+            if (told == null || told[0] != player) {
+                // Just joined: with nothing being loaded for it, its map forgets the chunks it still shows queued
+                // (from an earlier game, or a loading that ended while it was away).
+                lastSeq.remove(player.getUniqueID());
+                if (!jobs.containsKey(player.getUniqueID())) {
+                    ended(player, Integer.MAX_VALUE, false);
+                }
+            }
             if (told == null || told[0] != player || (Boolean) told[1] != allowed) {
                 toldAllowed.put(player.getUniqueID(), new Object[] { player, allowed });
                 ShareNetwork.sendTo(new ShareNetwork.LoadAllowed(allowed), player);
@@ -566,6 +586,15 @@ public final class ChunkLoadServer {
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
+        long perf = Perf.start();
+        try {
+            serverTick(event);
+        } finally {
+            Perf.end(Perf.Part.CHUNKLOAD, perf);
+        }
+    }
+
+    private void serverTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
@@ -613,6 +642,7 @@ public final class ChunkLoadServer {
             player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.not_allowed"));
             return;
         }
+        lastSeq.put(player.getUniqueID(), Math.max(seqOf(player), message.seq));
         java.util.Set<Long> chunks = new java.util.LinkedHashSet<>();
         Job old = jobs.get(player.getUniqueID());
         if (old != null && old.selected != null && old.dimension == player.dimension && old.order != null) {
@@ -642,6 +672,7 @@ public final class ChunkLoadServer {
         }
         if (chunks.isEmpty()) {
             save();
+            ended(player, message.seq, false);
             if (old != null && old.selected != null) {
                 player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.picked_none"));
             }
@@ -669,11 +700,25 @@ public final class ChunkLoadServer {
             savedOnly,
             false,
             chunks);
+        job.seq = message.seq;
         jobs.put(job.player, job);
         save();
         if (!message.remove) {
             player.addChatMessage(
                 new ChatComponentTranslation("wayfarmap.chunkload.picked", message.chunks.length, chunks.size()));
+        }
+    }
+
+    /** The last pick number the player's map sent, 0 if none. */
+    private int seqOf(EntityPlayerMP player) {
+        Integer seq = lastSeq.get(player.getUniqueID());
+        return seq == null ? 0 : seq;
+    }
+
+    /** Tells the player's map that the loading of its picks up to {@code seq} ended (see {@link ShareNetwork.LoadEnded}). */
+    private static void ended(EntityPlayerMP player, int seq, boolean finished) {
+        if (player != null) {
+            ShareNetwork.sendTo(new ShareNetwork.LoadEnded(seq, finished), player);
         }
     }
 
@@ -725,6 +770,7 @@ public final class ChunkLoadServer {
         if (job.index >= job.batches()) {
             jobs.remove(job.player);
             save();
+            ended(player, job.seq, true);
             return;
         }
         ChunkProviderServer provider = world.theChunkProviderServer;
@@ -888,6 +934,8 @@ public final class ChunkLoadServer {
             save();
             EntityPlayerMP player = online(job.player);
             long seconds = (System.currentTimeMillis() - job.started) / 1000;
+            // Chunks that could not be loaded stay queued on the map otherwise.
+            ended(player, job.seq, true);
             if (player != null) {
                 player.addChatMessage(
                     new ChatComponentTranslation(
@@ -1006,6 +1054,7 @@ public final class ChunkLoadServer {
         jobs.clear();
         inbox.clear();
         toldAllowed.clear();
+        lastSeq.clear();
     }
 
     private void save() {

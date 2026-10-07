@@ -42,6 +42,7 @@ public class GuiTeleportY extends ScaledScreen {
             : String.valueOf(mc.thePlayer != null ? MathHelper.floor_double(mc.thePlayer.boundingBox.minY) : 64);
         yField = new FlatTextField(fontRendererObj, left + 10, top + WindowHeader.HEIGHT + 6, WIDTH - 20, 16);
         yField.setMaxStringLength(4);
+        yField.setOnCleared(this::validate);
         yField.setText(text);
         yField.setFocused(true);
 

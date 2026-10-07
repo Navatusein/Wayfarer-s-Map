@@ -17,6 +17,7 @@ import net.minecraft.entity.IMerchant;
 import net.minecraft.entity.INpc;
 import net.minecraft.entity.monster.EntityGolem;
 import net.minecraft.entity.monster.IMob;
+import net.minecraft.entity.passive.EntityAmbientCreature;
 import net.minecraft.entity.passive.EntityHorse;
 import net.minecraft.entity.passive.EntityTameable;
 import net.minecraft.entity.player.EntityPlayer;
@@ -79,9 +80,97 @@ public final class MapDrawer {
         drawMap(dimension, centerX, centerZ, scale, x, y, width, height, false);
     }
 
-    /** @param minimap drawn by the minimap (kept apart in the flat map log) */
+    /** A switch from one map to another (a cave layer, the surface, the biomes) being faded over. */
+    private static final class Fade {
+
+        /** Map drawn last, and the one it fades in over (null when no fade is going on). */
+        MapDimension shown, previous;
+        /** When the fade started, when the switch was made, and when the map was last drawn. */
+        long start, switched, lastFrame;
+    }
+
+    private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
+
+    /** Forgets the maps drawn last, so none of a world that was left is faded from (or drawn) again. */
+    public static void forgetShownMaps() {
+        MINIMAP_FADE.shown = MINIMAP_FADE.previous = null;
+        WORLD_MAP_FADE.shown = WORLD_MAP_FADE.previous = null;
+    }
+
+    /** Longest wait for the new map's regions to be read from disk before it fades in anyway. */
+    private static final long FADE_WAIT_MS = 1000;
+
+    /**
+     * @param minimap drawn by the minimap (kept apart in the flat map log). A switch to another map of the same
+     *                dimension (a cave layer, the surface) fades over {@link Config#layerFadeMs}.
+     */
     public static void drawMap(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
         int width, int height, boolean minimap) {
+        Fade fade = minimap ? MINIMAP_FADE : WORLD_MAP_FADE;
+        long now = System.currentTimeMillis();
+        long duration = Config.layerFadeMs;
+        if (dimension != fade.shown) {
+            if (dimension == fade.previous && duration > 0) {
+                // Switched back in the middle of a fade: it turns around from where it was.
+                float done = Math.max(0f, Math.min(1f, (now - fade.start) / (float) duration));
+                fade.previous = fade.shown;
+                fade.start = now - (long) ((1f - done) * duration);
+                fade.switched = now - FADE_WAIT_MS;
+            } else {
+                // Only within the same dimension, and not when the map was just opened.
+                boolean fades = duration > 0 && fade.shown != null
+                    && now - fade.lastFrame < 500
+                    && fade.shown.dimensionId == dimension.dimensionId;
+                fade.previous = fades ? fade.shown : null;
+                fade.start = fade.switched = now;
+            }
+            fade.shown = dimension;
+        }
+        fade.lastFrame = now;
+        float progress = fade.previous == null || duration <= 0 ? 1f : (now - fade.start) / (float) duration;
+        if (progress >= 1f) {
+            fade.previous = null;
+            drawLayer(dimension, centerX, centerZ, scale, x, y, width, height, minimap, 1f, true);
+            return;
+        }
+        // The old map goes away in the second half, the new one comes in over it in the first half: where both are
+        // explored one turns into the other with no darker moment between them.
+        drawLayer(
+            fade.previous,
+            centerX,
+            centerZ,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            minimap,
+            Math.min(1f, 2f * (1f - progress)),
+            true);
+        int waiting = drawLayer(
+            dimension,
+            centerX,
+            centerZ,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            minimap,
+            Math.min(1f, 2f * progress),
+            false);
+        if (waiting > 0 && now - fade.switched < FADE_WAIT_MS) {
+            // The new map is still being read: the old one stays until it is there.
+            fade.start = now;
+        }
+    }
+
+    /**
+     * Draws one map at the given opacity, with the unexplored land's pattern under it if asked. Returns how many of its
+     * regions in view aren't drawn yet (still being read, or waiting for their texture).
+     */
+    private static int drawLayer(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
+        int width, int height, boolean minimap, float alpha, boolean pattern) {
         long frameStart = System.nanoTime();
         int drawnCount = 0, loadingCount = 0, missingCount = 0, textureLimited = 0;
         double left = centerX - width / 2.0 / scale;
@@ -94,7 +183,7 @@ public final class MapDrawer {
         int rx1 = floor(right) >> MapRegion.SHIFT;
         int rz1 = floor(bottom) >> MapRegion.SHIFT;
 
-        if (Config.unexploredPattern != Config.UNEXPLORED_NONE) {
+        if (pattern && Config.unexploredPattern != Config.UNEXPLORED_NONE) {
             // Under the map: it only shows where nothing was explored (the map is transparent there).
             drawUnexploredPattern(left, top, scale, x, y, width, height);
         }
@@ -102,11 +191,13 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // Dark caves are drawn as at night with their own tint: only torches and other lights show them.
+        // Dark caves and the Nether are drawn as at night with their own tint: only lava, torches and other lights
+        // show them in full color.
         boolean darkCave = isDarkCave(dimension);
-        float night = darkCave ? 1f : nightAmount(Minecraft.getMinecraft());
-        float[] tint = darkCave ? CAVE_TINT : tint(night);
-        GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+        boolean dimNether = isDimNether(dimension);
+        float night = darkCave || dimNether ? 1f : nightAmount(Minecraft.getMinecraft());
+        float[] tint = darkCave ? CAVE_TINT : dimNether ? NETHER_TINT : tint(night);
+        GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
 
         Tessellator tessellator = Tessellator.instance;
         boolean lod = useLod(scale);
@@ -178,29 +269,33 @@ public final class MapDrawer {
                 tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                 tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                 tessellator.draw();
-                if (!lod && night > 0.01f && region.hasLight()) {
-                    // At night, torches and lamps light up the map around them.
-                    region.bindGlowTexture();
-                    GL11.glColor4f(1f, 1f, 1f, night);
+                if (night > 0.01f && (lod ? tile.hasLight() : region.hasLight())) {
+                    // At night, torches and lamps light up the map around them (zoomed out too).
+                    if (lod) {
+                        tile.bindGlowTexture();
+                    } else {
+                        region.bindGlowTexture();
+                    }
+                    GL11.glColor4f(1f, 1f, 1f, night * alpha);
                     tessellator.startDrawingQuads();
                     tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
                     tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
                     tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                     tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                     tessellator.draw();
-                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                    GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
                 }
                 if (!lod && Config.edgeShadow) {
                     // Over the map: a soft shadow along the edge of the explored land.
                     region.bindShadowTexture(missingNeighbors(dimension, rx, rz));
-                    GL11.glColor4f(1f, 1f, 1f, 1f);
+                    GL11.glColor4f(1f, 1f, 1f, alpha);
                     tessellator.startDrawingQuads();
                     tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
                     tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
                     tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                     tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                     tessellator.draw();
-                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                    GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
                 }
             }
         }
@@ -216,6 +311,7 @@ public final class MapDrawer {
                 textureLimited,
                 System.nanoTime() - frameStart);
         }
+        return loadingCount + textureLimited;
     }
 
     /** Which neighbors of the region don't exist (bits 1 west, 2 east, 4 north, 8 south), for its edge shadow. */
@@ -286,9 +382,9 @@ public final class MapDrawer {
     }
 
     /**
-     * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
-     * are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is
-     * drawn once: where lines cross, see-through lines drawn over each other made the crossings brighter.
+     * Draws chunk borders (every 16 blocks) over the map rectangle, with region borders (every 512 blocks) as the
+     * stronger lines. Chunk lines are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is drawn once:
+     * where lines cross, see-through lines drawn over each other made the crossings brighter.
      */
     public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,
         int height) {
@@ -304,9 +400,9 @@ public final class MapDrawer {
         double room = Math.max(1, Math.floor(step * scale / 2 / pixel)) * pixel;
         double thickness = Math.min(pixel * Config.gridLineWidth, room);
         int chunkLine = (Math.round(Config.gridChunkOpacity * 2.55f) << 24) | Config.gridChunkColor;
-        int regionLine = (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
+        int strongLine = (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
 
-        // Lines as {from, to, region ? 1 : 0}, left to right and top to bottom.
+        // Lines as {from, to, strong ? 1 : 0}, left to right and top to bottom.
         List<double[]> columns = new ArrayList<>();
         int firstX = (int) Math.floor(left / step) * step;
         for (int bx = firstX;; bx += step) {
@@ -314,11 +410,10 @@ public final class MapDrawer {
             if (sx > x + width) {
                 break;
             }
-            if (sx >= x) {
+            boolean strong = Math.floorMod(bx, MapRegion.SIZE) == 0;
+            if (sx >= x && (chunks || strong)) {
                 double lx = Math.floor(sx / pixel) * pixel;
-                columns.add(
-                    new double[] { lx, Math.min(lx + thickness, x + width),
-                        Math.floorMod(bx, MapRegion.SIZE) == 0 ? 1 : 0 });
+                columns.add(new double[] { lx, Math.min(lx + thickness, x + width), strong ? 1 : 0 });
             }
         }
         List<double[]> rows = new ArrayList<>();
@@ -328,11 +423,10 @@ public final class MapDrawer {
             if (sy > y + height) {
                 break;
             }
-            if (sy >= y) {
+            boolean strong = Math.floorMod(bz, MapRegion.SIZE) == 0;
+            if (sy >= y && (chunks || strong)) {
                 double ly = Math.floor(sy / pixel) * pixel;
-                rows.add(
-                    new double[] { ly, Math.min(ly + thickness, y + height),
-                        Math.floorMod(bz, MapRegion.SIZE) == 0 ? 1 : 0 });
+                rows.add(new double[] { ly, Math.min(ly + thickness, y + height), strong ? 1 : 0 });
             }
         }
 
@@ -341,25 +435,25 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawingQuads();
-        // Columns between the rows, rows between the columns, then the crossings: a region line wins there.
+        // Columns between the rows, rows between the columns, then the crossings: a strong line wins there.
         for (double[] column : columns) {
             double from = y;
             for (double[] row : rows) {
-                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? regionLine : chunkLine);
+                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? strongLine : chunkLine);
                 from = Math.max(from, row[1]);
             }
-            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? regionLine : chunkLine);
+            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? strongLine : chunkLine);
         }
         for (double[] row : rows) {
             double from = x;
             for (double[] column : columns) {
-                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? regionLine : chunkLine);
+                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? strongLine : chunkLine);
                 from = Math.max(from, column[1]);
             }
-            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? regionLine : chunkLine);
+            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? strongLine : chunkLine);
             for (double[] column : columns) {
-                boolean region = row[2] > 0 || column[2] > 0;
-                addRect(tessellator, column[0], row[0], column[1], row[1], region ? regionLine : chunkLine);
+                boolean strong = row[2] > 0 || column[2] > 0;
+                addRect(tessellator, column[0], row[0], column[1], row[1], strong ? strongLine : chunkLine);
             }
         }
         tessellator.draw();
@@ -385,6 +479,9 @@ public final class MapDrawer {
     /** Map color multiplier for caves: no sun or moon down there, only torches light them up. */
     private static final float[] CAVE_TINT = { 0.2f, 0.2f, 0.23f };
 
+    /** Map color multiplier for the Nether: dim and warm, as its own murky light; lava and glowstone light it up. */
+    private static final float[] NETHER_TINT = { 0.5f, 0.36f, 0.32f };
+
     /** RGB multiplier for the map according to {@link Config#mapLightMode} and the time of day. */
     public static float[] lightTint(Minecraft mc) {
         return tint(nightAmount(mc));
@@ -398,11 +495,38 @@ public final class MapDrawer {
 
     /**
      * Cave layers of dimensions with a sky are dark at any time of day, lit only where torches and other lights are
-     * (unless the map is fixed to day). Dimensions without a sky, like the Nether, keep their caves lit.
+     * (unless the map is fixed to day). Dimensions without a sky, like the Nether, get {@link #isDimNether} instead.
      */
     private static boolean isDarkCave(MapDimension dimension) {
         return dimension.cave && Config.mapLightMode != Config.LIGHT_DAY
             && !MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
+    }
+
+    /**
+     * Dimensions without a sky, like the Nether, are dim at any time of day, surface and caves alike, with their lights
+     * glowing (unless the map is fixed to day).
+     */
+    private static boolean isDimNether(MapDimension dimension) {
+        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
+    }
+
+    /**
+     * How much the 3D map of the dimension shows night: as {@link #nightAmount}, but a dimension without a sky, like
+     * the Nether, is dim at any time of day, lit only by its lava and lamps (unless the map is fixed to day).
+     */
+    public static float isoNightAmount(Minecraft mc, int dimensionId) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+            return 1f;
+        }
+        return nightAmount(mc);
+    }
+
+    /** RGB multiplier for models on the 3D map of the dimension, as {@link #isoNightAmount} lights it. */
+    public static float[] isoLightTint(Minecraft mc, int dimensionId) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+            return NETHER_TINT.clone();
+        }
+        return lightTint(mc);
     }
 
     /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */
@@ -507,9 +631,13 @@ public final class MapDrawer {
     /** Frame colors of the kinds of mobs. */
     static final int HOSTILE_COLOR = 0xFFFF4040;
     static final int NEUTRAL_COLOR = 0xFFA8ADB4;
+    static final int AMBIENT_COLOR = 0xFFB57EDC;
     static final int FRIENDLY_COLOR = 0xFF50D050;
     static final int PET_COLOR = 0xFF4C9AFF;
-    /** Mobs this many blocks below the player are drawn in full; lower ones fade out down to the height range. */
+    /**
+     * Mobs within this many blocks above or below the player are drawn in full; farther ones fade out to the height
+     * range.
+     */
     private static final double FADE_START = 2;
 
     /**
@@ -619,16 +747,17 @@ public final class MapDrawer {
     }
 
     /**
-     * Opacity of a mob by its height: in full down to a little below the player, then fading out the lower it is, gone
-     * at the height range. Climbing up, the mobs below fade away smoothly.
+     * Opacity of a mob by its height: in full within a little of the player's height, then fading out the farther
+     * above or below it is, gone at the height range. Climbing or going down, the mobs left behind fade away smoothly
+     * (those above used to stay in full and vanish at once at the range).
      */
     private static float heightAlpha(EntityLivingBase entity, double playerY) {
-        double below = playerY - entity.posY - FADE_START;
-        if (below <= 0) {
+        double away = Math.abs(playerY - entity.posY) - FADE_START;
+        if (away <= 0) {
             return 1f;
         }
         double range = Math.max(1, Config.entityVerticalRange - FADE_START);
-        double t = Math.min(1, below / range);
+        double t = Math.min(1, away / range);
         // Eased: fades slowly at first, then quicker.
         return (float) (1 - t * t * (3 - 2 * t));
     }
@@ -646,7 +775,10 @@ public final class MapDrawer {
         return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
     }
 
-    /** Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), neutral. */
+    /**
+     * Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), ambient
+     * (bats...), neutral.
+     */
     static int entityColor(EntityLivingBase entity) {
         if (isPet(entity)) {
             return Config.showPets ? PET_COLOR : 0;
@@ -656,6 +788,9 @@ public final class MapDrawer {
         }
         if (isFriendly(entity)) {
             return Config.showOtherEntities ? FRIENDLY_COLOR : 0;
+        }
+        if (entity instanceof EntityAmbientCreature) {
+            return Config.showAmbientMobs ? AMBIENT_COLOR : 0;
         }
         return Config.showPassiveMobs ? NEUTRAL_COLOR : 0;
     }
@@ -712,7 +847,10 @@ public final class MapDrawer {
         if (entity instanceof IMob) {
             return Config.hostileNames;
         }
-        return isFriendly(entity) ? Config.friendlyNames : Config.neutralNames;
+        if (isFriendly(entity)) {
+            return Config.friendlyNames;
+        }
+        return entity instanceof EntityAmbientCreature ? Config.ambientNames : Config.neutralNames;
     }
 
     /** Small name centered under an icon, at {@code textScale} of the normal text size. */
@@ -800,7 +938,9 @@ public final class MapDrawer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
         // one side.
-        if (entity == null || !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
+        // Its icon drawn by the game; until it is made (or if it can't be), its face cut out of its skin.
+        if (entity == null
+            || !MobIcons.draw(entity, sx, sy, size, alpha) && !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
             drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

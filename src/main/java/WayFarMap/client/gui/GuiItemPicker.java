@@ -132,7 +132,8 @@ public class GuiItemPicker extends ScaledScreen {
             fontRendererObj.getStringWidth(I18n.format("wayfarmap.gui.tab_symbols"))) + 30;
         int searchX = gridX + 2 * tabsWidth + 8;
         search = new FlatTextField(fontRendererObj, searchX, 20 + SEARCH_DOWN, gridX + columns * CELL - searchX, 18);
-        search.setHint(I18n.format("wayfarmap.gui.search"));
+        search.setHint(I18n.format("wayfarmap.gui.search"))
+            .setOnCleared(this::applyFilter);
         search.setMaxStringLength(64);
         search.setText(oldText);
 

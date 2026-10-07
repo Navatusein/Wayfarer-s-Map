@@ -19,9 +19,9 @@ import WayFarMap.WayFarMap;
 
 /**
  * Resolves the color a block shows on the map: the average color of its top texture (or its vanilla map color as a
- * fallback), multiplied by the block's tint (biome color of grass, leaves, water...). Tinted colors get more
- * saturation and contrast ({@link Config#biomeColorContrast}), so biomes and waters stand apart while still blending
- * smoothly into each other as the game's tint does.
+ * fallback), multiplied by the block's tint (biome color of grass, leaves, water...), as the game colors them. Tinted
+ * colors can be made more muted or more vivid ({@link Config#biomeColorSaturation}), still blending smoothly between
+ * biomes as the game's tint does.
  */
 public final class BlockColors {
 
@@ -49,18 +49,18 @@ public final class BlockColors {
         if (tint == 0xFFFFFF) {
             return base;
         }
-        return enhance(multiply(base, tint), Config.biomeColorContrast);
+        return enhance(multiply(base, tint), Config.biomeColorSaturation);
     }
 
     /** Gray level that contrast pushes away from: about the middle of the map's colors. */
     private static final float CONTRAST_PIVOT = 118f;
 
     /**
-     * More saturation (away from the color's own gray) by {@code amount}, and more contrast (away from
-     * {@link #CONTRAST_PIVOT}) by half as much; 1 leaves the color as it is.
+     * Saturation (away from the color's own gray) times {@code amount}, and contrast (away from
+     * {@link #CONTRAST_PIVOT}) changed by half as much; 1 leaves the color as it is, below 1 mutes it.
      */
     static int enhance(int rgb, double amount) {
-        if (amount <= 1.0) {
+        if (amount == 1.0) {
             return rgb;
         }
         float saturation = (float) amount, contrast = 1f + (float) (amount - 1.0) * 0.5f;

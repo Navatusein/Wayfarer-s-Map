@@ -12,6 +12,9 @@ interface PixelSource {
     /** Extra byte of the pixel (height or biome), 0 if unknown. */
     int getExtra(int localX, int localZ);
 
+    /** Light byte of the pixel: block light in the low 4 bits, the topography flags above (MapRegion.TOPO_*). */
+    int getLight(int localX, int localZ);
+
     /** Grows on every change, so images derived from it know when to rebuild. */
     int getChanges();
 }
