@@ -18,10 +18,18 @@ public final class Perf {
         WORLD_MAP(Where.FRAME, "worldMap", null),
         ISO_DRAW(Where.FRAME, "3dDraw", WORLD_MAP),
         ISO_UPLOAD(Where.FRAME, "3dUpload", ISO_DRAW),
+        /** Block looks worked out for the tile renderers, on frames while the 3D view is open. */
+        ISO_LOOKS(Where.FRAME, "3dLooks", ISO_DRAW),
+        /** Drawing the tiles on screen (and queueing the missing ones). */
+        ISO_TILES(Where.FRAME, "3dTiles", ISO_DRAW),
+        /** Looking for tiles to free, every frame. */
+        ISO_EVICT(Where.FRAME, "3dEvict", ISO_DRAW),
         MARKERS(Where.FRAME, "worldMarkers", null),
         ITEM_PICTURES(Where.FRAME, "itemPictures", null),
         SCAN_2D(Where.TICK, "scan2d", null),
         CAPTURE_3D(Where.TICK, "capture3d", null),
+        /** Block looks of the chunks copied, worked out ahead a little each tick. */
+        LOOKS_TICK(Where.TICK, "3dLooksAhead", CAPTURE_3D),
         CHUNKLOAD(Where.SERVER, "chunkload", null),
         TEAM_MAP(Where.SERVER, "teamMap", null);
 

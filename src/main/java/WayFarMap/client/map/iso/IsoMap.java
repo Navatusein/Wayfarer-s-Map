@@ -315,7 +315,9 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** @return whether the time ran out with chunks still waiting */
     private boolean tickCapture(World world) {
+        long looks = Perf.start();
         BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
+        Perf.end(Perf.Part.LOOKS_TICK, looks);
         drainChanges();
         Long done;
         while ((done = checked.poll()) != null) {
@@ -1023,7 +1025,9 @@ public final class IsoMap implements BlockStore.Listener {
         if (dimension == null) {
             return;
         }
+        long looks = Perf.start();
         BlockLooks.pump(LOOK_BUDGET_NANOS);
+        Perf.end(Perf.Part.ISO_LOOKS, looks);
         drainChanges();
         IsoProjection projection = IsoProjection.of(rotation);
         IsoTiles view = tiles();

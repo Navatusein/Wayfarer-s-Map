@@ -859,6 +859,7 @@ public class MapManager implements IResourceManagerReloadListener {
                         + " ticks after its last scan: mapped again as a new chunk");
             }
             FlatLog.loaded(chunk.xPosition, chunk.zPosition);
+            IsoLog.loaded(chunk.xPosition, chunk.zPosition);
         }
     }
 
