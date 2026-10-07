@@ -152,6 +152,8 @@ final class FaceRenderer {
     private static Boolean asyncWorks;
     /** The last {@link #addFaces} is not complete only because its pictures are still being read back. */
     static boolean lastInFlight;
+    /** Blocks of the last {@link #addFaces}'s chunk whose pictures are still to draw (not counting those in flight). */
+    static int lastRemaining;
     /**
      * For the log, since it last took them: time reading out and storing pictures drawn the tick before, of it the
      * reading out, and the batches.
@@ -1015,6 +1017,7 @@ final class FaceRenderer {
         session.from = from;
         progressDone = from;
         progressTotal = toDraw.size();
+        lastRemaining = toDraw.size() - from;
         if (lastInFlight && !broken) {
             // The session stays: called again once they are read, it goes on from here.
             return false;

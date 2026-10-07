@@ -150,7 +150,19 @@ public final class IsoMap implements BlockStore.Listener {
      * Chunks whose pictures are being read back from the graphics card ({@link FaceRenderer#finishFlights}), with
      * their copy: finished first the next tick, without copying them again.
      */
-    private final LinkedHashMap<Long, ChunkBlocks> awaiting = new LinkedHashMap<>();
+    private final LinkedHashMap<Long, Awaiting> awaiting = new LinkedHashMap<>();
+
+    /** A chunk of {@link #awaiting}: its copy, and its blocks whose pictures are still to draw. */
+    private static final class Awaiting {
+
+        final ChunkBlocks blocks;
+        final int remaining;
+
+        Awaiting(ChunkBlocks blocks, int remaining) {
+            this.blocks = blocks;
+            this.remaining = remaining;
+        }
+    }
     /**
      * Signatures of stored copies with every picture, worked out by the writer for chunks not yet copied this
      * session ({@link #NO_SIGNATURE} if there is none such): a chunk whose blocks are the same as stored needs no
@@ -410,32 +422,56 @@ public final class IsoMap implements BlockStore.Listener {
         return !freshQueue.isEmpty() || !captureQueue.isEmpty() || inProgress != null || !awaiting.isEmpty();
     }
 
-    /** Finishes the chunks whose pictures were read back (see {@link #awaiting}). */
+    /**
+     * Finishes the chunks whose pictures were read back (see {@link #awaiting}): the ones with all their pictures
+     * drawn are stored; of those with more to draw only the chunk being finished goes on (the first one becomes it),
+     * the others wait their turn with their copy.
+     */
     private void resumeAwaiting(World world, long deadline) {
         if (awaiting.isEmpty()) {
             return;
         }
-        List<Map.Entry<Long, ChunkBlocks>> all = new ArrayList<>(awaiting.entrySet());
+        List<Map.Entry<Long, Awaiting>> all = new ArrayList<>(awaiting.entrySet());
         awaiting.clear();
-        for (Map.Entry<Long, ChunkBlocks> entry : all) {
+        for (Map.Entry<Long, Awaiting> entry : all) {
             long key = entry.getKey();
+            Awaiting waiting = entry.getValue();
             int cx = (int) (key >> 32), cz = (int) key;
+            boolean current = inProgress != null && inProgress == key;
             if (!world.getChunkProvider()
                 .chunkExists(cx, cz)) {
                 unfinished.remove(key);
+                if (current) {
+                    inProgress = null;
+                }
                 IsoLog.dropped(cx, cz, "no longer loaded while its pictures were read back");
                 continue;
             }
-            Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
-            if (!capture(world, chunk, false, false, deadline, false, entry.getValue())) {
-                // Pictures still to take (the time ran out): finished like any chunk that isn't.
-                if (inProgress == null) {
-                    inProgress = key;
-                    inProgressSince = System.currentTimeMillis();
-                    inProgressTries = 0;
-                } else if (inProgress != key) {
-                    freshQueue.add(key);
+            if (waiting.remaining > 0 && !current) {
+                if (inProgress != null) {
+                    // Another one is being finished: this one waits, its pictures so far kept.
+                    awaiting.put(key, waiting);
+                    continue;
                 }
+                current = true;
+                inProgress = key;
+                inProgressSince = System.currentTimeMillis();
+                inProgressTries = 0;
+            }
+            if (current) {
+                inProgressTries++;
+            }
+            Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+            if (capture(world, chunk, false, false, deadline, false, waiting.blocks)) {
+                if (current) {
+                    inProgress = null;
+                    logInProgressDone(key);
+                }
+            } else if (inProgress == null) {
+                // Pictures still to take that weren't sent off (the time ran out): finished first from now on.
+                inProgress = key;
+                inProgressSince = System.currentTimeMillis();
+                inProgressTries = 0;
             }
         }
     }
@@ -468,6 +504,10 @@ public final class IsoMap implements BlockStore.Listener {
         if (key == null) {
             return;
         }
+        if (awaiting.containsKey(key)) {
+            // Its pictures are being read back: it goes on with its copy (resumeAwaiting).
+            return;
+        }
         int cx = (int) (key >> 32), cz = (int) (long) key;
         if (!ChunkScanner.isChunkReady(world, cx, cz)) {
             inProgress = null;
@@ -478,20 +518,21 @@ public final class IsoMap implements BlockStore.Listener {
         inProgressTries++;
         if (capture(world, world.getChunkFromChunkCoords(cx, cz), false, false, deadline)) {
             inProgress = null;
-            if (awaiting.containsKey(key)) {
-                // Its pictures are being read back: finished next tick.
-                return;
-            }
-            IsoLog.log(
-                "IN_PROGRESS_DONE " + cx
-                    + ","
-                    + cz
-                    + " finished in "
-                    + (System.currentTimeMillis() - inProgressSince)
-                    + " ms over "
-                    + inProgressTries
-                    + " more ticks; the next chunk may start");
+            logInProgressDone(key);
         }
+    }
+
+    private void logInProgressDone(long key) {
+        int cx = (int) (key >> 32), cz = (int) key;
+        IsoLog.log(
+            "IN_PROGRESS_DONE " + cx
+                + ","
+                + cz
+                + " finished in "
+                + (System.currentTimeMillis() - inProgressSince)
+                + " ms over "
+                + inProgressTries
+                + " more ticks; the next chunk may start");
     }
 
     /**
@@ -514,6 +555,10 @@ public final class IsoMap implements BlockStore.Listener {
             long key = it.next();
             it.remove();
             int cx = (int) (key >> 32), cz = (int) key;
+            if (awaiting.containsKey(key)) {
+                // Its pictures are being read back: it is finished from there.
+                continue;
+            }
             if (inProgress != null && unfinished.containsKey(key)) {
                 // A chunk with many pictures still to take, while another one is being finished: not tried now (a
                 // try found its blocks again and took a few pictures, and took the time of the chunks that are
@@ -544,6 +589,10 @@ public final class IsoMap implements BlockStore.Listener {
                                 + FaceRenderer.progressTotal
                                 + " taken; finished first in the next ticks");
                         return;
+                    }
+                    if (awaiting.containsKey(key)) {
+                        // Waits with its pictures in flight until the one being finished is done.
+                        continue;
                     }
                     // Another one is being finished: this one waits its turn (the pictures taken are kept).
                     queue.add(key);
@@ -921,9 +970,11 @@ public final class IsoMap implements BlockStore.Listener {
         }
         if (!complete && FaceRenderer.lastInFlight) {
             // Its pictures are being read back: finished first thing next tick.
-            awaiting.put(key, blocks);
+            awaiting.put(key, new Awaiting(blocks, FaceRenderer.lastRemaining));
             IsoLog.inFlight(cx, cz, t1 - t0, t2 - t1, FaceRenderer.flights());
-            return true;
+            // Done once they are read, if every one was drawn; else not done: it is the chunk finished first (one
+            // at a time: a batch of each of many chunks a tick finished none of them, and each was found anew).
+            return FaceRenderer.lastRemaining == 0;
         }
         // Their looks are worked out in the next ticks, so the 3D map has them when it opens.
         BlockLooks.warm(blocks.lookKeys());
