@@ -4,8 +4,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
@@ -154,8 +152,11 @@ final class FaceRenderer {
     private static Boolean asyncWorks;
     /** The last {@link #addFaces} is not complete only because its pictures are still being read back. */
     static boolean lastInFlight;
-    /** For the log: time reading out and storing pictures drawn the tick before, since the log last took it. */
-    static long finishNanos;
+    /**
+     * For the log, since it last took them: time reading out and storing pictures drawn the tick before, of it the
+     * reading out, and the batches.
+     */
+    static long finishNanos, finishReadNanos, finishBatches;
 
     /** A map that lets go of the entries used longest ago past the size (render thread only). */
     private static <V> Map<Long, V> lru(int size) {
@@ -856,29 +857,29 @@ final class FaceRenderer {
         FLIGHTS.clear();
         for (Flight flight : flights) {
             boolean read = false;
+            long readStart = System.nanoTime();
             int bound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
             try {
                 GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flight.pbo);
-                ByteBuffer mapped = GL15
-                    .glMapBuffer(GL21.GL_PIXEL_PACK_BUFFER, GL15.GL_READ_ONLY, (long) SIZE * SIZE * 4, null);
-                if (mapped == null) {
-                    asyncFailed("glMapBuffer gave nothing (error " + GL11.glGetError() + ")");
-                } else {
-                    if (readPixels == null) {
-                        readPixels = new int[SIZE * SIZE];
-                    }
-                    mapped.order(ByteOrder.nativeOrder())
-                        .asIntBuffer()
-                        .get(readPixels, 0, flight.usedRows * SIZE);
-                    GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);
-                    read = true;
+                // Only the rows used: mapping the whole buffer (4 MB) took twice as long as reading at once had.
+                int length = flight.usedRows * SIZE;
+                readBuffer.clear();
+                readBuffer.limit(length);
+                GL15.glGetBufferSubData(GL21.GL_PIXEL_PACK_BUFFER, 0, readBuffer);
+                if (readPixels == null) {
+                    readPixels = new int[SIZE * SIZE];
                 }
+                readBuffer.get(readPixels, 0, length);
+                readBuffer.clear();
+                read = true;
             } catch (Throwable t) {
                 asyncFailed(String.valueOf(t));
             } finally {
                 // As it was: another mod may read pixels into a buffer object of its own.
                 GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, bound);
                 FREE_PBOS.add(flight.pbo);
+                finishReadNanos += System.nanoTime() - readStart;
+                finishBatches++;
             }
             try {
                 if (!read || palette == null || palette.generation != cacheGeneration) {

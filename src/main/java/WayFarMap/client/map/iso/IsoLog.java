@@ -1745,7 +1745,7 @@ public final class IsoLog {
                     + " captureMs="
                     + ms(captureNanosSum.getAndSet(0))
                     + " picturesReadLaterMs="
-                    + ms(takeFinishNanos())
+                    + takeFinishNanos()
                     + " stored="
                     + stored.getAndSet(0)
                     + " storedUnchanged="
@@ -1849,10 +1849,15 @@ public final class IsoLog {
         return text;
     }
 
-    private static long takeFinishNanos() {
-        long nanos = FaceRenderer.finishNanos;
-        FaceRenderer.finishNanos = 0;
-        return nanos;
+    /** "ms[batches=n readMs=r]" of the pictures read back later since the last stats line; then starts again. */
+    private static String takeFinishNanos() {
+        String text = ms(FaceRenderer.finishNanos) + "[batches="
+            + FaceRenderer.finishBatches
+            + " readMs="
+            + ms(FaceRenderer.finishReadNanos)
+            + "]";
+        FaceRenderer.finishNanos = FaceRenderer.finishReadNanos = FaceRenderer.finishBatches = 0;
+        return text;
     }
 
     /** Garbage collections since the last stats line. */

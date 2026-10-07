@@ -365,6 +365,8 @@ public final class IsoMap implements BlockStore.Listener {
         Perf.end(Perf.Part.LOOKS_TICK, looks);
         drainChanges();
         drainWriterResults();
+        // Reading out the pictures of the tick before counts in this tick's time for copying.
+        long tickStart = System.nanoTime();
         long read = Perf.start();
         FaceRenderer.finishFlights(palette);
         Perf.end(Perf.Part.PICTURES_READ, read);
@@ -396,7 +398,7 @@ public final class IsoMap implements BlockStore.Listener {
         }
         savePicturesIfMany();
         // A chunk takes a fraction of a millisecond, more with pictures.
-        long start = System.nanoTime(), budget = Config.isoCaptureMs * 1_000_000L;
+        long start = tickStart, budget = Config.isoCaptureMs * 1_000_000L;
         // The chunk being finished first, with most of the time; the rest for the others (most take a fraction of
         // a millisecond), so new land keeps coming while a big base is taken.
         // Those whose pictures were read back since the last tick first: they only need storing.
