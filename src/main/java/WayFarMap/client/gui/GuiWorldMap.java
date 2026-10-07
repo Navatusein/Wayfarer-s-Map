@@ -1778,13 +1778,15 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (powerfail != null) {
             entries.add(
-                new MenuEntry(I18n.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail)));
+                new MenuEntry(I18n.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail))
+                    .icon(Icons.SMALL_CHECK));
             final int[] at = PowerfailLayer.position(powerfail);
             entries.add(
                 new MenuEntry(
                     I18n.format("wayfarmap.powerfail.waypoint"),
                     true,
-                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1] + 1, at[2], at[3]))));
+                    () -> mc.displayGuiScreen(GuiEditWaypoint.create(this, at[0], at[1] + 1, at[2], at[3])))
+                        .icon(Icons.SMALL_PIN));
         }
         if (vein != null) {
             entries.add(

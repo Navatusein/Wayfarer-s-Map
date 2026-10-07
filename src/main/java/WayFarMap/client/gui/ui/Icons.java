@@ -181,6 +181,10 @@ public final class Icons {
     public static final String[] SMALL_EYE = { "..###..", ".#...#.", "#..#..#", ".#...#.", "..###.." };
     public static final String[] SMALL_DROP = { "...#...", "..###..", ".#####.", "#######", "#######", ".#####.",
         "..###.." };
+    public static final String[] SMALL_CHECK = { "......#", ".....##", "#...##.", "##.##..", ".###...", "..#....",
+        "......." };
+    public static final String[] SMALL_PIN = { ".#####.", "##...##", "##...##", ".#####.", "..###..", "...#...",
+        "...#..." };
 
     /** Small icons (7x7) of the kinds of mobs, for the mobs menu. */
     public static final String[] SMALL_NEUTRAL = { "#.....#", ".#####.", ".#.#.#.", ".#####.", "..###..", "..#.#.." };
