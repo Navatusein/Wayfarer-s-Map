@@ -392,7 +392,7 @@ public final class MapDrawer {
         double top = centerZ - height / 2.0 / scale;
         boolean ores = Config.gridType == Config.GRID_ORE_VEINS;
         boolean chunks = 16 * scale >= 6;
-        // Ore vein cells are not evenly spaced (one around 0 is narrower): with them, every chunk border is looked at.
+        // With ore vein cells every chunk border is looked at: their lines are 3 chunks apart, not a power of two.
         int step = chunks || ores ? 16 : MapRegion.SIZE;
 
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
@@ -465,14 +465,11 @@ public final class MapDrawer {
     }
 
     /**
-     * Whether the west (north) edge of this chunk column (row) borders one of GregTech's ore vein cells. GregTech seeds
-     * a vein only in chunks whose {@code |x| % 3 == 1} and {@code |z| % 3 == 1}, and a vein fills at most the 3x3
-     * chunks around its seed: the cells start at chunks 0, 3, 6... and -2, -5, -8.... The cells seeded at -1 and 1
-     * would both take chunk 0; like VisualProspecting, it is given to the one at 1, so the cell at -1 is 2 chunks
-     * wide.
+     * Whether the west (north) edge of this chunk column (row) borders one of GregTech's ore vein cells: an even grid of
+     * 3x3 chunks starting at chunk 0, each holding at most one vein around its middle chunk.
      */
     static boolean isOreVeinBorder(int chunk) {
-        return chunk >= 0 ? chunk % 3 == 0 : Math.floorMod(chunk, 3) == 1;
+        return Math.floorMod(chunk, 3) == 0;
     }
 
     /** A rectangle into quads being drawn; nothing if it is empty. */
