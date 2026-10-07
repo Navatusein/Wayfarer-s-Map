@@ -151,6 +151,11 @@ public final class IsoMap implements BlockStore.Listener {
      * pictures after the game is started again, so a big base shows at once instead of being taken anew each time.
      */
     private final Map<Long, Long> storedSignatures = new ConcurrentHashMap<>();
+    /**
+     * {@link ChunkBlocks#quietSignature} of the same stored copies: a chunk whose stored copy differs only by noise
+     * (in a flight's log, mostly leaves marked for decay since an earlier game) needs no pictures either.
+     */
+    private final Map<Long, Long> storedQuietSignatures = new ConcurrentHashMap<>();
     private static final long NO_SIGNATURE = 0;
     /** Chunks whose stored copy the writer is looking at; they come back to their queue when it is done. */
     private final Set<Long> checking = new HashSet<>();
@@ -244,6 +249,7 @@ public final class IsoMap implements BlockStore.Listener {
         early.clear();
         refreshing.clear();
         storedSignatures.clear();
+        storedQuietSignatures.clear();
         checking.clear();
         checked.clear();
         loading.clear();
@@ -603,6 +609,7 @@ public final class IsoMap implements BlockStore.Listener {
             early.clear();
             refreshing.clear();
             storedSignatures.clear();
+            storedQuietSignatures.clear();
             checking.clear();
             checked.clear();
             inProgress = null;
@@ -789,6 +796,7 @@ public final class IsoMap implements BlockStore.Listener {
                 if (stored == null && !refresh && !unloading && palette != null && !unfinished.containsKey(key)) {
                     // Not copied yet this session: the copy stored before (maybe in an earlier game) may be it.
                     Long onDisk = storedSignatures.remove(key);
+                    Long quietOnDisk = storedQuietSignatures.remove(key);
                     if (onDisk == null) {
                         if (checking.add(key)) {
                             checkStored(dimension, key, palette.generation);
@@ -799,6 +807,15 @@ public final class IsoMap implements BlockStore.Listener {
                         signatures.put(key, signature);
                         unfinished.remove(key);
                         IsoLog.unchanged(cx, cz, "stored copy has the same blocks and every picture", t1 - t0);
+                        return true;
+                    }
+                    if (onDisk != NO_SIGNATURE && quietOnDisk != null && quietOnDisk == blocks.quietSignature()) {
+                        // Only noise since it was stored: the stored copy and its pictures stay, and copies alike
+                        // to this one are left as they are too.
+                        signatures.put(key, signature);
+                        quietSignatures.put(key, quietOnDisk);
+                        unfinished.remove(key);
+                        IsoLog.noise(cx, cz, "stored copy (only noise since an earlier game)", System.nanoTime() - t0);
                         return true;
                     }
                     IsoLog.log(
@@ -955,12 +972,15 @@ public final class IsoMap implements BlockStore.Listener {
                 ChunkBlocks stored = dimension.store.chunk(cx, cz);
                 if (stored != null && stored.allPicturesTaken(generation)) {
                     signature = stored.signature();
+                    // Before the signature: the render thread reads both once the chunk is back in its queue.
+                    storedQuietSignatures.put(key, stored.quietSignature());
                 }
             } catch (RuntimeException e) {
                 WayFarMap.LOG.debug("Could not read the stored 3D map chunk", e);
             } finally {
                 if (storedSignatures.size() > 100_000) {
                     storedSignatures.clear();
+                    storedQuietSignatures.clear();
                 }
                 storedSignatures.put(key, signature);
                 checked.add(key);
@@ -1052,6 +1072,7 @@ public final class IsoMap implements BlockStore.Listener {
                 storedAt.remove(key);
                 noisy.remove(key);
                 storedSignatures.remove(key);
+                storedQuietSignatures.remove(key);
                 partial.remove(key);
                 unfinished.remove(key);
             }
