@@ -124,6 +124,7 @@ wayfarmap.settings.mobs.pets=Pets
 wayfarmap.settings.mobs.pet_name=Rex
 wayfarmap.settings.mobs.mob_name=Daisy
 wayfarmap.settings.on_screen=On screen
+wayfarmap.settings.preview_shrunk=Shown at %s%%
 wayfarmap.settings.type_value=Click the value to type it in (Enter to set, Esc to cancel)
 wayfarmap.settings.unlimited=no limit
 wayfarmap.settings.group.general=General

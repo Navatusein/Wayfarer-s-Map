@@ -52,7 +52,7 @@ public class GuiSettings extends ScaledScreen {
     private static final int TRAIL_PREVIEW_HEIGHT = 84;
     private static final String TRAIL_LAST_OPTION = "playerTrailAnimated";
     /** Room over the minimap's options for its preview. */
-    private static final int PREVIEW_HEIGHT = 96;
+    private static final int PREVIEW_HEIGHT = 128;
     /** Room over the mobs' options for their preview. */
     private static final int MOBS_PREVIEW_HEIGHT = 100;
     /** Room over the player icon's options for its preview. */
@@ -159,6 +159,8 @@ public class GuiSettings extends ScaledScreen {
      */
     private static int savedScroll;
     private static String savedSearch = "";
+    /** Of the frame being drawn, for the minimap's preview. */
+    private float partialTicks;
 
     public GuiSettings(GuiScreen parent) {
         this.parent = parent;
@@ -845,6 +847,7 @@ public class GuiSettings extends ScaledScreen {
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        this.partialTicks = partialTicks;
         long now = System.nanoTime();
         frameTime = lastFrame == 0 ? 0f : Math.min(0.1f, (now - lastFrame) / 1e9f);
         lastFrame = now;
@@ -1127,15 +1130,48 @@ public class GuiSettings extends ScaledScreen {
     }
 
     /**
-     * Over the minimap's options: a made-up piece of land drawn the way the minimap would show it (shape, frame,
-     * zoom, turning, compass, text under it), and where on the screen it is.
+     * Over the minimap's options: the minimap itself, drawn by the HUD's own code at its size on the screen (smaller
+     * only when it doesn't fit), and where on the screen it is.
      */
     private void drawMinimapPreview(int y0) {
         int x0 = contentLeft, x1 = right - 10, y1 = y0 + PREVIEW_HEIGHT - 6;
         Theme.fill(x0, y0, x1, y1, 0xFF0F1216);
         Theme.outline(x0, y0, x1, y1, Theme.BORDER);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        int thumbnailLeft = x1 - 8 - 96;
+        drawScreenThumbnail(thumbnailLeft, y0 + 17, 96, 54);
 
+        double shrunk = MinimapRenderer
+            .drawPreview(x0 + 6, y0 + 17, thumbnailLeft - 14 - x0, y1 - 21 - y0, partialTicks);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        if (shrunk > 0) {
+            if (shrunk < 0.995) {
+                Theme.text(
+                    fontRendererObj,
+                    I18n.format("wayfarmap.settings.preview_shrunk", Math.round(shrunk * 100)),
+                    thumbnailLeft,
+                    y0 + 17 + 54 + 6,
+                    Theme.TEXT_MUTED);
+            }
+        } else {
+            // No world to draw it from: made-up land drawn the way the minimap would show it.
+            drawMadeUpMinimap(x0, y0, x1, y1);
+        }
+
+        if (!Config.minimapEnabled) {
+            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC00F1216);
+            Theme.centered(
+                fontRendererObj,
+                I18n.format("wayfarmap.settings.minimap_off"),
+                (x0 + x1) / 2,
+                (y0 + y1) / 2 - 4,
+                Theme.TEXT_MUTED);
+        }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** The preview without a world: made-up land with the frame, zoom, turning, compass and text the minimap has. */
+    private void drawMadeUpMinimap(int x0, int y0, int x1, int y1) {
         // Smaller than the real one, but growing with it.
         int size = 28 + (Config.minimapSize - 48) * 28 / 208;
         List<String> lines = new ArrayList<>();
@@ -1161,18 +1197,6 @@ public class GuiSettings extends ScaledScreen {
             GL11.glPopMatrix();
             textY += lineHeight;
         }
-        drawScreenThumbnail(x1 - 8 - 96, y0 + 17, 96, 54);
-
-        if (!Config.minimapEnabled) {
-            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC00F1216);
-            Theme.centered(
-                fontRendererObj,
-                I18n.format("wayfarmap.settings.minimap_off"),
-                (x0 + x1) / 2,
-                (y0 + y1) / 2 - 4,
-                Theme.TEXT_MUTED);
-        }
-        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** The preview's minimap, its top left at (x, y). */

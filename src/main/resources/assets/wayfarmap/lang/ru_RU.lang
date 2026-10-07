@@ -124,6 +124,7 @@ wayfarmap.settings.mobs.pets=Питомцы
 wayfarmap.settings.mobs.pet_name=Бобик
 wayfarmap.settings.mobs.mob_name=Бурёнка
 wayfarmap.settings.on_screen=На экране
+wayfarmap.settings.preview_shrunk=Уменьшено до %s%%
 wayfarmap.settings.type_value=Нажмите на значение, чтобы ввести его вручную (Enter — применить, Esc — отмена)
 wayfarmap.settings.unlimited=без предела
 wayfarmap.settings.group.general=Основное

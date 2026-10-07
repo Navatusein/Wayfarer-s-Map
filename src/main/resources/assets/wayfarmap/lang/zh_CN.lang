@@ -124,6 +124,7 @@ wayfarmap.settings.mobs.pets=宠物
 wayfarmap.settings.mobs.pet_name=Rex
 wayfarmap.settings.mobs.mob_name=Daisy
 wayfarmap.settings.on_screen=屏幕显示
+wayfarmap.settings.preview_shrunk=缩小至 %s%%
 wayfarmap.settings.type_value=点击数值后输入（回车确认，Esc 取消）
 wayfarmap.settings.unlimited=无限制
 wayfarmap.settings.group.general=常规

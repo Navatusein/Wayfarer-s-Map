@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
@@ -20,6 +21,7 @@ import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
+import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
@@ -92,24 +94,91 @@ public class MinimapRenderer {
             // Being dragged: moved to the mouse right before it is drawn, so it keeps up with the cursor.
             ((GuiMinimapPosition) mc.currentScreen).updateDrag();
         }
-        EntityClientPlayerMP player = mc.thePlayer;
-        MapDimension dimension = MapManager.INSTANCE.getDimension();
-        if (dimension != null && (!Config.showPlants || Topography.isShown()) && dimension.plantless() != null) {
-            // The world map shows the surface without grass and flowers: the minimap too. The topography is drawn
-            // from the ground that map keeps.
-            dimension = dimension.plantless();
-        }
-        if (player == null || mc.theWorld == null
+        MapDimension dimension = shownDimension();
+        if (mc.thePlayer == null || mc.theWorld == null
             || dimension == null
             || mc.gameSettings.showDebugInfo
             || mc.currentScreen instanceof GuiWorldMap) {
             return;
         }
 
-        float partialTicks = event.partialTicks;
-        double px = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
-        double pz = player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks;
+        List<String> lines = lines(mc);
+        shownLines = lines.size();
+        int x = left(event.resolution.getScaledWidth());
+        int y = top(event.resolution.getScaledHeight());
+        int factor = event.resolution.getScaleFactor();
+        draw(mc, dimension, lines, x, y, event.partialTicks, factor, x * factor, y * factor, false);
+    }
 
+    /**
+     * The minimap exactly as the HUD draws it, for the settings' preview: at its size on the screen (in screen
+     * pixels, whatever the screen's own scale), shrunk only when it doesn't fit in the box ({@code x}, {@code y},
+     * {@code width}, {@code height}) of the screen being drawn, and centered in it.
+     *
+     * @return how much it was shrunk (1 at its real size), or 0 when there is no world to draw it from
+     */
+    public static double drawPreview(int x, int y, int width, int height, float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        MapDimension dimension = shownDimension();
+        if (mc.thePlayer == null || mc.theWorld == null || dimension == null) {
+            return 0;
+        }
+        List<String> lines = lines(mc);
+        shownLines = lines.size();
+        int size = Config.minimapSize;
+        int frame = Config.minimapFrame ? Config.minimapFrameWidth : 0;
+        double textWidth = 0;
+        for (String line : lines) {
+            textWidth = Math.max(textWidth, mc.fontRenderer.getStringWidth(line) * Config.minimapTextScale);
+        }
+        double boxWidth = Math.max(size + 2 * frame, textWidth), boxHeight = boxHeight() + 2 * frame;
+        int screenFactor = ScaledScreen.currentFactor();
+        int hudFactor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        double real = hudFactor / (double) screenFactor;
+        double shrink = Math.min(real, Math.min(width / boxWidth, height / boxHeight));
+        if (shrink <= 0) {
+            return 0;
+        }
+        // Where the map's top left lands, on whole screen pixels so the map is as sharp as on the HUD.
+        double left = x + (width - boxWidth * shrink) / 2 + (boxWidth - size) / 2 * shrink;
+        double top = y + (height - boxHeight * shrink) / 2 + frame * shrink;
+        left = Math.round(left * screenFactor) / (double) screenFactor;
+        top = Math.round(top * screenFactor) / (double) screenFactor;
+        GL11.glPushMatrix();
+        GL11.glTranslated(left, top, 0);
+        GL11.glScaled(shrink, shrink, 1);
+        try {
+            draw(
+                mc,
+                dimension,
+                lines,
+                0,
+                0,
+                partialTicks,
+                shrink * screenFactor,
+                left * screenFactor,
+                (top + ScaledScreen.currentOffset()) * screenFactor,
+                true);
+        } finally {
+            GL11.glPopMatrix();
+        }
+        return Math.min(1, shrink / real);
+    }
+
+    /** The map the minimap shows: the world map's, without plants when that one is. */
+    private static MapDimension shownDimension() {
+        MapDimension dimension = MapManager.INSTANCE.getDimension();
+        if (dimension != null && (!Config.showPlants || Topography.isShown()) && dimension.plantless() != null) {
+            // The world map shows the surface without grass and flowers: the minimap too. The topography is drawn
+            // from the ground that map keeps.
+            dimension = dimension.plantless();
+        }
+        return dimension;
+    }
+
+    /** The lines of text under the minimap. */
+    private static List<String> lines(Minecraft mc) {
+        EntityClientPlayerMP player = mc.thePlayer;
         List<String> lines = new ArrayList<>();
         int blockX = MathHelper.floor_double(player.posX);
         int blockZ = MathHelper.floor_double(player.posZ);
@@ -123,13 +192,21 @@ public class MinimapRenderer {
         if (Config.minimapShowBiome) {
             lines.add(mc.theWorld.getBiomeGenForCoords(blockX, blockZ).biomeName);
         }
+        return lines;
+    }
+
+    /**
+     * The minimap with its top left at ({@code x}, {@code y}), and the text under it. {@code pixelsPerUnit} is how
+     * many screen pixels a unit of the current drawing is, and ({@code screenLeft}, {@code screenTop}) the screen
+     * pixel (x, y) ends up at, from the window's top left.
+     */
+    private static void draw(Minecraft mc, MapDimension dimension, List<String> lines, int x, int y,
+        float partialTicks, double pixelsPerUnit, double screenLeft, double screenTop, boolean preview) {
+        EntityClientPlayerMP player = mc.thePlayer;
+        double px = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
+        double pz = player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks;
 
         int size = Config.minimapSize;
-        int screenWidth = event.resolution.getScaledWidth();
-        int screenHeight = event.resolution.getScaledHeight();
-        shownLines = lines.size();
-        int x = left(screenWidth);
-        int y = top(screenHeight);
         int zoom = Math.max(0, Math.min(Config.MINIMAP_ZOOMS.length - 1, Config.minimapZoom));
         double scale = easedScale(Config.MINIMAP_ZOOMS[zoom]);
         if (zoom != labelZoom) {
@@ -137,7 +214,6 @@ public class MinimapRenderer {
             zoomChangedAt = labelZoom < 0 ? 0 : System.currentTimeMillis();
             labelZoom = zoom;
         }
-
         boolean round = Config.minimapShape == Config.SHAPE_ROUND;
         float yaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
         // Turning with the player: the view direction (yaw + 90 degrees on the map) ends up pointing up.
@@ -170,12 +246,18 @@ public class MinimapRenderer {
 
         // The map is drawn into an offscreen buffer the size of the minimap, which cuts it exactly to the square
         // (a turned map sticks out otherwise), and the buffer is then put on screen as a square or a circle.
-        int factor = event.resolution.getScaleFactor();
         if (OpenGlHelper.isFramebufferEnabled()) {
-            int pixels = size * factor;
+            int pixels = Math.max(1, (int) Math.ceil(size * pixelsPerUnit - 1e-6));
+            // The preview has its own, so neither is made again at the other's size every frame.
+            Framebuffer buffer = preview ? previewBuffer : hudBuffer;
             if (buffer == null) {
                 buffer = new Framebuffer(pixels, pixels, false);
                 buffer.setFramebufferColor(0f, 0f, 0f, 0f);
+                if (preview) {
+                    previewBuffer = buffer;
+                } else {
+                    hudBuffer = buffer;
+                }
             } else if (buffer.framebufferWidth != pixels || buffer.framebufferHeight != pixels) {
                 buffer.createBindFramebuffer(pixels, pixels);
             }
@@ -199,13 +281,18 @@ public class MinimapRenderer {
                 mc.getFramebuffer()
                     .bindFramebuffer(true);
             }
-            drawBuffer(x, y, size, round);
+            drawBuffer(buffer, x, y, size, round);
         } else {
             // Offscreen buffers are off in the video settings: cut to the square only.
             GL11.glPushMatrix();
             GL11.glTranslatef(x, y, 0f);
             GL11.glEnable(GL11.GL_SCISSOR_TEST);
-            GL11.glScissor(x * factor, mc.displayHeight - (y + size) * factor, size * factor, size * factor);
+            int pixels = (int) Math.round(size * pixelsPerUnit);
+            GL11.glScissor(
+                (int) Math.round(screenLeft),
+                mc.displayHeight - (int) Math.round(screenTop) - pixels,
+                pixels,
+                pixels);
             try {
                 drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks);
             } finally {
@@ -288,7 +375,8 @@ public class MinimapRenderer {
         return new double[] { dx * cos - dz * sin, dx * sin + dz * cos };
     }
 
-    private static Framebuffer buffer;
+    /** Offscreen buffers the minimap is drawn into, on the HUD and in the settings' preview. */
+    private static Framebuffer hudBuffer, previewBuffer;
 
     /** The map and everything on it, into the square (0, 0, size, size), turned by {@code rotation} degrees. */
     private static void drawLayers(Minecraft mc, MapDimension dimension, double px, double pz, double scale, int size,
@@ -365,7 +453,7 @@ public class MinimapRenderer {
     }
 
     /** Puts the offscreen buffer on screen as a square or a circle (its image is upside down, v = 0 at the bottom). */
-    private static void drawBuffer(int x, int y, int size, boolean round) {
+    private static void drawBuffer(Framebuffer buffer, int x, int y, int size, boolean round) {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // The buffer's alpha is meaningless after blending into it; the map inside is opaque anyway.
         GL11.glDisable(GL11.GL_BLEND);
