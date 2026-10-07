@@ -27,6 +27,8 @@ public final class Perf {
         MARKERS(Where.FRAME, "worldMarkers", null),
         ITEM_PICTURES(Where.FRAME, "itemPictures", null),
         SCAN_2D(Where.TICK, "scan2d", null),
+        /** Mapping the chunks sent for /wf chunkload on the client (their surface, caves, and 3D copies). */
+        CHUNKLOAD_CLIENT(Where.TICK, "chunkloadClient", null),
         CAPTURE_3D(Where.TICK, "capture3d", null),
         /** Block looks of the chunks copied, worked out ahead a little each tick. */
         LOOKS_TICK(Where.TICK, "3dLooksAhead", CAPTURE_3D),

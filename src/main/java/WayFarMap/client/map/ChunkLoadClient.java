@@ -11,6 +11,7 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
@@ -189,7 +190,9 @@ public final class ChunkLoadClient {
         try {
             mapBatch(world, b, mc, start + Math.max(1, Config.chunkloadClientMs) * 1_000_000L);
         } finally {
-            workNanos += System.nanoTime() - start;
+            long nanos = System.nanoTime() - start;
+            workNanos += nanos;
+            Perf.add(Perf.Part.CHUNKLOAD_CLIENT, nanos);
         }
     }
 
