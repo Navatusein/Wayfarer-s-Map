@@ -1,5 +1,8 @@
 package WayFarMap.client.map.iso;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -1577,31 +1580,7 @@ final class FaceRenderer {
             // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
             int usedRows = Math.min(SIZE, (slotsUsed(batch) + perRow - 1) / perRow * cell);
             if (async && variant == 0 && !inspecting) {
-                pbo = takePbo();
-            }
-            if (pbo >= 0) {
-                boolean first = pboChecked;
-                if (!first) {
-                    // Errors before ours aren't ours.
-                    for (int n = 0; n < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; n++) {}
-                }
-                int packBound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
-                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
-                try {
-                    // Into the buffer object: returns at once, the graphics card copies them when it gets there.
-                    GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, 0L);
-                } finally {
-                    GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBound);
-                }
-                if (!first) {
-                    pboChecked = true;
-                    int error = GL11.glGetError();
-                    if (error != GL11.GL_NO_ERROR) {
-                        asyncFailed("reading into a pixel buffer object gave error " + error);
-                        FREE_PBOS.add(pbo);
-                        pbo = -1;
-                    }
-                }
+                pbo = readLater(usedRows);
             }
             if (pbo >= 0) {
                 readNanos += System.nanoTime() - readStart;
@@ -1655,6 +1634,70 @@ final class FaceRenderer {
 
     /** Whether reading into a pixel buffer object was checked for errors once. */
     private static boolean pboChecked;
+    /**
+     * {@code GL11.glReadPixels} into a buffer object (its last argument an offset in it), called through a handle:
+     * Angelica turns the mods' calls of {@code GL11} methods into calls of its own state manager, which has no such
+     * one, and every batch failed with a NoSuchMethodError until pictures were given up on.
+     */
+    private static MethodHandle readPixelsIntoBuffer;
+
+    /**
+     * Starts reading the batch's pixels back into a pixel buffer object, without waiting; the buffer, or -1 if it
+     * can't be done (then they are read at once). Any failure makes pictures read at once from then on, and doesn't
+     * count as the batch failing.
+     */
+    private static int readLater(int usedRows) {
+        int pbo = -1;
+        try {
+            pbo = takePbo();
+            if (pbo < 0) {
+                return -1;
+            }
+            boolean first = pboChecked;
+            if (!first) {
+                // Errors before ours aren't ours.
+                for (int n = 0; n < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; n++) {}
+            }
+            if (readPixelsIntoBuffer == null) {
+                readPixelsIntoBuffer = MethodHandles.publicLookup()
+                    .findStatic(
+                        GL11.class,
+                        "glReadPixels",
+                        MethodType.methodType(
+                            void.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            long.class));
+            }
+            int packBound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+            try {
+                // Into the buffer object: returns at once, the graphics card copies them when it gets there.
+                readPixelsIntoBuffer
+                    .invokeExact(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, 0L);
+            } finally {
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBound);
+            }
+            if (!first) {
+                pboChecked = true;
+                int error = GL11.glGetError();
+                if (error != GL11.GL_NO_ERROR) {
+                    throw new IllegalStateException("reading into a pixel buffer object gave error " + error);
+                }
+            }
+            return pbo;
+        } catch (Throwable t) {
+            asyncFailed(String.valueOf(t));
+            if (pbo >= 0) {
+                FREE_PBOS.add(pbo);
+            }
+            return -1;
+        }
+    }
 
     /**
      * Takes the batch's pictures out of the pixels read back ({@code all}, rows bottom-up) and gives them their ids.
