@@ -1889,9 +1889,14 @@ public class GuiWorldMap extends ScaledScreen {
         pasted.y = y;
         pasted.z = z;
         pasted.dimension = viewDimension();
-        // A copy of a death marker is an ordinary waypoint, not one more death to keep or drop.
-        pasted.death = false;
-        pasted.diedAt = 0;
+        // An ordinary waypoint, saved like any other: shown even if the original was off, and a copy of a death
+        // marker is not one more death to keep or drop, nor in the deaths' group.
+        pasted.enabled = true;
+        if (pasted.death) {
+            pasted.death = false;
+            pasted.diedAt = 0;
+            pasted.group = null;
+        }
         WaypointManager.INSTANCE.addWaypoint(pasted);
     }
 
