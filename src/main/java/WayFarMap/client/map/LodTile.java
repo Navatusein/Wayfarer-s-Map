@@ -22,6 +22,13 @@ public final class LodTile implements PixelSource {
     private final int[] pixels = new int[SIZE * SIZE];
     /** Extra byte of one explored block per pixel (biome for the biome map); null if the region has none. */
     private byte[] extra;
+    /**
+     * Block light per pixel, the brightest of its 4x4 blocks (a torch shows however far out the map is zoomed); null
+     * if nothing in the region is lit. Drawn at night as in {@link MapRegion#bindGlowTexture}.
+     */
+    private byte[] light;
+    private int glowTextureId = -1;
+    private boolean glowPending;
     /** {@link MapRegion#getChanges()} of the region it was built from, -1 when built from the file. */
     int sourceChanges = -1;
     /** When it was last built, to rebuild regions that change all the time (around the player) only now and then. */
@@ -31,28 +38,33 @@ public final class LodTile implements PixelSource {
     private boolean uploadPending;
 
     /** Reduces a full region's pixels; safe on any thread when the arrays aren't changed meanwhile. */
-    static LodTile of(int[] regionPixels, byte[] regionExtra) {
+    static LodTile of(int[] regionPixels, byte[] regionExtra, byte[] regionLight) {
         LodTile tile = new LodTile();
-        tile.fill(regionPixels, regionExtra);
+        tile.fill(regionPixels, regionExtra, regionLight);
         return tile;
     }
 
     /** Rebuilds the tile from the live region (render thread). */
     void update(MapRegion region) {
-        fill(region.pixelArray(), region.extraArray());
+        fill(region.pixelArray(), region.extraArray(), region.lightArray());
         sourceChanges = region.getChanges();
         builtAt = System.currentTimeMillis();
     }
 
-    private void fill(int[] source, byte[] sourceExtra) {
+    private void fill(int[] source, byte[] sourceExtra, byte[] sourceLight) {
         if (sourceExtra != null && extra == null) {
             extra = new byte[SIZE * SIZE];
+        }
+        if (sourceLight == null) {
+            light = null;
+        } else if (light == null) {
+            light = new byte[SIZE * SIZE];
         }
         int full = MapRegion.SIZE;
         for (int tz = 0; tz < SIZE; tz++) {
             for (int tx = 0; tx < SIZE; tx++) {
                 // Average color of the explored blocks of the 4x4 square.
-                int r = 0, g = 0, b = 0, count = 0, extraValue = 0;
+                int r = 0, g = 0, b = 0, count = 0, extraValue = 0, lightValue = 0;
                 for (int dz = 0; dz < FACTOR; dz++) {
                     int row = (tz * FACTOR + dz) * full + tx * FACTOR;
                     for (int dx = 0; dx < FACTOR; dx++) {
@@ -67,6 +79,9 @@ public final class LodTile implements PixelSource {
                         if (extraValue == 0 && sourceExtra != null) {
                             extraValue = sourceExtra[row + dx] & 0xFF;
                         }
+                        if (sourceLight != null) {
+                            lightValue = Math.max(lightValue, sourceLight[row + dx] & 15);
+                        }
                     }
                 }
                 int index = tz * SIZE + tx;
@@ -74,10 +89,14 @@ public final class LodTile implements PixelSource {
                 if (extra != null) {
                     extra[index] = (byte) extraValue;
                 }
+                if (light != null) {
+                    light[index] = (byte) lightValue;
+                }
             }
         }
         changes++;
         uploadPending = true;
+        glowPending = true;
     }
 
     @Override
@@ -148,10 +167,65 @@ public final class LodTile implements PixelSource {
         }
     }
 
+    /** Whether any pixel is lit by a block (the map glows there at night). */
+    public boolean hasLight() {
+        return light != null;
+    }
+
+    /**
+     * Binds the glow texture: the tile's colors in warm light where blocks light the surface, transparent elsewhere,
+     * drawn over the night-darkened map (zoomed out, the full regions' glow isn't drawn). Render thread only.
+     */
+    public void bindGlowTexture() {
+        if (glowTextureId == -1) {
+            glowTextureId = GL11.glGenTextures();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, glowTextureId);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_GENERATE_MIPMAP, GL11.GL_TRUE);
+            glowPending = true;
+        } else {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, glowTextureId);
+        }
+        if (!glowPending) {
+            return;
+        }
+        glowPending = false;
+        if (uploadBuffer == null) {
+            uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
+        }
+        uploadBuffer.clear();
+        byte[] levels = light;
+        for (int i = 0; i < SIZE * SIZE; i++) {
+            uploadBuffer.put(levels == null ? 0 : MapRegion.glowTexel(pixels[i], levels[i] & 15));
+        }
+        uploadBuffer.flip();
+        GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+        GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GL11.glTexImage2D(
+            GL11.GL_TEXTURE_2D,
+            0,
+            GL11.GL_RGBA,
+            SIZE,
+            SIZE,
+            0,
+            GL12.GL_BGRA,
+            GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+            uploadBuffer);
+    }
+
     public void deleteTexture() {
         if (textureId != -1) {
             GL11.glDeleteTextures(textureId);
             textureId = -1;
+        }
+        if (glowTextureId != -1) {
+            GL11.glDeleteTextures(glowTextureId);
+            glowTextureId = -1;
         }
         BiomeHighlight.forget(this);
         Topography.forget(this);

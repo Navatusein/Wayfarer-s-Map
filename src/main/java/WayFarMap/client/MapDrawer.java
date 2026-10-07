@@ -268,9 +268,13 @@ public final class MapDrawer {
                 tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                 tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                 tessellator.draw();
-                if (!lod && night > 0.01f && region.hasLight()) {
-                    // At night, torches and lamps light up the map around them.
-                    region.bindGlowTexture();
+                if (night > 0.01f && (lod ? tile.hasLight() : region.hasLight())) {
+                    // At night, torches and lamps light up the map around them (zoomed out too).
+                    if (lod) {
+                        tile.bindGlowTexture();
+                    } else {
+                        region.bindGlowTexture();
+                    }
                     GL11.glColor4f(1f, 1f, 1f, night * alpha);
                     tessellator.startDrawingQuads();
                     tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);

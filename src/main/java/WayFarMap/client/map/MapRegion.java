@@ -173,6 +173,17 @@ public class MapRegion implements PixelSource {
         return light != null;
     }
 
+    /** A pixel of the map in the warm light of the given level, as the glow shows it over the dark map. */
+    static int glowTexel(int argb, int level) {
+        if (level == 0 || (argb >>> 24) == 0) {
+            return 0;
+        }
+        int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
+        int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
+        int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
+        return GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b;
+    }
+
     /**
      * Binds the glow texture: the map's colors in warm light where blocks light the surface, transparent elsewhere,
      * drawn over the night-darkened map. Rebuilt at most once a second while it changes. Render thread.
@@ -206,10 +217,7 @@ public class MapRegion implements PixelSource {
                     uploadBuffer.put(0);
                     continue;
                 }
-                int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
-                int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
-                int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
-                uploadBuffer.put(GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b);
+                uploadBuffer.put(glowTexel(argb, level));
             }
             uploadBuffer.flip();
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
@@ -352,6 +360,11 @@ public class MapRegion implements PixelSource {
     }
 
     /** The live extra bytes (null if none), for building the reduced copy on the render thread. */
+    /** Block light of each pixel's surface (0-15), or null if nothing is lit. */
+    byte[] lightArray() {
+        return light;
+    }
+
     byte[] extraArray() {
         return extra;
     }
