@@ -701,6 +701,9 @@ final class FaceRenderer {
     }
 
     /** Whether sprites can be taken (off-screen buffers are available and nothing went wrong). */
+    /** Whether it was said that pictures can't be taken (said again once they could be in between). */
+    private static boolean offLogged;
+
     static boolean available() {
         return !broken && OpenGlHelper.isFramebufferEnabled();
     }
@@ -909,8 +912,17 @@ final class FaceRenderer {
         if (!available()) {
             // The ones of the copy before are kept.
             blocks.picturesMissing = true;
+            if (!offLogged) {
+                offLogged = true;
+                String why = broken ? "the game's renderers failed again and again (see PICTURES_FAILED)"
+                    : "the game's framebuffers are off (video settings: FBO, options.txt fboEnable:true), or "
+                        + "another mod turned them off";
+                WayFarMap.LOG.warn("The 3D map takes no pictures of blocks, they are drawn from icons: {}", why);
+                IsoLog.log("PICTURES_OFF " + why + ": blocks drawn from their icons, old pictures kept");
+            }
             return true;
         }
+        offLogged = false;
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_KIND.clear();
