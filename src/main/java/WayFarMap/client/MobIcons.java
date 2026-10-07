@@ -42,7 +42,7 @@ import WayFarMap.WayFarMap;
 public final class MobIcons {
 
     /** Pixels per side of the buffer and of the icons. */
-    private static final int SIZE = 128, ICON = SIZE;
+    static final int SIZE = 128, ICON = SIZE;
     /** Smaller copies down to 8 pixels, for the small icons of the minimap. */
     private static final int MIPMAP_LEVELS = 4;
     /** How many pixels far the colors at the edge are spread into the see-through ones around (see {@link #bleed}). */
@@ -160,7 +160,7 @@ public final class MobIcons {
             return null;
         }
         takenThisFrame++;
-        int[] pixels = make(entity, (RendererLivingEntity) render);
+        int[] pixels = make(entity, (RendererLivingEntity) render, null);
         if (pixels == null) {
             FAILED.put(key, now);
             return null;
@@ -191,8 +191,14 @@ public final class MobIcons {
         return key.toString();
     }
 
-    /** The icon's pixels (ICON x ICON, top row first, see-through around), or null if the mob couldn't be drawn. */
-    private static int[] make(EntityLivingBase entity, RendererLivingEntity render) {
+    /**
+     * The icon's pixels (ICON x ICON, top row first, see-through around), or null if the mob couldn't be drawn. With
+     * a {@code trace}, what was tried and why is put in it (for {@link MobIconDump}).
+     */
+    static int[] make(EntityLivingBase entity, RendererLivingEntity render, Map<String, Object> trace) {
+        if (!initReflection()) {
+            return null;
+        }
         Pose pose = new Pose(entity);
         try {
             pose.face();
@@ -212,6 +218,9 @@ public final class MobIcons {
                 if (box[0] > 0 && box[1] > 0 && box[2] < SIZE - 1 && box[3] < SIZE - 1) {
                     break;
                 }
+                if (trace != null) {
+                    trace.put("reachedEdgeAtAttempt" + attempt, new float[] { half, centerY });
+                }
                 half *= 2.5f;
                 centerY *= 1.5f;
             }
@@ -222,17 +231,38 @@ public final class MobIcons {
             boolean still = again != null && differing(whole, again) == 0;
             ModelBase main = model(mainModelField, render), pass = model(renderPassModelField, render);
             List<Integer> candidates = headCandidates(main);
+            List<Map<String, Object>> tried = new ArrayList<>();
+            if (trace != null) {
+                trace.put("frame", new float[] { 0f, centerY, half });
+                trace.put("wholeBounds", box);
+                trace.put("wholePixels", wholeArea);
+                trace.put("still", still);
+                trace.put("stillDiffering", again == null ? -1 : differing(whole, again));
+                trace.put("candidates", candidates);
+                trace.put("tried", tried);
+            }
             for (int n = 0; still && n < candidates.size() && n < CANDIDATES; n++) {
+                Map<String, Object> attempt = new LinkedHashMap<>();
+                attempt.put("part", candidates.get(n));
+                tried.add(attempt);
                 ModelRenderer head = part(main, candidates.get(n));
                 ModelRenderer passHead = pass != null && pass.getClass() == main.getClass()
                     ? part(pass, candidates.get(n))
                     : passHeadOf(pass);
+                attempt.put("name", head == null ? null : head.boxName);
+                attempt.put("passPart", passHead != null);
                 int[] headless = shot(entity, 0f, centerY, half, head, passHead);
                 if (headless == null) {
+                    attempt.put("result", "no picture without it");
                     continue;
                 }
                 int[] headBox = bounds(whole, headless);
-                if (headBox == null || differing(whole, headless) < wholeArea * MIN_HEAD_SHARE) {
+                int differ = differing(whole, headless);
+                attempt.put("differingPixels", differ);
+                attempt.put("share", wholeArea == 0 ? 0f : (float) differ / wholeArea);
+                attempt.put("bounds", headBox);
+                if (headBox == null || differ < wholeArea * MIN_HEAD_SHARE) {
+                    attempt.put("result", "too small (under " + MIN_HEAD_SHARE + " of the mob)");
                     continue;
                 }
                 // The head up close: framed on what differed, drawn again with and without it.
@@ -240,15 +270,30 @@ public final class MobIcons {
                 int[] near = shot(entity, frame[0], frame[1], frame[2], null, null);
                 int[] nearHeadless = shot(entity, frame[0], frame[1], frame[2], head, passHead);
                 if (near == null || nearHeadless == null) {
+                    attempt.put("result", "close-up failed");
                     continue;
+                }
+                attempt.put("result", "chosen");
+                if (trace != null) {
+                    trace.put("result", "head");
+                    trace.put("headPart", candidates.get(n));
+                    trace.put("headFrame", frame);
                 }
                 return masked(near, nearHeadless);
             }
             // No head: the mob whole, framed on what was drawn.
             float[] frame = frame(box, 0f, centerY, half);
+            if (trace != null) {
+                trace.put("result", still ? "whole (no head part found)" : "whole (mob moves by the clock)");
+                trace.put("wholeFrame", frame);
+            }
             int[] near = shot(entity, frame[0], frame[1], frame[2], null, null);
             return near == null ? null : masked(near, null);
         } catch (Throwable t) {
+            if (trace != null) {
+                trace.put("error", t.toString());
+                return null;
+            }
             if (++failures >= 5) {
                 WayFarMap.LOG.warn("Mob icons can't be drawn off-screen; their faces are cut out of the skins", t);
             }
@@ -262,7 +307,7 @@ public final class MobIcons {
      * Parts of the model that may be its head, best first: the head of bipeds and four-legged models, then the
      * parts with a box about as wide as tall and deep (not legs, arms or rods), highest and most in front first.
      */
-    private static List<Integer> headCandidates(ModelBase model) {
+    static List<Integer> headCandidates(ModelBase model) {
         List<Integer> candidates = new ArrayList<>();
         if (model == null || model.boxList == null) {
             return candidates;
@@ -520,7 +565,7 @@ public final class MobIcons {
      * The mob drawn by its renderer, lit as in the inventory, seen straight on (no perspective), {@code half} blocks
      * around (cx, cy) from its feet, with the given parts hidden. Pixels top row first, or null if it failed.
      */
-    private static int[] shot(EntityLivingBase entity, float cx, float cy, float half, ModelRenderer hide,
+    static int[] shot(EntityLivingBase entity, float cx, float cy, float half, ModelRenderer hide,
         ModelRenderer hidePass) {
         Minecraft mc = Minecraft.getMinecraft();
         int previous = GL11.glGetInteger(FRAMEBUFFER_BINDING);
