@@ -186,8 +186,15 @@ public class KeyHandler {
             tell(mc, NODES, Config.showThaumcraftNodes);
         }
         if (CHUNK_GRID.isPressed()) {
-            Config.toggleChunkGrid();
-            tell(mc, CHUNK_GRID, Config.chunkGrid);
+            Config.cycleChunkGrid(Mods.isGregTechLoaded());
+            if (Config.chunkGrid && Config.gridType == Config.GRID_ORE_VEINS) {
+                say(
+                    mc,
+                    I18n.format(CHUNK_GRID.getKeyDescription()) + ": "
+                        + I18n.format("wayfarmap.option.map.gridType.oreVeins"));
+            } else {
+                tell(mc, CHUNK_GRID, Config.chunkGrid);
+            }
         }
         if (HOSTILE_MOBS.isPressed()) {
             Config.toggleHostileMobs();

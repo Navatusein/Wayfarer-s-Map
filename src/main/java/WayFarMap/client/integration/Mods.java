@@ -49,6 +49,11 @@ public final class Mods {
         return !powerfailsBroken && Loader.isModLoaded("gregtech") && PowerfailLayer.isAvailable();
     }
 
+    /** GregTech itself, for the grid of its ore vein cells (plain geometry: no GregTech code is called). */
+    public static boolean isGregTechLoaded() {
+        return Loader.isModLoaded("gregtech");
+    }
+
     /** Thaumcraft aura nodes found with TCNodeTracker (which needs Thaumcraft); see {@link ThaumcraftNodes}. */
     public static boolean isThaumcraftNodesAvailable() {
         if (thaumcraftNodes == null) {

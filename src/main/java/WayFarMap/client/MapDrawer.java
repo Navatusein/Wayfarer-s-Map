@@ -381,16 +381,19 @@ public final class MapDrawer {
     }
 
     /**
-     * Draws chunk borders (every 16 blocks) and region borders (every 512 blocks) over the map rectangle. Chunk lines
-     * are left out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is
-     * drawn once: where lines cross, see-through lines drawn over each other made the crossings brighter.
+     * Draws chunk borders (every 16 blocks) over the map rectangle, with either region borders (every 512 blocks) or
+     * the borders of GregTech's ore vein cells ({@link Config#gridType}) as the stronger lines. Chunk lines are left
+     * out when zoomed out so far that they would be closer than a few pixels. Every pixel of the grid is drawn once:
+     * where lines cross, see-through lines drawn over each other made the crossings brighter.
      */
     public static void drawChunkGrid(double centerX, double centerZ, double scale, int x, int y, int width,
         int height) {
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
+        boolean ores = Config.gridType == Config.GRID_ORE_VEINS;
         boolean chunks = 16 * scale >= 6;
-        int step = chunks ? 16 : MapRegion.SIZE;
+        // Ore vein cells are not evenly spaced (the two around 0 overlap): with them, every chunk border is looked at.
+        int step = chunks || ores ? 16 : MapRegion.SIZE;
 
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
         // jump behind the smoothly moving map.
@@ -399,9 +402,10 @@ public final class MapDrawer {
         double room = Math.max(1, Math.floor(step * scale / 2 / pixel)) * pixel;
         double thickness = Math.min(pixel * Config.gridLineWidth, room);
         int chunkLine = (Math.round(Config.gridChunkOpacity * 2.55f) << 24) | Config.gridChunkColor;
-        int regionLine = (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
+        int strongLine = ores ? (Math.round(Config.gridOreOpacity * 2.55f) << 24) | Config.gridOreColor
+            : (Math.round(Config.gridRegionOpacity * 2.55f) << 24) | Config.gridRegionColor;
 
-        // Lines as {from, to, region ? 1 : 0}, left to right and top to bottom.
+        // Lines as {from, to, strong ? 1 : 0}, left to right and top to bottom.
         List<double[]> columns = new ArrayList<>();
         int firstX = (int) Math.floor(left / step) * step;
         for (int bx = firstX;; bx += step) {
@@ -409,11 +413,10 @@ public final class MapDrawer {
             if (sx > x + width) {
                 break;
             }
-            if (sx >= x) {
+            boolean strong = ores ? isOreVeinBorder(bx >> 4) : Math.floorMod(bx, MapRegion.SIZE) == 0;
+            if (sx >= x && (chunks || strong)) {
                 double lx = Math.floor(sx / pixel) * pixel;
-                columns.add(
-                    new double[] { lx, Math.min(lx + thickness, x + width),
-                        Math.floorMod(bx, MapRegion.SIZE) == 0 ? 1 : 0 });
+                columns.add(new double[] { lx, Math.min(lx + thickness, x + width), strong ? 1 : 0 });
             }
         }
         List<double[]> rows = new ArrayList<>();
@@ -423,11 +426,10 @@ public final class MapDrawer {
             if (sy > y + height) {
                 break;
             }
-            if (sy >= y) {
+            boolean strong = ores ? isOreVeinBorder(bz >> 4) : Math.floorMod(bz, MapRegion.SIZE) == 0;
+            if (sy >= y && (chunks || strong)) {
                 double ly = Math.floor(sy / pixel) * pixel;
-                rows.add(
-                    new double[] { ly, Math.min(ly + thickness, y + height),
-                        Math.floorMod(bz, MapRegion.SIZE) == 0 ? 1 : 0 });
+                rows.add(new double[] { ly, Math.min(ly + thickness, y + height), strong ? 1 : 0 });
             }
         }
 
@@ -436,30 +438,40 @@ public final class MapDrawer {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawingQuads();
-        // Columns between the rows, rows between the columns, then the crossings: a region line wins there.
+        // Columns between the rows, rows between the columns, then the crossings: a strong line wins there.
         for (double[] column : columns) {
             double from = y;
             for (double[] row : rows) {
-                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? regionLine : chunkLine);
+                addRect(tessellator, column[0], from, column[1], row[0], column[2] > 0 ? strongLine : chunkLine);
                 from = Math.max(from, row[1]);
             }
-            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? regionLine : chunkLine);
+            addRect(tessellator, column[0], from, column[1], y + height, column[2] > 0 ? strongLine : chunkLine);
         }
         for (double[] row : rows) {
             double from = x;
             for (double[] column : columns) {
-                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? regionLine : chunkLine);
+                addRect(tessellator, from, row[0], column[0], row[1], row[2] > 0 ? strongLine : chunkLine);
                 from = Math.max(from, column[1]);
             }
-            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? regionLine : chunkLine);
+            addRect(tessellator, from, row[0], x + width, row[1], row[2] > 0 ? strongLine : chunkLine);
             for (double[] column : columns) {
-                boolean region = row[2] > 0 || column[2] > 0;
-                addRect(tessellator, column[0], row[0], column[1], row[1], region ? regionLine : chunkLine);
+                boolean strong = row[2] > 0 || column[2] > 0;
+                addRect(tessellator, column[0], row[0], column[1], row[1], strong ? strongLine : chunkLine);
             }
         }
         tessellator.draw();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Whether the west (north) edge of this chunk column (row) borders one of GregTech's ore vein cells. GregTech seeds
+     * a vein only in chunks whose {@code |x| % 3 == 1} and {@code |z| % 3 == 1}, and a vein fills at most the 3x3
+     * chunks around its seed: the cells start at chunks 0, 3, 6... and -2, -5, -8..., and the ones seeded at -1 and 1
+     * share chunk 0, which ends at 1.
+     */
+    static boolean isOreVeinBorder(int chunk) {
+        return chunk >= 0 && chunk % 3 == 0 || chunk <= 1 && Math.floorMod(chunk, 3) == 1;
     }
 
     /** A rectangle into quads being drawn; nothing if it is empty. */
