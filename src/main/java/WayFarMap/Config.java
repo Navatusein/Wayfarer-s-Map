@@ -217,6 +217,8 @@ public class Config {
     public static boolean showHostileMobs = true;
     /** Neutral mobs: animals and the like (grey). */
     public static boolean showPassiveMobs = true;
+    /** Ambient mobs: bats and the like (purple). */
+    public static boolean showAmbientMobs = true;
     /** Friendly mobs: villagers, traders, golems (green). */
     public static boolean showOtherEntities = true;
     /** Tamed mobs (blue). */
@@ -229,8 +231,8 @@ public class Config {
     public static boolean mobFacing = true;
     /** Names of pets (given with a name tag) under their icon. */
     public static boolean petNames = true;
-    /** Names given with a name tag under the icons of hostile, neutral and friendly mobs. */
-    public static boolean hostileNames = true, neutralNames = true, friendlyNames = true;
+    /** Names given with a name tag under the icons of hostile, neutral, ambient and friendly mobs. */
+    public static boolean hostileNames = true, neutralNames = true, ambientNames = true, friendlyNames = true;
 
     public static boolean entityIcons = true;
     public static int entityIconLimit = 128;
@@ -883,6 +885,13 @@ public class Config {
             v -> showPassiveMobs = v);
         bool(
             c,
+            "showAmbientMobs",
+            "Show ambient mobs: bats and the like (purple frame).",
+            true,
+            () -> showAmbientMobs,
+            v -> showAmbientMobs = v);
+        bool(
+            c,
             "showOtherEntities",
             "Show friendly mobs: villagers, traders, golems (green frame).",
             true,
@@ -973,6 +982,13 @@ public class Config {
             true,
             () -> neutralNames,
             v -> neutralNames = v);
+        bool(
+            c,
+            "ambientNames",
+            "Names of ambient mobs (given with a name tag) under their icon.",
+            true,
+            () -> ambientNames,
+            v -> ambientNames = v);
         bool(
             c,
             "friendlyNames",
@@ -1293,16 +1309,21 @@ public class Config {
 
     /** Whether every kind of mob and other players are shown (the "Mobs" button is not highlighted then). */
     public static boolean allMobsShown() {
-        return showHostileMobs && showPassiveMobs && showOtherEntities && showPets && showOtherPlayers;
+        return showHostileMobs && showPassiveMobs && showAmbientMobs && showOtherEntities && showPets && showOtherPlayers;
     }
 
     /** Whether nothing at all is shown: no kind of mob, no other players. */
     public static boolean noMobsShown() {
-        return !showHostileMobs && !showPassiveMobs && !showOtherEntities && !showPets && !showOtherPlayers;
+        return !showHostileMobs && !showPassiveMobs && !showAmbientMobs && !showOtherEntities && !showPets && !showOtherPlayers;
     }
 
     public static void toggleNeutralMobs() {
         showPassiveMobs = !showPassiveMobs;
+        save();
+    }
+
+    public static void toggleAmbientMobs() {
+        showAmbientMobs = !showAmbientMobs;
         save();
     }
 

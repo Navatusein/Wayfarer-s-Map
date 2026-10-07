@@ -184,6 +184,7 @@ public final class Icons {
 
     /** Small icons (7x7) of the kinds of mobs, for the mobs menu. */
     public static final String[] SMALL_NEUTRAL = { "#.....#", ".#####.", ".#.#.#.", ".#####.", "..###..", "..#.#.." };
+    public static final String[] SMALL_BAT = { "#.....#", "##.#.##", "###.###", "#######", "#.#.#.#", "......." };
     public static final String[] SMALL_HEART = { ".##.##.", "#######", "#######", ".#####.", "..###..", "...#..." };
     public static final String[] SMALL_PAW = { "..#.#..", ".#####.", ".#####.", "..###..", ".......", ".#.#.#.",
         ".#.#.#." };

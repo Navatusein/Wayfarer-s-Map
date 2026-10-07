@@ -54,13 +54,15 @@ public class KeyHandler {
     public static final KeyBinding CHUNK_GRID = unbound("chunk_grid");
     public static final KeyBinding HOSTILE_MOBS = unbound("hostile_mobs");
     public static final KeyBinding PASSIVE_MOBS = unbound("passive_mobs");
+    public static final KeyBinding AMBIENT_MOBS = unbound("ambient_mobs");
     public static final KeyBinding FRIENDLY_MOBS = unbound("friendly_mobs");
     public static final KeyBinding PETS = unbound("pets");
     public static final KeyBinding PLAYERS = unbound("players");
     public static final KeyBinding LIGHT = unbound("light");
 
     private static final KeyBinding[] UNBOUND = { MODE_BLOCKS, MODE_PLANTLESS, MODE_TOPO, MODE_BIOMES, ORES, FLUIDS,
-        CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, FRIENDLY_MOBS, PETS, PLAYERS, LIGHT };
+        CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS,
+        FRIENDLY_MOBS, PETS, PLAYERS, LIGHT };
 
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
@@ -203,6 +205,10 @@ public class KeyHandler {
         if (PASSIVE_MOBS.isPressed()) {
             Config.toggleNeutralMobs();
             tell(mc, PASSIVE_MOBS, Config.showPassiveMobs);
+        }
+        if (AMBIENT_MOBS.isPressed()) {
+            Config.toggleAmbientMobs();
+            tell(mc, AMBIENT_MOBS, Config.showAmbientMobs);
         }
         if (FRIENDLY_MOBS.isPressed()) {
             Config.toggleFriendlyMobs();

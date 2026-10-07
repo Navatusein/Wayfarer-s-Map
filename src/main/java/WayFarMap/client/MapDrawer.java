@@ -17,6 +17,7 @@ import net.minecraft.entity.IMerchant;
 import net.minecraft.entity.INpc;
 import net.minecraft.entity.monster.EntityGolem;
 import net.minecraft.entity.monster.IMob;
+import net.minecraft.entity.passive.EntityAmbientCreature;
 import net.minecraft.entity.passive.EntityHorse;
 import net.minecraft.entity.passive.EntityTameable;
 import net.minecraft.entity.player.EntityPlayer;
@@ -623,6 +624,7 @@ public final class MapDrawer {
     /** Frame colors of the kinds of mobs. */
     static final int HOSTILE_COLOR = 0xFFFF4040;
     static final int NEUTRAL_COLOR = 0xFFA8ADB4;
+    static final int AMBIENT_COLOR = 0xFFB57EDC;
     static final int FRIENDLY_COLOR = 0xFF50D050;
     static final int PET_COLOR = 0xFF4C9AFF;
     /**
@@ -766,7 +768,10 @@ public final class MapDrawer {
         return Math.round((color >>> 24) * alpha) << 24 | color & 0xFFFFFF;
     }
 
-    /** Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), neutral. */
+    /**
+     * Frame color by kind of mob, or 0 if that kind is hidden: pets, hostile, friendly (villagers...), ambient
+     * (bats...), neutral.
+     */
     static int entityColor(EntityLivingBase entity) {
         if (isPet(entity)) {
             return Config.showPets ? PET_COLOR : 0;
@@ -776,6 +781,9 @@ public final class MapDrawer {
         }
         if (isFriendly(entity)) {
             return Config.showOtherEntities ? FRIENDLY_COLOR : 0;
+        }
+        if (entity instanceof EntityAmbientCreature) {
+            return Config.showAmbientMobs ? AMBIENT_COLOR : 0;
         }
         return Config.showPassiveMobs ? NEUTRAL_COLOR : 0;
     }
@@ -832,7 +840,10 @@ public final class MapDrawer {
         if (entity instanceof IMob) {
             return Config.hostileNames;
         }
-        return isFriendly(entity) ? Config.friendlyNames : Config.neutralNames;
+        if (isFriendly(entity)) {
+            return Config.friendlyNames;
+        }
+        return entity instanceof EntityAmbientCreature ? Config.ambientNames : Config.neutralNames;
     }
 
     /** Small name centered under an icon, at {@code textScale} of the normal text size. */

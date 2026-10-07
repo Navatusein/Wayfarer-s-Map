@@ -136,7 +136,7 @@ All keys can be rebound in **Options → Controls → Wayfarer's Map**.
 
 <br>
 
-Map view (2D, 2D without plants, topography, biomes) · ore veins · underground fluids · claims · power failures · Thaumcraft nodes · chunk grid · hostile / neutral / friendly mobs · pets · players · lighting (auto / day / night).
+Map view (2D, 2D without plants, topography, biomes) · ore veins · underground fluids · claims · power failures · Thaumcraft nodes · chunk grid · hostile / neutral / ambient / friendly mobs · pets · players · lighting (auto / day / night).
 
 </details>
 

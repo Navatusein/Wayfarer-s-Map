@@ -580,11 +580,14 @@ public class GuiWorldMap extends ScaledScreen {
         }, on);
     }
 
-    /** "Mobs: neutral, friendly, pets, hostile, players", or that none are shown. */
+    /** "Mobs: neutral, ambient, friendly, pets, hostile, players", or that none are shown. */
     private static String mobsButtonText() {
         List<String> shown = new ArrayList<>();
         if (Config.showPassiveMobs) {
             shown.add(I18n.format("wayfarmap.gui.mobs.neutral"));
+        }
+        if (Config.showAmbientMobs) {
+            shown.add(I18n.format("wayfarmap.gui.mobs.ambient"));
         }
         if (Config.showOtherEntities) {
             shown.add(I18n.format("wayfarmap.gui.mobs.friendly"));
@@ -610,6 +613,11 @@ public class GuiWorldMap extends ScaledScreen {
                 .icon(Icons.SMALL_NEUTRAL)
                 .iconColor(Theme.TEXT)
                 .key("passive_mobs"));
+        entries.add(
+            addonToggle("wayfarmap.gui.mobs.menu.ambient", Config.showAmbientMobs, Config::toggleAmbientMobs)
+                .icon(Icons.SMALL_BAT)
+                .iconColor(0xFFB57EDC)
+                .key("ambient_mobs"));
         entries.add(
             addonToggle("wayfarmap.gui.mobs.menu.friendly", Config.showOtherEntities, Config::toggleFriendlyMobs)
                 .icon(Icons.SMALL_HEART)
@@ -701,7 +709,7 @@ public class GuiWorldMap extends ScaledScreen {
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
         // peaceful mobs are left.
-        boolean peaceful = Config.showPassiveMobs || Config.showOtherEntities || Config.showPets;
+        boolean peaceful = Config.showPassiveMobs || Config.showAmbientMobs || Config.showOtherEntities || Config.showPets;
         boolean hostile = Config.showHostileMobs;
         mobsButton.active = !Config.allMobsShown();
         mobsButton.dim = Config.noMobsShown();

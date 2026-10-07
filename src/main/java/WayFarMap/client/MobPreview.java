@@ -9,6 +9,7 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.EntityCreeper;
 import net.minecraft.entity.monster.EntityIronGolem;
 import net.minecraft.entity.monster.EntityZombie;
+import net.minecraft.entity.passive.EntityBat;
 import net.minecraft.entity.passive.EntityCow;
 import net.minecraft.entity.passive.EntityOcelot;
 import net.minecraft.entity.passive.EntityPig;
@@ -22,14 +23,14 @@ import WayFarMap.Config;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
- * The preview over the mobs' options: two mobs of each kind (hostile, neutral, friendly, pets) under its name, drawn
- * the way the maps draw them with the icons, frames and arrows as set; the kinds that are hidden are dimmed.
+ * The preview over the mobs' options: two mobs of each kind (hostile, neutral, ambient, friendly, pets) under its name,
+ * drawn the way the maps draw them with the icons, frames and arrows as set; the kinds that are hidden are dimmed.
  */
 public final class MobPreview {
 
-    private static final String[] KINDS = { "hostile", "neutral", "friendly", "pets" };
-    private static final int[] COLORS = { MapDrawer.HOSTILE_COLOR, MapDrawer.NEUTRAL_COLOR, MapDrawer.FRIENDLY_COLOR,
-        MapDrawer.PET_COLOR };
+    private static final String[] KINDS = { "hostile", "neutral", "ambient", "friendly", "pets" };
+    private static final int[] COLORS = { MapDrawer.HOSTILE_COLOR, MapDrawer.NEUTRAL_COLOR, MapDrawer.AMBIENT_COLOR,
+        MapDrawer.FRIENDLY_COLOR, MapDrawer.PET_COLOR };
     /** Size of the icons at 100%: a little bigger than on the world map, so the faces read in the preview. */
     private static final float ICON_SIZE = 12f;
 
@@ -52,6 +53,8 @@ public final class MobPreview {
             case 1:
                 return Config.showPassiveMobs;
             case 2:
+                return Config.showAmbientMobs;
+            case 3:
                 return Config.showOtherEntities;
             default:
                 return Config.showPets;
@@ -76,7 +79,11 @@ public final class MobPreview {
                     EntityCow cow = new EntityCow(world);
                     cow.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.mob_name"));
                     return cow;
-                }), make(() -> new EntityPig(world)) },
+                }), make(() -> new EntityPig(world)) }, { make(() -> new EntityBat(world)), make(() -> {
+                    EntityBat bat = new EntityBat(world);
+                    bat.setIsBatHanging(true);
+                    return bat;
+                }) },
                 { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) }, { make(() -> {
                     EntityWolf wolf = new EntityWolf(world);
                     wolf.setTamed(true);
