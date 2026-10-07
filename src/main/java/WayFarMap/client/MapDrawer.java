@@ -509,7 +509,10 @@ public final class MapDrawer {
     static final int NEUTRAL_COLOR = 0xFFA8ADB4;
     static final int FRIENDLY_COLOR = 0xFF50D050;
     static final int PET_COLOR = 0xFF4C9AFF;
-    /** Mobs this many blocks below the player are drawn in full; lower ones fade out down to the height range. */
+    /**
+     * Mobs within this many blocks above or below the player are drawn in full; farther ones fade out to the height
+     * range.
+     */
     private static final double FADE_START = 2;
 
     /**
@@ -619,16 +622,17 @@ public final class MapDrawer {
     }
 
     /**
-     * Opacity of a mob by its height: in full down to a little below the player, then fading out the lower it is, gone
-     * at the height range. Climbing up, the mobs below fade away smoothly.
+     * Opacity of a mob by its height: in full within a little of the player's height, then fading out the farther
+     * above or below it is, gone at the height range. Climbing or going down, the mobs left behind fade away smoothly
+     * (those above used to stay in full and vanish at once at the range).
      */
     private static float heightAlpha(EntityLivingBase entity, double playerY) {
-        double below = playerY - entity.posY - FADE_START;
-        if (below <= 0) {
+        double away = Math.abs(playerY - entity.posY) - FADE_START;
+        if (away <= 0) {
             return 1f;
         }
         double range = Math.max(1, Config.entityVerticalRange - FADE_START);
-        double t = Math.min(1, below / range);
+        double t = Math.min(1, away / range);
         // Eased: fades slowly at first, then quicker.
         return (float) (1 - t * t * (3 - 2 * t));
     }
