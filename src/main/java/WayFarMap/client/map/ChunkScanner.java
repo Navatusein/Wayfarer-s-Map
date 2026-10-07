@@ -84,7 +84,7 @@ public final class ChunkScanner {
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
-                        rgb = BlockColors.shade(rgb, Math.max(0.45f, 1.0f - below * 0.04f));
+                        rgb = BlockColors.shade(rgb, Math.max(0.4f, 1.0f - below * 0.02f));
                     }
                     argb = 0xFF000000 | rgb;
                     if (plantlessRegion != null) {
@@ -250,7 +250,8 @@ public final class ChunkScanner {
 
     /**
      * Floor of the open space in the cave layer: rock at the top of the layer is skipped, then the first block below
-     * the open space is the floor (searched down to one layer below, for pits). Solid rock gives {@link #NO_BLOCK}.
+     * the open space is the floor, however far down it is (big caverns, the Nether's lava sea), like JourneyMap. Solid
+     * rock gives {@link #NO_BLOCK}.
      */
     private static int findCaveFloor(Chunk chunk, int lx, int lz, int layer) {
         int layerBottom = layer * 16;
@@ -261,8 +262,7 @@ public final class ChunkScanner {
         if (y < layerBottom) {
             return NO_BLOCK;
         }
-        int lowest = Math.max(0, layerBottom - 16);
-        for (; y >= lowest; y--) {
+        for (; y >= 0; y--) {
             if (isVisible(chunk.getBlock(lx, y, lz))) {
                 return y;
             }
