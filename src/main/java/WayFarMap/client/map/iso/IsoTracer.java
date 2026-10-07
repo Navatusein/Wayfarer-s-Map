@@ -32,6 +32,11 @@ final class IsoTracer {
      * Color of moonlight (open sky at night comes out like the flat map's night tint), and of torch light.
      */
     private static final float[] MOON = { 0.82f, 0.94f, 1.47f }, WARM = { 1.05f, 0.88f, 0.62f };
+    /**
+     * Color of the murky light of a dimension without sky (the Nether), where no torch or lava lights the place: comes
+     * out like the flat map's Nether tint.
+     */
+    private static final float[] MURK = { 1.79f, 1.29f, 1.14f };
     /** Stone, for the ground under chunks where no solid block was stored. */
     private static final int STONE = 1;
     private static final int MAX_STEPS = 8000;
@@ -131,10 +136,16 @@ final class IsoTracer {
     private int cellIndex;
     /** Sprites of blocks as the game draws them; null if there are none. */
     private final FacePalette palette;
+    /**
+     * The dimension has no sky (the Nether): its sky light is full everywhere, but by night it gives no moonlight, only
+     * the dimension's murky light, and block light shows warm.
+     */
+    private final boolean noSky;
 
-    IsoTracer(BlockStore store, FacePalette palette) {
+    IsoTracer(BlockStore store, FacePalette palette, boolean noSky) {
         this.store = store;
         this.palette = palette;
+        this.noSky = noSky;
     }
 
     /**
@@ -1209,13 +1220,13 @@ final class IsoTracer {
 
     /**
      * Adds a surface lit by the light of its place: by day the brighter of sky and block light; at night the sky
-     * gives little (moonlight) and block light shows warm.
+     * gives little (moonlight, none where there is no sky) and block light shows warm.
      *
      * @param light sky light << 4 | block light
      */
     private void addLit(int rgb, float shade, int light, float alpha) {
         int sky = light >> 4, block = light & 15;
-        int nightSky = Math.max(0, sky - NIGHT_SKY_DROP);
+        int nightSky = noSky ? 0 : Math.max(0, sky - NIGHT_SKY_DROP);
         int night = Math.max(nightSky, block);
         float warmth = block > nightSky ? Math.min(1f, (block - nightSky) / 6f) : 0f;
         add(rgb, shade * LIGHT[Math.max(sky, block)], shade * NIGHT_LIGHT[night], warmth, alpha);
@@ -1255,9 +1266,10 @@ final class IsoTracer {
         accG += g * weight * dayShade;
         accB += b * weight * dayShade;
         double night = weight * nightShade;
-        nightR += r * night * (MOON[0] + (WARM[0] - MOON[0]) * warmth);
-        nightG += g * night * (MOON[1] + (WARM[1] - MOON[1]) * warmth);
-        nightB += b * night * (MOON[2] + (WARM[2] - MOON[2]) * warmth);
+        float[] ambient = noSky ? MURK : MOON;
+        nightR += r * night * (ambient[0] + (WARM[0] - ambient[0]) * warmth);
+        nightG += g * night * (ambient[1] + (WARM[1] - ambient[1]) * warmth);
+        nightB += b * night * (ambient[2] + (WARM[2] - ambient[2]) * warmth);
         transmit *= 1 - alpha;
         // A surface drawn whole, or so much see-through stuff that little gets past (deep water): one layer of
         // tinted glass (GregTech's, a good half opaque by its texture) still shows what is behind it.

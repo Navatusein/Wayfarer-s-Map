@@ -383,7 +383,7 @@ public final class BlockInspect {
             return;
         }
         IsoProjection projection = IsoProjection.of(Config.isoRotation);
-        IsoTracer tracer = new IsoTracer(dimension.store, palette);
+        IsoTracer tracer = new IsoTracer(dimension.store, palette, dimension.noSky);
         tracer.reset(projection, 0);
         double uc = projection.u(x + 0.5, z + 0.5), vc = projection.v(x + 0.5, y + 0.5, z + 0.5);
         // The map around it, as the tracer draws it at the finest detail; the rays below marked on a copy.

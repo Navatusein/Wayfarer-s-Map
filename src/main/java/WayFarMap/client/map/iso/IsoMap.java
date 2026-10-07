@@ -28,6 +28,7 @@ import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.map.ChunkScanner;
+import WayFarMap.client.map.MapManager;
 
 /**
  * The 3D (isometric) world map, drawn like Dynmap's HD maps from the blocks themselves: while playing, the blocks
@@ -39,7 +40,7 @@ public final class IsoMap implements BlockStore.Listener {
     public static final IsoMap INSTANCE = new IsoMap();
 
     /** Changes when tiles would look different; old saved tiles are then not used. */
-    private static final int RENDER_VERSION = 15;
+    private static final int RENDER_VERSION = 16;
     /** Changes when sprites would look different; the old ones are then taken again. */
     private static final int SPRITE_VERSION = 7;
     /**
@@ -62,6 +63,8 @@ public final class IsoMap implements BlockStore.Listener {
         final int id;
         final File directory;
         final BlockStore store;
+        /** No sky (the Nether): dim at any time of day, lit only by its lava and lamps. */
+        volatile boolean noSky;
 
         Dimension(int id, File directory, BlockStore.Listener listener) {
             this.id = id;
@@ -256,6 +259,9 @@ public final class IsoMap implements BlockStore.Listener {
         if (dimension == null) {
             dimension = new Dimension(id, new File(worldDirectory, "dim" + id), this);
             dimensions.put(id, dimension);
+        }
+        if (!dimension.noSky && MapManager.INSTANCE.hasNoSky(id)) {
+            dimension.noSky = true;
         }
         return dimension;
     }

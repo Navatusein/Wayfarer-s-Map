@@ -169,8 +169,8 @@ public final class IsoEntityDrawer {
 
         boolean playerDrawn = false;
         // Night as the map shows it (the time of day, or the day/night buttons): the models get darker with it.
-        float night = MapDrawer.nightAmount(mc);
-        float[] tint = MapDrawer.lightTint(mc);
+        float night = MapDrawer.isoNightAmount(mc, mc.theWorld.provider.dimensionId);
+        float[] tint = MapDrawer.isoLightTint(mc, mc.theWorld.provider.dimensionId);
         RenderManager manager = RenderManager.instance;
         float viewY = manager.playerViewY, viewX = manager.playerViewX;
         boolean depthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);

@@ -522,6 +522,25 @@ public final class MapDrawer {
         return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
     }
 
+    /**
+     * How much the 3D map of the dimension shows night: as {@link #nightAmount}, but a dimension without a sky, like
+     * the Nether, is dim at any time of day, lit only by its lava and lamps (unless the map is fixed to day).
+     */
+    public static float isoNightAmount(Minecraft mc, int dimensionId) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+            return 1f;
+        }
+        return nightAmount(mc);
+    }
+
+    /** RGB multiplier for models on the 3D map of the dimension, as {@link #isoNightAmount} lights it. */
+    public static float[] isoLightTint(Minecraft mc, int dimensionId) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+            return NETHER_TINT.clone();
+        }
+        return lightTint(mc);
+    }
+
     /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */
     public static float nightAmount(Minecraft mc) {
         float day;

@@ -259,8 +259,9 @@ final class IsoTiles {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // By night the night tiles are laid over the day ones, fading in and out with the time of day.
-        float night = MapDrawer.nightAmount(Minecraft.getMinecraft());
+        // By night the night tiles are laid over the day ones, fading in and out with the time of day (always night
+        // where there is no sky, like the Nether).
+        float night = MapDrawer.isoNightAmount(Minecraft.getMinecraft(), dimension.id);
         for (int tv = tv0; tv <= tv1; tv++) {
             for (int tu = tu0; tu <= tu1; tu++) {
                 Key key = new Key(dimension.id, rotation, level, tu, tv);
@@ -696,7 +697,7 @@ final class IsoTiles {
         if (work != null) {
             work.noPalette = palette == null;
         }
-        IsoTracer tracer = new IsoTracer(dimension.store, palette);
+        IsoTracer tracer = new IsoTracer(dimension.store, palette, dimension.noSky);
         BlockLooks.takeMissed();
         IsoProjection projection = IsoProjection.of(key.rotation);
         tracer.reset(projection, key.level);
