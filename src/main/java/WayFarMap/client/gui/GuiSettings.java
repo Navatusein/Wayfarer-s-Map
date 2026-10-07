@@ -40,8 +40,14 @@ public class GuiSettings extends ScaledScreen {
     private static final int ROW_HEIGHT = 22;
     /** Height of a section title between the options. */
     private static final int HEADER_HEIGHT = 18;
+    /** Room between two sections' cards, and under a card's last option. */
+    private static final int SECTION_GAP = 6, CARD_PADDING = 3;
+    /** A section's card, its title's band and the room left of the scrollbar. */
+    private static final int CARD = 0xFF1A1F27, CARD_HEADER = 0xFF1F252E;
     /** How far options that depend on a switch are moved in under it. */
     private static final int INDENT = 10;
+    /** A list's values side by side as buttons: at most so many, and their row at most so wide. */
+    private static final int SEGMENTS_MAX_COUNT = 6, SEGMENTS_MAX_WIDTH = 172;
     private static final int CONTROL_WIDTH = 104;
     /** Size of the "back to default" button right of a changed option's control. */
     private static final int RESET_SIZE = 9;
@@ -91,8 +97,12 @@ public class GuiSettings extends ScaledScreen {
     private FlatTextField searchField;
     /** The search typed, kept when the screen is laid out again (window resized, back from the color picker). */
     private String searchText = "";
-    /** The lines of the list, rebuilt when the tab, the search or a closed section changes. */
+    /**
+     * The lines of the list, rebuilt when the tab, the search or a closed section changes, or options are shown or
+     * hidden by the others ({@link Config.Option#applies}): {@link #rowsShown} is which were when it was built.
+     */
     private List<Row> rows;
+    private String rowsShown;
     /** The option under the mouse, changed with the arrow keys. */
     private Config.Option hoveredOption;
     /** The slider whose value is being typed in, and the field it is typed in; null when none. */
@@ -127,6 +137,17 @@ public class GuiSettings extends ScaledScreen {
         final int indent;
         /** The player's trail drawn as it is set, under the trail's options. */
         boolean trailPreview;
+        /**
+         * A section title's group ({@code wayfarmap.settings.group.<group>}), its icon's color and the options its
+         * reset button resets.
+         */
+        String group;
+        int color;
+        List<Config.Option> options;
+        /** A section title's card: where it ends, from the top of the list. */
+        int end;
+        /** An option moved in under its switch: the first and the last of those under it, for the line joining them. */
+        boolean firstChild, lastChild;
 
         private Row(Config.Option option, String title, String section, int hidden, int y, int height, int indent) {
             this.option = option;
@@ -138,8 +159,14 @@ public class GuiSettings extends ScaledScreen {
             this.indent = indent;
         }
 
-        static Row title(String title, String section, int hidden, int y) {
-            return new Row(null, title, section, hidden, y, HEADER_HEIGHT, 0);
+        static Row title(String title, String section, String group, int color, List<Config.Option> options,
+            int hidden, int y) {
+            Row row = new Row(null, title, section, hidden, y, HEADER_HEIGHT, 0);
+            row.group = group;
+            row.color = color;
+            row.options = options;
+            row.end = y + HEADER_HEIGHT;
+            return row;
         }
 
         static Row option(Config.Option option, int y, int indent) {
@@ -150,6 +177,21 @@ public class GuiSettings extends ScaledScreen {
             Row row = new Row(null, null, null, 0, y, TRAIL_PREVIEW_HEIGHT, 0);
             row.trailPreview = true;
             return row;
+        }
+
+        boolean isTitle() {
+            return option == null && !trailPreview;
+        }
+
+        /** How many of the section's options are changed from their defaults. */
+        int changed() {
+            int count = 0;
+            for (Config.Option option : options) {
+                if (!option.isDefault()) {
+                    count++;
+                }
+            }
+            return count;
         }
     }
 
@@ -330,17 +372,36 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private List<Row> rows() {
-        if (rows == null) {
+        String shown = shownOptions();
+        if (rows == null || !shown.equals(rowsShown)) {
             rows = searching() ? searchRows() : tabRows();
+            rowsShown = shown;
+            markChildren(rows);
+            clampScroll();
         }
         return rows;
     }
 
-    /** The options of the open tab with a title before each section; a closed section only has its title. */
+    /** Which options are used with the others as they are set: when it changes, the list is built again. */
+    private static String shownOptions() {
+        StringBuilder shown = new StringBuilder();
+        for (Config.Option option : Config.OPTIONS) {
+            if (option.condition != null) {
+                shown.append(option.applies() ? '1' : '0');
+            }
+        }
+        return shown.toString();
+    }
+
+    /**
+     * The options of the open tab, each section on a card under its title; a closed section only has its title.
+     * Options not used with the others as they are set are left out.
+     */
     private List<Row> tabRows() {
         String tab = Config.CATEGORIES.get(selectedCategory);
         List<Config.Option> options = options();
         List<Row> result = new ArrayList<>();
+        Row card = null;
         String group = null;
         boolean closed = false;
         int y = 0;
@@ -348,17 +409,33 @@ public class GuiSettings extends ScaledScreen {
             Config.Option option = options.get(i);
             if (!option.group.equals(group)) {
                 closed = false;
+                y = closeCard(card, y);
+                card = null;
                 if (!option.group.isEmpty()) {
                     String section = tab + "/" + option.group;
                     closed = CLOSED_SECTIONS.contains(section);
-                    // A little room above every title but the first.
-                    y += result.isEmpty() ? 0 : 4;
-                    result.add(Row.title(groupTitle(option.group), section, closed ? groupSize(options, i) : 0, y));
+                    y += result.isEmpty() ? 0 : SECTION_GAP;
+                    List<Config.Option> sectionOptions = section(options, i);
+                    int hidden = 0;
+                    if (closed) {
+                        for (Config.Option hiddenOption : sectionOptions) {
+                            hidden += hiddenOption.applies() ? 1 : 0;
+                        }
+                    }
+                    card = Row.title(
+                        groupTitle(option.group),
+                        section,
+                        option.group,
+                        tabColor(tab),
+                        sectionOptions,
+                        hidden,
+                        y);
+                    result.add(card);
                     y += HEADER_HEIGHT;
                 }
             }
             group = option.group;
-            if (closed) {
+            if (closed || !option.applies()) {
                 continue;
             }
             int indent = option.parent != null && option.parent.group.equals(option.group) ? INDENT : 0;
@@ -370,23 +447,52 @@ public class GuiSettings extends ScaledScreen {
                 y += TRAIL_PREVIEW_HEIGHT;
             }
         }
+        closeCard(card, y);
         return result;
     }
 
-    /** How many options in a row from {@code from} are in the same section. */
-    private static int groupSize(List<Config.Option> options, int from) {
-        String group = options.get(from).group;
-        int count = 0;
-        for (int i = from; i < options.size() && options.get(i).group.equals(group); i++) {
-            count++;
+    /** Ends the section's card after its last line, {@code y}; where the list goes on. */
+    private static int closeCard(Row card, int y) {
+        if (card == null) {
+            return y;
         }
-        return count;
+        // An open card has a little room under its last option; a closed one is only its title.
+        card.end = y > card.y + HEADER_HEIGHT ? y + CARD_PADDING : y;
+        return card.end;
     }
 
-    /** The options of every tab whose name or description has the search in it, under "tab / section" titles. */
+    /** The options in a row from {@code from} that are in the same section. */
+    private static List<Config.Option> section(List<Config.Option> options, int from) {
+        String group = options.get(from).group;
+        List<Config.Option> result = new ArrayList<>();
+        for (int i = from; i < options.size() && options.get(i).group.equals(group); i++) {
+            result.add(options.get(i));
+        }
+        return result;
+    }
+
+    /** Marks the first and the last of the options moved in under the same switch, for the line joining them. */
+    private static void markChildren(List<Row> list) {
+        for (int i = 0; i < list.size(); i++) {
+            Row row = list.get(i);
+            if (row.option == null || row.indent == 0) {
+                continue;
+            }
+            Row before = i > 0 ? list.get(i - 1) : null;
+            Row after = i + 1 < list.size() ? list.get(i + 1) : null;
+            row.firstChild = before == null || before.option == null || before.indent == 0;
+            row.lastChild = after == null || after.option == null || after.indent == 0;
+        }
+    }
+
+    /**
+     * The options of every tab whose name or description has the search in it, on cards under "tab / section"
+     * titles. Options not used with the others as they are set are found too, dimmed.
+     */
     private List<Row> searchRows() {
         String query = query();
         List<Row> result = new ArrayList<>();
+        Row card = null;
         int y = 0;
         for (String tab : Config.CATEGORIES) {
             String title = null;
@@ -400,8 +506,10 @@ public class GuiSettings extends ScaledScreen {
                 String optionTitle = I18n.format("wayfarmap.settings." + tab)
                     + (option.group.isEmpty() ? "" : " / " + groupTitle(option.group));
                 if (!optionTitle.equals(title)) {
-                    y += result.isEmpty() ? 0 : 4;
-                    result.add(Row.title(optionTitle, null, 0, y));
+                    y = closeCard(card, y);
+                    y += result.isEmpty() ? 0 : SECTION_GAP;
+                    card = Row.title(optionTitle, null, option.group, tabColor(tab), new ArrayList<>(), 0, y);
+                    result.add(card);
                     y += HEADER_HEIGHT;
                     title = optionTitle;
                     shown.clear();
@@ -409,10 +517,12 @@ public class GuiSettings extends ScaledScreen {
                 // Moved in only when the switch it depends on was found too, just above.
                 int indent = option.parent != null && shown.contains(option.parent) ? INDENT : 0;
                 shown.add(option);
+                card.options.add(option);
                 result.add(Row.option(option, y, indent));
                 y += ROW_HEIGHT;
             }
         }
+        closeCard(card, y);
         return result;
     }
 
@@ -447,8 +557,11 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private int listHeight() {
-        List<Row> list = rows();
-        return list.isEmpty() ? 0 : list.get(list.size() - 1).y + list.get(list.size() - 1).height;
+        int height = 0;
+        for (Row row : rows()) {
+            height = Math.max(height, row.isTitle() ? row.end : row.y + row.height);
+        }
+        return height;
     }
 
     private int maxScroll() {
@@ -465,11 +578,21 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private int resetX() {
-        return right - 10 - RESET_SIZE;
+        return right - 12 - RESET_SIZE;
+    }
+
+    /** Right edge of the sections' cards, left of the scrollbar. */
+    private int cardRight() {
+        return right - 8;
     }
 
     private int controlX() {
         return resetX() - 4 - CONTROL_WIDTH;
+    }
+
+    /** Whether the option can't be changed now: a switch it depends on is off, or the others leave it unused. */
+    private static boolean isLocked(Config.Option option) {
+        return offParent(option) != null || !option.applies();
     }
 
     /** The first switch the option depends on, directly or through others, that is off; null if none. */
@@ -615,7 +738,7 @@ public class GuiSettings extends ScaledScreen {
                 break;
             case Keyboard.KEY_LEFT:
             case Keyboard.KEY_RIGHT:
-                if (hoveredOption != null && offParent(hoveredOption) == null) {
+                if (hoveredOption != null && !isLocked(hoveredOption)) {
                     step(hoveredOption, keyCode == Keyboard.KEY_RIGHT);
                 }
                 break;
@@ -686,20 +809,21 @@ public class GuiSettings extends ScaledScreen {
         if (mouseX < contentLeft - 4 || mouseX >= right - 6) {
             return;
         }
+        Row pinned = pinnedTitle();
+        if (pinned != null && mouseY < pinnedY(pinned) + HEADER_HEIGHT) {
+            clickTitle(pinned, mouseX, button, true);
+            return;
+        }
         for (Row row : rows()) {
             int y = listTop + row.y - drawnScroll();
             if (mouseY < y || mouseY >= y + row.height) {
                 continue;
             }
+            if (row.isTitle()) {
+                clickTitle(row, mouseX, button, false);
+                return;
+            }
             if (row.option == null) {
-                if (row.section != null && button == 0) {
-                    // A section's title opens and closes it.
-                    if (!CLOSED_SECTIONS.remove(row.section)) {
-                        CLOSED_SECTIONS.add(row.section);
-                    }
-                    rows = null;
-                    clampScroll();
-                }
                 return;
             }
             Config.Option option = row.option;
@@ -709,12 +833,18 @@ public class GuiSettings extends ScaledScreen {
                 if (button == 0) {
                     option.reset();
                 }
-            } else if (offParent(option) != null) {
-                // Waits for the switch it depends on.
+            } else if (isLocked(option)) {
+                // Waits for the switch it depends on, or isn't used with the other options as they are.
                 return;
             } else if (option instanceof Config.BoolOption) {
                 // The whole row flips a switch, not only the switch itself.
                 step(option, true);
+            } else if (segmentsWidth(option) > 0) {
+                // A list shown as buttons: the one clicked is chosen.
+                int segment = segmentAt((Config.ChoiceOption) option, mouseX);
+                if (segment >= 0 && mouseY >= y + 3 && mouseY < y + ROW_HEIGHT - 3) {
+                    ((Config.ChoiceOption) option).set(segment);
+                }
             } else if (!onControl) {
                 int valueLeft = controlX() - controlLeftWidth(option);
                 boolean onValue = mouseX >= valueLeft && mouseX < controlX() - 4 && mouseY >= y + 3;
@@ -740,6 +870,60 @@ public class GuiSettings extends ScaledScreen {
             }
             return;
         }
+    }
+
+    /**
+     * A click on a section's title: its reset button puts the section's changed options back to their defaults,
+     * anywhere else it opens or closes the section. Closed from the title kept at the top of the list, the list goes
+     * back to show it.
+     */
+    private void clickTitle(Row row, int mouseX, int button, boolean pinned) {
+        if (button != 0) {
+            return;
+        }
+        if (overTitleReset(row, mouseX)) {
+            for (Config.Option option : row.options) {
+                option.reset();
+            }
+            return;
+        }
+        if (row.section == null) {
+            return;
+        }
+        if (!CLOSED_SECTIONS.remove(row.section)) {
+            CLOSED_SECTIONS.add(row.section);
+        }
+        rows = null;
+        if (pinned) {
+            scroll = row.y;
+            shownScroll = scroll;
+        }
+        clampScroll();
+    }
+
+    /** Whether the mouse is on the reset button of a section's title (only there with changed options). */
+    private boolean overTitleReset(Row row, int mouseX) {
+        return row.changed() > 0 && mouseX >= resetX() - 2;
+    }
+
+    /**
+     * The title of the section the top of the list is scrolled into, kept there over its options until the section
+     * is scrolled past; null at the top of the list.
+     */
+    private Row pinnedTitle() {
+        int scrolled = drawnScroll();
+        Row pinned = null;
+        for (Row row : rows()) {
+            if (row.isTitle() && row.y < scrolled) {
+                pinned = row;
+            }
+        }
+        return pinned != null && pinned.end > scrolled ? pinned : null;
+    }
+
+    /** Where the kept title is drawn: at the top of the list, pushed up by the end of its section. */
+    private int pinnedY(Row pinned) {
+        return listTop() + Math.min(0, pinned.end - drawnScroll() - HEADER_HEIGHT);
     }
 
     /** Sets the dragged slider from the mouse position. */
@@ -915,7 +1099,24 @@ public class GuiSettings extends ScaledScreen {
         Config.Option hovered = null;
         boolean overReset = false;
         hoveredOption = null;
+        Row hoveredTitle = null;
+        boolean listHovered = mouseY >= listTop && mouseY < contentBottom && !draggingScrollbar;
+        Row pinned = pinnedTitle();
+        int pinnedY = pinned == null ? 0 : pinnedY(pinned);
+        boolean overPinned = pinned != null && listHovered
+            && Theme.inside(mouseX, mouseY, contentLeft - 4, pinnedY, cardRight(), pinnedY + HEADER_HEIGHT);
         Theme.clip(contentLeft - 4, listTop, right - 6, contentBottom);
+        // The sections' cards first, under their lines.
+        for (Row row : rows()) {
+            if (!row.isTitle()) {
+                continue;
+            }
+            int y = listTop + row.y - drawnScroll() + slide, end = listTop + row.end - drawnScroll() + slide;
+            if (end > listTop && y < contentBottom) {
+                Theme.fill(contentLeft - 4, y, cardRight(), end, CARD);
+                Theme.outline(contentLeft - 4, y, cardRight(), end, Theme.BORDER);
+            }
+        }
         for (Row row : rows()) {
             int y = listTop + row.y - drawnScroll() + slide;
             if (y + row.height <= listTop || y >= contentBottom) {
@@ -925,20 +1126,25 @@ public class GuiSettings extends ScaledScreen {
                 drawTrailPreview(y);
                 continue;
             }
-            if (row.option == null) {
-                drawSectionTitle(row, y, mouseX, mouseY);
+            if (row.isTitle()) {
+                boolean over = listHovered && !overPinned
+                    && Theme.inside(mouseX, mouseY, contentLeft - 4, y, cardRight(), y + HEADER_HEIGHT);
+                if (over) {
+                    hoveredTitle = row;
+                }
+                drawSectionTitle(row, y, mouseX, over, false);
                 continue;
             }
             Config.Option option = row.option;
             boolean changed = !option.isDefault();
-            boolean rowHovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, right - 6, y + ROW_HEIGHT);
-            rowHovered &= mouseY >= listTop && mouseY < contentBottom && !draggingScrollbar;
+            boolean rowHovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, cardRight(), y + ROW_HEIGHT);
+            rowHovered &= listHovered && !overPinned;
             float[] state = animation(option);
             state[0] = approach(state[0], rowHovered ? 1f : 0f, 20f);
             state[1] = approach(state[1], isOn(option) ? 1f : 0f, 18f);
             if (state[0] > 0.02f) {
-                int light = Math.round(state[0] * 0x20) << 24 | 0xFFFFFF;
-                Theme.fill(contentLeft - 4, y, right - 6, y + ROW_HEIGHT, light);
+                int light = Math.round(state[0] * 0x18) << 24 | 0xFFFFFF;
+                Theme.fill(contentLeft - 3, y, cardRight() - 1, y + ROW_HEIGHT, light);
             }
             if (rowHovered) {
                 hoveredOption = option;
@@ -947,15 +1153,18 @@ public class GuiSettings extends ScaledScreen {
             }
             if (changed) {
                 // Changed from the default: a mark at the start of the row.
-                Theme.fill(contentLeft - 4, y + 4, contentLeft - 2, y + ROW_HEIGHT - 4, Theme.ACCENT);
+                Theme.fill(contentLeft - 3, y + 4, contentLeft - 1, y + ROW_HEIGHT - 4, Theme.ACCENT);
             }
             int x = contentLeft + row.indent;
             if (row.indent > 0) {
-                // A short line from the switch this one depends on.
-                Theme.fill(contentLeft + 2, y + 3, contentLeft + 3, y + 12, Theme.BORDER);
-                Theme.fill(contentLeft + 2, y + 11, x - 2, y + 12, Theme.BORDER);
+                // A line from the switch this one depends on, joining all those under it.
+                int lineX = contentLeft + 3;
+                int lineTop = row.firstChild ? y - 4 : y;
+                int lineBottom = row.lastChild ? y + 12 : y + ROW_HEIGHT;
+                Theme.fill(lineX, lineTop, lineX + 1, lineBottom, Theme.BORDER);
+                Theme.fill(lineX + 1, y + 11, x - 2, y + 12, Theme.BORDER);
             }
-            boolean locked = offParent(option) != null;
+            boolean locked = isLocked(option);
             int nameWidth = controlX() - x - controlLeftWidth(option) - 6;
             String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), nameWidth);
             drawName(name, x, y + 7, locked ? Theme.TEXT_DISABLED : Theme.TEXT);
@@ -963,7 +1172,8 @@ public class GuiSettings extends ScaledScreen {
             if (locked) {
                 // Waiting for the switch it depends on: the control is dimmed and can't be used.
                 int lockedLeft = controlX() - controlLeftWidth(option);
-                Theme.fill(lockedLeft, y + 3, controlX() + CONTROL_WIDTH, y + ROW_HEIGHT - 3, 0xB0161A20);
+                int dim = 0xB0000000 | CARD & 0xFFFFFF;
+                Theme.fill(lockedLeft, y + 3, controlX() + CONTROL_WIDTH, y + ROW_HEIGHT - 3, dim);
             }
             if (changed) {
                 boolean over = overReset && hovered == option;
@@ -972,6 +1182,13 @@ public class GuiSettings extends ScaledScreen {
                     resetX() + 1,
                     y + (ROW_HEIGHT - RESET_ICON.length) / 2,
                     over ? Theme.ACCENT : Theme.TEXT_MUTED);
+            }
+        }
+        if (pinned != null) {
+            // Over the options scrolled under it.
+            drawSectionTitle(pinned, pinnedY, mouseX, overPinned, true);
+            if (overPinned) {
+                hoveredTitle = pinned;
             }
         }
         Theme.unclip();
@@ -996,7 +1213,11 @@ public class GuiSettings extends ScaledScreen {
 
         super.drawScaled(mouseX, mouseY, partialTicks);
         drawChangedMarks();
-        drawDescription(hovered, overReset);
+        if (hovered == null && hoveredTitle != null) {
+            drawTitleDescription(hoveredTitle, overTitleReset(hoveredTitle, mouseX));
+        } else {
+            drawDescription(hovered, overReset);
+        }
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
@@ -1011,23 +1232,110 @@ public class GuiSettings extends ScaledScreen {
         Theme.fill(left + 2, y + 3, left + 4, y + 15, Theme.ACCENT);
     }
 
-    /** A section's title: an arrow to open or close it, and how many options a closed one hides. */
-    private void drawSectionTitle(Row row, int y, int mouseX, int mouseY) {
+    /**
+     * A section's title on the band at the top of its card: an arrow to open or close it, the section's icon and name,
+     * how many options a closed one hides and, with options changed, how many and a button to reset them.
+     */
+    private void drawSectionTitle(Row row, int y, int mouseX, boolean hovered, boolean pinned) {
+        int x0 = contentLeft - 4, x1 = cardRight(), bottom = y + HEADER_HEIGHT;
+        Theme.fill(x0, y, x1, bottom, hovered ? Theme.blend(CARD_HEADER, 0xFFFFFFFF, 0.05) : CARD_HEADER);
+        Theme.outline(x0, y, x1, bottom, Theme.BORDER);
+        if (pinned) {
+            // A soft shadow under it, over the options scrolled under it.
+            Theme.fill(x0, bottom, x1, bottom + 1, 0x80000000);
+            Theme.fill(x0, bottom + 1, x1, bottom + 2, 0x40000000);
+        }
         int x = contentLeft;
-        boolean hovered = false;
         if (row.section != null) {
-            hovered = Theme.inside(mouseX, mouseY, contentLeft - 4, y, right - 6, y + row.height);
-            String[] arrow = row.hidden > 0 ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
-            Icons.draw(arrow, x, y + 7 + (5 - arrow.length) / 2, hovered ? Theme.TEXT : Theme.ACCENT_DIM);
+            String[] arrow = row.end > row.y + HEADER_HEIGHT ? Icons.SECTION_OPEN : Icons.SECTION_CLOSED;
+            Icons.draw(arrow, x, y + (HEADER_HEIGHT - arrow.length) / 2, hovered ? Theme.TEXT : Theme.TEXT_MUTED);
             x += 9;
         }
-        String title = row.title;
-        if (row.hidden > 0) {
-            title += " (" + row.hidden + ")";
+        String[] icon = groupIcon(row.group);
+        if (icon != null) {
+            Icons.draw(icon, x, y + (HEADER_HEIGHT - icon.length) / 2, row.color);
+            x += Icons.width(icon) + 5;
         }
-        Theme.text(fontRendererObj, title, x, y + 6, hovered ? Theme.TEXT : Theme.ACCENT);
-        int lineX = x + fontRendererObj.getStringWidth(title) + 6;
-        Theme.fill(lineX, y + 10, right - 10, y + 11, Theme.BORDER);
+        int changed = row.changed();
+        int titleRight = x1 - 6;
+        if (changed > 0) {
+            boolean overReset = hovered && overTitleReset(row, mouseX);
+            Icons.draw(
+                RESET_ICON,
+                resetX() + 1,
+                y + (HEADER_HEIGHT - RESET_ICON.length) / 2,
+                overReset ? Theme.ACCENT : Theme.TEXT_MUTED);
+            String count = I18n.format("wayfarmap.settings.changed_count", changed);
+            int countX = resetX() - 5 - fontRendererObj.getStringWidth(count);
+            Theme.text(fontRendererObj, count, countX, y + 5, overReset ? Theme.ACCENT : Theme.TEXT_MUTED);
+            // A dot like the changed options' mark, before the count.
+            Theme.fill(countX - 6, y + 7, countX - 3, y + 10, Theme.ACCENT);
+            titleRight = countX - 12;
+        }
+        String hidden = row.hidden > 0 ? " (" + row.hidden + ")" : "";
+        int hiddenWidth = fontRendererObj.getStringWidth(hidden);
+        String title = Theme.ellipsize(fontRendererObj, row.title, titleRight - x - hiddenWidth);
+        Theme.text(fontRendererObj, title, x, y + 5, hovered ? 0xFFFFFFFF : Theme.TEXT);
+        if (!hidden.isEmpty()) {
+            Theme.text(fontRendererObj, hidden, x + fontRendererObj.getStringWidth(title), y + 5, Theme.TEXT_MUTED);
+        }
+    }
+
+    /** The small icon of a section, by its group; null for none. */
+    private static String[] groupIcon(String group) {
+        switch (group) {
+            case "general":
+                return Icons.SMALL_GEAR;
+            case "mapView":
+                return Icons.SMALL_ZOOM;
+            case "compass":
+                return Icons.SMALL_COMPASS;
+            case "frame":
+                return Icons.SMALL_FRAME;
+            case "info":
+                return Icons.SMALL_TEXT;
+            case "navigation":
+                return Icons.SMALL_CURSOR;
+            case "buttons":
+                return Icons.SMALL_BUTTONS;
+            case "view":
+            case "shown":
+                return Icons.SMALL_EYE;
+            case "colors":
+            case "look":
+                return Icons.SMALL_PALETTE;
+            case "explored":
+                return Icons.SMALL_FOG;
+            case "grid":
+                return Icons.SMALL_GRID;
+            case "trail":
+                return Icons.SMALL_TRAIL;
+            case "layers":
+                return Icons.SMALL_LAYERS;
+            case "data":
+            case "chunkload":
+                return Icons.SMALL_QUEUE;
+            case "iso":
+                return Icons.SMALL_CUBE;
+            case "record":
+                return Icons.SMALL_DISK;
+            case "icons":
+                return Icons.SMALL_CREEPER;
+            case "names":
+                return Icons.SMALL_CHAT;
+            case "where":
+                return Icons.SMALL_PIN;
+            case "size":
+                return Icons.SMALL_RESIZE;
+            case "fade":
+                return Icons.SMALL_FADE;
+            case "death":
+                return Icons.SMALL_SKULL;
+            case "logs":
+                return Icons.SMALL_PAGE;
+            default:
+                return null;
+        }
     }
 
     /** The option's name, with what was searched for marked in it. */
@@ -1070,7 +1378,7 @@ public class GuiSettings extends ScaledScreen {
      * few seconds; dimmed with a note while the trail is off.
      */
     private void drawTrailPreview(int y) {
-        int x0 = contentLeft, x1 = right - 10, y0 = y + 2, y1 = y + TRAIL_PREVIEW_HEIGHT - 4;
+        int x0 = contentLeft, x1 = cardRight() - 4, y0 = y + 2, y1 = y + TRAIL_PREVIEW_HEIGHT - 4;
         drawPreviewGround(x0, y0, x1, y1);
         PlayerTrail.drawPreview(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
         Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
@@ -1368,8 +1676,7 @@ public class GuiSettings extends ScaledScreen {
      * button, what it resets to; with no option under the mouse, a hint.
      */
     private void drawDescription(Config.Option option, boolean reset) {
-        int boxLeft = contentLeft - 4, boxRight = right - 6, boxBottom = bottom - 8;
-        int textWidth = boxRight - boxLeft - 12;
+        int textWidth = descriptionTextWidth();
         String title = null;
         List<String> lines = new ArrayList<>();
         List<String> notes = new ArrayList<>();
@@ -1386,15 +1693,52 @@ public class GuiSettings extends ScaledScreen {
                 if (defaultValue != null) {
                     notes.add(I18n.format("wayfarmap.settings.default", defaultValue));
                 }
-                if (isTypable(option) && offParent(option) == null) {
+                if (isTypable(option) && !isLocked(option)) {
                     notes.add(I18n.format("wayfarmap.settings.type_value"));
                 }
                 Config.BoolOption waitsFor = offParent(option);
                 if (waitsFor != null) {
                     notes.add(I18n.format("wayfarmap.settings.requires", I18n.format(waitsFor.langKey())));
+                } else if (!option.applies()) {
+                    notes.add(I18n.format("wayfarmap.settings.not_used"));
                 }
             }
         }
+        drawDescriptionBox(title, lines, notes, option != null);
+    }
+
+    /**
+     * The description of a section under the mouse: what is in it, how to open or close it and, with options changed,
+     * that its title's button resets them.
+     */
+    private void drawTitleDescription(Row row, boolean reset) {
+        int textWidth = descriptionTextWidth();
+        List<String> lines = new ArrayList<>();
+        List<String> notes = new ArrayList<>();
+        int changed = row.changed();
+        if (reset) {
+            notes.add(I18n.format("wayfarmap.settings.section_reset", changed));
+        } else {
+            String key = "wayfarmap.settings.group." + row.group + ".desc";
+            String description = I18n.format(key);
+            if (!description.equals(key)) {
+                addWrapped(lines, description, textWidth);
+            }
+            if (row.section != null) {
+                boolean open = row.end > row.y + HEADER_HEIGHT;
+                notes.add(I18n.format(open ? "wayfarmap.settings.section_open" : "wayfarmap.settings.section_closed"));
+            }
+            if (changed > 0) {
+                notes.add(I18n.format("wayfarmap.settings.section_changed", changed));
+            }
+        }
+        drawDescriptionBox(row.title, lines, notes, true);
+    }
+
+    /** The panel under the options with a title, lines of text and notes under a line, growing up when long. */
+    private void drawDescriptionBox(String title, List<String> lines, List<String> notes, boolean lit) {
+        int boxLeft = contentLeft - 4, boxRight = right - 6, boxBottom = bottom - 8;
+        int textWidth = descriptionTextWidth();
         int needed = 8 + lines.size() * 10;
         if (title != null) {
             needed += 11;
@@ -1404,14 +1748,14 @@ public class GuiSettings extends ScaledScreen {
         }
         int boxTop = Math.max(top + 26, boxBottom - Math.max(DESCRIPTION_HEIGHT, needed));
         Theme.fill(boxLeft, boxTop, boxRight, boxBottom, 0xFF12161B);
-        Theme.outline(boxLeft, boxTop, boxRight, boxBottom, option != null ? Theme.ACCENT_DIM : Theme.BORDER);
+        Theme.outline(boxLeft, boxTop, boxRight, boxBottom, lit ? Theme.ACCENT_DIM : Theme.BORDER);
         int x = boxLeft + 6, y = boxTop + 5;
         if (title != null) {
             Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, title, textWidth), x, y, Theme.ACCENT);
             y += 11;
         }
         for (String line : lines) {
-            Theme.text(fontRendererObj, line, x, y, option != null ? Theme.TEXT : Theme.TEXT_MUTED);
+            Theme.text(fontRendererObj, line, x, y, lit ? Theme.TEXT : Theme.TEXT_MUTED);
             y += 10;
         }
         if (!notes.isEmpty()) {
@@ -1424,6 +1768,11 @@ public class GuiSettings extends ScaledScreen {
                 y += 10;
             }
         }
+    }
+
+    /** Width of the text in the description panel. */
+    private int descriptionTextWidth() {
+        return right - 6 - (contentLeft - 4) - 12;
     }
 
     private void addWrapped(List<String> lines, String text, int width) {
@@ -1464,9 +1813,75 @@ public class GuiSettings extends ScaledScreen {
         return option instanceof Config.IntOption || option instanceof Config.DoubleOption;
     }
 
-    /** How far left of its control the option draws: a slider's value box. */
+    /** How far left of its control the option draws: a slider's value box, a list's buttons wider than it. */
     private int controlLeftWidth(Config.Option option) {
+        int segments = segmentsWidth(option);
+        if (segments > 0) {
+            return segments - CONTROL_WIDTH;
+        }
         return isSlider(option) ? fontRendererObj.getStringWidth(sliderText(option)) + 12 : 0;
+    }
+
+    /** A value of a list, translated. */
+    private static String choiceText(Config.ChoiceOption choice, int value) {
+        return I18n.format(choice.langKey() + "." + choice.values[value]);
+    }
+
+    /** Width of a button of a list's value: its text and room around it. */
+    private int segmentWidth(Config.ChoiceOption choice, int value) {
+        return fontRendererObj.getStringWidth(choiceText(choice, value)) + 10;
+    }
+
+    /**
+     * Width of a list's values side by side as buttons, all seen and chosen with one click; 0 when they don't fit (or
+     * would leave the name too little room) and the list shows one value at a time, with arrows.
+     */
+    private int segmentsWidth(Config.Option option) {
+        if (!(option instanceof Config.ChoiceOption)) {
+            return 0;
+        }
+        Config.ChoiceOption choice = (Config.ChoiceOption) option;
+        if (choice.values.length > SEGMENTS_MAX_COUNT) {
+            return 0;
+        }
+        int width = 0;
+        for (int i = 0; i < choice.values.length; i++) {
+            width += segmentWidth(choice, i);
+        }
+        width = Math.max(width, CONTROL_WIDTH);
+        if (width > SEGMENTS_MAX_WIDTH) {
+            return 0;
+        }
+        int nameRoom = controlX() - (width - CONTROL_WIDTH) - contentLeft - INDENT - 6;
+        return fontRendererObj.getStringWidth(I18n.format(option.langKey())) <= nameRoom ? width : 0;
+    }
+
+    /** Edges of a list's buttons from x, the room left over shared between them: one more than there are values. */
+    private int[] segmentEdges(Config.ChoiceOption choice, int x, int width) {
+        int count = choice.values.length;
+        int total = 0;
+        for (int i = 0; i < count; i++) {
+            total += segmentWidth(choice, i);
+        }
+        int extra = width - total;
+        int[] edges = new int[count + 1];
+        edges[0] = x;
+        for (int i = 0; i < count; i++) {
+            edges[i + 1] = edges[i] + segmentWidth(choice, i) + extra * (i + 1) / count - extra * i / count;
+        }
+        return edges;
+    }
+
+    /** The value of the list shown as buttons whose button is at mouseX; -1 for none. */
+    private int segmentAt(Config.ChoiceOption choice, int mouseX) {
+        int width = segmentsWidth(choice);
+        int[] edges = segmentEdges(choice, controlX() + CONTROL_WIDTH - width, width);
+        for (int i = 0; i < choice.values.length; i++) {
+            if (mouseX >= edges[i] && mouseX < edges[i + 1]) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static String intText(Config.IntOption option, int value) {
@@ -1499,6 +1914,33 @@ public class GuiSettings extends ScaledScreen {
                 switchX - 6 - fontRendererObj.getStringWidth(state),
                 y + (h - 8) / 2,
                 on ? Theme.TEXT : Theme.TEXT_MUTED);
+        } else if (segmentsWidth(option) > 0) {
+            // All the values side by side, the chosen one lit.
+            Config.ChoiceOption choice = (Config.ChoiceOption) option;
+            int width = segmentsWidth(option);
+            int[] edges = segmentEdges(choice, x + CONTROL_WIDTH - width, width);
+            boolean anyHovered = Theme.inside(mouseX, mouseY, edges[0], y, edges[edges.length - 1], y + h);
+            for (int i = 0; i < choice.values.length; i++) {
+                boolean chosen = i == choice.get();
+                boolean over = anyHovered && mouseX >= edges[i] && mouseX < edges[i + 1];
+                int background = chosen ? Theme.ACCENT_DIM : over ? Theme.CONTROL_HOVER : Theme.CONTROL;
+                Theme.fill(edges[i], y, edges[i + 1], y + h, background);
+                if (i > 0) {
+                    Theme.fill(edges[i], y + 1, edges[i] + 1, y + h - 1, Theme.BORDER);
+                }
+                Theme.centered(
+                    fontRendererObj,
+                    choiceText(choice, i),
+                    (edges[i] + edges[i + 1] + 1) / 2,
+                    y + (h - 8) / 2,
+                    chosen || over ? Theme.TEXT : Theme.TEXT_MUTED);
+            }
+            int last = edges[edges.length - 1];
+            Theme.outline(edges[0], y, last, y + h, anyHovered ? Theme.ACCENT : Theme.BORDER);
+            // A line in full accent along the bottom of the chosen one, inside the outline.
+            int chosenLeft = Math.max(edges[choice.get()], edges[0] + 1);
+            int chosenRight = Math.min(edges[choice.get() + 1], last - 1);
+            Theme.fill(chosenLeft, y + h - 2, chosenRight, y + h - 1, Theme.ACCENT);
         } else if (option instanceof Config.ChoiceOption) {
             Config.ChoiceOption choice = (Config.ChoiceOption) option;
             Theme.fill(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
@@ -1563,6 +2005,9 @@ public class GuiSettings extends ScaledScreen {
             Theme.fill(x + 3, trackY, x + CONTROL_WIDTH - 3, trackY + 3, Theme.CONTROL);
             int knobX = x + 3 + (int) Math.round(t * (CONTROL_WIDTH - 6));
             Theme.fill(x + 3, trackY, knobX, trackY + 3, active ? Theme.ACCENT : Theme.ACCENT_DIM);
+            // Where the default value is: a tick across the track, to slide back to.
+            int defaultX = x + 3 + (int) Math.round(defaultFraction(option) * (CONTROL_WIDTH - 6));
+            Theme.fill(defaultX, trackY - 2, defaultX + 1, trackY + 5, Theme.TEXT_MUTED);
             Theme.fill(knobX - 3, y + 2, knobX + 3, y + h - 2, active ? Theme.ACCENT : Theme.TEXT);
             Theme.outline(knobX - 3, y + 2, knobX + 3, y + h - 2, Theme.BORDER);
             // The value in a small box left of the slider.
@@ -1576,6 +2021,16 @@ public class GuiSettings extends ScaledScreen {
             int valueColor = active ? Theme.TEXT : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, value, boxX + 4, y + (h - 8) / 2, valueColor);
         }
+    }
+
+    /** Where the slider's default value is along it, 0 at its start to 1 at its end. */
+    private static double defaultFraction(Config.Option option) {
+        if (option instanceof Config.IntOption) {
+            Config.IntOption intOption = (Config.IntOption) option;
+            return (intOption.defaultValue - intOption.min) / (double) (intOption.max - intOption.min);
+        }
+        Config.DoubleOption doubleOption = (Config.DoubleOption) option;
+        return (doubleOption.defaultValue - doubleOption.min) / (doubleOption.max - doubleOption.min);
     }
 
     @Override

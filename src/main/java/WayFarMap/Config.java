@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
@@ -270,6 +271,8 @@ public class Config {
     private static BoolOption currentParent;
     /** Tab the options declared next are shown on, or null for their category's (see {@link #tab}). */
     private static String currentTab;
+    /** When the options declared next mean anything (see {@link #when}), or null for always. */
+    private static BooleanSupplier currentCondition;
 
     static {
         String c = CATEGORY_MINIMAP;
@@ -277,8 +280,10 @@ public class Config {
         parent(null);
         bool(c, "enabled", "Show the minimap on the HUD.", true, () -> minimapEnabled, v -> minimapEnabled = v);
         parent("enabled");
-        integer(c, "size", "Minimap size in GUI pixels.", 100, 48, 256, 4, () -> minimapSize, v -> minimapSize = v);
         add(new PositionOption(c, "position", 1.0, 0.0));
+        integer(c, "size", "Minimap size in GUI pixels.", 100, 48, 256, 4, () -> minimapSize, v -> minimapSize = v);
+        group("mapView");
+        parent("enabled");
         choice(
             c,
             "shape",
@@ -302,7 +307,7 @@ public class Config {
             false,
             () -> minimapRotate,
             v -> minimapRotate = v);
-        group("look");
+        group("compass");
         parent("enabled");
         bool(
             c,
@@ -322,6 +327,7 @@ public class Config {
             0.1,
             () -> minimapCompassScale,
             v -> minimapCompassScale = v);
+        group("frame");
         parent("enabled");
         bool(c, "frame", "Draw a frame around the minimap.", true, () -> minimapFrame, v -> minimapFrame = v);
         parent("frame");
@@ -368,6 +374,8 @@ public class Config {
             true,
             () -> minimapShowBiome,
             v -> minimapShowBiome = v);
+        // Only while there is text under the minimap.
+        when(() -> minimapShowCoordinates || minimapShowBiome);
         decimal(
             c,
             "textScale",
@@ -409,6 +417,22 @@ public class Config {
             true,
             () -> rightClickClearsText,
             v -> rightClickClearsText = v);
+        group("navigation");
+        parent(null);
+        bool(
+            c,
+            "followPlayer",
+            "The world map always opens at the player. If false, it opens where it was closed.",
+            false,
+            () -> mapFollowPlayer,
+            v -> mapFollowPlayer = v);
+        bool(
+            c,
+            "smoothCamera",
+            "Centering the map on the player or a teammate glides there instead of jumping.",
+            true,
+            () -> mapSmoothCamera,
+            v -> mapSmoothCamera = v);
         group("buttons");
         for (int i = 0; i < MAP_BUTTONS.length; i++) {
             final int index = i;
@@ -423,14 +447,7 @@ public class Config {
         }
         tab(TAB_MAP_2D);
         group("view");
-        choice(
-            c,
-            "lightMode",
-            "Map lighting: 0 = follow the day/night cycle, 1 = always day, 2 = always night.",
-            LIGHT_AUTO,
-            new String[] { "auto", "day", "night" },
-            () -> mapLightMode,
-            v -> mapLightMode = v);
+        parent(null);
         choice(
             c,
             "displayMode",
@@ -439,6 +456,8 @@ public class Config {
             new String[] { "blocks", "biomes", "topo" },
             () -> mapDisplayMode,
             v -> mapDisplayMode = v);
+        // Contour lines are only drawn on the topography.
+        when(() -> mapDisplayMode == DISPLAY_TOPO);
         bool(c, "topoContours", "Contour lines on the topography.", true, () -> topoContours, v -> topoContours = v);
         parent("topoContours");
         integer(
@@ -452,6 +471,15 @@ public class Config {
             () -> topoContourInterval,
             v -> topoContourInterval = v);
         parent(null);
+        when(null);
+        choice(
+            c,
+            "lightMode",
+            "Map lighting: 0 = follow the day/night cycle, 1 = always day, 2 = always night.",
+            LIGHT_AUTO,
+            new String[] { "auto", "day", "night" },
+            () -> mapLightMode,
+            v -> mapLightMode = v);
         choice(
             c,
             "caveMode",
@@ -460,6 +488,72 @@ public class Config {
             new String[] { "auto", "off", "on" },
             () -> caveMode,
             v -> caveMode = v);
+        integer(
+            c,
+            "layerFadeMs",
+            "Fade between cave layers and the surface on the 2D map and the minimap, in ms; 0 = at once.",
+            300,
+            0,
+            1000,
+            50,
+            () -> layerFadeMs,
+            v -> layerFadeMs = v);
+        group("colors");
+        parent(null);
+        bool(
+            c,
+            "useTextureColors",
+            "Color the map with the average color of block textures. If false, vanilla map colors are used.",
+            true,
+            () -> useTextureColors,
+            v -> useTextureColors = v);
+        decimal(
+            c,
+            // Was "biomeColorContrast" with 1.3 by default, too bright: the new key starts saved configs at 1.0.
+            "biomeColorSaturation",
+            "Saturation and contrast of biome-tinted colors (grass, leaves, water) on the 2D map: 1.0 = the game's "
+                + "own colors, lower is more muted, higher more vivid. Transitions between biomes stay smooth. "
+                + "Applies as chunks are rescanned.",
+            1.0,
+            0.5,
+            2.0,
+            0.05,
+            () -> biomeColorSaturation,
+            v -> biomeColorSaturation = v);
+        bool(
+            c,
+            "seeThroughGlass",
+            "Show what is under glass, lightly tinted with the glass color. Applies as chunks are rescanned.",
+            true,
+            () -> seeThroughGlass,
+            v -> seeThroughGlass = v);
+        bool(
+            c,
+            "showPlants",
+            "Draw grass and flowers on the 2D map. If false, the block under them is shown (the \"2D map without "
+                + "plants\" mode). Areas mapped before it was kept show them until they are mapped again.",
+            true,
+            () -> showPlants,
+            v -> showPlants = v);
+        group("explored");
+        parent(null);
+        choice(
+            c,
+            "unexploredPattern",
+            "Unexplored land on the 2D map and the minimap: 0 = plain, 1 = diagonal lines, 2 = dots.",
+            UNEXPLORED_NONE,
+            new String[] { "none", "lines", "dots" },
+            () -> unexploredPattern,
+            v -> unexploredPattern = v);
+        bool(
+            c,
+            "edgeShadow",
+            "A soft shadow along the edge of the explored land on the 2D map and the minimap.",
+            false,
+            () -> edgeShadow,
+            v -> edgeShadow = v);
+        group("grid");
+        parent(null);
         bool(
             c,
             "chunkGrid",
@@ -486,6 +580,8 @@ public class Config {
             1,
             () -> gridLineWidth,
             v -> gridLineWidth = v);
+        // Each kind of grid has its own lines: only those of the one chosen are shown.
+        when(() -> gridType == GRID_CHUNKS);
         color(
             c,
             "gridChunkColor",
@@ -520,6 +616,7 @@ public class Config {
             5,
             () -> gridRegionOpacity,
             v -> gridRegionOpacity = v);
+        when(() -> gridType == GRID_ORE_VEINS);
         color(
             c,
             "gridOreColor",
@@ -537,32 +634,8 @@ public class Config {
             5,
             () -> gridOreOpacity,
             v -> gridOreOpacity = v);
+        group("trail");
         parent(null);
-        choice(
-            c,
-            "unexploredPattern",
-            "Unexplored land on the 2D map and the minimap: 0 = plain, 1 = diagonal lines, 2 = dots.",
-            UNEXPLORED_NONE,
-            new String[] { "none", "lines", "dots" },
-            () -> unexploredPattern,
-            v -> unexploredPattern = v);
-        bool(
-            c,
-            "edgeShadow",
-            "A soft shadow along the edge of the explored land on the 2D map and the minimap.",
-            false,
-            () -> edgeShadow,
-            v -> edgeShadow = v);
-        integer(
-            c,
-            "layerFadeMs",
-            "Fade between cave layers and the surface on the 2D map and the minimap, in ms; 0 = at once.",
-            300,
-            0,
-            1000,
-            50,
-            () -> layerFadeMs,
-            v -> layerFadeMs = v);
         bool(
             c,
             "playerTrail",
@@ -589,6 +662,7 @@ public class Config {
             new String[] { "single", "rainbow", "speed", "height", "fire" },
             () -> playerTrailColorMode,
             v -> playerTrailColorMode = v);
+        when(() -> playerTrailColorMode == TRAIL_SINGLE);
         color(
             c,
             "playerTrailColor",
@@ -596,6 +670,7 @@ public class Config {
             TRAIL_COLOR,
             () -> playerTrailColor,
             v -> playerTrailColor = v);
+        when(null);
         choice(
             c,
             "playerTrailStyle",
@@ -628,66 +703,9 @@ public class Config {
             true,
             () -> playerTrailAnimated,
             v -> playerTrailAnimated = v);
-        parent(null);
-        bool(
-            c,
-            "followPlayer",
-            "The world map always opens at the player. If false, it opens where it was closed.",
-            false,
-            () -> mapFollowPlayer,
-            v -> mapFollowPlayer = v);
-        bool(
-            c,
-            "smoothCamera",
-            "Centering the map on the player or a teammate glides there instead of jumping.",
-            true,
-            () -> mapSmoothCamera,
-            v -> mapSmoothCamera = v);
-        bool(
-            c,
-            "useTextureColors",
-            "Color the map with the average color of block textures. If false, vanilla map colors are used.",
-            true,
-            () -> useTextureColors,
-            v -> useTextureColors = v);
-        bool(
-            c,
-            "seeThroughGlass",
-            "Show what is under glass, lightly tinted with the glass color. Applies as chunks are rescanned.",
-            true,
-            () -> seeThroughGlass,
-            v -> seeThroughGlass = v);
-        decimal(
-            c,
-            // Was "biomeColorContrast" with 1.3 by default, too bright: the new key starts saved configs at 1.0.
-            "biomeColorSaturation",
-            "Saturation and contrast of biome-tinted colors (grass, leaves, water) on the 2D map: 1.0 = the game's "
-                + "own colors, lower is more muted, higher more vivid. Transitions between biomes stay smooth. "
-                + "Applies as chunks are rescanned.",
-            1.0,
-            0.5,
-            2.0,
-            0.05,
-            () -> biomeColorSaturation,
-            v -> biomeColorSaturation = v);
-        bool(
-            c,
-            "showPlants",
-            "Draw grass and flowers on the 2D map. If false, the block under them is shown (the \"2D map without "
-                + "plants\" mode). Areas mapped before it was kept show them until they are mapped again.",
-            true,
-            () -> showPlants,
-            v -> showPlants = v);
         tab(TAB_MAP_3D);
         group("iso");
         parent(null);
-        bool(
-            c,
-            "isoPlayerModel",
-            "Show the player as its 3D model (skin, armor, walking) on the 3D map instead of the arrow.",
-            true,
-            () -> isoPlayerModel,
-            v -> isoPlayerModel = v);
         bool(
             c,
             "isometric",
@@ -724,6 +742,15 @@ public class Config {
             true,
             () -> isoSmooth,
             v -> isoSmooth = v);
+        parent(null);
+        bool(
+            c,
+            "isoPlayerModel",
+            "Show the player as its 3D model (skin, armor, walking) on the 3D map instead of the arrow.",
+            true,
+            () -> isoPlayerModel,
+            v -> isoPlayerModel = v);
+        group("record");
         parent(null);
         bool(
             c,
@@ -947,6 +974,8 @@ public class Config {
             1,
             () -> mobFrameWidth,
             v -> mobFrameWidth = v);
+        // Only with a frame to make see-through.
+        when(() -> mobFrameWidth > 0);
         integer(
             c,
             "frameOpacity",
@@ -957,6 +986,7 @@ public class Config {
             5,
             () -> mobFrameOpacity,
             v -> mobFrameOpacity = v);
+        when(null);
         integer(
             c,
             "iconScale",
@@ -1024,6 +1054,18 @@ public class Config {
             true,
             () -> waypointsInWorld,
             v -> waypointsInWorld = v);
+        parent("showInWorld");
+        integer(
+            c,
+            "maxDistance",
+            "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.",
+            0,
+            0,
+            10000,
+            100,
+            () -> waypointMaxDistance,
+            v -> waypointMaxDistance = v);
+        parent(null);
         bool(
             c,
             "showOnMinimap",
@@ -1042,19 +1084,8 @@ public class Config {
             2,
             () -> minimapWaypointSize,
             v -> minimapWaypointSize = v);
-        parent(null);
-        integer(
-            c,
-            "maxDistance",
-            "Waypoints farther than this many blocks are not shown in the world. 0 = no limit.",
-            0,
-            0,
-            10000,
-            100,
-            () -> waypointMaxDistance,
-            v -> waypointMaxDistance = v);
-        group("look");
-        parent(null);
+        group("size");
+        parent("showInWorld");
         decimal(
             c,
             "scale",
@@ -1075,6 +1106,8 @@ public class Config {
             0.05,
             () -> waypointMinScale,
             v -> waypointMinScale = v);
+        group("names");
+        parent(null);
         integer(
             c,
             "labelMaxWidth",
@@ -1093,6 +1126,7 @@ public class Config {
             new String[] { "always", "hover" },
             () -> waypointMapLabels,
             v -> waypointMapLabels = v);
+        parent("showInWorld");
         choice(
             c,
             "worldLabels",
@@ -1102,6 +1136,8 @@ public class Config {
             new String[] { "always", "look" },
             () -> waypointWorldLabels,
             v -> waypointWorldLabels = v);
+        // Only used when names show for the waypoint looked at.
+        when(() -> waypointWorldLabels == LABELS_HOVER);
         integer(
             c,
             "lookZone",
@@ -1112,6 +1148,8 @@ public class Config {
             1,
             () -> waypointLookZone,
             v -> waypointLookZone = v);
+        group("fade");
+        parent("showInWorld");
         bool(
             c,
             "fadeNear",
@@ -1459,6 +1497,11 @@ public class Config {
         public String tab;
         /** The switch it depends on: shown under it, dimmed while it is off; null if none. */
         public BoolOption parent;
+        /**
+         * When it means anything with the other options as they are set (the color of the trail only when it has one
+         * color); null for always. The settings screen hides it otherwise.
+         */
+        public BooleanSupplier condition;
 
         Option(String category, String key, String comment) {
             this.category = category;
@@ -1480,6 +1523,11 @@ public class Config {
 
         /** Whether it is still set to its default value. */
         public abstract boolean isDefault();
+
+        /** Whether it is used with the other options as they are set now (see {@link #condition}). */
+        public boolean applies() {
+            return condition == null || condition.getAsBoolean();
+        }
     }
 
     public static class BoolOption extends Option {
@@ -1748,6 +1796,12 @@ public class Config {
     private static void group(String group) {
         currentGroup = group;
         currentParent = null;
+        currentCondition = null;
+    }
+
+    /** When the options declared next mean anything, until the next section; null for always. */
+    private static void when(BooleanSupplier condition) {
+        currentCondition = condition;
     }
 
     private static void parent(String key) {
@@ -1768,6 +1822,7 @@ public class Config {
             option.tab = currentTab;
         }
         option.parent = currentParent;
+        option.condition = currentCondition;
         OPTIONS.add(option);
     }
 

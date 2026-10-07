@@ -197,6 +197,42 @@ public final class Icons {
     public static final String[] SMALL_PERSON = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..",
         ".#...#." };
 
+    /** Small icons (7x7) of the settings' sections. */
+    public static final String[] SMALL_GEAR = { "..#.#..", ".#####.", "##...##", ".#...#.", "##...##", ".#####.",
+        "..#.#.." };
+    public static final String[] SMALL_ZOOM = { ".###...", "#...#..", "#...#..", "#...#..", ".###...", "....##.",
+        ".....##" };
+    public static final String[] SMALL_COMPASS = { "..###..", ".#.#.#.", "#..#..#", "#.###.#", "#..#..#", ".#...#.",
+        "..###.." };
+    public static final String[] SMALL_FRAME = { "#######", "#.....#", "#.###.#", "#.###.#", "#.###.#", "#.....#",
+        "#######" };
+    public static final String[] SMALL_TEXT = { "#######", "#..#..#", "...#...", "...#...", "...#...", "...#...",
+        "..###.." };
+    public static final String[] SMALL_GRID = { "#######", "#..#..#", "#..#..#", "#######", "#..#..#", "#..#..#",
+        "#######" };
+    public static final String[] SMALL_TRAIL = { "......#", ".....##", "....###", "...#...", "..#....", ".......",
+        "#......" };
+    public static final String[] SMALL_PALETTE = { ".#####.", "#.#...#", "#...#.#", "#.#...#", "#...###", "#..#...",
+        ".##...." };
+    public static final String[] SMALL_FOG = { "#######", "#..#.##", "#.#.#.#", "##.#..#", "#.#...#", "##....#",
+        "#######" };
+    public static final String[] SMALL_BUTTONS = { "###.###", "#.#.#.#", "###.###", ".......", "###.###", "#.#.#.#",
+        "###.###" };
+    public static final String[] SMALL_CUBE = { "..###..", "##...##", "#.###.#", "#..#..#", "#..#..#", ".#.#.#.",
+        "..###.." };
+    public static final String[] SMALL_DISK = { "######.", "#.#.#.#", "#.###.#", "#.....#", "#.###.#", "#.###.#",
+        "#######" };
+    public static final String[] SMALL_LAYERS = { "...#...", ".##.##.", "#.....#", ".##.##.", "#..#..#", ".##.##.",
+        "...#..." };
+    public static final String[] SMALL_RESIZE = { "####...", "##.....", "#.#....", "#..#..#", "....#.#", ".....##",
+        "...####" };
+    public static final String[] SMALL_FADE = { "##.#..#", "##.#...", "##.#..#", "##.#...", "##.#..#", "##.#...",
+        "##.#..#" };
+    public static final String[] SMALL_SKULL = { ".#####.", "#######", "#..#..#", "#######", ".##.##.", "..###..",
+        "..#.#.." };
+    public static final String[] SMALL_PAGE = { "#####..", "#...##.", "#.###.#", "#.....#", "#.###.#", "#.....#",
+        "#######" };
+
     /** An open section (pointing down) and a closed one (pointing right), before a title that opens and closes. */
     public static final String[] SECTION_OPEN = { "#####", ".###.", "..#.." };
     public static final String[] SECTION_CLOSED = { "#..", "##.", "###", "##.", "#.." };
