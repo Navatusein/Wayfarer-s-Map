@@ -1206,10 +1206,14 @@ public final class IsoLog {
         }
     }
 
-    static void tileQueued(IsoTiles.Key key, boolean stale, int queueSize) {
+    /**
+     * @param kind new (nothing to show yet), stale (only out of date: behind the new ones), hole (a chunk was stored
+     *             where it shows nothing: as soon as the new ones)
+     */
+    static void tileQueued(IsoTiles.Key key, String kind, int queueSize) {
         if (on()) {
-            line("TILE_QUEUED " + tile(key) + (stale ? " stale" : " new") + " queue=" + queueSize);
-            levelStats(key.level)[stale ? 1 : 0]++;
+            line("TILE_QUEUED " + tile(key) + " " + kind + " queue=" + queueSize);
+            levelStats(key.level)["new".equals(kind) ? 0 : 1]++;
         }
     }
 

@@ -54,9 +54,10 @@ public final class BlockStore {
 
         /**
          * A chunk's blocks changed; {@code top} is the highest block it had before or has now, {@code box} the
-         * blocks that changed ({@link ChunkBlocks#changedBox}), null for all of them.
+         * blocks that changed ({@link ChunkBlocks#changedBox}), null for all of them; {@code added} if it had no
+         * blocks before (tiles drawn before show a hole there).
          */
-        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box);
+        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box, boolean added);
     }
 
     public final int dimension;
@@ -385,7 +386,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax), box);
+        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax), box, oldTop < 0);
     }
 
     /**
@@ -424,7 +425,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, oldTop, null);
+        listener.chunkChanged(this, chunkX, chunkZ, oldTop, null, false);
         return true;
     }
 

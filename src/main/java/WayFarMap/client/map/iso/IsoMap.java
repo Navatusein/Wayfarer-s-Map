@@ -1101,14 +1101,15 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     @Override
-    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box) {
+    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box, boolean added) {
         long now = System.currentTimeMillis();
+        long fresh = added ? 1 : 0;
         if (box == null || box.length == 0) {
-            changes.add(new long[] { store.dimension, chunkX, chunkZ, top, now });
+            changes.add(new long[] { store.dimension, chunkX, chunkZ, top, now, fresh });
         } else {
             changes.add(
-                new long[] { store.dimension, chunkX, chunkZ, top, now, box[0], box[1], box[2], box[3], box[4],
-                    box[5] });
+                new long[] { store.dimension, chunkX, chunkZ, top, now, fresh, box[0], box[1], box[2], box[3],
+                    box[4], box[5] });
         }
     }
 
@@ -1117,14 +1118,20 @@ public final class IsoMap implements BlockStore.Listener {
         while ((change = changes.poll()) != null) {
             if (tiles != null) {
                 int[] box = null;
-                if (change.length > 5) {
+                if (change.length > 6) {
                     box = new int[6];
                     for (int i = 0; i < 6; i++) {
-                        box[i] = (int) change[5 + i];
+                        box[i] = (int) change[6 + i];
                     }
                 }
-                int marked = tiles
-                    .chunkChanged((int) change[0], (int) change[1], (int) change[2], (int) change[3], change[4], box);
+                int marked = tiles.chunkChanged(
+                    (int) change[0],
+                    (int) change[1],
+                    (int) change[2],
+                    (int) change[3],
+                    change[4],
+                    box,
+                    change[5] != 0);
                 IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size(), box);
             }
         }

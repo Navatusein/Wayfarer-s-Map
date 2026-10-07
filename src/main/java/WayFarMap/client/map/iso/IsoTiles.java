@@ -65,9 +65,24 @@ final class IsoTiles {
      * to two seconds and was drawn again for each, keeping the renderers from the tiles just zoomed to.
      */
     private static final long REFRESH_MS = 1000, REFRESH_MAX_MS = 16_000;
+    /**
+     * A tile with a hole (a chunk stored where it showed nothing: drawn while flying before the chunk got there) is
+     * drawn again at most this often, as soon as tiles with nothing to show: waiting like a tile only out of date, the
+     * hole stayed black for seconds (11 s on average at level 4 in a flight's log) while zooming queued hundreds of
+     * new tiles ahead of it.
+     */
+    private static final long HOLE_REFRESH_MS = 500;
+
+    /** Whether a tile shows a hole where a chunk was stored since it was drawn. */
+    private static boolean hasHole(Tile tile) {
+        return tile.ready && tile.holeSince != 0 && tile.holeSince > tile.renderedAt;
+    }
 
     /** Whether a tile showing an older picture may be drawn again now. */
     private static boolean refreshDue(Tile tile, long now) {
+        if (hasHole(tile)) {
+            return now - tile.renderedAt >= HOLE_REFRESH_MS;
+        }
         long interval = Math.min(REFRESH_MAX_MS, REFRESH_MS << Math.min(4, tile.key.level / 2));
         return now - tile.renderedAt >= interval;
     }
@@ -134,6 +149,12 @@ final class IsoTiles {
          * nothing to show (nanos, 0 once shown).
          */
         long changedSince, firstQueued;
+        /** The oldest chunk stored where it showed nothing since it was drawn (ms), 0 if none. */
+        volatile long holeSince;
+        /** The job that draws it ({@link Job#order}); older ones still queued are left out. */
+        volatile long job;
+        /** Its job was queued as only out of date (behind the tiles with nothing to show). */
+        boolean queuedLate;
 
         Tile(Key key) {
             this.key = key;
@@ -287,7 +308,10 @@ final class IsoTiles {
                 tile.wantedAt = now;
                 tile.wantedFrame = frame;
                 tile.lastDrawn = frame;
-                if ((!tile.ready || tile.stale() && refreshDue(tile, now)) && !tile.queued) {
+                boolean due = !tile.ready || tile.stale() && refreshDue(tile, now);
+                // Queued late as only out of date, and now with a hole: queued again ahead (the old job is left out).
+                boolean ahead = tile.queued && tile.queuedLate && hasHole(tile) && refreshDue(tile, now);
+                if (due && !tile.queued || ahead) {
                     double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
                     tile.queued = true;
                     if (!tile.ready && tile.firstQueued == 0) {
@@ -295,9 +319,13 @@ final class IsoTiles {
                     }
                     // Tiles with nothing to show yet before ones only out of date (those still show their old picture),
                     // the nearest to the middle first.
-                    double priority = du * du + dv * dv + (tile.ready ? STALE_AFTER_MISSING : 0);
-                    queue.add(new Job(tile, dimension, priority, order.incrementAndGet()));
-                    IsoLog.tileQueued(key, tile.ready, queue.size());
+                    // A tile with a hole as one with nothing to show.
+                    tile.queuedLate = tile.ready && !hasHole(tile);
+                    double priority = du * du + dv * dv + (tile.queuedLate ? STALE_AFTER_MISSING : 0);
+                    long id = order.incrementAndGet();
+                    tile.job = id;
+                    queue.add(new Job(tile, dimension, priority, id));
+                    IsoLog.tileQueued(key, !tile.ready ? "new" : tile.queuedLate ? "stale" : "hole", queue.size());
                 }
                 double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
                 double sy = y + height / 2.0 + ((double) tv * blocks - centerV) * scale;
@@ -449,6 +477,9 @@ final class IsoTiles {
                 }
             }
             tile.renderedAt = result.renderedAt;
+            if (tile.holeSince != 0 && result.renderedAt >= tile.holeSince) {
+                tile.holeSince = 0;
+            }
             tile.hits = result.hits;
             tile.solid = result.solid;
             tile.empty = result.pixels == null;
@@ -620,10 +651,11 @@ final class IsoTiles {
     /**
      * A chunk changed: the tiles in memory that show it are drawn again (render thread).
      *
-     * @param box the blocks that changed, in the chunk's coordinates ({@link ChunkBlocks#changedBox}); null for the
-     *            whole chunk
+     * @param box   the blocks that changed, in the chunk's coordinates ({@link ChunkBlocks#changedBox}); null for the
+     *              whole chunk
+     * @param added the chunk had no blocks before: tiles drawn before show a hole there
      */
-    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time, int[] box) {
+    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time, int[] box, boolean added) {
         int marked = 0;
         double x0 = chunkX * 16.0, z0 = chunkZ * 16.0;
         // Only the rays through the changed blocks: a few blocks of a chunk redrew every tile over its whole column.
@@ -654,6 +686,9 @@ final class IsoTiles {
                 tile.dirtyAt = Math.max(tile.dirtyAt, time);
                 if (tile.changedSince == 0) {
                     tile.changedSince = time;
+                }
+                if (added && tile.holeSince == 0) {
+                    tile.holeSince = time;
                 }
                 marked++;
             }
@@ -707,6 +742,10 @@ final class IsoTiles {
                 continue;
             }
             Tile tile = job.tile;
+            if (job.order != tile.job) {
+                // Queued again ahead since (a hole): that job draws it.
+                continue;
+            }
             // Off screen for a while and for a few frames (at a few frames a second the time alone would be).
             if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS && frame - tile.wantedFrame > 2) {
                 // Scrolled or zoomed away before its turn.
