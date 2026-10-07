@@ -119,6 +119,8 @@ public class Config {
     public static int unexploredPattern = UNEXPLORED_NONE;
     /** A soft shadow on the explored land along its edge, with a faint glow on the unexplored side. */
     public static boolean edgeShadow = false;
+    /** How long the 2D map and the minimap fade from one cave layer (or the surface) to the next, in ms. */
+    public static int layerFadeMs = 300;
     /** A fading line on the maps along the way the player came, this many blocks long. */
     public static boolean playerTrail = false;
     public static int playerTrailLength = 400;
@@ -502,6 +504,16 @@ public class Config {
             false,
             () -> edgeShadow,
             v -> edgeShadow = v);
+        integer(
+            c,
+            "layerFadeMs",
+            "Fade between cave layers and the surface on the 2D map and the minimap, in ms; 0 = at once.",
+            300,
+            0,
+            1000,
+            50,
+            () -> layerFadeMs,
+            v -> layerFadeMs = v);
         bool(
             c,
             "playerTrail",

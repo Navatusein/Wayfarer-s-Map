@@ -79,9 +79,91 @@ public final class MapDrawer {
         drawMap(dimension, centerX, centerZ, scale, x, y, width, height, false);
     }
 
-    /** @param minimap drawn by the minimap (kept apart in the flat map log) */
+    /** A switch from one map to another (a cave layer, the surface, the biomes) being faded over. */
+    private static final class Fade {
+
+        /** Map drawn last, and the one it fades in over (null when no fade is going on). */
+        MapDimension shown, previous;
+        /** When the fade started, when the switch was made, and when the map was last drawn. */
+        long start, switched, lastFrame;
+    }
+
+    private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
+
+    /** Longest wait for the new map's regions to be read from disk before it fades in anyway. */
+    private static final long FADE_WAIT_MS = 1000;
+
+    /**
+     * @param minimap drawn by the minimap (kept apart in the flat map log). A switch to another map of the same
+     *                dimension (a cave layer, the surface) fades over {@link Config#layerFadeMs}.
+     */
     public static void drawMap(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
         int width, int height, boolean minimap) {
+        Fade fade = minimap ? MINIMAP_FADE : WORLD_MAP_FADE;
+        long now = System.currentTimeMillis();
+        long duration = Config.layerFadeMs;
+        if (dimension != fade.shown) {
+            if (dimension == fade.previous && duration > 0) {
+                // Switched back in the middle of a fade: it turns around from where it was.
+                float done = Math.max(0f, Math.min(1f, (now - fade.start) / (float) duration));
+                fade.previous = fade.shown;
+                fade.start = now - (long) ((1f - done) * duration);
+                fade.switched = now - FADE_WAIT_MS;
+            } else {
+                // Only within the same dimension, and not when the map was just opened.
+                boolean fades = duration > 0 && fade.shown != null
+                    && now - fade.lastFrame < 500
+                    && fade.shown.dimensionId == dimension.dimensionId;
+                fade.previous = fades ? fade.shown : null;
+                fade.start = fade.switched = now;
+            }
+            fade.shown = dimension;
+        }
+        fade.lastFrame = now;
+        float progress = fade.previous == null || duration <= 0 ? 1f : (now - fade.start) / (float) duration;
+        if (progress >= 1f) {
+            fade.previous = null;
+            drawLayer(dimension, centerX, centerZ, scale, x, y, width, height, minimap, 1f, true);
+            return;
+        }
+        // The old map goes away in the second half, the new one comes in over it in the first half: where both are
+        // explored one turns into the other with no darker moment between them.
+        drawLayer(
+            fade.previous,
+            centerX,
+            centerZ,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            minimap,
+            Math.min(1f, 2f * (1f - progress)),
+            true);
+        int waiting = drawLayer(
+            dimension,
+            centerX,
+            centerZ,
+            scale,
+            x,
+            y,
+            width,
+            height,
+            minimap,
+            Math.min(1f, 2f * progress),
+            false);
+        if (waiting > 0 && now - fade.switched < FADE_WAIT_MS) {
+            // The new map is still being read: the old one stays until it is there.
+            fade.start = now;
+        }
+    }
+
+    /**
+     * Draws one map at the given opacity, with the unexplored land's pattern under it if asked. Returns how many of its
+     * regions in view aren't drawn yet (still being read, or waiting for their texture).
+     */
+    private static int drawLayer(MapDimension dimension, double centerX, double centerZ, double scale, int x, int y,
+        int width, int height, boolean minimap, float alpha, boolean pattern) {
         long frameStart = System.nanoTime();
         int drawnCount = 0, loadingCount = 0, missingCount = 0, textureLimited = 0;
         double left = centerX - width / 2.0 / scale;
@@ -94,7 +176,7 @@ public final class MapDrawer {
         int rx1 = floor(right) >> MapRegion.SHIFT;
         int rz1 = floor(bottom) >> MapRegion.SHIFT;
 
-        if (Config.unexploredPattern != Config.UNEXPLORED_NONE) {
+        if (pattern && Config.unexploredPattern != Config.UNEXPLORED_NONE) {
             // Under the map: it only shows where nothing was explored (the map is transparent there).
             drawUnexploredPattern(left, top, scale, x, y, width, height);
         }
@@ -108,7 +190,7 @@ public final class MapDrawer {
         boolean dimNether = isDimNether(dimension);
         float night = darkCave || dimNether ? 1f : nightAmount(Minecraft.getMinecraft());
         float[] tint = darkCave ? CAVE_TINT : dimNether ? NETHER_TINT : tint(night);
-        GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+        GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
 
         Tessellator tessellator = Tessellator.instance;
         boolean lod = useLod(scale);
@@ -183,26 +265,26 @@ public final class MapDrawer {
                 if (!lod && night > 0.01f && region.hasLight()) {
                     // At night, torches and lamps light up the map around them.
                     region.bindGlowTexture();
-                    GL11.glColor4f(1f, 1f, 1f, night);
+                    GL11.glColor4f(1f, 1f, 1f, night * alpha);
                     tessellator.startDrawingQuads();
                     tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
                     tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
                     tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                     tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                     tessellator.draw();
-                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                    GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
                 }
                 if (!lod && Config.edgeShadow) {
                     // Over the map: a soft shadow along the edge of the explored land.
                     region.bindShadowTexture(missingNeighbors(dimension, rx, rz));
-                    GL11.glColor4f(1f, 1f, 1f, 1f);
+                    GL11.glColor4f(1f, 1f, 1f, alpha);
                     tessellator.startDrawingQuads();
                     tessellator.addVertexWithUV(sx0, sy1, 0, u0, v1);
                     tessellator.addVertexWithUV(sx1, sy1, 0, u1, v1);
                     tessellator.addVertexWithUV(sx1, sy0, 0, u1, v0);
                     tessellator.addVertexWithUV(sx0, sy0, 0, u0, v0);
                     tessellator.draw();
-                    GL11.glColor4f(tint[0], tint[1], tint[2], 1f);
+                    GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
                 }
             }
         }
@@ -218,6 +300,7 @@ public final class MapDrawer {
                 textureLimited,
                 System.nanoTime() - frameStart);
         }
+        return loadingCount + textureLimited;
     }
 
     /** Which neighbors of the region don't exist (bits 1 west, 2 east, 4 north, 8 south), for its edge shadow. */
