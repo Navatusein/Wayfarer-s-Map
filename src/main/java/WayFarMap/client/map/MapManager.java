@@ -1,6 +1,7 @@
 package WayFarMap.client.map;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayDeque;
@@ -39,6 +40,7 @@ import net.minecraftforge.event.world.WorldEvent;
 import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.MapDrawer;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.map.export.MapExport;
 import WayFarMap.client.map.iso.IsoLog;
@@ -1057,6 +1059,7 @@ public class MapManager implements IResourceManagerReloadListener {
         currentWorld = world;
         int dimensionId = world.provider.dimensionId;
         worldDirectory = accountDirectory(mc, new File(new File(mc.mcDataDir, "wayfarmap"), getWorldFolder(mc)));
+        checkSameWorld(mc, worldDirectory);
         dimensionDirectory = new File(worldDirectory, "dim" + dimensionId);
         // Name and sky saved so the world map can show this dimension from elsewhere.
         writeInfo(dimensionDirectory, world.provider);
@@ -1094,6 +1097,8 @@ public class MapManager implements IResourceManagerReloadListener {
         // Saves the blocks of the 3D map and waits for it too.
         IsoMap.INSTANCE.close();
         FlatLog.close();
+        // The maps of this world must not be faded from into the next world's.
+        MapDrawer.forgetShownMaps();
         BiomeHighlight.clear();
         Topography.clear();
         viewed = null;
@@ -1161,6 +1166,49 @@ public class MapManager implements IResourceManagerReloadListener {
             }
         }
         return account;
+    }
+
+    private static final String WORLD_FILE = "world.txt";
+
+    /**
+     * A single player world deleted and made again under the same name gets the same save folder, so it would show
+     * the old world's map: the seed is saved with the map, and a map of another seed is put aside (not deleted).
+     */
+    private static void checkSameWorld(Minecraft mc, File directory) {
+        IntegratedServer server = mc.getIntegratedServer();
+        if (!mc.isSingleplayer() || server == null || server.worldServers == null
+            || server.worldServers.length == 0
+            || server.worldServers[0] == null) {
+            return;
+        }
+        String seed = String.valueOf(server.worldServers[0].getSeed());
+        File file = new File(directory, WORLD_FILE);
+        if (file.isFile()) {
+            String saved = null;
+            try {
+                saved = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).trim();
+            } catch (IOException e) {
+                WayFarMap.LOG.warn("Could not read {}", file, e);
+            }
+            if (saved != null && !saved.isEmpty() && !saved.equals(seed)) {
+                File aside = new File(
+                    directory.getParentFile(),
+                    directory.getName() + "-seed" + sanitize(saved) + "-" + System.currentTimeMillis());
+                if (!directory.renameTo(aside)) {
+                    WayFarMap.LOG.warn("The map in {} is of another world but could not be moved", directory);
+                    return;
+                }
+                WayFarMap.LOG.info("The map in {} is of another world (seed {}), moved to {}", directory, saved, aside);
+            } else if (seed.equals(saved)) {
+                return;
+            }
+        }
+        try {
+            directory.mkdirs();
+            Files.write(file.toPath(), seed.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            WayFarMap.LOG.warn("Could not save the world's seed to {}", file, e);
+        }
     }
 
     private static String sanitize(String name) {

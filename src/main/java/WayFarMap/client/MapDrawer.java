@@ -90,6 +90,12 @@ public final class MapDrawer {
 
     private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
 
+    /** Forgets the maps drawn last, so none of a world that was left is faded from (or drawn) again. */
+    public static void forgetShownMaps() {
+        MINIMAP_FADE.shown = MINIMAP_FADE.previous = null;
+        WORLD_MAP_FADE.shown = WORLD_MAP_FADE.previous = null;
+    }
+
     /** Longest wait for the new map's regions to be read from disk before it fades in anyway. */
     private static final long FADE_WAIT_MS = 1000;
 
