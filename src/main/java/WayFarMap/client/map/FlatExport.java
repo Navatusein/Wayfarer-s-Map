@@ -12,8 +12,8 @@ import java.util.regex.Pattern;
 import WayFarMap.client.map.export.TilePyramid;
 
 /**
- * The whole flat map (surface, a cave layer or biomes) as tiles for {@link TilePyramid}: each block as a square of
- * {@code scale} pixels, so the saved picture is as big as wanted.
+ * The whole flat map (surface, the surface without plants, its topography, a cave layer or biomes) as tiles for
+ * {@link TilePyramid}: each block as a square of {@code scale} pixels, so the saved picture is as big as wanted.
  */
 public final class FlatExport implements TilePyramid.Source {
 
@@ -26,6 +26,10 @@ public final class FlatExport implements TilePyramid.Source {
     /** Read where {@link #directory} has no file of a region (the surface, for the map without plants), or null. */
     private final File fallbackDirectory;
     private final int scale;
+    /** The regions drawn as the topography (bands of height and contour lines) instead of their own colors. */
+    private final boolean topography;
+    /** The Nether's colors for the topography. */
+    private final boolean nether;
     private final Map<Long, int[]> regions = new LinkedHashMap<Long, int[]>(16, 0.75f, true) {
 
         private static final long serialVersionUID = 1L;
@@ -42,9 +46,24 @@ public final class FlatExport implements TilePyramid.Source {
      * @param scale pixels per block: 1, 2, 4, 8 or 16
      */
     public FlatExport(MapDimension map, int scale) {
+        this(map, scale, false);
+    }
+
+    private FlatExport(MapDimension map, int scale, boolean topography) {
         this.directory = map.getDirectory();
         this.fallbackDirectory = map.getFallbackDirectory();
         this.scale = Math.max(1, Math.min(16, Integer.highestOneBit(Math.max(1, scale))));
+        this.topography = topography;
+        this.nether = map.dimensionId == -1;
+    }
+
+    /**
+     * The topography of the surface, as {@link Topography} draws it over the map: from the ground the map without
+     * plants keeps (or the surface itself if it has no such map).
+     */
+    public static FlatExport topography(MapDimension surface, int scale) {
+        MapDimension ground = surface.plantless() != null ? surface.plantless() : surface;
+        return new FlatExport(ground, scale, true);
     }
 
     public int scale() {
@@ -135,8 +154,8 @@ public final class FlatExport implements TilePyramid.Source {
         if (fallbackDirectory != null && !file.isFile()) {
             file = MapRegion.getFile(fallbackDirectory, rx, rz);
         }
-        int[] pixels = MapRegion.read(file, rx, rz)
-            .pixelArray();
+        MapRegion read = MapRegion.read(file, rx, rz);
+        int[] pixels = topography ? Topography.picture(read, nether) : read.pixelArray();
         synchronized (regions) {
             regions.put(key, pixels);
         }

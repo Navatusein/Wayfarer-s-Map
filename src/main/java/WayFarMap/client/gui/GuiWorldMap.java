@@ -655,10 +655,12 @@ public class GuiWorldMap extends ScaledScreen {
         int caveLayer = MapManager.INSTANCE.getViewCaveLayer();
         if (biomeViewShown()) {
             what = "biomes";
+        } else if (Topography.isShown()) {
+            what = "topo";
         } else if (caveLayer >= 0) {
             what = "caves_" + caveLayer * 16 + "-" + (caveLayer * 16 + 15);
         } else {
-            what = "2d";
+            what = Config.showPlants ? "2d" : "bare";
         }
         File world = MapManager.INSTANCE.getWorldDirectory();
         String name = (world == null ? "map" : world.getName()) + "_" + MapManager.INSTANCE.getViewedDimensionName();

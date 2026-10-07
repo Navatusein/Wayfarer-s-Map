@@ -223,23 +223,51 @@ public final class Topography {
     /** Kinds of pixel. */
     private static final int UNKNOWN = 0, LAND_PIXEL = 1, WATER_PIXEL = 2, LAVA_PIXEL = 3;
 
-    private static int[] kinds, heights, smooth;
+    /** Work arrays of one build: the render thread keeps its own, a picture being saved makes new ones. */
+    private static final class Scratch {
+
+        final int[] kinds = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] heights = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] smooth = new int[MapRegion.SIZE * MapRegion.SIZE];
+        final int[] pixels = new int[MapRegion.SIZE * MapRegion.SIZE];
+    }
+
+    private static Scratch renderScratch;
+
+    /** Fills {@link #buffer} with the topography of the region (render thread). */
+    private static void build(PixelSource region, boolean nether) {
+        if (buffer == null) {
+            buffer = BufferUtils.createIntBuffer(MapRegion.SIZE * MapRegion.SIZE);
+            renderScratch = new Scratch();
+        }
+        build(region, nether, renderScratch);
+        buffer.clear();
+        buffer.put(renderScratch.pixels, 0, region.size() * region.size());
+        buffer.flip();
+    }
 
     /**
-     * Fills {@link #buffer} with the topography of the region; transparent where the ground is unknown.
+     * The topography of a whole region as ARGB pixels, transparent where the ground is unknown: for a picture of the
+     * map, on any thread.
      *
      * @param nether the bands start at the Nether's lava sea, in its colors
      */
-    private static void build(PixelSource region, boolean nether) {
+    public static int[] picture(MapRegion region, boolean nether) {
+        Scratch scratch = new Scratch();
+        build(region, nether, scratch);
+        return scratch.pixels;
+    }
+
+    /**
+     * Fills the scratch's pixels with the topography of the region; transparent where the ground is unknown.
+     *
+     * @param nether the bands start at the Nether's lava sea, in its colors
+     */
+    private static void build(PixelSource region, boolean nether, Scratch scratch) {
         int size = region.size();
         int interval = Math.max(1, Config.topoContourInterval);
         int sea = nether ? NETHER_SEA_LEVEL : SEA_LEVEL;
-        if (buffer == null) {
-            buffer = BufferUtils.createIntBuffer(MapRegion.SIZE * MapRegion.SIZE);
-            kinds = new int[MapRegion.SIZE * MapRegion.SIZE];
-            heights = new int[MapRegion.SIZE * MapRegion.SIZE];
-            smooth = new int[MapRegion.SIZE * MapRegion.SIZE];
-        }
+        int[] kinds = scratch.kinds, heights = scratch.heights, smooth = scratch.smooth, out = scratch.pixels;
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
                 int i = z * size + x;
@@ -286,19 +314,18 @@ public final class Topography {
                 smooth[i] = Math.round((float) sum / count);
             }
         }
-        buffer.clear();
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
                 int i = z * size + x;
                 int kind = kinds[i] & 3;
                 int rgb;
                 if (kind == UNKNOWN) {
-                    buffer.put(0);
+                    out[i] = 0;
                     continue;
                 } else if (kind == WATER_PIXEL) {
-                    rgb = waterColor(x, z, size, sea, (kinds[i] & MapRegion.TOPO_KNOWN) != 0);
+                    rgb = waterColor(scratch, x, z, size, sea, (kinds[i] & MapRegion.TOPO_KNOWN) != 0);
                 } else if (kind == LAVA_PIXEL) {
-                    rgb = touches(x, z, size, LAND_PIXEL, 1) ? LAVA_SHORE : LAVA;
+                    rgb = touches(kinds, x, z, size, LAND_PIXEL, 1) ? LAVA_SHORE : LAVA;
                 } else {
                     int band = band(smooth[i], sea, interval);
                     rgb = landColor(band, interval, sea, nether);
@@ -325,10 +352,9 @@ public final class Topography {
                         }
                     }
                 }
-                buffer.put(0xFF000000 | rgb);
+                out[i] = 0xFF000000 | rgb;
             }
         }
-        buffer.flip();
     }
 
     private static final int[][] NEIGHBOURS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
@@ -337,20 +363,20 @@ public final class Topography {
      * Water by its depth below the sea: lighter in the shallows, with a dark line along the shore. Maps scanned
      * before the depth was kept: lighter along the shore.
      */
-    private static int waterColor(int x, int z, int size, int sea, boolean known) {
-        if (touches(x, z, size, LAND_PIXEL, 1)) {
+    private static int waterColor(Scratch scratch, int x, int z, int size, int sea, boolean known) {
+        if (touches(scratch.kinds, x, z, size, LAND_PIXEL, 1)) {
             return SHORE_LINE;
         }
         if (!known) {
-            return touches(x, z, size, LAND_PIXEL, SHORE) ? OLD_SHALLOW : OLD_DEEP;
+            return touches(scratch.kinds, x, z, size, LAND_PIXEL, SHORE) ? OLD_SHALLOW : OLD_DEEP;
         }
         // The water keeps the height of its floor.
-        int depth = Math.max(0, sea - heights[z * size + x]);
+        int depth = Math.max(0, sea - scratch.heights[z * size + x]);
         return WATER[Math.min(WATER.length - 1, depth / WATER_STEP)];
     }
 
     /** A pixel of the kind within {@code reach} pixels. */
-    private static boolean touches(int x, int z, int size, int kind, int reach) {
+    private static boolean touches(int[] kinds, int x, int z, int size, int kind, int reach) {
         for (int dz = -reach; dz <= reach; dz++) {
             for (int dx = -reach; dx <= reach; dx++) {
                 int nx = x + dx, nz = z + dz;

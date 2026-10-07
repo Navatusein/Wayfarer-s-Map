@@ -489,6 +489,11 @@ public class MapManager implements IResourceManagerReloadListener {
         return surfaceView;
     }
 
+    /** Surface map of the dimension shown on the world map (with its map without plants), or null outside a world. */
+    public MapDimension getViewSurfaceMap() {
+        return viewed != null ? viewed.surface : surface;
+    }
+
     /** Biome map of the dimension shown on the world map. */
     public MapDimension getViewBiomeMap() {
         return viewed != null ? viewed.biomes : biomes;

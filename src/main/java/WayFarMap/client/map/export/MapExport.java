@@ -3,8 +3,12 @@ package WayFarMap.client.map.export;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 
 import net.minecraft.client.Minecraft;
@@ -19,30 +23,64 @@ import WayFarMap.client.map.MapManager;
 
 /**
  * Saves the whole map, flat or 3D, under {@code screenshots/wayfarmap/}: as one picture, or as a folder that a browser
- * shows zoomable down to single blocks ({@link TilePyramid}). One export at a time, in the background; the chat says
- * when it is done with a link to open it.
+ * shows zoomable down to single blocks ({@link TilePyramid}). One export at a time, in the background (it may be
+ * several pictures, made one after the other); the chat says when each is done with a link to open it.
  */
 public final class MapExport {
+
+    /** One picture to make: what is drawn, the page's details and what it is called (before the date). */
+    public static final class Request {
+
+        final TilePyramid.Source source;
+        final TilePyramid.Info info;
+        final String name;
+        /** Shown while it is being made, e.g. "Topography". */
+        final String label;
+
+        public Request(TilePyramid.Source source, TilePyramid.Info info, String name, String label) {
+            this.source = source;
+            this.info = info;
+            this.name = name;
+            this.label = label;
+        }
+    }
 
     private static final class Job {
 
         /** The picture, or the folder of the page. */
         final File folder;
         final boolean site;
+        final String label;
         volatile long done, total;
-        volatile boolean cancelled;
         /** Set when finished: the message for the chat. */
         volatile String result;
         volatile boolean failed;
-        volatile boolean waitingForSave = true;
 
-        Job(File folder, boolean site) {
+        Job(File folder, boolean site, String label) {
             this.folder = folder;
             this.site = site;
+            this.label = label;
         }
     }
 
-    private static volatile Job job;
+    /** The pictures asked for at once, made one after the other. */
+    private static final class Batch {
+
+        final int size;
+        volatile int index;
+        volatile Job job;
+        volatile boolean cancelled;
+        volatile boolean waitingForSave = true;
+        volatile boolean over;
+
+        Batch(int size) {
+            this.size = size;
+        }
+    }
+
+    private static volatile Batch batch;
+    /** Pictures that ended, for the chat. */
+    private static final Queue<Job> ENDED = new ConcurrentLinkedQueue<>();
     /** Exports finished so far, so a screen showing the pictures knows when to look again. */
     private static volatile int finished;
 
@@ -50,30 +88,59 @@ public final class MapExport {
 
     /** Whether an export is running. */
     public static boolean running() {
-        Job current = job;
-        return current != null && current.result == null;
+        Batch current = batch;
+        return current != null && !current.over;
     }
 
     /** Progress of the running export for the map screen, or null if none is running. */
     public static String statusText() {
-        Job current = job;
-        if (current == null || current.result != null) {
+        Batch current = batch;
+        if (current == null || current.over) {
             return null;
         }
-        if (current.waitingForSave || current.total <= 0) {
+        Job job = current.job;
+        if (current.waitingForSave || job == null || job.total <= 0) {
             return I18n.format("wayfarmap.export.preparing");
         }
-        long percent = Math.min(99, current.done * 100 / Math.max(1, current.total));
+        long percent = Math.min(99, job.done * 100 / Math.max(1, job.total));
+        if (current.size > 1) {
+            return I18n.format("wayfarmap.export.progress_of", current.index + 1, current.size, percent);
+        }
         return I18n.format("wayfarmap.export.progress", percent);
     }
 
-    /** How far the running export is, 0 to 1; -1 while it prepares or when none runs. */
+    /** How far the running export is, all its pictures together, 0 to 1; -1 while it prepares or none runs. */
     public static double progress() {
-        Job current = job;
-        if (current == null || current.result != null || current.waitingForSave || current.total <= 0) {
+        Batch current = batch;
+        if (current == null || current.over || current.waitingForSave) {
             return -1;
         }
-        return Math.min(0.99, current.done / (double) current.total);
+        Job job = current.job;
+        double part = job == null || job.total <= 0 ? 0 : Math.min(0.99, job.done / (double) job.total);
+        return Math.min(0.99, (current.index + part) / current.size);
+    }
+
+    /** How far the picture being made now is, 0 to 1; -1 while it prepares or none runs. */
+    public static double pictureProgress() {
+        Batch current = batch;
+        Job job = current == null || current.over ? null : current.job;
+        if (job == null || current.waitingForSave || job.total <= 0) {
+            return -1;
+        }
+        return Math.min(0.99, job.done / (double) job.total);
+    }
+
+    /** Which picture of the running export is being made (from 0) and of how many; null if none runs. */
+    public static int[] position() {
+        Batch current = batch;
+        return current == null || current.over ? null : new int[] { current.index, current.size };
+    }
+
+    /** What the picture being made now shows, or null. */
+    public static String currentLabel() {
+        Batch current = batch;
+        Job job = current == null || current.over ? null : current.job;
+        return job == null ? null : job.label;
     }
 
     /** How many exports have finished (well or not) since the game started. */
@@ -86,9 +153,9 @@ public final class MapExport {
         return new File(new File(Minecraft.getMinecraft().mcDataDir, "screenshots"), "wayfarmap");
     }
 
-    /** Stops the running export; what was written so far stays. */
+    /** Stops the running export, and the pictures still waiting; what was written so far stays. */
     public static void cancel() {
-        Job current = job;
+        Batch current = batch;
         if (current != null) {
             current.cancelled = true;
         }
@@ -97,30 +164,61 @@ public final class MapExport {
     /**
      * Starts exporting (render thread). The map is saved first, so the files have everything.
      *
-     * @param name what the picture or the folder is called, before the date
      * @param site the page that zooms in a browser (a folder); false for one picture
      */
     public static void start(TilePyramid.Source source, TilePyramid.Info info, String name, boolean site) {
-        if (running()) {
+        start(Collections.singletonList(new Request(source, info, name, null)), site);
+    }
+
+    /**
+     * Starts exporting the pictures one after the other (render thread), all with the same date in their names. The
+     * map is saved first, so the files have everything.
+     *
+     * @param site pages that zoom in a browser (folders); false for single pictures
+     */
+    public static void start(List<Request> requests, boolean site) {
+        if (running() || requests.isEmpty()) {
             return;
         }
         String date = new SimpleDateFormat("yyyy-MM-dd_HH.mm.ss").format(new Date());
-        File folder = new File(folder(), safe(name) + "_" + date + (site ? "" : ".png"));
-        Job current = new Job(folder, site);
-        job = current;
+        Batch current = new Batch(requests.size());
+        batch = current;
         List<Future<?>> saving = MapManager.INSTANCE.saveAll();
-        Thread thread = new Thread(() -> run(current, source, info, saving), "WayFarMap export");
+        List<Request> copy = new ArrayList<>(requests);
+        Thread thread = new Thread(() -> run(current, copy, date, site, saving), "WayFarMap export");
         thread.setDaemon(true);
         thread.setPriority(Thread.MIN_PRIORITY + 1);
         thread.start();
     }
 
-    private static void run(Job current, TilePyramid.Source source, TilePyramid.Info info, List<Future<?>> saving) {
+    private static void run(Batch current, List<Request> requests, String date, boolean site,
+        List<Future<?>> saving) {
         try {
             for (Future<?> future : saving) {
                 future.get();
             }
-            current.waitingForSave = false;
+        } catch (Throwable t) {
+            WayFarMap.LOG.warn("Could not save the map before exporting it", t);
+        }
+        current.waitingForSave = false;
+        try {
+            for (int i = 0; i < requests.size() && !current.cancelled; i++) {
+                Request request = requests.get(i);
+                File folder = new File(folder(), safe(request.name) + "_" + date + (site ? "" : ".png"));
+                Job job = new Job(folder, site, request.label);
+                current.index = i;
+                current.job = job;
+                write(current, job, request);
+                ENDED.add(job);
+                finished++;
+            }
+        } finally {
+            current.over = true;
+        }
+    }
+
+    private static void write(Batch current, Job job, Request request) {
+        try {
             TilePyramid.Progress progress = new TilePyramid.Progress() {
 
                 @Override
@@ -130,41 +228,45 @@ public final class MapExport {
 
                 @Override
                 public void progress(long done, long total) {
-                    current.total = total;
-                    current.done = done;
+                    job.total = total;
+                    job.done = done;
                 }
             };
             int tiles;
-            if (current.site) {
-                tiles = TilePyramid.write(source, info, current.folder, progress);
+            if (job.site) {
+                tiles = TilePyramid.write(request.source, request.info, job.folder, progress);
             } else {
-                File parent = current.folder.getParentFile();
+                File parent = job.folder.getParentFile();
                 if (!parent.isDirectory() && !parent.mkdirs()) {
                     throw new IOException("Could not create " + parent);
                 }
-                tiles = TilePyramid.writePicture(source, current.folder, progress);
+                tiles = TilePyramid.writePicture(request.source, job.folder, progress);
             }
-            WayFarMap.LOG.info("Exported the map ({} tiles) to {}", tiles, current.folder);
-            current.result = "done";
+            WayFarMap.LOG.info("Exported the map ({} tiles) to {}", tiles, job.folder);
+            job.result = "done";
         } catch (TilePyramid.CancelledException e) {
-            current.failed = true;
-            current.result = "cancelled";
+            job.failed = true;
+            job.result = "cancelled";
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Could not export the map", t);
-            current.failed = true;
-            current.result = t.getMessage() == null ? t.toString() : t.getMessage();
-        } finally {
-            finished++;
+            job.failed = true;
+            job.result = t.getMessage() == null ? t.toString() : t.getMessage();
         }
     }
 
     /** Tells in the chat when an export ended (render thread, every tick). */
     public static void tick() {
-        Job current = job;
-        if (current == null || current.result == null) {
-            return;
+        Batch running = batch;
+        if (running != null && running.over && ENDED.isEmpty()) {
+            batch = null;
         }
-        job = null;
+        Job current;
+        while ((current = ENDED.poll()) != null) {
+            report(current);
+        }
+    }
+
+    private static void report(Job current) {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null) {
             return;
