@@ -1100,7 +1100,7 @@ public class GuiWorldMap extends ScaledScreen {
         float partialTicks) {
         MapDrawer.drawMap(dimension, centerX, centerZ, scale, 0, 0, width, height);
         if (chunkloadShown()) {
-            // Only the map and its chunks (and the grid, if asked for): no layers or mobs.
+            // Only the map and its chunks (and the grid when it is on, as on the other 2D maps): no layers or mobs.
             updatePick(mouseX, mouseY);
             ChunkLoadView.draw(
                 MapManager.INSTANCE.getViewMap(),
@@ -1118,7 +1118,7 @@ public class GuiWorldMap extends ScaledScreen {
                 pickMode == PICK_GENERATE_CAVES,
                 pickMode == PICK_SAVED,
                 pickMode == PICK_CANCEL);
-            if (Config.chunkloadGrid) {
+            if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(centerX, centerZ, scale, 0, 0, width, height);
             }
             return;

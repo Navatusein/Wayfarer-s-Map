@@ -120,8 +120,6 @@ public class Config {
      */
     public static final int GRID_CHUNKS = 0, GRID_ORE_VEINS = 1;
     public static int gridType = GRID_CHUNKS;
-    /** The grid in the area loading view of the world map, on its own (whether or not {@link #chunkGrid} is on). */
-    public static boolean chunkloadGrid = false;
     /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
     public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
     public static int unexploredPattern = UNEXPLORED_NONE;
@@ -529,13 +527,6 @@ public class Config {
             () -> gridOreOpacity,
             v -> gridOreOpacity = v);
         parent(null);
-        bool(
-            c,
-            "chunkloadGrid",
-            "Draw the grid (its type, colors and thickness as above) in the area loading view of the world map.",
-            false,
-            () -> chunkloadGrid,
-            v -> chunkloadGrid = v);
         choice(
             c,
             "unexploredPattern",
