@@ -560,6 +560,8 @@ final class FaceRenderer {
         long kindKey, blockKey;
         /** It stays inside its cell on all four sides here (see {@link #detached}). */
         boolean detached;
+        /** For the log: it can't be seen from any view side of the map ({@link MapVisibility}). */
+        boolean hiddenFromMap;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -750,6 +752,12 @@ final class FaceRenderer {
     static int progressDone, progressTotal;
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
+    /**
+     * For the log ({@link MapVisibility}): blocks needing pictures looked at, those hidden from every view side, of
+     * those to draw the hidden ones, and the time looking.
+     */
+    static int visibilityChecked, hiddenFound, hiddenToDraw;
+    static long visibilityNanos;
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
     /** Time remembering the pictures taken for their kinds ({@link #learn}). */
     static long learnNanos;
@@ -768,6 +776,8 @@ final class FaceRenderer {
         progressDone = progressTotal = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
+        visibilityChecked = hiddenFound = hiddenToDraw = 0;
+        visibilityNanos = 0;
         exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = learnNanos = 0;
     }
 
@@ -1106,6 +1116,8 @@ final class FaceRenderer {
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
+        // For the log: whether the blocks needing pictures can be seen on the map at all.
+        MapVisibility visibility = IsoLog.on() ? new MapVisibility(world, chunk) : null;
         // For the log: per kind that may need pictures, blocks hidden, only open at the bottom, drawn from icons,
         // given pictures.
         Map<Integer, int[]> decisions = IsoLog.on() ? new HashMap<>() : null;
@@ -1215,6 +1227,15 @@ final class FaceRenderer {
                 pending.wide = reachesFar(world, block, tileEntity, x, y, z);
                 pending.overBig = drawnOverByBig(world, pending);
             }
+            if (visibility != null && !pending.wide && !pending.overBig) {
+                long v0 = System.nanoTime();
+                pending.hiddenFromMap = visibility.hidden(x, y, z);
+                visibilityNanos += System.nanoTime() - v0;
+                visibilityChecked++;
+                if (pending.hiddenFromMap) {
+                    hiddenFound++;
+                }
+            }
             found.add(pending);
             if (pending.byPlace()) {
                 tileEntities++;
@@ -1274,6 +1295,15 @@ final class FaceRenderer {
                 waiting.put(surroundings, new ArrayList<>());
             }
             toDraw.add(pending);
+            if (pending.hiddenFromMap) {
+                hiddenToDraw++;
+            }
+            if (visibility != null) {
+                IsoLog.visibility(key, pending.hiddenFromMap);
+            }
+        }
+        if (visibility != null) {
+            IsoLog.visibilityTotals(visibilityChecked, hiddenFound, toDraw.size(), hiddenToDraw, visibilityNanos);
         }
         if (decisions != null && !decisions.isEmpty()) {
             StringBuilder b = new StringBuilder("FIND ").append(chunk.xPosition)
