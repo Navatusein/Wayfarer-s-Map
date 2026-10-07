@@ -20,7 +20,6 @@ import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.Render;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.entity.RendererLivingEntity;
-import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
@@ -32,7 +31,6 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import WayFarMap.WayFarMap;
-import WayFarMap.client.waypoint.Symbols;
 
 /**
  * Mob icons drawn by the game itself: each kind of mob is drawn once by its own renderer into an off-screen buffer,
@@ -44,8 +42,11 @@ import WayFarMap.client.waypoint.Symbols;
 public final class MobIcons {
 
     /** Pixels per side of the buffer and of the icons. */
-    private static final int SIZE = 128, ICON = 64;
+    private static final int SIZE = 128, ICON = SIZE;
+    /** Smaller copies down to 8 pixels, for the small icons of the minimap. */
     private static final int MIPMAP_LEVELS = 4;
+    /** How many pixels far the colors at the edge are spread into the see-through ones around (see {@link #bleed}). */
+    private static final int BLEED = 8;
     /** New icons per frame at most: a few renders each. */
     private static final int NEW_PER_FRAME = 1;
     private static final long FRAME_NANOS = 8_000_000L;
@@ -55,20 +56,20 @@ public final class MobIcons {
     private static final int CANDIDATES = 4;
     /** A head must take at least this share of the mob's picture (else it is some hidden part, or a speck). */
     private static final float MIN_HEAD_SHARE = 0.03f;
-    private static final int MAX_ICONS = 512;
+    private static final int MAX_ICONS = 256;
     /** GL_FRAMEBUFFER_BINDING (same value for the EXT and core versions). */
     private static final int FRAMEBUFFER_BINDING = 0x8CA6;
 
-    private static final Map<String, DynamicTexture> ICONS = new LinkedHashMap<String, DynamicTexture>(
+    /** Textures of the icons by {@link #key}. */
+    private static final Map<String, Integer> ICONS = new LinkedHashMap<String, Integer>(
         64,
         0.75f,
         true) {
 
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, DynamicTexture> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
             if (size() > MAX_ICONS) {
-                eldest.getValue()
-                    .deleteGlTexture();
+                GL11.glDeleteTextures(eldest.getValue());
                 return true;
             }
             return false;
@@ -95,7 +96,7 @@ public final class MobIcons {
      * @return false if it has none (yet), so the caller can draw something else
      */
     public static boolean draw(EntityLivingBase entity, double sx, double sy, float size, float alpha) {
-        DynamicTexture icon = icon(entity);
+        Integer icon = icon(entity);
         if (icon == null) {
             return false;
         }
@@ -103,7 +104,7 @@ public final class MobIcons {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, icon.getGlTextureId());
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, icon);
         GL11.glColor4f(1f, 1f, 1f, alpha);
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glTexCoord2d(0, 1);
@@ -119,7 +120,7 @@ public final class MobIcons {
         return true;
     }
 
-    private static DynamicTexture icon(EntityLivingBase entity) {
+    private static Integer icon(EntityLivingBase entity) {
         if (entity == null || failures >= 5 || !OpenGlHelper.isFramebufferEnabled() || !initReflection()) {
             return null;
         }
@@ -127,8 +128,8 @@ public final class MobIcons {
         if (world != iconWorld) {
             // Made again in each world: a resource pack or a mod's skins may have changed.
             iconWorld = world;
-            for (DynamicTexture old : ICONS.values()) {
-                old.deleteGlTexture();
+            for (int old : ICONS.values()) {
+                GL11.glDeleteTextures(old);
             }
             ICONS.clear();
             FAILED.clear();
@@ -141,7 +142,7 @@ public final class MobIcons {
         if (key == null) {
             return null;
         }
-        DynamicTexture icon = ICONS.get(key);
+        Integer icon = ICONS.get(key);
         if (icon != null) {
             return icon;
         }
@@ -164,17 +165,7 @@ public final class MobIcons {
             FAILED.put(key, now);
             return null;
         }
-        icon = new DynamicTexture(ICON, ICON);
-        System.arraycopy(pixels, 0, icon.getTextureData(), 0, pixels.length);
-        icon.updateDynamicTexture();
-        // Smaller copies for the small icons of the minimap (without them they flicker); up close sharp pixels.
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, icon.getGlTextureId());
-        boolean mipmaps = Symbols.generateMipmaps(MIPMAP_LEVELS);
-        GL11.glTexParameteri(
-            GL11.GL_TEXTURE_2D,
-            GL11.GL_TEXTURE_MIN_FILTER,
-            mipmaps ? GL11.GL_LINEAR_MIPMAP_LINEAR : GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        icon = upload(pixels);
         ICONS.put(key, icon);
         return icon;
     }
@@ -200,7 +191,7 @@ public final class MobIcons {
         return key.toString();
     }
 
-    /** The icon's pixels (ICON x ICON, top row first), or null if the mob couldn't be drawn. */
+    /** The icon's pixels (ICON x ICON, top row first, see-through around), or null if the mob couldn't be drawn. */
     private static int[] make(EntityLivingBase entity, RendererLivingEntity render) {
         Pose pose = new Pose(entity);
         try {
@@ -251,12 +242,12 @@ public final class MobIcons {
                 if (near == null || nearHeadless == null) {
                     continue;
                 }
-                return scaled(near, nearHeadless);
+                return masked(near, nearHeadless);
             }
             // No head: the mob whole, framed on what was drawn.
             float[] frame = frame(box, 0f, centerY, half);
             int[] near = shot(entity, frame[0], frame[1], frame[2], null, null);
-            return near == null ? null : scaled(near, null);
+            return near == null ? null : masked(near, null);
         } catch (Throwable t) {
             if (++failures >= 5) {
                 WayFarMap.LOG.warn("Mob icons can't be drawn off-screen; their faces are cut out of the skins", t);
@@ -386,38 +377,143 @@ public final class MobIcons {
         return n;
     }
 
-    /**
-     * The picture brought down to the icon's size (each icon pixel the average of 2x2), only where it differs from
-     * {@code without} if given (the head alone).
-     */
-    private static int[] scaled(int[] pixels, int[] without) {
-        int[] icon = new int[ICON * ICON];
-        int step = SIZE / ICON;
-        for (int y = 0; y < ICON; y++) {
-            for (int x = 0; x < ICON; x++) {
-                long a = 0, r = 0, g = 0, b = 0;
-                for (int dy = 0; dy < step; dy++) {
-                    for (int dx = 0; dx < step; dx++) {
-                        int i = (y * step + dy) * SIZE + x * step + dx;
-                        int c = pixels[i];
-                        if (without != null && c == without[i]) {
-                            continue;
-                        }
-                        int alpha = c >>> 24;
-                        a += alpha;
-                        r += (c >> 16 & 0xFF) * alpha;
-                        g += (c >> 8 & 0xFF) * alpha;
-                        b += (c & 0xFF) * alpha;
-                    }
-                }
-                if (a > 0) {
-                    icon[y * ICON + x] = (int) (a / (step * step)) << 24 | (int) (r / a) << 16
-                        | (int) (g / a) << 8
-                        | (int) (b / a);
+    /** The picture, only where it differs from {@code without} if given (the head alone). */
+    private static int[] masked(int[] pixels, int[] without) {
+        int[] icon = pixels.clone();
+        if (without != null) {
+            for (int i = 0; i < icon.length; i++) {
+                if (icon[i] == without[i]) {
+                    icon[i] = 0;
                 }
             }
         }
         return icon;
+    }
+
+    /**
+     * Puts the icon in a texture of its own with its smaller copies, made here rather than by the graphics card: it
+     * mixed the see-through black around the head into its edges, and small icons came out dark and speckled.
+     */
+    private static int upload(int[] pixels) {
+        bleed(pixels, ICON);
+        int texture = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+        int levels = 0;
+        int[] level = pixels;
+        for (int side = ICON; ; side /= 2, levels++) {
+            IntBuffer buffer = BufferUtils.createIntBuffer(side * side);
+            buffer.put(level)
+                .flip();
+            GL11.glTexImage2D(
+                GL11.GL_TEXTURE_2D,
+                levels,
+                GL11.GL_RGBA,
+                side,
+                side,
+                0,
+                GL12.GL_BGRA,
+                GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
+                buffer);
+            if (levels == MIPMAP_LEVELS || side == 1) {
+                break;
+            }
+            level = half(level, side);
+        }
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_MAX_LEVEL, levels);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        return texture;
+    }
+
+    /** A copy half as large, each pixel the average of four weighted by how much they cover. */
+    private static int[] half(int[] pixels, int side) {
+        int small = side / 2;
+        int[] result = new int[small * small];
+        for (int y = 0; y < small; y++) {
+            for (int x = 0; x < small; x++) {
+                int i = y * 2 * side + x * 2;
+                result[y * small + x] = average(pixels[i], pixels[i + 1], pixels[i + side], pixels[i + side + 1]);
+            }
+        }
+        // Their see-through pixels take the colors next to them too.
+        bleed(result, small);
+        return result;
+    }
+
+    private static int average(int... colors) {
+        long a = 0, r = 0, g = 0, b = 0;
+        long cr = 0, cg = 0, cb = 0;
+        for (int c : colors) {
+            int alpha = c >>> 24;
+            a += alpha;
+            r += (c >> 16 & 0xFF) * alpha;
+            g += (c >> 8 & 0xFF) * alpha;
+            b += (c & 0xFF) * alpha;
+            cr += c >> 16 & 0xFF;
+            cg += c >> 8 & 0xFF;
+            cb += c & 0xFF;
+        }
+        int n = colors.length;
+        if (a == 0) {
+            // All see-through: keep their (spread) color, for the copies smaller still.
+            return (int) (cr / n) << 16 | (int) (cg / n) << 8 | (int) (cb / n);
+        }
+        return (int) (a / n) << 24 | (int) (r / a) << 16 | (int) (g / a) << 8 | (int) (b / a);
+    }
+
+    /**
+     * Gives the see-through pixels near the picture the color of the drawn ones next to them (still see-through):
+     * blending at the edges then mixes in that color, not black.
+     */
+    private static void bleed(int[] pixels, int side) {
+        boolean[] colored = new boolean[pixels.length];
+        for (int i = 0; i < pixels.length; i++) {
+            colored[i] = pixels[i] >>> 24 != 0;
+        }
+        int[] next = new int[pixels.length];
+        for (int pass = 0; pass < BLEED; pass++) {
+            boolean changed = false;
+            boolean[] nowColored = colored.clone();
+            for (int y = 0; y < side; y++) {
+                for (int x = 0; x < side; x++) {
+                    int i = y * side + x;
+                    if (colored[i]) {
+                        continue;
+                    }
+                    long r = 0, g = 0, b = 0;
+                    int n = 0;
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= side || ny >= side || !colored[ny * side + nx]) {
+                                continue;
+                            }
+                            int c = pixels[ny * side + nx];
+                            r += c >> 16 & 0xFF;
+                            g += c >> 8 & 0xFF;
+                            b += c & 0xFF;
+                            n++;
+                        }
+                    }
+                    if (n > 0) {
+                        next[i] = (int) (r / n) << 16 | (int) (g / n) << 8 | (int) (b / n);
+                        nowColored[i] = true;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) {
+                return;
+            }
+            for (int i = 0; i < pixels.length; i++) {
+                if (nowColored[i] && !colored[i]) {
+                    pixels[i] = next[i];
+                }
+            }
+            colored = nowColored;
+        }
     }
 
     /**
@@ -467,9 +563,10 @@ public final class MobIcons {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
             GL11.glDepthMask(true);
             GL11.glEnable(GL12.GL_RESCALE_NORMAL);
-            GL11.glEnable(GL11.GL_COLOR_MATERIAL);
             GL11.glColor4f(1f, 1f, 1f, 1f);
-            RenderHelper.enableStandardItemLighting();
+            // Unlit: the skin's own colors, like its texture (lit as in the inventory, faces came out dark).
+            RenderHelper.disableStandardItemLighting();
+            GL11.glDisable(GL11.GL_LIGHTING);
             if (hide != null) {
                 hide.isHidden = true;
             }
@@ -484,7 +581,6 @@ public final class MobIcons {
             } finally {
                 manager.playerViewY = viewY;
             }
-            RenderHelper.disableStandardItemLighting();
             readBuffer.clear();
             GL11.glReadPixels(0, 0, SIZE, SIZE, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
             int[] all = new int[SIZE * SIZE];
