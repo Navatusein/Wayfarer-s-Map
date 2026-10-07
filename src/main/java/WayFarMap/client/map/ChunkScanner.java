@@ -1,6 +1,7 @@
 package WayFarMap.client.map;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockLog;
 import net.minecraft.block.material.Material;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
@@ -102,8 +103,11 @@ public final class ChunkScanner {
                 int light = y == NO_BLOCK ? 0 : blockLight(chunk, lx, seenThroughGlass(chunk, lx, y, lz), lz);
                 region.setLight(baseX + lx, baseZ + lz, light);
                 if (plantlessRegion != null) {
-                    plantlessRegion.setPixel(baseX + lx, baseZ + lz, plantlessArgb, height);
-                    plantlessRegion.setLight(baseX + lx, baseZ + lz, light);
+                    // The map without plants keeps the ground for the topography instead: under trees, the floor
+                    // of water, and whether it is water or lava.
+                    int topo = y == NO_BLOCK ? 0 : groundTopo(chunk, lx, y, lz);
+                    plantlessRegion.setPixel(baseX + lx, baseZ + lz, plantlessArgb, topo & 0xFF);
+                    plantlessRegion.setLight(baseX + lx, baseZ + lz, light | topo >> 8);
                 }
                 if (biomeRegion != null) {
                     BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
@@ -113,6 +117,42 @@ public final class ChunkScanner {
                 }
             }
         }
+    }
+
+    /**
+     * The ground under the column's top block {@code y}, for the topography: leaves, logs, snow layers and ice on
+     * water are looked through, water down to its floor. Returns the height of the ground (or of the water's floor)
+     * plus one in the low byte and the topography flags of MapRegion above it.
+     */
+    private static int groundTopo(Chunk chunk, int lx, int y, int lz) {
+        while (y > 0) {
+            Block block = chunk.getBlock(lx, y, lz);
+            boolean iceOnWater = block.getMaterial() == Material.ice && chunk.getBlock(lx, y - 1, lz)
+                .getMaterial() == Material.water;
+            if (isVisible(block) && !isTreeOrSnow(block) && !iceOnWater) {
+                break;
+            }
+            y--;
+        }
+        Material material = chunk.getBlock(lx, y, lz)
+            .getMaterial();
+        int flags = MapRegion.TOPO_KNOWN;
+        if (material == Material.lava) {
+            flags |= MapRegion.TOPO_LAVA;
+        } else if (material == Material.water) {
+            flags |= MapRegion.TOPO_WATER;
+            while (y > 0 && chunk.getBlock(lx, y, lz)
+                .getMaterial() == Material.water) {
+                y--;
+            }
+        }
+        return flags << 8 | Math.max(1, Math.min(255, y + 1));
+    }
+
+    /** Not the ground: leaves, logs and thin snow on top. */
+    private static boolean isTreeOrSnow(Block block) {
+        Material material = block.getMaterial();
+        return material == Material.leaves || material == Material.snow || block instanceof BlockLog;
     }
 
     /** Light from blocks at the surface: in the space above it, or given off by the block itself (lava, glowstone). */

@@ -27,6 +27,8 @@ public final class LodTile implements PixelSource {
      * if nothing in the region is lit. Drawn at night as in {@link MapRegion#bindGlowTexture}.
      */
     private byte[] light;
+    /** Some pixel has block light (not only topography flags). */
+    private boolean lit;
     private int glowTextureId = -1;
     private boolean glowPending;
     /** {@link MapRegion#getChanges()} of the region it was built from, -1 when built from the file. */
@@ -52,6 +54,7 @@ public final class LodTile implements PixelSource {
     }
 
     private void fill(int[] source, byte[] sourceExtra, byte[] sourceLight) {
+        lit = false;
         if (sourceExtra != null && extra == null) {
             extra = new byte[SIZE * SIZE];
         }
@@ -65,6 +68,8 @@ public final class LodTile implements PixelSource {
             for (int tx = 0; tx < SIZE; tx++) {
                 // Average color of the explored blocks of the 4x4 square.
                 int r = 0, g = 0, b = 0, count = 0, extraValue = 0, lightValue = 0;
+                // Topography flags: known if any block has them, water or lava if most of the known ones are.
+                int known = 0, water = 0, lava = 0;
                 for (int dz = 0; dz < FACTOR; dz++) {
                     int row = (tz * FACTOR + dz) * full + tx * FACTOR;
                     for (int dx = 0; dx < FACTOR; dx++) {
@@ -80,7 +85,13 @@ public final class LodTile implements PixelSource {
                             extraValue = sourceExtra[row + dx] & 0xFF;
                         }
                         if (sourceLight != null) {
-                            lightValue = Math.max(lightValue, sourceLight[row + dx] & 15);
+                            int level = sourceLight[row + dx];
+                            lightValue = Math.max(lightValue, level & 15);
+                            if ((level & MapRegion.TOPO_KNOWN) != 0) {
+                                known++;
+                                water += (level & MapRegion.TOPO_WATER) != 0 ? 1 : 0;
+                                lava += (level & MapRegion.TOPO_LAVA) != 0 ? 1 : 0;
+                            }
                         }
                     }
                 }
@@ -90,7 +101,11 @@ public final class LodTile implements PixelSource {
                     extra[index] = (byte) extraValue;
                 }
                 if (light != null) {
-                    light[index] = (byte) lightValue;
+                    int flags = known == 0 ? 0
+                        : MapRegion.TOPO_KNOWN | (water * 2 > known ? MapRegion.TOPO_WATER : 0)
+                            | (lava * 2 > known ? MapRegion.TOPO_LAVA : 0);
+                    light[index] = (byte) (lightValue | flags);
+                    lit |= lightValue != 0;
                 }
             }
         }
@@ -102,6 +117,11 @@ public final class LodTile implements PixelSource {
     @Override
     public int size() {
         return SIZE;
+    }
+
+    @Override
+    public int getLight(int localX, int localZ) {
+        return light == null ? 0 : light[localZ * SIZE + localX] & 0xFF;
     }
 
     @Override
@@ -169,7 +189,7 @@ public final class LodTile implements PixelSource {
 
     /** Whether any pixel is lit by a block (the map glows there at night). */
     public boolean hasLight() {
-        return light != null;
+        return lit;
     }
 
     /**

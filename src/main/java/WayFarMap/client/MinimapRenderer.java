@@ -94,8 +94,9 @@ public class MinimapRenderer {
         }
         EntityClientPlayerMP player = mc.thePlayer;
         MapDimension dimension = MapManager.INSTANCE.getDimension();
-        if (dimension != null && !Config.showPlants && dimension.plantless() != null) {
-            // The world map shows the surface without grass and flowers: the minimap too.
+        if (dimension != null && (!Config.showPlants || Topography.isShown()) && dimension.plantless() != null) {
+            // The world map shows the surface without grass and flowers: the minimap too. The topography is drawn
+            // from the ground that map keeps.
             dimension = dimension.plantless();
         }
         if (player == null || mc.theWorld == null

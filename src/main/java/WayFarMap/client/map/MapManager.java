@@ -450,7 +450,9 @@ public class MapManager implements IResourceManagerReloadListener {
      */
     public MapDimension getViewMap() {
         MapDimension map = viewedMap();
-        if (!Config.showPlants && map != null && map.plantless() != null) {
+        if ((!Config.showPlants || Config.mapDisplayMode == Config.DISPLAY_TOPO) && map != null
+            && map.plantless() != null) {
+            // The topography is drawn from the ground the map without plants keeps.
             return map.plantless();
         }
         return map;
