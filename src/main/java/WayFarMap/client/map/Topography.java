@@ -75,18 +75,74 @@ public final class Topography {
         return Config.mapDisplayMode == Config.DISPLAY_TOPO;
     }
 
+    /** How far the view has faded in on one map, so turning it on or off fades like a switch of layers. */
+    private static final class Fade {
+
+        float amount;
+        boolean shown;
+        /** When the view was last drawn and when it was turned on or off. */
+        long lastFrame, switched;
+        /** Surface it was last drawn from: fading out goes on over it while the map under it shows another one. */
+        MapDimension surface;
+    }
+
+    private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
+
+    /** Longest wait for the textures to be built before the view fades in anyway. */
+    private static final long FADE_WAIT_MS = 1000;
+
     /**
      * Draws the topography in the given rectangle (same geometry as MapDrawer#drawMap), from the surface map without
-     * plants (or the surface itself if it has no such map).
+     * plants (or the surface itself if it has no such map). Called whether the view is on or not: it fades in and out
+     * over {@link Config#layerFadeMs}, as the map under it does between its layers.
+     *
+     * @param minimap drawn by the minimap (it fades apart from the world map)
      */
     public static void draw(MapDimension surface, double centerX, double centerZ, double scale, int x, int y, int width,
-        int height) {
-        if (surface == null) {
-            return;
+        int height, boolean minimap) {
+        Fade fade = minimap ? MINIMAP_FADE : WORLD_MAP_FADE;
+        long now = System.currentTimeMillis();
+        long elapsed = now - fade.lastFrame;
+        fade.lastFrame = now;
+        boolean shown = isShown();
+        if (shown != fade.shown) {
+            fade.shown = shown;
+            fade.switched = now;
         }
-        if (surface.plantless() != null) {
+        long duration = Config.layerFadeMs;
+        float before = fade.amount;
+        if (duration <= 0 || elapsed >= 500) {
+            // No fading, or the map was just opened: straight to where it should be.
+            fade.amount = shown ? 1f : 0f;
+        } else {
+            float step = elapsed / (float) duration;
+            fade.amount = shown ? Math.min(1f, fade.amount + step) : Math.max(0f, fade.amount - step);
+        }
+        if (surface != null && surface.plantless() != null) {
             surface = surface.plantless();
         }
+        if (shown) {
+            fade.surface = surface;
+        } else if (fade.surface != null && surface != null && fade.surface.dimensionId == surface.dimensionId) {
+            // The map under it may already be a cave layer or the biomes: the topography fading out stays the ground.
+            surface = fade.surface;
+        }
+        if (fade.amount <= 0f || surface == null) {
+            if (fade.amount <= 0f) {
+                fade.surface = null;
+            }
+            return;
+        }
+        int waiting = drawTextures(surface, centerX, centerZ, scale, x, y, width, height, fade.amount);
+        if (shown && waiting > 0 && fade.amount < 1f && now - fade.switched < FADE_WAIT_MS) {
+            // Its textures are still being built: it comes in once they are there, not region by region.
+            fade.amount = before;
+        }
+    }
+
+    /** Draws the textures at the given opacity; returns how many regions in view wait for theirs. */
+    private static int drawTextures(MapDimension surface, double centerX, double centerZ, double scale, int x, int y,
+        int width, int height, float alpha) {
         boolean nether = surface.dimensionId == -1;
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
@@ -100,11 +156,12 @@ public final class Topography {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glColor4f(1f, 1f, 1f, alpha);
         Tessellator tessellator = Tessellator.instance;
         // Same resolution as the map under it.
         boolean lod = WayFarMap.client.MapDrawer.useLod(scale);
         buildsLeft = lod ? LOD_BUILDS_PER_FRAME : BUILDS_PER_FRAME;
+        int waiting = 0;
         for (int rx = rx0; rx <= rx1; rx++) {
             for (int rz = rz0; rz <= rz1; rz++) {
                 PixelSource region = lod ? surface.requestLod(rx, rz) : surface.getLoadedRegion(rx, rz);
@@ -122,6 +179,7 @@ public final class Topography {
                 }
                 int texture = overlayTexture(region, nether);
                 if (texture == -1) {
+                    waiting++;
                     continue;
                 }
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
@@ -141,10 +199,13 @@ public final class Topography {
                 tessellator.draw();
             }
         }
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        return waiting;
     }
 
     /** Frees all textures (e.g. when leaving the world). */
     public static void clear() {
+        MINIMAP_FADE.surface = WORLD_MAP_FADE.surface = null;
         Iterator<Overlay> it = OVERLAYS.values()
             .iterator();
         while (it.hasNext()) {

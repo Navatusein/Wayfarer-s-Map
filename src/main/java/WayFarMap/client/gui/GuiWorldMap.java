@@ -1147,9 +1147,8 @@ public class GuiWorldMap extends ScaledScreen {
             }
             return;
         }
-        if (Topography.isShown()) {
-            Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height);
-        }
+        // Drawn with the view off too: it fades out.
+        Topography.draw(dimension, centerX, centerZ, scale, 0, 0, width, height, false);
         boolean prospecting = Mods.isVisualProspectingLoaded();
         // Search: gray over everything that doesn't match; matching biomes keep their color and get an outline.
         if (biomeViewShown() && BiomeHighlight.isActive()) {

@@ -391,9 +391,8 @@ public class MinimapRenderer {
         MapDrawer.iconRotation = rotation;
         try {
             MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
-            if (Topography.isShown()) {
-                Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner);
-            }
+            // Drawn with the view off too: it fades out.
+            Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner, true);
             if (Config.chunkGrid) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }
