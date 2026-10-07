@@ -537,13 +537,13 @@ public class GuiMapPictures extends ScaledScreen {
         String deleteAll = I18n.format("wayfarmap.pictures.delete_all");
         int deleteWidth = Math.max(
             fontRendererObj.getStringWidth(deleteAll),
-            fontRendererObj.getStringWidth(I18n.format("wayfarmap.pictures.sure"))) + 12 + 12;
+            fontRendererObj.getStringWidth(I18n.format("wayfarmap.pictures.sure"))) + iconButtonRoom(Icons.SMALL_TRASH);
         deleteAllButton = new FlatButton(ID_DELETE_ALL, right - 10 - deleteWidth, contentTop - 3, deleteWidth, 14, "");
         deleteAllButton.danger = true;
         deleteAllButton.icon = Icons.SMALL_TRASH;
         deleteAllButton.iconColor = Theme.DANGER;
         String folder = I18n.format("wayfarmap.pictures.folder");
-        int folderWidth = fontRendererObj.getStringWidth(folder) + 12 + 12;
+        int folderWidth = fontRendererObj.getStringWidth(folder) + iconButtonRoom(Icons.SMALL_PASTE);
         folderButton = new FlatButton(
             ID_FOLDER,
             deleteAllButton.xPosition - 4 - folderWidth,
@@ -592,10 +592,18 @@ public class GuiMapPictures extends ScaledScreen {
         if (otherKey != null) {
             textWidth = Math.max(textWidth, fontRendererObj.getStringWidth(I18n.format(otherKey)));
         }
-        int buttonWidth = textWidth + 14 + Icons.width(icon) + 5;
+        int buttonWidth = textWidth + iconButtonRoom(icon);
         FlatButton button = new FlatButton(id, rightX - buttonWidth, 6, buttonWidth, 16, text);
         button.icon = icon;
         return button;
+    }
+
+    /**
+     * Room a {@link FlatButton} with an icon needs besides its text so the text isn't cut: the icon with its margins
+     * before the text, and the margin it keeps after it, plus a little air.
+     */
+    private static int iconButtonRoom(String[] icon) {
+        return 6 + Icons.width(icon) + 5 + 10 + 4;
     }
 
     // ---------------------------------------------------------------- pictures
