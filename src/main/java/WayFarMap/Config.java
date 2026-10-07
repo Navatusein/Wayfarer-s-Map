@@ -117,12 +117,6 @@ public class Config {
     public static boolean topoContours = true;
     public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
-    /**
-     * What the grid shows: chunk and region borders, or the 3x3-chunk cells GregTech places its ore veins in (one vein
-     * at most per cell, centered on its middle chunk).
-     */
-    public static final int GRID_CHUNKS = 0, GRID_ORE_VEINS = 1;
-    public static int gridType = GRID_CHUNKS;
     /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
     public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
     public static int unexploredPattern = UNEXPLORED_NONE;
@@ -152,10 +146,6 @@ public class Config {
     public static final int GRID_CHUNK_COLOR = 0xFFFFFF, GRID_REGION_COLOR = 0xFFFFFF;
     public static int gridChunkColor = GRID_CHUNK_COLOR;
     public static int gridRegionColor = GRID_REGION_COLOR;
-    /** Color (RGB) and opacity (percent) of the borders of GregTech's ore vein cells. */
-    public static final int GRID_ORE_COLOR = 0xFFB040;
-    public static int gridOreColor = GRID_ORE_COLOR;
-    public static int gridOreOpacity = 55;
     /** How opaque the grid's lines are, in percent. */
     public static int gridChunkOpacity = 20, gridRegionOpacity = 45;
     /** The world map always opens at the player instead of where it was closed. */
@@ -567,14 +557,6 @@ public class Config {
             () -> chunkGrid,
             v -> chunkGrid = v);
         parent("chunkGrid");
-        choice(
-            c,
-            "gridType",
-            "What the grid shows: 0 = chunk and region borders, 1 = GregTech ore vein cells (3x3 chunks).",
-            GRID_CHUNKS,
-            new String[] { "chunks", "oreVeins" },
-            () -> gridType,
-            v -> gridType = v);
         integer(
             c,
             "gridLineWidth",
@@ -585,8 +567,6 @@ public class Config {
             1,
             () -> gridLineWidth,
             v -> gridLineWidth = v);
-        // Each kind of grid has its own lines: only those of the one chosen are shown.
-        when(() -> gridType == GRID_CHUNKS);
         color(
             c,
             "gridChunkColor",
@@ -621,24 +601,6 @@ public class Config {
             5,
             () -> gridRegionOpacity,
             v -> gridRegionOpacity = v);
-        when(() -> gridType == GRID_ORE_VEINS);
-        color(
-            c,
-            "gridOreColor",
-            "Color of the GregTech ore vein cell borders of the grid, as #RRGGBB.",
-            GRID_ORE_COLOR,
-            () -> gridOreColor,
-            v -> gridOreColor = v);
-        integer(
-            c,
-            "gridOreOpacity",
-            "Opacity of the GregTech ore vein cell borders of the grid, in percent.",
-            55,
-            5,
-            100,
-            5,
-            () -> gridOreOpacity,
-            v -> gridOreOpacity = v);
         group("trail");
         parent(null);
         bool(
@@ -1447,19 +1409,9 @@ public class Config {
         save();
     }
 
-    /**
-     * The grid button and key: off, chunk borders, then (with GregTech) its ore vein cells, then off again. Without
-     * GregTech it only turns the chunk borders on and off.
-     */
-    public static void cycleChunkGrid(boolean oreVeins) {
-        if (!chunkGrid) {
-            chunkGrid = true;
-            gridType = GRID_CHUNKS;
-        } else if (gridType == GRID_CHUNKS && oreVeins) {
-            gridType = GRID_ORE_VEINS;
-        } else {
-            chunkGrid = false;
-        }
+    /** The grid button and key: turns the chunk borders on and off. */
+    public static void toggleChunkGrid() {
+        chunkGrid = !chunkGrid;
         save();
     }
 

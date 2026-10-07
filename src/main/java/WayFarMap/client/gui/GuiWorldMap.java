@@ -708,10 +708,6 @@ public class GuiWorldMap extends ScaledScreen {
         modesButton.tooltip = I18n.format("wayfarmap.gui.modes") + ": "
             + I18n.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
         gridButton.active = Config.chunkGrid;
-        boolean oreGrid = Config.chunkGrid && Config.gridType == Config.GRID_ORE_VEINS;
-        gridButton.badge = oreGrid ? COLOR_ORE_GRID : 0;
-        gridButton.tooltip = I18n.format("wayfarmap.gui.grid")
-            + (oreGrid ? ": " + I18n.format("wayfarmap.option.map.gridType.oreVeins") : "");
         followButton.active = Config.mapFollowPlayer;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
@@ -751,7 +747,7 @@ public class GuiWorldMap extends ScaledScreen {
                 zooming = false;
             }
         } else if (button.id == ID_GRID) {
-            Config.cycleChunkGrid(Mods.isGregTechLoaded());
+            Config.toggleChunkGrid();
             updateLightButtons();
         } else if (button.id == ID_MODES) {
             openModesMenu();
@@ -848,7 +844,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Colors of the header's icons. */
     private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
         COLOR_EXPORT = 0xFFF2C14E, COLOR_ADDONS = 0xFF5BD6E0, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
-        COLOR_ORE_GRID = 0xFFFFB040, COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF,
+        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF,
         COLOR_SUN = 0xFFFFD23F, COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
     /**
      * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
