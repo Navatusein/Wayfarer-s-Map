@@ -72,7 +72,11 @@ public final class Topography {
     private Topography() {}
 
     public static boolean isShown() {
-        return Config.mapDisplayMode == Config.DISPLAY_TOPO;
+        return isShown(false);
+    }
+
+    public static boolean isShown(boolean minimap) {
+        return Config.displayMode(minimap) == Config.DISPLAY_TOPO;
     }
 
     /** How far the view has faded in on one map, so turning it on or off fades like a switch of layers. */
@@ -104,7 +108,7 @@ public final class Topography {
         long now = System.currentTimeMillis();
         long elapsed = now - fade.lastFrame;
         fade.lastFrame = now;
-        boolean shown = isShown();
+        boolean shown = isShown(minimap);
         if (shown != fade.shown) {
             fade.shown = shown;
             fade.switched = now;

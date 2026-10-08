@@ -1303,7 +1303,14 @@ public class GuiSettings extends ScaledScreen {
                 return Icons.SMALL_BUTTONS;
             case "view":
             case "shown":
+            case "ownView":
                 return Icons.SMALL_EYE;
+            case "ownGrid":
+                return Icons.SMALL_GRID;
+            case "ownLayers":
+                return Icons.SMALL_LAYERS;
+            case "ownMobs":
+                return Icons.SMALL_CREEPER;
             case "colors":
             case "look":
                 return Icons.SMALL_PALETTE;

@@ -91,6 +91,9 @@ public final class MapDrawer {
 
     private static final Fade MINIMAP_FADE = new Fade(), WORLD_MAP_FADE = new Fade();
 
+    /** Set while the minimap is drawn: its lighting and mobs may be its own ({@link Config#minimapOwnView}). */
+    public static boolean minimapPass;
+
     /** Forgets the maps drawn last, so none of a world that was left is faded from (or drawn) again. */
     public static void forgetShownMaps() {
         MINIMAP_FADE.shown = MINIMAP_FADE.previous = null;
@@ -501,7 +504,7 @@ public final class MapDrawer {
      * (unless the map is fixed to day). Dimensions without a sky, like the Nether, get {@link #isDimNether} instead.
      */
     private static boolean isDarkCave(MapDimension dimension) {
-        return dimension.cave && Config.mapLightMode != Config.LIGHT_DAY
+        return dimension.cave && Config.lightMode(minimapPass) != Config.LIGHT_DAY
             && !MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
     }
 
@@ -510,7 +513,7 @@ public final class MapDrawer {
      * glowing (unless the map is fixed to day). Not the End: it is lit as by day, like JourneyMap shows it.
      */
     private static boolean isDimNether(MapDimension dimension) {
-        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimension.dimensionId);
+        return Config.lightMode(minimapPass) != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimension.dimensionId);
     }
 
     /**
@@ -518,7 +521,7 @@ public final class MapDrawer {
      * the Nether, is dim at any time of day, lit only by its lava and lamps (unless the map is fixed to day).
      */
     public static float isoNightAmount(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
+        if (Config.lightMode(minimapPass) != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return 1f;
         }
         return nightAmount(mc);
@@ -526,7 +529,7 @@ public final class MapDrawer {
 
     /** RGB multiplier for models on the 3D map of the dimension, as {@link #isoNightAmount} lights it. */
     public static float[] isoLightTint(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
+        if (Config.lightMode(minimapPass) != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return NETHER_TINT.clone();
         }
         return lightTint(mc);
@@ -540,9 +543,9 @@ public final class MapDrawer {
     /** As {@link #nightAmount(Minecraft)}; {@code surface}: for the surface map, which follows the sun in any mode. */
     private static float nightAmount(Minecraft mc, boolean surface) {
         float day;
-        if (Config.mapLightMode == Config.LIGHT_DAY) {
+        if (Config.lightMode(minimapPass) == Config.LIGHT_DAY) {
             day = 1f;
-        } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
+        } else if (Config.lightMode(minimapPass) == Config.LIGHT_NIGHT) {
             day = 0f;
         } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
             || !surface && MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
@@ -667,7 +670,7 @@ public final class MapDrawer {
             EntityLivingBase entity = (EntityLivingBase) o;
             if (entity instanceof EntityPlayer) {
                 // Teammates are drawn by drawTeammates, always.
-                if (Config.showOtherPlayers && !TeamMates.INSTANCE.isTeammate(entity.getUniqueID())) {
+                if (Config.otherPlayers(minimapPass) && !TeamMates.INSTANCE.isTeammate(entity.getUniqueID())) {
                     players.add((EntityPlayer) entity);
                 }
                 continue;
@@ -789,18 +792,18 @@ public final class MapDrawer {
      */
     static int entityColor(EntityLivingBase entity) {
         if (isPet(entity)) {
-            return Config.showPets ? PET_COLOR : 0;
+            return Config.pets(minimapPass) ? PET_COLOR : 0;
         }
         if (entity instanceof IMob) {
-            return Config.showHostileMobs ? HOSTILE_COLOR : 0;
+            return Config.hostileMobs(minimapPass) ? HOSTILE_COLOR : 0;
         }
         if (isFriendly(entity)) {
-            return Config.showOtherEntities ? FRIENDLY_COLOR : 0;
+            return Config.otherEntities(minimapPass) ? FRIENDLY_COLOR : 0;
         }
         if (entity instanceof EntityAmbientCreature) {
-            return Config.showAmbientMobs ? AMBIENT_COLOR : 0;
+            return Config.ambientMobs(minimapPass) ? AMBIENT_COLOR : 0;
         }
-        return Config.showPassiveMobs ? NEUTRAL_COLOR : 0;
+        return Config.passiveMobs(minimapPass) ? NEUTRAL_COLOR : 0;
     }
 
     /** A tamed mob: a tamed wolf or cat, a tamed horse, or a modded mob with an owner. */

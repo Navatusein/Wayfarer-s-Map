@@ -32,6 +32,11 @@
 - [new] Copy and paste waypoints on the world map
 - [new] Waypoint list: groups pane, waypoint cards, compass arrows and hover actions
 
+## Minimap
+- [new] Own settings apart from the world map: the map shown (2D, without plants, topography, biomes), lighting, mod layers, chunk grid, players and mobs
+- [new] Keys for each of them (unbound by default); a key gives that part of the minimap its own settings
+- [change] Controls: the mod's keys are split into general, world map and minimap
+
 ## 3D map
 - [change] Block pictures are kept from game to game: the map builds faster
 - [fix] Blocks with metadata above 15 no longer break the hidden-picture check
