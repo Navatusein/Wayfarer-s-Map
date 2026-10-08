@@ -27,7 +27,7 @@ import WayFarMap.client.gui.ui.Theme;
 /**
  * About the mod: its glowing logo over a starry top, the name and the version (a click copies it), what the mod is,
  * who made it (a click opens the author's GitHub), who tested it, and the author's pages. Its parts slide in one after
- * another when it opens; Esc or the button at the bottom closes it.
+ * another when it opens; What's new at the bottom opens the changelog, Esc or Close closes it.
  */
 public class GuiAbout extends ScaledScreen {
 
@@ -81,10 +81,12 @@ public class GuiAbout extends ScaledScreen {
     private long copiedAt;
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
-    private int[] versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
+    private int[] versionRect = new int[4], authorRect = new int[4], closeRect = new int[4],
+        changelogRect = new int[4];
     private final int[][] linkRects = new int[LINKS.length][4];
     /** How lit each thing is by the mouse. */
-    private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0);
+    private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0),
+        changelogLight = new Smooth(0);
     private final Smooth[] linkLight = { new Smooth(0), new Smooth(0), new Smooth(0) };
     private final Smooth[] chipLight;
 
@@ -271,15 +273,36 @@ public class GuiAbout extends ScaledScreen {
         }
         base += SECTION_TITLE + LINK_HEIGHT + 14;
 
-        // Close.
+        // What's new, and Close.
         y = base + slide(5);
-        closeRect = new int[] { left + PAD, y, right - PAD, y + BUTTON_HEIGHT };
+        int half = (textWidth() - 6) / 2;
+        changelogRect = new int[] { left + PAD, y, left + PAD + half, y + BUTTON_HEIGHT };
+        double changelogLit = changelogLight.update(inside(mouseX, mouseY, changelogRect) ? 1 : 0, 22);
+        int[] n = changelogRect;
+        Theme.fill(n[0], n[1], n[2], n[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, changelogLit));
+        Theme.outline(n[0], n[1], n[2], n[3], Theme.blend(Theme.BORDER, Theme.ACCENT, changelogLit));
+        String changelog = Lang.format("wayfarmap.about.changelog");
+        String[] page = Icons.SMALL_PAGE;
+        int contentX = (n[0] + n[2] - Icons.width(page) - 5 - fontRendererObj.getStringWidth(changelog)) / 2;
+        Icons.draw(
+            page,
+            contentX,
+            y + (BUTTON_HEIGHT - page.length) / 2,
+            Theme.blend(Theme.TEXT_MUTED, Theme.ACCENT, changelogLit));
+        Theme.text(
+            fontRendererObj,
+            changelog,
+            contentX + Icons.width(page) + 5,
+            y + (BUTTON_HEIGHT - 8) / 2,
+            Theme.TEXT);
+
+        closeRect = new int[] { right - PAD - half, y, right - PAD, y + BUTTON_HEIGHT };
         double closeLit = closeLight.update(inside(mouseX, mouseY, closeRect) ? 1 : 0, 22);
         int[] c = closeRect;
         Theme.fill(c[0], c[1], c[2], c[3], Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, closeLit));
         Theme.outline(c[0], c[1], c[2], c[3], Theme.ACCENT);
         String close = Lang.format("wayfarmap.help.close");
-        Theme.centered(fontRendererObj, close, centerX, y + (BUTTON_HEIGHT - 8) / 2, Theme.TEXT);
+        Theme.centered(fontRendererObj, close, (c[0] + c[2]) / 2, y + (BUTTON_HEIGHT - 8) / 2, Theme.TEXT);
 
         Theme.unclip();
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -441,6 +464,8 @@ public class GuiAbout extends ScaledScreen {
         }
         if (inside(mouseX, mouseY, closeRect)) {
             close();
+        } else if (inside(mouseX, mouseY, changelogRect)) {
+            mc.displayGuiScreen(new GuiChangelog(this, null));
         } else if (inside(mouseX, mouseY, versionRect)) {
             setClipboardString(Tags.VERSION);
             copiedAt = System.currentTimeMillis();

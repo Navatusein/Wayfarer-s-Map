@@ -6,6 +6,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -27,6 +29,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.Perf;
+import WayFarMap.Tags;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
@@ -936,35 +939,112 @@ public class GuiWorldMap extends ScaledScreen {
 
     // ---------------------------------------------------------------- welcome window
 
-    /** Written once the welcome window is closed: it is never shown again. */
+    /**
+     * Written when the welcome window is closed, with the mod's version then: the window shows again when the mod
+     * is newer than that. Empty when it was written before the version was kept.
+     */
     private static final String WELCOME_FILE = "welcome-shown";
     /** The welcome window is open: the map takes no input until it is closed. */
     private boolean welcome;
     private WelcomeWindow welcomeWindow;
+    /** The welcome window was closed while this map was open: not shown again when the map is laid out again. */
+    private boolean welcomeWindowClosed;
 
     private File welcomeFile() {
         return new File(new File(mc.mcDataDir, "wayfarmap"), WELCOME_FILE);
     }
 
-    /** Opens the welcome window the first time the map is opened after installing the mod. */
-    private void checkWelcome() {
-        welcome = !welcomeFile().exists();
-        if (welcome && welcomeWindow == null) {
-            welcomeWindow = new WelcomeWindow(fontRendererObj);
+    /**
+     * The version the welcome window was last closed in: null if it never was (the mod was just installed), empty
+     * if it was before the version was kept.
+     */
+    private String seenVersion() {
+        File file = welcomeFile();
+        if (!file.exists()) {
+            return null;
+        }
+        try {
+            return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            WayFarMap.LOG.warn("Could not read " + file, e);
+            // Not shown again and again only because the file can't be read.
+            return Tags.VERSION;
         }
     }
 
+    /**
+     * Opens the welcome window the first time the map is opened after installing the mod, and again after it is
+     * updated. The first time, the mod's language is set to the game's if the mod has it.
+     */
+    private void checkWelcome() {
+        if (welcomeWindow != null) {
+            welcome = !welcomeWindowClosed;
+            return;
+        }
+        String seen = seenVersion();
+        boolean firstRun = seen == null;
+        boolean updated = !firstRun && Changelog.compare(seen, Tags.VERSION) < 0;
+        welcome = firstRun || updated;
+        if (!welcome) {
+            return;
+        }
+        if (firstRun) {
+            guessLanguage();
+        }
+        welcomeWindow = new WelcomeWindow(fontRendererObj, updated ? seen : null);
+    }
+
+    /** The mod's language as the game's, if the mod has it and none was chosen yet. */
+    private void guessLanguage() {
+        if (Config.modLanguage != 0 || mc.gameSettings == null || mc.gameSettings.language == null) {
+            return;
+        }
+        for (int i = 0; i < Lang.CODES.length; i++) {
+            if (Lang.CODES[i].equalsIgnoreCase(mc.gameSettings.language)) {
+                Config.modLanguage = i;
+                Config.save();
+                return;
+            }
+        }
+    }
+
+    /** Closes the welcome window and keeps the version, so it isn't shown again until the mod is updated. */
     private void closeWelcome() {
         welcome = false;
+        welcomeWindowClosed = true;
         File file = welcomeFile();
         try {
             File parent = file.getParentFile();
             if (parent != null) {
                 parent.mkdirs();
             }
-            file.createNewFile();
+            Files.write(file.toPath(), Tags.VERSION.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             WayFarMap.LOG.warn("Could not write " + file, e);
+        }
+    }
+
+    /** Acts on what a click or a key did in the welcome window. */
+    private void onWelcome(WelcomeWindow.Click click) {
+        switch (click) {
+            case CLOSE:
+                closeWelcome();
+                break;
+            case FINISH:
+                closeWelcome();
+                if (welcomeWindow.isUpdate()) {
+                    mc.displayGuiScreen(new GuiChangelog(this, welcomeWindow.updatedFrom()));
+                }
+                break;
+            case HELP:
+                closeWelcome();
+                mc.displayGuiScreen(new GuiHelp(this));
+                break;
+            case CHANGELOG:
+                // Over the window, which stays open under it.
+                mc.displayGuiScreen(new GuiChangelog(this, welcomeWindow.updatedFrom()));
+                break;
+            default:
         }
     }
 
@@ -2343,12 +2423,8 @@ public class GuiWorldMap extends ScaledScreen {
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         if (welcome) {
             // Only its buttons close it; the map waits.
-            WelcomeWindow.Click click = button == 0 ? welcomeWindow.click(mouseX, mouseY) : WelcomeWindow.Click.NONE;
-            if (click != WelcomeWindow.Click.NONE) {
-                closeWelcome();
-            }
-            if (click == WelcomeWindow.Click.HELP) {
-                mc.displayGuiScreen(new GuiHelp(this));
+            if (button == 0) {
+                onWelcome(welcomeWindow.click(mouseX, mouseY));
             }
             return;
         }
@@ -3060,9 +3136,7 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (welcome) {
-            if (welcomeWindow.key(keyCode) != WelcomeWindow.Click.NONE) {
-                closeWelcome();
-            }
+            onWelcome(welcomeWindow.key(keyCode));
             return;
         }
         if (dimensionList != null && keyCode == Keyboard.KEY_ESCAPE) {

@@ -9,34 +9,44 @@ import net.minecraft.client.gui.FontRenderer;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.Config;
 import WayFarMap.Tags;
 import WayFarMap.client.KeyHandler;
 import WayFarMap.client.Lang;
+import WayFarMap.client.gui.ui.Flags;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 
 /**
- * The window shown over the world map the first time it is opened. A starry top with the glowing logo, the name and
- * the version stays put; under it three pages slide sideways: what the mod can do (a card per feature), the first
- * things to know (numbered steps on key caps), and who made it with the author's pages. The dots, Back and Next, the
- * arrow keys and the mouse wheel flip the pages; the last page's button, Enter on it, the cross or Esc close it, and
- * Help closes it and opens the help.
+ * The window shown over the world map the first time it is opened, and again after the mod is updated. A starry top
+ * with the glowing logo, the name and the version stays put (a click on the version opens what's new; after an
+ * update it shows the version before and the new one); under it four pages slide sideways: what the mod can do (a
+ * card per feature), the first things to know (numbered steps on key caps), who made it with the author's pages, and
+ * the choice of the mod's language. The dots, Back and Next, the arrow keys and the mouse wheel flip the pages; the
+ * last page's button (Let's go, or What's new after an update) and Enter on it finish it, the cross or Esc close it,
+ * and Help closes it and opens the help.
  */
 final class WelcomeWindow {
 
     /** What a click on the window did. */
     enum Click {
         NONE,
+        /** Closed before the end: the cross or Esc. */
         CLOSE,
-        HELP
+        /** Closed by the last page's button. */
+        FINISH,
+        HELP,
+        /** The version was clicked: what's new, the window staying open under it. */
+        CHANGELOG
     }
 
     private static final int WIDTH = 400, PAD = 14;
     private static final int HERO_HEIGHT = 100, SECTION_TITLE = 14, FOOTER_HEIGHT = 40;
     private static final int CARD_HEIGHT = 30, CARD_GAP = 6, FEATURE_COLUMNS = 2;
     private static final int STEP_HEIGHT = 24, CHIP_HEIGHT = 22, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
-    private static final int PAGES = 3;
+    private static final int LANGUAGE_HEIGHT = 32, LANGUAGE_COLUMNS = 2;
+    private static final int PAGES = 4, LANGUAGE_PAGE = PAGES - 1;
     /** How long a part takes to slide in, and how much later each part starts than the one before (ms). */
     private static final long SLIDE_MS = 280, STAGGER_MS = 60;
     /** Color of a key cap: the yellow of §e, as in the help. */
@@ -66,6 +76,8 @@ final class WelcomeWindow {
     }
 
     private final FontRenderer font;
+    /** The version the window was last closed in when the mod has been updated since, null otherwise. */
+    private final String updatedFrom;
     private final long openedAt = System.currentTimeMillis();
     /** The page shown (0 the first), where the slide between pages has got to, and when the page was turned to. */
     private int page;
@@ -74,19 +86,39 @@ final class WelcomeWindow {
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
     private int[] nextRect = new int[4], backRect = new int[4], helpRect = new int[4], closeRect = new int[4],
-        authorRect = new int[4];
-    private final int[][] linkRects = new int[LINKS.length][4], dotRects = new int[PAGES][4];
+        authorRect = new int[4], versionRect = new int[4];
+    private final int[][] linkRects = new int[LINKS.length][4], dotRects = new int[PAGES][4],
+        languageRects = new int[Lang.CODES.length][4];
     /** How lit each thing is by the mouse, and how wide each page's dot is (the shown one is a long pill). */
     private final Smooth nextLight = new Smooth(0), backLight = new Smooth(0), helpLight = new Smooth(0),
-        closeLight = new Smooth(0), authorLight = new Smooth(0), backShown = new Smooth(0);
+        closeLight = new Smooth(0), authorLight = new Smooth(0), backShown = new Smooth(0),
+        versionLight = new Smooth(0);
     /** The panel's inside, which everything is cut to: {x0, y0, x1, y1}. */
     private int[] panelClip = new int[4];
     private final Smooth[] linkLight = smooths(LINKS.length, 0), cardLight = smooths(FEATURES.length, 0),
-        dotWidth = smooths(PAGES, 6), chipLight = smooths(GuiAbout.TESTERS.length + 1, 0);
+        dotWidth = smooths(PAGES, 6), chipLight = smooths(GuiAbout.TESTERS.length + 1, 0),
+        languageLight = smooths(Lang.CODES.length, 0), languageChosen = smooths(Lang.CODES.length, 0);
 
-    WelcomeWindow(FontRenderer font) {
+    /** @param updatedFrom the version the window was last closed in if the mod was updated since, else null */
+    WelcomeWindow(FontRenderer font, String updatedFrom) {
         this.font = font;
+        this.updatedFrom = updatedFrom;
         dotWidth[0].set(18);
+        languageChosen[language()].set(1);
+    }
+
+    /** Whether the mod was updated since the window was last closed: its last button opens what's new. */
+    boolean isUpdate() {
+        return updatedFrom != null;
+    }
+
+    /** The version the window was last closed in, null on the first run. */
+    String updatedFrom() {
+        return updatedFrom;
+    }
+
+    private static int language() {
+        return Math.max(0, Math.min(Lang.CODES.length - 1, Config.modLanguage));
     }
 
     private static Smooth[] smooths(int count, double value) {
@@ -141,6 +173,10 @@ final class WelcomeWindow {
         return chips;
     }
 
+    private static int languageRows() {
+        return (Lang.CODES.length + LANGUAGE_COLUMNS - 1) / LANGUAGE_COLUMNS;
+    }
+
     private int pageHeight(int page) {
         switch (page) {
             case 0:
@@ -150,8 +186,14 @@ final class WelcomeWindow {
                     + (featureRows() - 1) * CARD_GAP;
             case 1:
                 return SECTION_TITLE + steps().length * STEP_HEIGHT;
-            default:
+            case 2:
                 return 30 + SECTION_TITLE + CHIP_HEIGHT + 10 + LINK_HEIGHT;
+            default:
+                return SECTION_TITLE + 14
+                    + languageRows() * LANGUAGE_HEIGHT
+                    + (languageRows() - 1) * CARD_GAP
+                    + 10
+                    + 10;
         }
     }
 
@@ -210,8 +252,11 @@ final class WelcomeWindow {
                 case 1:
                     drawSteps(x, pagesTop, start);
                     break;
-                default:
+                case 2:
                     drawCredits(x, pagesTop, start, mouseX, mouseY);
+                    break;
+                default:
+                    drawLanguages(x, pagesTop, start, mouseX, mouseY);
             }
         }
 
@@ -298,11 +343,7 @@ final class WelcomeWindow {
             restoreClip();
         }
 
-        String version = Theme.ellipsize(font, Lang.format("wayfarmap.about.version", Tags.VERSION), WIDTH - 80);
-        int pillWidth = font.getStringWidth(version) + 12;
-        int pillLeft = centerX - pillWidth / 2;
-        roundRect(pillLeft, y + 81, pillLeft + pillWidth, y + 93, 0xC0222831);
-        Theme.text(font, version, pillLeft + 6, y + 83, Theme.TEXT_MUTED);
+        drawVersion(centerX, y + 81, mouseX, mouseY);
 
         // The cross in the corner: close it right away.
         closeRect = new int[] { right - 20, top + 6, right - 6, top + 20 };
@@ -321,6 +362,37 @@ final class WelcomeWindow {
             closeRect[0] + (14 - Icons.width(cross)) / 2,
             closeRect[1] + (14 - cross.length) / 2,
             Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit));
+    }
+
+    /**
+     * The version in a pill under the name, with the page icon of what's new; after an update the version before,
+     * an arrow and the new one in green. Lit under the mouse: a click opens what's new.
+     */
+    private void drawVersion(int centerX, int y, int mouseX, int mouseY) {
+        String current = Lang.format("wayfarmap.about.version", Tags.VERSION);
+        String before = updatedFrom == null ? null : updatedFrom.isEmpty() ? "?" : updatedFrom;
+        String[] arrow = ARROW_RIGHT, icon = Icons.SMALL_PAGE;
+        int arrowWidth = before == null ? 0 : font.getStringWidth(before) + 5 + Icons.width(arrow) + 5;
+        String shown = Theme.ellipsize(font, current, WIDTH - 100 - arrowWidth);
+        int pillWidth = 6 + arrowWidth + font.getStringWidth(shown) + 6 + Icons.width(icon) + 6;
+        int pillLeft = centerX - pillWidth / 2;
+        versionRect = new int[] { pillLeft, y, pillLeft + pillWidth, y + 12 };
+        double lit = versionLight.update(inside(mouseX, mouseY, versionRect) ? 1 : 0, 22);
+        roundRect(pillLeft, y, pillLeft + pillWidth, y + 12, Theme.blend(0xC0222831, Theme.CONTROL_HOVER, lit));
+        if (lit > 0) {
+            Theme.outline(pillLeft, y, pillLeft + pillWidth, y + 12, Theme.blend(0x002B5A96, Theme.ACCENT, lit));
+        }
+        int x = pillLeft + 6;
+        if (before != null) {
+            Theme.text(font, before, x, y + 2, Theme.TEXT_MUTED);
+            x += font.getStringWidth(before) + 5;
+            Icons.draw(arrow, x, y + (12 - arrow.length) / 2, Theme.TEXT_MUTED);
+            x += Icons.width(arrow) + 5;
+        }
+        int versionColor = before != null ? Theme.SUCCESS : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+        Theme.text(font, shown, x, y + 2, versionColor);
+        x += font.getStringWidth(shown) + 6;
+        Icons.draw(icon, x, y + (12 - icon.length) / 2, Theme.blend(Theme.TEXT_MUTED, Theme.ACCENT, lit));
     }
 
     private void drawTitle(String first, String second, int x, int y, int firstColor, int secondColor) {
@@ -450,6 +522,98 @@ final class WelcomeWindow {
         }
     }
 
+    /**
+     * The last page: the mod's language, a card for each with its flag and its name, the chosen one lit in the
+     * accent with a tick; a click switches all of the mod's texts at once. Under them, where to change it later.
+     */
+    private void drawLanguages(int left, int top, long start, int mouseX, int mouseY) {
+        sectionTitle(Lang.format("wayfarmap.welcome.language_title"), left, top + slide(start, 0));
+        int y = top + SECTION_TITLE + slide(start, 1);
+        String text = Theme.ellipsize(font, Lang.format("wayfarmap.welcome.language_text"), textWidth());
+        Theme.text(font, text, left + PAD, y, Theme.TEXT_MUTED);
+        int base = top + SECTION_TITLE + 14;
+        int cardWidth = (textWidth() - (LANGUAGE_COLUMNS - 1) * CARD_GAP) / LANGUAGE_COLUMNS;
+        boolean interactive = start != 0;
+        for (int i = 0; i < Lang.CODES.length; i++) {
+            int column = i % LANGUAGE_COLUMNS, row = i / LANGUAGE_COLUMNS;
+            int x0 = left + PAD + column * (cardWidth + CARD_GAP);
+            int y0 = base + row * (LANGUAGE_HEIGHT + CARD_GAP) + slide(start, 2 + i);
+            languageRects[i] = new int[] { x0, y0, x0 + cardWidth, y0 + LANGUAGE_HEIGHT };
+            double lit = languageLight[i].update(interactive && inside(mouseX, mouseY, languageRects[i]) ? 1 : 0, 18);
+            double chosen = languageChosen[i].update(i == language() ? 1 : 0, 16);
+            drawLanguageCard(i, languageRects[i], lit, chosen);
+        }
+        y = base + languageRows() * (LANGUAGE_HEIGHT + CARD_GAP) - CARD_GAP + 10 + slide(start, 2 + Lang.CODES.length);
+        String[] gear = Icons.SMALL_GEAR;
+        String hint = Theme.ellipsize(
+            font,
+            Lang.format("wayfarmap.welcome.language_hint", settingsPath()),
+            textWidth() - Icons.width(gear) - 5);
+        Icons.draw(gear, left + PAD, y, Theme.TEXT_MUTED);
+        Theme.text(font, hint, left + PAD + Icons.width(gear) + 5, y, Theme.TEXT_MUTED);
+    }
+
+    /** Where the language is in the settings: "Settings → World map → Mod language", in the mod's language. */
+    private static String settingsPath() {
+        return Lang.format("wayfarmap.gui.settings") + " → "
+            + Lang.format("wayfarmap.settings.map")
+            + " → "
+            + Lang.format("wayfarmap.settings.group.language");
+    }
+
+    /** A language: its flag twice as big in a frame, its name, and a round check, filled when it is chosen. */
+    private void drawLanguageCard(int i, int[] r, double lit, double chosen) {
+        int lift = (int) Math.round(lit);
+        int x0 = r[0], y0 = r[1] - lift, x1 = r[2], y1 = r[3] - lift;
+        int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+        Theme.fill(x0, y0, x1, y1, Theme.blend(background, 0xFF1E3350, chosen));
+        Theme.outline(
+            x0,
+            y0,
+            x1,
+            y1,
+            Theme.blend(Theme.blend(Theme.BORDER, Theme.TEXT_MUTED, lit), Theme.ACCENT, chosen));
+        // The accent along the left edge of the chosen one.
+        if (chosen > 0.01) {
+            Theme.fill(x0 + 1, y0 + 1, x0 + 2, y1 - 1, (int) (0xFF * chosen) << 24 | (Theme.ACCENT & 0xFFFFFF));
+        }
+        int flagWidth = Flags.WIDTH * 2, flagHeight = Flags.HEIGHT * 2;
+        int flagX = x0 + 6, flagY = y0 + (LANGUAGE_HEIGHT - flagHeight) / 2;
+        Theme.fill(flagX - 1, flagY - 1, flagX + flagWidth + 1, flagY + flagHeight + 1, 0x60000000);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(flagX, flagY, 0f);
+        GL11.glScalef(2f, 2f, 1f);
+        Flags.draw(Lang.CODES[i], 0, 0);
+        GL11.glPopMatrix();
+        if (chosen < 1 && lit < 1) {
+            // The languages not chosen a little dimmed, as in the settings.
+            int dim = (int) (0x50 * (1 - Math.max(chosen, lit))) << 24;
+            Theme.fill(flagX, flagY, flagX + flagWidth, flagY + flagHeight, dim);
+        }
+        String name = Lang.format("wayfarmap.option.map.language." + Lang.CODES[i]);
+        int textX = flagX + flagWidth + 9;
+        int nameColor = Theme.blend(Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.6 + 0.4 * lit), Theme.TEXT, chosen);
+        name = Theme.ellipsize(font, name, x1 - 26 - textX);
+        Theme.text(font, name, textX, y0 + (LANGUAGE_HEIGHT - 8) / 2, nameColor);
+        // The round check on the right: a ring, filled with a tick when chosen.
+        int checkX = x1 - 13, checkY = y0 + LANGUAGE_HEIGHT / 2;
+        int ring = Theme.blend(Theme.BORDER, Theme.ACCENT, Math.max(lit * 0.5, chosen));
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 6, ring);
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 5, Theme.blend(Theme.CONTROL, Theme.ACCENT, chosen));
+        if (chosen > 0.5) {
+            String[] tick = Icons.SMALL_CHECK;
+            Icons.draw(tick, checkX - Icons.width(tick) / 2, checkY - tick.length / 2, Theme.TEXT);
+        }
+    }
+
+    /** Chooses the mod's language: every text of the mod, this window too, switches to it at once. */
+    private static void chooseLanguage(int i) {
+        if (Config.modLanguage != i) {
+            Config.modLanguage = i;
+            Config.save();
+        }
+    }
+
     /** A person (an avatar and the name) or the chat (its icon and name); the author's has the GitHub logo too. */
     private void drawChip(int[] r, String name, int i, double lit) {
         boolean author = i < 0, chat = i >= GuiAbout.TESTERS.length;
@@ -511,7 +675,8 @@ final class WelcomeWindow {
         double helpLit = helpLight.update(inside(mouseX, mouseY, helpRect) ? 1 : 0, 22);
         drawButton(helpRect, help, Icons.HELP, false, false, helpLit);
 
-        String next = Lang.format(last ? "wayfarmap.welcome.ok" : "wayfarmap.welcome.next");
+        String next = Lang.format(
+            !last ? "wayfarmap.welcome.next" : isUpdate() ? "wayfarmap.welcome.whats_new" : "wayfarmap.welcome.ok");
         int nextWidth = Math.max(90, font.getStringWidth(next) + 30);
         nextRect = new int[] { right - PAD - nextWidth, y, right - PAD, y + BUTTON_HEIGHT };
         if (last) {
@@ -521,7 +686,7 @@ final class WelcomeWindow {
             Theme.outline(nextRect[0] - 2, y - 2, nextRect[2] + 2, y + BUTTON_HEIGHT + 2, alpha | 0x4C9AFF);
         }
         double nextLit = nextLight.update(inside(mouseX, mouseY, nextRect) ? 1 : 0, 22);
-        drawButton(nextRect, next, last ? null : ARROW_RIGHT, true, true, nextLit);
+        drawButton(nextRect, next, last && !isUpdate() ? null : ARROW_RIGHT, true, true, nextLit);
 
         // Back slides out from under Next on the pages after the first.
         double shown = backShown.update(page > 0 ? 1 : 0, 16);
@@ -629,19 +794,23 @@ final class WelcomeWindow {
     }
 
     /**
-     * Handles a click: Next turns the page (closes on the last), Back and the dots turn it, Help and the cross
-     * close the window (Help also opens the help), the author and the links open their page.
+     * Handles a click: Next turns the page (finishes on the last), Back and the dots turn it, Help and the cross
+     * close the window (Help also opens the help), the version opens what's new, the author and the links open their
+     * page, a language card chooses it.
      */
     Click click(int mouseX, int mouseY) {
         if (inside(mouseX, mouseY, closeRect)) {
             return Click.CLOSE;
+        }
+        if (inside(mouseX, mouseY, versionRect)) {
+            return Click.CHANGELOG;
         }
         if (inside(mouseX, mouseY, helpRect)) {
             return Click.HELP;
         }
         if (inside(mouseX, mouseY, nextRect)) {
             if (page == PAGES - 1) {
-                return Click.CLOSE;
+                return Click.FINISH;
             }
             turnTo(page + 1);
             return Click.NONE;
@@ -656,7 +825,15 @@ final class WelcomeWindow {
                 return Click.NONE;
             }
         }
-        if (page == PAGES - 1) {
+        if (page == LANGUAGE_PAGE) {
+            for (int i = 0; i < Lang.CODES.length; i++) {
+                if (inside(mouseX, mouseY, languageRects[i])) {
+                    chooseLanguage(i);
+                    return Click.NONE;
+                }
+            }
+        }
+        if (page == 2) {
             if (inside(mouseX, mouseY, authorRect)) {
                 GuiAbout.openLink(GuiAbout.GITHUB_URL);
                 return Click.NONE;
@@ -671,7 +848,10 @@ final class WelcomeWindow {
         return Click.NONE;
     }
 
-    /** Handles a key: the arrows turn the page, Enter turns it (closes on the last), Esc closes. */
+    /**
+     * Handles a key: the arrows turn the page, Enter turns it (finishes on the last), Esc closes; on the language
+     * page the number keys and up and down choose the language.
+     */
     Click key(int keyCode) {
         switch (keyCode) {
             case Keyboard.KEY_ESCAPE:
@@ -680,7 +860,7 @@ final class WelcomeWindow {
             case Keyboard.KEY_NUMPADENTER:
             case Keyboard.KEY_SPACE:
                 if (page == PAGES - 1) {
-                    return Click.CLOSE;
+                    return Click.FINISH;
                 }
                 turnTo(page + 1);
                 return Click.NONE;
@@ -692,7 +872,20 @@ final class WelcomeWindow {
             case Keyboard.KEY_A:
                 turnTo(page - 1);
                 return Click.NONE;
+            case Keyboard.KEY_UP:
+            case Keyboard.KEY_W:
+            case Keyboard.KEY_DOWN:
+            case Keyboard.KEY_S:
+                if (page == LANGUAGE_PAGE) {
+                    int step = keyCode == Keyboard.KEY_UP || keyCode == Keyboard.KEY_W ? -1 : 1;
+                    chooseLanguage((language() + step + Lang.CODES.length) % Lang.CODES.length);
+                }
+                return Click.NONE;
             default:
+                int number = keyCode - Keyboard.KEY_1;
+                if (page == LANGUAGE_PAGE && number >= 0 && number < Lang.CODES.length) {
+                    chooseLanguage(number);
+                }
                 return Click.NONE;
         }
     }
