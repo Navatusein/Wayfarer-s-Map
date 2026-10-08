@@ -43,8 +43,10 @@ public final class BlockColors {
         int base = getBaseColor(block, meta);
         int tint = 0xFFFFFF;
         try {
-            tint = block == Blocks.grass ? grassTint(world, x, y, z)
-                : block.colorMultiplier(world, x, y, z) & 0xFFFFFF;
+            tint = vanillaTint(world, block, meta, x, y, z);
+            if (tint < 0) {
+                tint = block.colorMultiplier(world, x, y, z) & 0xFFFFFF;
+            }
         } catch (Throwable ignored) {
             // Some modded blocks expect a real render context here.
         }
@@ -54,24 +56,99 @@ public final class BlockColors {
         return enhance(multiply(base, tint), Config.biomeColorSaturation);
     }
 
+    /** Biome colors, as the game reads them for grass and for leaves. */
+    private static final int GRASS = 0, FOLIAGE = 1;
+
     /**
-     * The grass block's tint taken from the biomes themselves, averaged over the 3x3 around it as the game does. In
-     * modpacks the block's own color lookup can be changed and give some biomes (plains among them) another biome's
-     * bluer green, while the tall grass on it, which reads the biome directly, keeps the right one: the map without
-     * grass and flowers then showed those biomes wrong.
+     * The tint of the game's own tinted blocks, taken from the biomes as the game draws them, or -1 for any other
+     * block (its own {@code colorMultiplier}). In modpacks the blocks' own color lookups can be changed and give
+     * colors far from what the world shows: swamps came out on the map nearly as green as the forest next to them,
+     * their olive grass and leaves barely seen. Water keeps its own lookup (what darkens it in some biomes isn't
+     * known yet: see {@link #describe}).
      */
-    private static int grassTint(IBlockAccess world, int x, int y, int z) {
+    private static int vanillaTint(IBlockAccess world, Block block, int meta, int x, int y, int z) {
+        if (block == Blocks.grass || block == Blocks.tallgrass) {
+            return biomeTint(world, x, y, z, GRASS);
+        }
+        if (block == Blocks.double_plant) {
+            // Its upper half says only that it is one: the kind is the lower half's.
+            int kind = (meta & 8) != 0 ? world.getBlockMetadata(x, y - 1, z) & 7 : meta & 7;
+            return kind == 2 || kind == 3 ? biomeTint(world, x, y, z, GRASS) : 0xFFFFFF;
+        }
+        if (block == Blocks.leaves) {
+            // Spruce and birch have colors of their own, the others the biome's.
+            int kind = meta & 3;
+            return kind == 1 ? 0x619961 : kind == 2 ? 0x80A755 : biomeTint(world, x, y, z, FOLIAGE);
+        }
+        if (block == Blocks.leaves2 || block == Blocks.vine) {
+            return biomeTint(world, x, y, z, FOLIAGE);
+        }
+        return -1;
+    }
+
+    /** A biome color averaged over the 3x3 around the place, as the game blends it from biome to biome. */
+    private static int biomeTint(IBlockAccess world, int x, int y, int z, int which) {
         int r = 0, g = 0, b = 0;
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
-                int color = world.getBiomeGenForCoords(x + dx, z + dz)
-                    .getBiomeGrassColor(x + dx, y, z + dz);
+                net.minecraft.world.biome.BiomeGenBase biome = world.getBiomeGenForCoords(x + dx, z + dz);
+                int color = which == GRASS ? biome.getBiomeGrassColor(x + dx, y, z + dz)
+                    : biome.getBiomeFoliageColor(x + dx, y, z + dz);
                 r += (color >> 16) & 0xFF;
                 g += (color >> 8) & 0xFF;
                 b += color & 0xFF;
             }
         }
         return (r / 9) << 16 | (g / 9) << 8 | b / 9;
+    }
+
+    /** For the block report ({@code /wfmap3d}): how the 2D map colors the block there, step by step. */
+    public static String describe(IBlockAccess world, Block block, int meta, int x, int y, int z) {
+        StringBuilder b = new StringBuilder();
+        net.minecraft.world.biome.BiomeGenBase biome = world.getBiomeGenForCoords(x, z);
+        b.append("biome ")
+            .append(biome == null ? "?" : biome.biomeName + " (id " + biome.biomeID + ")");
+        if (biome != null) {
+            b.append(" grass=")
+                .append(hex(biome.getBiomeGrassColor(x, y, z)))
+                .append(" foliage=")
+                .append(hex(biome.getBiomeFoliageColor(x, y, z)))
+                .append(" water=")
+                .append(hex(biome.getWaterColorMultiplier()));
+        }
+        b.append("\nbase (top texture or map color) ")
+            .append(hex(getBaseColor(block, meta)));
+        try {
+            b.append(" | block's colorMultiplier ")
+                .append(hex(block.colorMultiplier(world, x, y, z)));
+        } catch (Throwable t) {
+            b.append(" | block's colorMultiplier failed: ")
+                .append(t);
+        }
+        try {
+            b.append(" | renderColor ")
+                .append(hex(block.getRenderColor(meta)));
+        } catch (Throwable t) {
+            b.append(" | renderColor failed");
+        }
+        try {
+            int tint = vanillaTint(world, block, meta, x, y, z);
+            b.append(" | biome tint used ")
+                .append(tint < 0 ? "none (colorMultiplier used)" : hex(tint));
+        } catch (Throwable t) {
+            b.append(" | biome tint failed: ")
+                .append(t);
+        }
+        b.append("\non the map ")
+            .append(hex(getColor(world, block, meta, x, y, z)))
+            .append(" (biomeColorSaturation ")
+            .append(Config.biomeColorSaturation)
+            .append(")");
+        return b.toString();
+    }
+
+    private static String hex(int rgb) {
+        return String.format("%06X", rgb & 0xFFFFFF);
     }
 
     /** Gray level that contrast pushes away from: about the middle of the map's colors. */
