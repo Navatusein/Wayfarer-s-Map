@@ -233,20 +233,22 @@ public class WaypointRenderer {
             int color = 0xFF000000 | waypoint.outlineColor;
             frame(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             frame(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-        } else if (waypoint.outlineColor != null) {
+        } else if (waypoint.outlineColor != null && icon != null) {
             int color = 0xFF000000 | waypoint.outlineColor;
             Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-            Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
+            Gui.drawRect(x0, y0, x1, y1, 0xC0202020);
         }
         if (symbol != null) {
             drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, 1f);
         } else if (icon != null) {
             drawItem(icon, cx, cy, size);
-        } else if (waypoint.outlineColor == null) {
+        } else {
+            // No icon: a small dot in the waypoint's color, the same size whether a color is set or not.
+            int dot = waypoint.outlineColor != null ? waypoint.outlineColor : DEFAULT_COLOR;
             int inset = Math.max(1, half / 3);
             Gui.drawRect(x0 + inset - 1, y0 + inset - 1, x1 - inset + 1, y1 - inset + 1, 0xFF000000);
-            Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | DEFAULT_COLOR);
+            Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | dot);
         }
 
         if (!waypoint.enabled) {
@@ -754,7 +756,12 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
-        if (outlineColor != null && !openFrame) {
+        if (icon == null) {
+            // No icon: a small dot in the waypoint's color, the same size whether a color is set or not.
+            int dot = outlineColor != null ? outlineColor : DEFAULT_COLOR;
+            fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
+            fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | dot, alpha));
+        } else if (outlineColor != null && !openFrame) {
             // As on the maps: a dark line, the waypoint's color around the icon, and a dark tile under it.
             fillRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
             fillRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
@@ -767,10 +774,10 @@ public class WaypointRenderer {
             GL11.glEnable(GL11.GL_TEXTURE_2D);
         }
         boolean drawn = icon != null && icon.draw(0f, top - 11f, 16f);
-        if (!drawn && outlineColor != null) {
-            // No icon: the frame filled with the color, as on the maps.
+        if (icon != null && !drawn && outlineColor != null) {
+            // The icon could not be drawn: the frame filled with the color.
             fillRect(-8, top - 19, 8, top - 3, faded(0xFF000000 | outlineColor, alpha));
-        } else if (!drawn) {
+        } else if (icon != null && !drawn) {
             fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
             fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | DEFAULT_COLOR, alpha));
         }
