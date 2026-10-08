@@ -2369,6 +2369,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT || mc.currentScreen != this) {
             return;
         }
+        if (chunkloadShown() && button == 0 && overLoadHintToggle(mouseX, mouseY)) {
+            Config.setChunkloadHints(!Config.chunkloadHints);
+            return;
+        }
         if (chunkloadShown() && button == 0 && loadBarSegment(mouseX, mouseY) >= 0) {
             clickLoadBar(loadBarSegment(mouseX, mouseY), mouseX, mouseY);
             return;
@@ -2507,9 +2511,23 @@ public class GuiWorldMap extends ScaledScreen {
         return progress >= 0 ? progress + LOAD_PROGRESS_HEIGHT + 5 : LOAD_ROW + LOAD_BAR_HEIGHT + 5;
     }
 
-    /** Bottom of the whole toolbar. */
+    /** Bottom of the whole toolbar: the mouse keys under the legend only while the hints are open. */
     private int loadPanelBottom() {
-        return loadLegendRow() + (loadHintLines().length + 1) * 11 + 1;
+        return loadLegendRow() + ((Config.chunkloadHints ? loadHintLines().length : 0) + 1) * 11 + 1;
+    }
+
+    /** Room on each side of the legend for the hints' toggle in the toolbar's lower right corner. */
+    private static final int LOAD_TOGGLE_ROOM = 16;
+
+    /** The button opening and closing the hints, in the toolbar's lower right corner: x0, y0, x1, y1. */
+    private int[] loadHintToggle() {
+        int right = loadPanelEdges()[1] + 2, bottom = loadPanelBottom() - 2;
+        return new int[] { right - 11, bottom - 10, right, bottom };
+    }
+
+    private boolean overLoadHintToggle(int mouseX, int mouseY) {
+        int[] box = loadHintToggle();
+        return Theme.inside(mouseX, mouseY, box[0], box[1], box[2], box[3]);
     }
 
     /** What of the area loading toolbar is under the mouse ({@code LOAD_*}), -1 none. */
@@ -2530,12 +2548,14 @@ public class GuiWorldMap extends ScaledScreen {
     private int[] loadPanelEdges() {
         int[] edges = loadLayout();
         int x0 = edges[0], x1 = edges[edges.length - 1];
-        for (String line : loadHintLines()) {
-            int w = fontRendererObj.getStringWidth(line);
-            x0 = Math.min(x0, width / 2 - w / 2);
-            x1 = Math.max(x1, width / 2 + w / 2);
+        if (Config.chunkloadHints) {
+            for (String line : loadHintLines()) {
+                int w = fontRendererObj.getStringWidth(line) + 2 * LOAD_TOGGLE_ROOM;
+                x0 = Math.min(x0, width / 2 - w / 2);
+                x1 = Math.max(x1, width / 2 + w / 2);
+            }
         }
-        int legend = legendWidth();
+        int legend = legendWidth() + 2 * LOAD_TOGGLE_ROOM;
         return new int[] { Math.min(x0, width / 2 - legend / 2), Math.max(x1, width / 2 + legend / 2) };
     }
 
@@ -2628,6 +2648,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     private String[] legendWords() {
         return new String[] { I18n.format("wayfarmap.gui.load_legend_mapped"),
+            I18n.format("wayfarmap.gui.load_legend_mapped_3d"), I18n.format("wayfarmap.gui.load_legend_mapped_both"),
             I18n.format("wayfarmap.gui.load_legend_saved"), I18n.format("wayfarmap.gui.load_legend_pending"),
             I18n.format("wayfarmap.gui.load_legend_pending_3d") };
     }
@@ -2726,7 +2747,8 @@ public class GuiWorldMap extends ScaledScreen {
         // The colors: each word after a square of it.
         int legendRow = loadLegendRow();
         String[] words = legendWords();
-        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING,
+        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_MAPPED_3D,
+            ChunkLoadView.LEGEND_MAPPED_BOTH, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING,
             ChunkLoadView.LEGEND_PENDING_3D };
         int hx = width / 2 - legendWidth() / 2;
         for (int i = 0; i < words.length; i++) {
@@ -2735,10 +2757,23 @@ public class GuiWorldMap extends ScaledScreen {
             Theme.text(fontRendererObj, words[i], hx, legendRow, Theme.TEXT_MUTED);
             hx += fontRendererObj.getStringWidth(words[i]) + 16;
         }
-        // The mouse keys.
-        String[] lines = loadHintLines();
-        for (int i = 0; i < lines.length; i++) {
-            Theme.centered(fontRendererObj, lines[i], width / 2, legendRow + 11 * (i + 1), Theme.TEXT_MUTED);
+        // The mouse keys, while the hints are open.
+        if (Config.chunkloadHints) {
+            String[] lines = loadHintLines();
+            for (int i = 0; i < lines.length; i++) {
+                Theme.centered(fontRendererObj, lines[i], width / 2, legendRow + 11 * (i + 1), Theme.TEXT_MUTED);
+            }
+        }
+        // The hints' toggle: an arrow up to close them, down to open them.
+        boolean overToggle = menu == null && dimensionList == null && overLoadHintToggle(mouseX, mouseY);
+        int[] toggle = loadHintToggle();
+        Theme.fill(toggle[0], toggle[1], toggle[2], toggle[3], overToggle ? Theme.CONTROL_HOVER : Theme.CONTROL);
+        Theme.outline(toggle[0], toggle[1], toggle[2], toggle[3], overToggle ? Theme.ACCENT : Theme.BORDER);
+        int arrowColor = overToggle ? Theme.TEXT : Theme.TEXT_MUTED;
+        int ax = (toggle[0] + toggle[2]) / 2, ay = (toggle[1] + toggle[3]) / 2 - 1;
+        for (int row = 0; row < 3; row++) {
+            int ry = Config.chunkloadHints ? ay + 2 - row : ay + row;
+            Theme.fill(ax - 2 + row, ry, ax + 3 - row, ry + 1, arrowColor);
         }
 
         if (hovered >= 0) {
@@ -2750,6 +2785,10 @@ public class GuiWorldMap extends ScaledScreen {
                 mouseX,
                 mouseY,
                 fontRendererObj);
+        } else if (overToggle) {
+            String tip = I18n
+                .format(Config.chunkloadHints ? "wayfarmap.gui.load_hints_hide" : "wayfarmap.gui.load_hints_show");
+            drawHoveringText(Collections.singletonList(tip), mouseX, mouseY, fontRendererObj);
         } else if (pickButton >= 0 && !pickSelection.isEmpty()) {
             drawPickInfo(mouseX, mouseY);
         }

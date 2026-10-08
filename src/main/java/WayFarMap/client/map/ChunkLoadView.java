@@ -13,10 +13,12 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.share.ShareNetwork;
 
 /**
- * The world map's area loading view: the chunks on the map in green, the chunks saved in the world (its region files)
+ * The world map's area loading view: the chunks on the flat map only in green, on the 3D map only in blue, on both in
+ * purple, the chunks saved in the world (its region files)
  * that the map doesn't have in grey, as the server tells, and the chunks picked to be loaded in red until the map has
  * them (then they turn green and join the rest), each area with one border around it like claims. Chunks are picked
  * by dragging with Ctrl; the server loads them through {@code /wf chunkload}'s batches.
@@ -31,15 +33,22 @@ import WayFarMap.share.ShareNetwork;
  */
 public final class ChunkLoadView {
 
-    private static final int NONE = 0, MAPPED = 1, PENDING = 2, SAVED = 3, PENDING_3D = 4;
+    /** Chunk states: MAPPED on the flat map only, MAPPED_3D on the 3D map only, MAPPED_BOTH on both. */
+    private static final int NONE = 0, MAPPED = 1, PENDING = 2, SAVED = 3, PENDING_3D = 4, MAPPED_3D = 5,
+        MAPPED_BOTH = 6;
     private static final int SAVED_FILL = 0x8B949E, SAVED_BORDER = 0x6E7681;
     private static final int MAPPED_FILL = 0x3FB950, MAPPED_BORDER = 0x2EA043;
+    private static final int MAPPED_3D_FILL = 0x388BFD, MAPPED_3D_BORDER = 0x58A6FF;
+    private static final int MAPPED_BOTH_FILL = 0xA371F7, MAPPED_BOTH_BORDER = 0xBC8CFF;
     private static final int PENDING_FILL = 0xE5534B, PENDING_BORDER = 0xFF5050;
     private static final int PENDING_3D_FILL = 0xF0883E, PENDING_3D_BORDER = 0xFFA657;
     private static final int FILL_ALPHA = 80, PENDING_ALPHA = 120, BORDER_ALPHA = 230;
     /** Chunks a drag can pick at most (a square of this side). */
     public static final int MAX_SIDE = 128;
-    /** Below this many GUI pixels a chunk, only the picked chunks are drawn (the map has too many). */
+    /**
+     * Below this many GUI pixels a chunk, the states kept for each region are drawn (the screen has too many chunks to
+     * look at each of them every frame).
+     */
     private static final double MIN_CELL = 3;
 
     /**
@@ -63,9 +72,12 @@ public final class ChunkLoadView {
     /** Whether the server lets the player load chunks from the map (it says so; servers without the mod never do). */
     private static boolean allowed;
 
-    /** Colors of the view's legend: on the map, saved in the world, picked. */
-    public static final int LEGEND_MAPPED = 0xFF000000 | MAPPED_FILL, LEGEND_SAVED = 0xFF000000 | SAVED_FILL,
+    /** Colors of the view's legend: on the 2D, 3D or both maps, saved in the world, picked. */
+    public static final int LEGEND_MAPPED = 0xFF000000 | MAPPED_FILL, LEGEND_MAPPED_3D = 0xFF000000 | MAPPED_3D_FILL,
+        LEGEND_MAPPED_BOTH = 0xFF000000 | MAPPED_BOTH_FILL, LEGEND_SAVED = 0xFF000000 | SAVED_FILL,
         LEGEND_PENDING = 0xFF000000 | PENDING_FILL, LEGEND_PENDING_3D = 0xFF000000 | PENDING_3D_FILL;
+    /** The states of the chunks drawn, kept from frame to frame so they aren't allocated each time. */
+    private static int[] grid = new int[0];
 
     public static boolean isAllowed() {
         return allowed;
@@ -188,123 +200,46 @@ public final class ChunkLoadView {
         }
 
         begin();
-        if (cell >= MIN_CELL && surface != null) {
-            // States of the chunks on screen and one around (for the borders): NONE, MAPPED or PENDING.
+        if (surface != null) {
+            // States of the chunks on screen and one around (for the borders).
             int w = maxX - minX + 3, h = maxZ - minZ + 3;
-            int[] state = new int[w * h];
-            for (int j = 0; j < h; j++) {
-                for (int i = 0; i < w; i++) {
-                    state[j * w + i] = state(surface, pending, dimension, minX - 1 + i, minZ - 1 + j);
-                }
+            if (grid.length < w * h) {
+                grid = new int[w * h];
             }
-            // Fill: runs of the same state along each row, as one rectangle.
-            for (int j = 1; j < h - 1; j++) {
-                int i = 1;
-                while (i < w - 1) {
-                    int s = state[j * w + i];
-                    int start = i;
-                    while (i < w - 1 && state[j * w + i] == s) {
-                        i++;
-                    }
-                    if (s != NONE) {
-                        double sx = x + ((minX - 1 + start) * 16 - left) * scale;
-                        double sy = y + ((minZ - 1 + j) * 16 - top) * scale;
-                        rect(
-                            sx,
-                            sy,
-                            cell * (i - start),
-                            cell,
-                            fill(s),
-                            isPending(s) ? PENDING_ALPHA : FILL_ALPHA,
-                            x,
-                            y,
-                            width,
-                            height);
+            int[] state = grid;
+            if (cell >= MIN_CELL) {
+                for (int j = 0; j < h; j++) {
+                    for (int i = 0; i < w; i++) {
+                        state[j * w + i] = state(surface, pending, dimension, minX - 1 + i, minZ - 1 + j);
                     }
                 }
-            }
-            // Borders where the neighbour differs, and the corners where an area turns inward.
-            for (int j = 1; j < h - 1; j++) {
-                for (int i = 1; i < w - 1; i++) {
-                    int s = state[j * w + i];
-                    if (s == NONE) {
-                        continue;
-                    }
-                    int color = border(s);
-                    double sx = x + ((minX - 1 + i) * 16 - left) * scale;
-                    double sy = y + ((minZ - 1 + j) * 16 - top) * scale;
-                    if (state[(j - 1) * w + i] != s) {
-                        rect(sx, sy, cell, border, color, BORDER_ALPHA, x, y, width, height);
-                    }
-                    if (state[(j + 1) * w + i] != s) {
-                        rect(sx, sy + cell - border, cell, border, color, BORDER_ALPHA, x, y, width, height);
-                    }
-                    if (state[j * w + i - 1] != s) {
-                        rect(sx, sy, border, cell, color, BORDER_ALPHA, x, y, width, height);
-                    }
-                    if (state[j * w + i + 1] != s) {
-                        rect(sx + cell - border, sy, border, cell, color, BORDER_ALPHA, x, y, width, height);
-                    }
-                    for (int dx = -1; dx <= 1; dx += 2) {
-                        for (int dz = -1; dz <= 1; dz += 2) {
-                            if (state[j * w + i + dx] == s && state[(j + dz) * w + i] == s
-                                && state[(j + dz) * w + i + dx] != s) {
-                                rect(
-                                    dx < 0 ? sx : sx + cell - border,
-                                    dz < 0 ? sy : sy + cell - border,
-                                    border,
-                                    border,
-                                    color,
-                                    BORDER_ALPHA,
-                                    x,
-                                    y,
-                                    width,
-                                    height);
+            } else {
+                // Zoomed far out: too many chunks to look at every frame. The states of each region's chunks are
+                // kept and refreshed now and then, and copied in.
+                Arrays.fill(state, 0, w * h, NONE);
+                long now = System.currentTimeMillis();
+                int x0 = minX - 1, x1 = maxX + 1, z0 = minZ - 1, z1 = maxZ + 1;
+                for (int rz = z0 >> 5; rz <= z1 >> 5; rz++) {
+                    for (int rx = x0 >> 5; rx <= x1 >> 5; rx++) {
+                        byte[] states = regionStates(surface, pending, dimension, rx, rz, now);
+                        if (states == EMPTY) {
+                            continue;
+                        }
+                        int cx0 = Math.max(rx * 32, x0), cx1 = Math.min(rx * 32 + 31, x1);
+                        int cz0 = Math.max(rz * 32, z0), cz1 = Math.min(rz * 32 + 31, z1);
+                        for (int cz = cz0; cz <= cz1; cz++) {
+                            int row = (cz - z0) * w - x0, local = (cz & 31) * 32;
+                            for (int cx = cx0; cx <= cx1; cx++) {
+                                state[row + cx] = states[local + (cx & 31)];
                             }
                         }
                     }
                 }
-            }
-        } else if (surface != null) {
-            // Zoomed far out: too many chunks to look at every frame. The states of each region's chunks are kept
-            // and refreshed now and then, and drawn as strips along the rows (no borders: they would be too thin).
-            int minRx = minX >> 5, maxRx = maxX >> 5, minRz = minZ >> 5, maxRz = maxZ >> 5;
-            long now = System.currentTimeMillis();
-            for (int rz = minRz; rz <= maxRz; rz++) {
-                for (int rx = minRx; rx <= maxRx; rx++) {
-                    byte[] states = regionStates(surface, pending, dimension, rx, rz, now);
-                    for (int lz = 0; lz < 32; lz++) {
-                        int lx = 0;
-                        while (lx < 32) {
-                            int st = states[lz * 32 + lx];
-                            int start = lx;
-                            while (lx < 32 && states[lz * 32 + lx] == st) {
-                                lx++;
-                            }
-                            if (st == NONE) {
-                                continue;
-                            }
-                            double sx = x + ((rx * 32 + start) * 16 - left) * scale;
-                            double sy = y + ((rz * 32 + lz) * 16 - top) * scale;
-                            // At least a pixel, so far out the areas still show.
-                            rect(
-                                sx,
-                                sy,
-                                Math.max(pixel, cell * (lx - start)),
-                                Math.max(pixel, cell),
-                                isPending(st) ? border(st) : fill(st),
-                                isPending(st) ? BORDER_ALPHA : FILL_ALPHA + 40,
-                                x,
-                                y,
-                                width,
-                                height);
-                        }
-                    }
+                if (REGION_STATES.size() > MAX_CACHED_REGIONS) {
+                    REGION_STATES.clear();
                 }
             }
-            if (REGION_STATES.size() > MAX_CACHED_REGIONS) {
-                REGION_STATES.clear();
-            }
+            drawStates(state, w, h, minX - 1, minZ - 1, left, top, scale, cell, border, x, y, width, height);
         }
         if (selection != null && !selection.isEmpty()) {
             int color = removing ? DELETE_BORDER
@@ -339,6 +274,110 @@ public final class ChunkLoadView {
         end();
     }
 
+    /**
+     * Draws the chunk states of a {@code w} x {@code h} grid whose first cell is chunk ({@code gridX}, {@code gridZ});
+     * the cells along its edges only tell the borders of the ones inside. Each area gets one border around it: runs
+     * of cells along a row or a column with the same edge are drawn as one rectangle.
+     */
+    private static void drawStates(int[] state, int w, int h, int gridX, int gridZ, double left, double top,
+        double scale, double cell, double border, int x, int y, int width, int height) {
+        // Fill: runs of the same state along each row, as one rectangle.
+        for (int j = 1; j < h - 1; j++) {
+            double sy = y + ((gridZ + j) * 16 - top) * scale;
+            int i = 1;
+            while (i < w - 1) {
+                int s = state[j * w + i];
+                int start = i;
+                while (i < w - 1 && state[j * w + i] == s) {
+                    i++;
+                }
+                if (s != NONE) {
+                    double sx = x + ((gridX + start) * 16 - left) * scale;
+                    rect(
+                        sx,
+                        sy,
+                        cell * (i - start),
+                        cell,
+                        fill(s),
+                        isPending(s) ? PENDING_ALPHA : FILL_ALPHA,
+                        x,
+                        y,
+                        width,
+                        height);
+                }
+            }
+        }
+        // Top and bottom borders: runs along each row of cells of one state whose neighbour above (below) differs.
+        for (int side = -1; side <= 1; side += 2) {
+            for (int j = 1; j < h - 1; j++) {
+                double sy = y + ((gridZ + j) * 16 - top) * scale + (side < 0 ? 0 : cell - border);
+                int i = 1;
+                while (i < w - 1) {
+                    int s = state[j * w + i];
+                    if (s == NONE || state[(j + side) * w + i] == s) {
+                        i++;
+                        continue;
+                    }
+                    int start = i;
+                    while (i < w - 1 && state[j * w + i] == s && state[(j + side) * w + i] != s) {
+                        i++;
+                    }
+                    double sx = x + ((gridX + start) * 16 - left) * scale;
+                    rect(sx, sy, cell * (i - start), border, border(s), BORDER_ALPHA, x, y, width, height);
+                }
+            }
+        }
+        // Left and right borders: the same down each column.
+        for (int side = -1; side <= 1; side += 2) {
+            for (int i = 1; i < w - 1; i++) {
+                double sx = x + ((gridX + i) * 16 - left) * scale + (side < 0 ? 0 : cell - border);
+                int j = 1;
+                while (j < h - 1) {
+                    int s = state[j * w + i];
+                    if (s == NONE || state[j * w + i + side] == s) {
+                        j++;
+                        continue;
+                    }
+                    int start = j;
+                    while (j < h - 1 && state[j * w + i] == s && state[j * w + i + side] != s) {
+                        j++;
+                    }
+                    double sy = y + ((gridZ + start) * 16 - top) * scale;
+                    rect(sx, sy, border, cell * (j - start), border(s), BORDER_ALPHA, x, y, width, height);
+                }
+            }
+        }
+        // The corners where an area turns inward.
+        for (int j = 1; j < h - 1; j++) {
+            for (int i = 1; i < w - 1; i++) {
+                int s = state[j * w + i];
+                if (s == NONE) {
+                    continue;
+                }
+                for (int dx = -1; dx <= 1; dx += 2) {
+                    for (int dz = -1; dz <= 1; dz += 2) {
+                        if (state[j * w + i + dx] == s && state[(j + dz) * w + i] == s
+                            && state[(j + dz) * w + i + dx] != s) {
+                            double sx = x + ((gridX + i) * 16 - left) * scale;
+                            double sy = y + ((gridZ + j) * 16 - top) * scale;
+                            rect(
+                                dx < 0 ? sx : sx + cell - border,
+                                dz < 0 ? sy : sy + cell - border,
+                                border,
+                                border,
+                                border(s),
+                                BORDER_ALPHA,
+                                x,
+                                y,
+                                width,
+                                height);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /** States of a region's chunks for the far view, and when they were worked out. */
     private static final Map<Long, Object[]> REGION_STATES = new HashMap<>();
     /** How often the far view looks at a region's chunks again. */
@@ -358,7 +397,8 @@ public final class ChunkLoadView {
             Map<Long, long[]> savedRegions = SAVED_CHUNKS.get(dimension);
             anySaved = savedRegions != null && savedRegions.containsKey(regionKey(rx, rz));
         }
-        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz) && !anySaved) {
+        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz) && !anySaved
+            && !IsoMap.INSTANCE.hasRegion(dimension, rx, rz)) {
             // Nothing of it on the map in memory, nothing picked: no need to look at its 1024 chunks.
             REGION_STATES.put(key, new Object[] { now, EMPTY, surface });
             return EMPTY;
@@ -384,7 +424,10 @@ public final class ChunkLoadView {
         return false;
     }
 
-    /** NONE, MAPPED or PENDING; a picked chunk mapped since it was picked stops being picked. */
+    /**
+     * NONE, SAVED, one of the MAPPED states or one of the PENDING ones; a picked chunk mapped since it was picked stops
+     * being picked.
+     */
     private static int state(MapDimension surface, Map<Long, Long> pending, int dimension, int chunkX, int chunkZ) {
         long time = surface.chunkTimeInMemory(chunkX, chunkZ);
         if (!pending.isEmpty()) {
@@ -400,20 +443,48 @@ public final class ChunkLoadView {
                 }
             }
         }
+        boolean iso = IsoMap.INSTANCE.hasChunk(dimension, chunkX, chunkZ);
         if (time > 0) {
-            return MAPPED;
+            return iso ? MAPPED_BOTH : MAPPED;
+        }
+        if (iso) {
+            return MAPPED_3D;
         }
         return regionsMode && isSaved(dimension, chunkX, chunkZ) ? SAVED : NONE;
     }
 
     private static int fill(int state) {
-        return state == PENDING ? PENDING_FILL
-            : state == PENDING_3D ? PENDING_3D_FILL : state == SAVED ? SAVED_FILL : MAPPED_FILL;
+        switch (state) {
+            case PENDING:
+                return PENDING_FILL;
+            case PENDING_3D:
+                return PENDING_3D_FILL;
+            case SAVED:
+                return SAVED_FILL;
+            case MAPPED_3D:
+                return MAPPED_3D_FILL;
+            case MAPPED_BOTH:
+                return MAPPED_BOTH_FILL;
+            default:
+                return MAPPED_FILL;
+        }
     }
 
     private static int border(int state) {
-        return state == PENDING ? PENDING_BORDER
-            : state == PENDING_3D ? PENDING_3D_BORDER : state == SAVED ? SAVED_BORDER : MAPPED_BORDER;
+        switch (state) {
+            case PENDING:
+                return PENDING_BORDER;
+            case PENDING_3D:
+                return PENDING_3D_BORDER;
+            case SAVED:
+                return SAVED_BORDER;
+            case MAPPED_3D:
+                return MAPPED_3D_BORDER;
+            case MAPPED_BOTH:
+                return MAPPED_BOTH_BORDER;
+            default:
+                return MAPPED_BORDER;
+        }
     }
 
     private static boolean isPending(int state) {

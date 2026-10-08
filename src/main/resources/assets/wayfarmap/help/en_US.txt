@@ -210,7 +210,7 @@ The command maps a §flarge area around you§r without walking it: the server lo
 - §e/wf chunkload stop§r — stop it
 - §e/wf regionload 2d|3d <radius>§r — only the chunks saved in the world, nothing generated; §efull§r instead of the radius — every region file of the dimension
 
-§fFrom the map:§r §bModes → Area loading§r (operators only) shows the chunks §aon the map§r (green), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red).
+§fFrom the map:§r §bModes → Area loading§r (operators only) shows the chunks §aon the 2D map§r only (green), §9on the 3D map§r only (blue), §don both§r (purple), those §7saved in the world§r but not mapped yet (gray) and those §cqueued§r (red). The arrow in the toolbar's lower right corner hides or shows the mouse keys under its legend.
 - §eCtrl+LMB drag§r — load the gray chunks of the rectangle from the regions, as they are (nothing generated)
 - §eShift+LMB drag§r — generate the chunks of the rectangle (those never made too)
 - §eCtrl+Shift+LMB drag§r — generate them with every cave layer

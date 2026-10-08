@@ -186,6 +186,8 @@ public class Config {
      * too, whatever {@link #record3d} is.
      */
     public static boolean chunkload3d = false;
+    /** The world map's area loading view: the mouse keys are shown under the toolbar's legend. */
+    public static boolean chunkloadHints = true;
     /** {@code /wf chunkload}: client milliseconds per tick for mapping a batch's chunks. */
     public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
@@ -1225,6 +1227,14 @@ public class Config {
             false,
             () -> chunkload3d,
             v -> chunkload3d = v);
+        bool(
+            c,
+            "chunkloadHints",
+            "Area loading view of the world map: the mouse keys are shown in the view's toolbar. Also the arrow in "
+                + "the toolbar's lower right corner.",
+            true,
+            () -> chunkloadHints,
+            v -> chunkloadHints = v);
     }
 
     private static Configuration configuration;
@@ -1401,6 +1411,12 @@ public class Config {
     /** The 3D switch of the area loading view. */
     public static void setChunkload3d(boolean on) {
         chunkload3d = on;
+        save();
+    }
+
+    /** The hints' toggle of the area loading view. */
+    public static void setChunkloadHints(boolean on) {
+        chunkloadHints = on;
         save();
     }
 

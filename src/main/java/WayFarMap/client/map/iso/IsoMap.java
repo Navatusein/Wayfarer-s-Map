@@ -1434,6 +1434,18 @@ public final class IsoMap implements BlockStore.Listener {
         });
     }
 
+    /** Whether the 3D map of the dimension has the chunk's blocks (false while no world is open). Render thread. */
+    public boolean hasChunk(int dimensionId, int chunkX, int chunkZ) {
+        Dimension dimension = dimension(dimensionId);
+        return dimension != null && dimension.store.top(chunkX, chunkZ) >= 0;
+    }
+
+    /** Whether the 3D map of the dimension has any chunk of the region. Render thread. */
+    public boolean hasRegion(int dimensionId, int rx, int rz) {
+        Dimension dimension = dimension(dimensionId);
+        return dimension != null && dimension.store.anyInRegion(rx, rz);
+    }
+
     /** Starts writing the changed block files in the background. */
     public Future<?> save() {
         if (writer == null) {

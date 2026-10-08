@@ -261,6 +261,16 @@ public final class BlockStore {
         return region.yMin[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
+    /** Whether any chunk of the region has blocks (its header is read from the file on first use). */
+    public boolean anyInRegion(int rx, int rz) {
+        for (short top : region(rx, rz).yMax) {
+            if (top >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** When the chunk's blocks last changed, 0 if there are none. */
     public long time(int chunkX, int chunkZ) {
         Region region = region(chunkX >> 5, chunkZ >> 5);
