@@ -209,10 +209,20 @@ public class MapRegion implements PixelSource {
         if (level == 0 || (argb >>> 24) == 0) {
             return 0;
         }
+        return warmTexel(argb, GLOW_ALPHA[level]);
+    }
+
+    /** How much of the lit color the glow shows at the given block light level (0-255). */
+    static int glowAlpha(int level) {
+        return GLOW_ALPHA[level];
+    }
+
+    /** The color in the warm light of torches, with the given opacity. */
+    static int warmTexel(int argb, int alpha) {
         int r = Math.min(255, (int) (((argb >> 16) & 0xFF) * GLOW_R));
         int g = Math.min(255, (int) (((argb >> 8) & 0xFF) * GLOW_G));
         int b = Math.min(255, (int) ((argb & 0xFF) * GLOW_B));
-        return GLOW_ALPHA[level] << 24 | r << 16 | g << 8 | b;
+        return alpha << 24 | r << 16 | g << 8 | b;
     }
 
     /**
