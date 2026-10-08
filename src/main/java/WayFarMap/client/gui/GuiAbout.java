@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
@@ -46,19 +47,19 @@ public class GuiAbout extends ScaledScreen {
     /** How long "Copied!" stays on the version after a click (ms). */
     private static final long COPIED_MS = 1500;
     /** The colors of the testers' avatars, one after another. */
-    private static final int[] AVATAR_COLORS = { 0xFF3FB950, 0xFFDB61A2, 0xFFE3B341, 0xFFA371F7 };
+    static final int[] AVATAR_COLORS = { 0xFF3FB950, 0xFFDB61A2, 0xFFE3B341, 0xFFA371F7 };
 
     /** The mod's and the author's pages: {name, url, icon, color}. */
     private static final Object[][] LINKS = { { "GitHub", MOD_GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
         { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
     /** A white circle with smooth edges, tinted for the avatars' rings and the glows. */
-    private static final ResourceLocation CIRCLE = new ResourceLocation(
+    static final ResourceLocation CIRCLE = new ResourceLocation(
         "wayfarmap",
         "textures/gui/avatars/circle.png");
 
     /** The RU GTNH chat's icon. */
-    private static final ResourceLocation CHAT_ICON = new ResourceLocation(
+    static final ResourceLocation CHAT_ICON = new ResourceLocation(
         "wayfarmap",
         "textures/gui/avatars/gtnh_chat.png");
 
@@ -331,7 +332,7 @@ public class GuiAbout extends ScaledScreen {
     }
 
     /** A round picture of the person (cut to a circle in the file) in a thin ring of the color. */
-    private void drawAvatar(int centerX, int centerY, int radius, String name, int color) {
+    static void drawAvatar(int centerX, int centerY, int radius, String name, int color) {
         drawRound(CIRCLE, centerX, centerY, radius + 1, color);
         String file = "textures/gui/avatars/" + name.toLowerCase(Locale.ROOT) + ".png";
         drawRound(new ResourceLocation("wayfarmap", file), centerX, centerY, radius, 0xFFFFFFFF);
@@ -341,8 +342,9 @@ public class GuiAbout extends ScaledScreen {
      * Draws a round picture tinted with the color: a texture with smooth edges, so the circle is round at any scale,
      * not stepped like one drawn of rectangles.
      */
-    private void drawRound(ResourceLocation picture, double centerX, double centerY, double radius, int color) {
-        mc.getTextureManager()
+    static void drawRound(ResourceLocation picture, double centerX, double centerY, double radius, int color) {
+        Minecraft.getMinecraft()
+            .getTextureManager()
             .bindTexture(picture);
         // Smooth, not blocky: the picture is drawn at another size than it is.
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);

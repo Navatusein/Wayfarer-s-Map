@@ -2317,7 +2317,11 @@ public class GuiWorldMap extends ScaledScreen {
     public void handleMouseInput() {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
-        if (wheel == 0 || welcome) {
+        if (wheel != 0 && welcome) {
+            welcomeWindow.scroll(wheel);
+            return;
+        }
+        if (wheel == 0) {
             return;
         }
         int newIndex = Math.max(0, Math.min(Config.MAP_ZOOMS.length - 1, zoomIndex + (wheel > 0 ? 1 : -1)));
@@ -3057,7 +3061,7 @@ public class GuiWorldMap extends ScaledScreen {
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (welcome) {
-            if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN) {
+            if (welcomeWindow.key(keyCode) != WelcomeWindow.Click.NONE) {
                 closeWelcome();
             }
             return;
