@@ -26,11 +26,14 @@ import net.minecraft.network.play.server.S26PacketMapChunkBulk;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.RegionFileCache;
 import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.world.ChunkWatchEvent;
 
 import WayFarMap.Config;
 import WayFarMap.Perf;
@@ -398,6 +401,33 @@ public final class ChunkLoadServer {
         .compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
 
     /** The region files of the world's dimension, as {rx, rz}. */
+    /**
+     * Some mods send what their blocks keep only to players who start watching the chunk, not with the chunk nor in
+     * a description packet (ForgeMultipart's parts: without them its microblocks came out empty on the 3D map, 52 to
+     * 99% of them, against 1-2% for chunks met while playing). For a chunk the player doesn't watch already, they
+     * are told the player watches it, then that it no longer does (the chunk is only sent for the map), so they
+     * don't keep sending it changes.
+     */
+    private static void tellWatched(WorldServer world, EntityPlayerMP player, Chunk chunk) {
+        try {
+            if (player.worldObj != world) {
+                // The mods look for the chunk in the player's world: only for the dimension the player is in.
+                return;
+            }
+            if (world.getPlayerManager()
+                .isPlayerWatchingChunk(player, chunk.xPosition, chunk.zPosition)) {
+                // Sent to the player already as it plays (and watched on).
+                return;
+            }
+            ChunkCoordIntPair at = chunk.getChunkCoordIntPair();
+            MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.Watch(at, player));
+            MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.UnWatch(at, player));
+        } catch (RuntimeException e) {
+            // A mod failing on it: its blocks are drawn without what it would have sent.
+            WayFarMap.LOG.debug("A mod failed on chunk " + chunk.xPosition + ", " + chunk.zPosition + " watched", e);
+        }
+    }
+
     private static List<int[]> regionFiles(WorldServer world) {
         List<int[]> regions = new ArrayList<>();
         File[] files = new File(world.getChunkSaveLocation(), "region").listFiles();
@@ -878,6 +908,7 @@ public final class ChunkLoadServer {
                     // A tile entity that can't describe itself: drawn as its block.
                 }
             }
+            tellWatched(world, player, chunk);
         }
         int[] inner = job.inner(job.index);
         ShareNetwork.LoadBatch batch = new ShareNetwork.LoadBatch();

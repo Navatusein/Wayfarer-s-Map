@@ -172,6 +172,13 @@ public final class IsoMap implements BlockStore.Listener {
      * done only once stored, as they are let go after).
      */
     private final Map<Long, ChunkBlocks> loadAwaiting = new HashMap<>();
+    /**
+     * Chunks of {@code /wf chunkload} whose ForgeMultipart blocks have no parts yet ({@link MultipartParts}), and
+     * since when: copied once they came, or after {@link #PARTS_WAIT_MS}. Once they never came, not waited for again.
+     */
+    private final Map<Long, Long> partsWait = new HashMap<>();
+    private static final long PARTS_WAIT_MS = 3000;
+    private boolean partsNeverCame;
 
     /** A chunk of {@link #awaiting}: its copy, and its blocks whose pictures are still to draw. */
     private static final class Awaiting {
@@ -296,6 +303,8 @@ public final class IsoMap implements BlockStore.Listener {
         early.clear();
         awaiting.clear();
         loadAwaiting.clear();
+        partsWait.clear();
+        partsNeverCame = false;
         hiddenChunks.clear();
         recheck.clear();
         storedHidden.clear();
@@ -904,6 +913,40 @@ public final class IsoMap implements BlockStore.Listener {
             IsoLog.log("CHUNKLOAD_CAPTURE " + chunk.xPosition + "," + chunk.zPosition + " forced (stored again)");
         }
         ChunkBlocks resumed = loadAwaiting.remove(key);
+        if (resumed == null && !partsNeverCame && MultipartParts.missing(chunk)) {
+            long now = System.currentTimeMillis();
+            Long since = partsWait.putIfAbsent(key, now);
+            if (since == null) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " ForgeMultipart parts not here yet: copied once they come");
+                return false;
+            }
+            if (now - since < PARTS_WAIT_MS) {
+                return false;
+            }
+            partsNeverCame = true;
+            IsoLog.log(
+                "CHUNKLOAD_WAIT_GAVE_UP " + chunk.xPosition
+                    + ","
+                    + chunk.zPosition
+                    + " no ForgeMultipart parts after "
+                    + PARTS_WAIT_MS
+                    + " ms: copied without them, not waited for again this game");
+        } else if (resumed == null) {
+            Long since = partsWait.remove(key);
+            if (since != null) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT_DONE " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " ForgeMultipart parts came after "
+                        + (System.currentTimeMillis() - since)
+                        + " ms");
+            }
+        }
         if (awaiting.remove(key) != null || resumed != null) {
             FaceRenderer.finishFlights(palette);
         }
@@ -926,6 +969,7 @@ public final class IsoMap implements BlockStore.Listener {
         captureQueue.remove(key);
         awaiting.remove(key);
         loadAwaiting.remove(key);
+        partsWait.remove(key);
         if (inProgress != null && inProgress == key) {
             inProgress = null;
         }
