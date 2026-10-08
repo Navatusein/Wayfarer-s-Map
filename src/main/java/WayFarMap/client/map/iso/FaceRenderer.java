@@ -1433,6 +1433,7 @@ final class FaceRenderer {
                     // after a while gave the same pictures five times out of six, and kept big bases from ever
                     // being finished.
                     long now = System.currentTimeMillis();
+                    placeData(pending);
                     BY_PLACE.put(
                         place(pending.x, pending.y, pending.z),
                         new Cached(pending.surroundings, pending.ids.clone(), now, pending.placeData));
@@ -1443,6 +1444,7 @@ final class FaceRenderer {
                         if (same != null) {
                             for (Pending other : same) {
                                 System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
+                                placeData(other);
                                 BY_PLACE.put(
                                     place(other.x, other.y, other.z),
                                     new Cached(other.surroundings, other.ids.clone(), now, other.placeData));
@@ -1630,12 +1632,14 @@ final class FaceRenderer {
             found.add(pending);
             if (pending.byPlace()) {
                 tileEntities++;
-                if (!pending.unsure && DATA_CACHE) {
+                Cached cached = BY_PLACE.get(place(x, y, z));
+                if (cached != null && cached.data != 0 && cached.surroundings == surroundings) {
+                    // Only when there is a picture to check it against (writing the data of every tile entity
+                    // each time cost the big bases' ticks).
                     long k0 = System.nanoTime();
                     pending.placeData = dataKey(world, pending, dataHashes);
                     dataKeyNanos += System.nanoTime() - k0;
                 }
-                Cached cached = BY_PLACE.get(place(x, y, z));
                 if (cached != null && cached.surroundings == surroundings
                     && (cached.data == 0 || cached.data == pending.placeData)
                     && fits(cached.ids, pending, sight)) {
@@ -2523,6 +2527,48 @@ final class FaceRenderer {
      * Hash of what a tile entity keeps (its NBT without where it is), {@link #NO_HASH} if it can't be written; once
      * per tile entity and chunk.
      */
+    /** 64-bit FNV-1a of the bytes written to it. */
+    private static final class HashingStream extends java.io.OutputStream {
+
+        long hash;
+
+        @Override
+        public void write(int b) {
+            hash = (hash ^ (b & 0xFF)) * 0x100000001B3L;
+        }
+    }
+
+    private static final HashingStream NBT_HASH = new HashingStream();
+    private static final DataOutputStream NBT_OUT = new DataOutputStream(NBT_HASH);
+
+    /**
+     * Hash of all the bytes of what a tile entity keeps (render thread). Not {@code NBTTagCompound.hashCode()}: 32
+     * bits summed over the entries, two states with values swapped between fields (facing 2 rotation 3, facing 3
+     * rotation 2) could give the same, and one block's pictures would be given to the other.
+     */
+    private static long nbtHash(net.minecraft.nbt.NBTTagCompound tag) throws IOException {
+        NBT_HASH.hash = 0xCBF29CE484222325L;
+        net.minecraft.nbt.CompressedStreamTools.write(tag, NBT_OUT);
+        NBT_OUT.flush();
+        return NBT_HASH.hash;
+    }
+
+    /**
+     * Sets {@link Pending#placeData} if it isn't yet (a block drawn without its data key worked out: an unreliable
+     * class), so its picture by place is checked against it later. Render thread.
+     */
+    private static void placeData(Pending pending) {
+        if (pending.placeData != 0 || pending.unsure || !DATA_CACHE || pending.tileEntity == null) {
+            return;
+        }
+        World world = pending.tileEntity.getWorldObj();
+        if (world != null) {
+            long k0 = System.nanoTime();
+            pending.placeData = dataKey(world, pending, new IdentityHashMap<>());
+            dataKeyNanos += System.nanoTime() - k0;
+        }
+    }
+
     private static long tileEntityHash(TileEntity tileEntity, Map<TileEntity, Long> hashes) {
         Long known = hashes.get(tileEntity);
         if (known != null) {
@@ -2540,7 +2586,7 @@ final class FaceRenderer {
                 tileEntity.getClass()
                     .getName()
                     .hashCode(),
-                tag.hashCode());
+                nbtHash(tag));
             if (hash == NO_HASH) {
                 hash++;
             }
@@ -2601,6 +2647,7 @@ final class FaceRenderer {
         }
         long t0 = System.nanoTime();
         pending.dataKey = pending.placeData != 0 ? pending.placeData : dataKey(world, pending, hashes);
+        pending.placeData = pending.dataKey;
         dataKeyNanos += System.nanoTime() - t0;
         if (pending.dataKey == 0) {
             dataNoKey++;
@@ -2634,6 +2681,7 @@ final class FaceRenderer {
             return false;
         }
         System.arraycopy(ids, 0, pending.ids, 0, pending.ids.length);
+        pending.placeData = pending.dataKey;
         BY_PLACE.put(
             place(pending.x, pending.y, pending.z),
             new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis(), pending.placeData));

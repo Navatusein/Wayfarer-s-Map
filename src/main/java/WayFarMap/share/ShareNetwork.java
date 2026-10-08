@@ -267,14 +267,18 @@ public final class ShareNetwork {
             missing = buf.readInt();
             serverMs = buf.readInt();
             workMs = buf.readInt();
-            watched = buf.readInt();
-            alreadyWatched = buf.readInt();
             int words = buf.readInt();
             if (words > 0) {
                 picked = new long[Math.min(words, 1024)];
                 for (int i = 0; i < picked.length; i++) {
                     picked[i] = buf.readLong();
                 }
+            }
+            // Added later, at the end: a server of an older version sends none (read as 0), an older client
+            // leaves them unread.
+            if (buf.readableBytes() >= 8) {
+                watched = buf.readInt();
+                alreadyWatched = buf.readInt();
             }
         }
 
@@ -300,14 +304,14 @@ public final class ShareNetwork {
             buf.writeInt(missing);
             buf.writeInt(serverMs);
             buf.writeInt(workMs);
-            buf.writeInt(watched);
-            buf.writeInt(alreadyWatched);
             buf.writeInt(picked == null ? 0 : picked.length);
             if (picked != null) {
                 for (long word : picked) {
                     buf.writeLong(word);
                 }
             }
+            buf.writeInt(watched);
+            buf.writeInt(alreadyWatched);
         }
     }
 

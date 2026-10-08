@@ -29,8 +29,11 @@ import WayFarMap.WayFarMap;
 final class PictureCache {
 
     private static final int MAGIC = 0x57465043; // "WFPC"
-    /** 3: pictures by place too. (2: caches of version 1 may hold pictures read back later, which came out wrong.) */
-    private static final int VERSION = 3;
+    /**
+     * 4: keys of tile entity data hashed from all their bytes. (3: pictures by place too. 2: caches of version 1 may
+     * hold pictures read back later, which came out wrong.)
+     */
+    private static final int VERSION = 4;
     private static final String NAME = "3d-pictures.dat";
     private static long modsHash;
 

@@ -284,7 +284,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer != null) {
             // The chunks still to be stored first, then everything saved.
             finish(writer);
-            saver.submit(saveTask());
+            saver.submit(saveTask(true));
             finish(saver);
             writer = null;
             saver = null;
@@ -327,13 +327,23 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /** Saves the pictures, then the caches and blocks that refer to them (made on the render thread). */
-    private Runnable saveTask() {
+    /** Caches of pictures copied for saving at most this often while playing (it holds up the render thread). */
+    private static final long CACHE_SAVE_MS = 5 * 60_000L;
+    private long cacheSavedAt;
+
+    /** @param closing the world is left: the caches are saved whenever they were last */
+    private Runnable saveTask(boolean closing) {
         List<Dimension> all = new ArrayList<>(dimensions.values());
         FacePalette pictures = palette;
         File cacheFile = pictureCache;
         // Copied now (the render thread's), written once the pictures they name are saved.
         long copyStart = System.nanoTime();
-        byte[] caches = pictures == null || cacheFile == null ? null : FaceRenderer.exportCaches(pictures.generation);
+        boolean cacheDue = closing || copyStart / 1_000_000L - cacheSavedAt >= CACHE_SAVE_MS;
+        byte[] caches = !cacheDue || pictures == null || cacheFile == null ? null
+            : FaceRenderer.exportCaches(pictures.generation);
+        if (caches != null) {
+            cacheSavedAt = copyStart / 1_000_000L;
+        }
         long copyNanos = System.nanoTime() - copyStart;
         return () -> {
             IsoLog.saverStart("save all");
@@ -544,6 +554,9 @@ public final class IsoMap implements BlockStore.Listener {
                 }
             } else {
                 noisy.add(result[1]);
+                if (signatures.containsKey(result[1])) {
+                    signatures.put(result[1], result[3]);
+                }
             }
         }
         if (storedAt.size() > 100_000) {
@@ -1247,8 +1260,10 @@ public final class IsoMap implements BlockStore.Listener {
                 if (!force && mayBeNoise
                     && blocks.onlyNoiseChanged(before)
                     && System.currentTimeMillis() - dimension.store.time(cx, cz) < NOISE_STORE_MS) {
-                    // Fluids flowing or drawing back, leaves, light: the stored copy stays a while longer.
-                    writerResults.add(new long[] { dimensionId, key, NOISE, 0 });
+                    // Fluids flowing or drawing back, leaves, light: the stored copy stays a while longer. Its
+                    // signature goes back (the render thread took this copy's): the next copy alike isn't taken
+                    // for stored, and is stored once the time is up.
+                    writerResults.add(new long[] { dimensionId, key, NOISE, before.signature() });
                     IsoLog.noise(cx, cz, "writer", 0);
                     return;
                 }
@@ -1424,7 +1439,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer == null) {
             return null;
         }
-        return saver.submit(saveTask());
+        return saver.submit(saveTask(false));
     }
 
     /** Resource packs changed: blocks look different, pictures of them are taken again. */
