@@ -579,15 +579,21 @@ final class BlockDiag {
                 .toString());
     }
 
+    /**
+     * Counts per kind of block of {@link #tracerFallbacks}: no picture, picture unreadable, a cube's side without one,
+     * and a picture left out as hidden from the map that a ray reached all the same.
+     */
+    static final int FALLBACK_FIELDS = 4;
+
     /** Rays of a tile that drew blocks from icons for want of a picture, merged in (renderer threads). */
     static void tracerFallbacks(Map<Integer, int[]> counts) {
         if (counts == null || counts.isEmpty()) {
             return;
         }
         for (Map.Entry<Integer, int[]> entry : counts.entrySet()) {
-            long[] total = FALLBACKS.computeIfAbsent(entry.getKey(), k -> new long[3]);
+            long[] total = FALLBACKS.computeIfAbsent(entry.getKey(), k -> new long[FALLBACK_FIELDS]);
             synchronized (total) {
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < FALLBACK_FIELDS; i++) {
                     total[i] += entry.getValue()[i];
                 }
             }
@@ -604,7 +610,8 @@ final class BlockDiag {
         IsoLog.log(
             title + " tiles drawing blocks from icons for want of a picture (rays): noPicture = the copy has none for"
                 + " the block, spriteUnreadable = its picture couldn't be read, sideNoPicture = a solid cube's side"
-                + " without one");
+                + " without one, hiddenReached = a picture left out as hidden from the map that a ray reached all the"
+                + " same (should be 0: see HIDDEN_REACHED)");
         for (int n = 0; n < Math.min(30, list.size()); n++) {
             long[] c = list.get(n)
                 .getValue();
@@ -620,11 +627,13 @@ final class BlockDiag {
                     + " spriteUnreadable="
                     + c[1]
                     + " sideNoPicture="
-                    + c[2]);
+                    + c[2]
+                    + " hiddenReached="
+                    + c[3]);
         }
     }
 
     private static long sum(long[] values) {
-        return values[0] + values[1] + values[2];
+        return values[0] + values[1] + values[2] + values[3];
     }
 }

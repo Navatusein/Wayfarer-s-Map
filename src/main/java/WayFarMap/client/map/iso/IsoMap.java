@@ -1013,7 +1013,16 @@ public final class IsoMap implements BlockStore.Listener {
             }
             if (blocks != null && palette != null) {
                 // Read back later but for a chunk let go now or one loaded for /wf chunkload (let go soon).
-                complete = FaceRenderer.addFaces(world, chunk, blocks, palette, deadline, !unloading && !forLoad);
+                // Only the chunks the map has hide blocks: one loaded but never put on it is empty for the tiles.
+                BlockStore store = dimension.store;
+                complete = FaceRenderer.addFaces(
+                    world,
+                    chunk,
+                    blocks,
+                    palette,
+                    deadline,
+                    !unloading && !forLoad,
+                    k -> store.time((int) (k >> 32), (int) k) != 0);
             }
         } catch (RuntimeException e) {
             WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);

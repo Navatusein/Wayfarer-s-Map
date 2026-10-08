@@ -199,6 +199,9 @@ public final class IsoLog {
         LOADED.clear();
         HIDDEN_KINDS.clear();
         visChecked = visHidden = visToDraw = visToDrawHidden = visNanos = 0;
+        visByReach = visByLines = visSeen = visLinesFollowed = visLinesSkipped = visReachNanos = visLinesNanos = 0;
+        hiddenReachedCount.set(0);
+        FaceRenderer.dataStatsClear();
         CHANGE_SHOWN.clear();
         NEW_SHOWN.clear();
         UPLOAD_WAITS.clear();
@@ -289,6 +292,25 @@ public final class IsoLog {
                 + "cube with solid icons first; glass, leaves, water, bars let it through) are not drawn: HIDDEN "
                 + "ids, drawn from icons should a ray get there. QUEUED reason=visibility: a block changed nearby, "
                 + "the chunk's hidden pictures are looked at again. -Dwayfarmap.drawHidden=true draws them all.");
+        line(
+            "LEGEND hiddenFromMap details: only the chunks the map has hide blocks (a chunk loaded but never stored "
+                + "is empty for the tiles), and only the blocks to draw are looked at. hiddenByReach = pictures hidden "
+                + "because open space from the sky reaches no cell around (no line followed), hiddenByLines = hidden "
+                + "after following the lines of sight, seen = can be seen; lines/linesSkipped = lines followed / left "
+                + "out as starting where open space doesn't reach; reachMs/linesMs = time of each step. A ray of a "
+                + "tile reaching a hidden picture is a mistake: HIDDEN_REACHED (where), SUMMARY "
+                + "raysReachingHiddenPictures and fallback hiddenReached should stay 0.");
+        line(
+            "LEGEND byData: pictures of blocks with a tile entity (Carpenter's Blocks, ArchitectureCraft, GregTech) by "
+                + "the block, its surroundings, open sides, what its tile entity keeps (NBT without x/y/z) and what "
+                + "the 6 tile entities next to it keep. hit = given without drawing, sharedInChunk = drawn once for "
+                + "all the blocks with the same key in the chunk (classes that proved reliable), learning = drawn as "
+                + "the key isn't confirmed yet, verify = drawn anyway to check (every 16th), notFitting = kept "
+                + "pictures hidden where this block can be seen, unreliable = key gave other pictures once (drawn "
+                + "every time), classOff = class turned off, noKey = its data couldn't be written. DATA_UNRELIABLE = a "
+                + "key gave other pictures (should be rare), DATA_CLASS_TRUSTED / DATA_CLASS_OFF = a class proved "
+                + "reliable / not. SUMMARY data#: per class of tile entity. -Dwayfarmap.noDataCache=true turns it "
+                + "off.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -557,7 +579,11 @@ public final class IsoLog {
         }
         long key = key(cx, cz);
         long now = System.nanoTime();
-        picturesReused.addAndGet(FaceRenderer.kindHit + FaceRenderer.surroundingsHit + FaceRenderer.placeHit);
+        picturesReused.addAndGet(
+            FaceRenderer.kindHit + FaceRenderer.surroundingsHit
+                + FaceRenderer.placeHit
+                + FaceRenderer.dataHit
+                + FaceRenderer.dataShared);
         picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
         Trace trace = TRACES.get(key);
         if (trace == null) {
@@ -646,6 +672,24 @@ public final class IsoLog {
                     + FaceRenderer.surroundingsShared
                     + " kindHit="
                     + FaceRenderer.kindHit
+                    + "] byData[hit="
+                    + FaceRenderer.dataHit
+                    + " sharedInChunk="
+                    + FaceRenderer.dataShared
+                    + " learning="
+                    + FaceRenderer.dataLearning
+                    + " verify="
+                    + FaceRenderer.dataVerify
+                    + " notFitting="
+                    + FaceRenderer.dataNotFitting
+                    + " unreliable="
+                    + FaceRenderer.dataUnreliableKey
+                    + " classOff="
+                    + FaceRenderer.dataClassOff
+                    + " noKey="
+                    + FaceRenderer.dataNoKey
+                    + " keyMs="
+                    + ms(FaceRenderer.dataKeyNanos)
                     + "] batches="
                     + FaceRenderer.batches
                     + " slots="
@@ -682,6 +726,20 @@ public final class IsoLog {
                     + FaceRenderer.hiddenToDraw
                     + " ms="
                     + ms(FaceRenderer.visibilityNanos)
+                    + " hiddenByReach="
+                    + FaceRenderer.visHiddenByReach
+                    + " hiddenByLines="
+                    + FaceRenderer.visHiddenByLines
+                    + " seen="
+                    + FaceRenderer.visSeen
+                    + " lines="
+                    + FaceRenderer.visLinesFollowed
+                    + " linesSkipped="
+                    + FaceRenderer.visLinesSkipped
+                    + " reachMs="
+                    + ms(FaceRenderer.visReachNanos)
+                    + " linesMs="
+                    + ms(FaceRenderer.visLinesNanos)
                     + "] skippable[expiredSame="
                     + FaceRenderer.expiredSame
                     + " expiredDiffer="
@@ -841,6 +899,13 @@ public final class IsoLog {
         }
     }
 
+    /**
+     * Pictures looked at by {@link MapVisibility} since the log started: hidden by its first step alone (open space
+     * reaches no cell around), hidden after following lines, seen; lines followed and skipped; time of each step.
+     */
+    private static long visByReach, visByLines, visSeen, visLinesFollowed, visLinesSkipped, visReachNanos,
+        visLinesNanos;
+
     /** A chunk's blocks needing pictures were looked at (render thread). */
     static void visibilityTotals(int checked, int hidden, int toDraw, int toDrawHidden, long nanos) {
         visChecked += checked;
@@ -848,11 +913,52 @@ public final class IsoLog {
         visToDraw += toDraw;
         visToDrawHidden += toDrawHidden;
         visNanos += nanos;
+        visByReach += FaceRenderer.visHiddenByReach;
+        visByLines += FaceRenderer.visHiddenByLines;
+        visSeen += FaceRenderer.visSeen;
+        visLinesFollowed += FaceRenderer.visLinesFollowed;
+        visLinesSkipped += FaceRenderer.visLinesSkipped;
+        visReachNanos += FaceRenderer.visReachNanos;
+        visLinesNanos += FaceRenderer.visLinesNanos;
+    }
+
+    /** Rays that reached a picture left out as hidden from the map (renderer threads): should be none. */
+    private static final AtomicLong hiddenReachedCount = new AtomicLong();
+    /** Lines logged for them at most per log (the count goes on). */
+    private static final int HIDDEN_REACHED_LINES = 40;
+
+    /**
+     * A ray of a tile reached a picture left out as hidden ({@link MapVisibility} said the map can't show it from
+     * there): the block is drawn from its icons. Counted; the first few logged with where it is (renderer threads).
+     *
+     * @param side the solid cube's side, -1 for a block that isn't one (then the view side counts)
+     */
+    static void hiddenReached(int x, int y, int z, int lookKey, int rotation, int side) {
+        if (!on()) {
+            return;
+        }
+        long n = hiddenReachedCount.incrementAndGet();
+        if (n <= HIDDEN_REACHED_LINES) {
+            line(
+                "HIDDEN_REACHED " + x
+                    + ","
+                    + y
+                    + ","
+                    + z
+                    + " "
+                    + BlockDiag.name(lookKey)
+                    + " view="
+                    + rotation
+                    + (side >= 0 ? " side=" + side : "")
+                    + " (left out as hidden, yet a ray got there: drawn from icons; logged "
+                    + HIDDEN_REACHED_LINES
+                    + " times at most)");
+        }
     }
 
     /** How many pictures were left out as hidden from the map, and of which kinds of blocks. */
     private static void visibilitySummary(String title) {
-        if (visChecked == 0) {
+        if (visChecked == 0 && hiddenReachedCount.get() == 0) {
             return;
         }
         line(
@@ -869,7 +975,23 @@ public final class IsoLog {
                 + visToDrawHidden
                 + ", looking took "
                 + ms(visNanos)
-                + "ms");
+                + "ms (pictures hidden by reach alone "
+                + visByReach
+                + ", after following lines "
+                + visByLines
+                + ", seen "
+                + visSeen
+                + "; lines followed "
+                + visLinesFollowed
+                + ", skipped "
+                + visLinesSkipped
+                + "; reachMs="
+                + ms(visReachNanos)
+                + " linesMs="
+                + ms(visLinesNanos)
+                + ") raysReachingHiddenPictures="
+                + hiddenReachedCount.get()
+                + " (should be 0)");
         List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(HIDDEN_KINDS.entrySet());
         kinds.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
         for (int n = 0; n < Math.min(20, kinds.size()); n++) {
@@ -2444,6 +2566,7 @@ public final class IsoLog {
         levelSummary(title);
         attemptSummary(title);
         kindSummary(title);
+        FaceRenderer.dataSummary(title);
         blockSummary(title);
         changeSummary(title);
         BlockDiag.fallbackSummary(title);
