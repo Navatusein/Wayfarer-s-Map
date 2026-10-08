@@ -23,7 +23,7 @@ import WayFarMap.client.gui.ui.Theme;
 /**
  * About the mod: its glowing logo over a starry top, the name and the version (a click copies it), what the mod is,
  * who made it (a click opens the author's GitHub), who tested it, and the author's pages. Its parts slide in one after
- * another when it opens; Esc, the button at the bottom or a click outside the window closes it.
+ * another when it opens; Esc or the button at the bottom closes it.
  */
 public class GuiAbout extends ScaledScreen {
 
@@ -67,7 +67,7 @@ public class GuiAbout extends ScaledScreen {
     private long copiedAt;
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
-    private int[] panelRect = new int[4], versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
+    private int[] versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
     private final int[][] linkRects = new int[LINKS.length][4];
     /** How lit each thing is by the mouse. */
     private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0);
@@ -159,7 +159,6 @@ public class GuiAbout extends ScaledScreen {
         int windowHeight = windowHeight();
         int left = (width - WIDTH) / 2, top = Math.max(4, (height - windowHeight) / 2);
         int right = left + WIDTH, bottom = top + windowHeight, centerX = left + WIDTH / 2;
-        panelRect = new int[] { left, top, right, bottom };
         // A soft shadow under the window, so it stands off the map.
         Theme.fill(left - 2, top + 2, right + 2, bottom + 4, 0x40000000);
         Theme.fill(left - 1, top + 1, right + 1, bottom + 2, 0x40000000);
@@ -404,7 +403,7 @@ public class GuiAbout extends ScaledScreen {
         if (button != 0) {
             return;
         }
-        if (!inside(mouseX, mouseY, panelRect) || inside(mouseX, mouseY, closeRect)) {
+        if (inside(mouseX, mouseY, closeRect)) {
             close();
         } else if (inside(mouseX, mouseY, versionRect)) {
             setClipboardString(Tags.VERSION);
@@ -423,7 +422,7 @@ public class GuiAbout extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN) {
+        if (keyCode == Keyboard.KEY_ESCAPE) {
             close();
         }
     }
