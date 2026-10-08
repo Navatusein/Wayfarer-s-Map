@@ -57,6 +57,11 @@ public class GuiAbout extends ScaledScreen {
         "wayfarmap",
         "textures/gui/avatars/circle.png");
 
+    /** The RU GTNH chat's icon. */
+    private static final ResourceLocation CHAT_ICON = new ResourceLocation(
+        "wayfarmap",
+        "textures/gui/avatars/gtnh_chat.png");
+
     /** The stars twinkling over the top: {x, y} as parts of its size, and the phase of their twinkle. */
     private static final double[][] STARS = new double[22][3];
 
@@ -383,13 +388,12 @@ public class GuiAbout extends ScaledScreen {
     /** A tester (an avatar and the name) or the chat (its icon and name); lit under the mouse. */
     private void drawChip(int[] r, String name, int i, double lit) {
         boolean chat = i >= TESTERS.length;
-        int color = chat ? 0xFF2AABEE : AVATAR_COLORS[i % AVATAR_COLORS.length];
+        int color = chat ? 0xFFF2C14E : AVATAR_COLORS[i % AVATAR_COLORS.length];
         Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
         Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, color, lit));
         int iconCenterX = r[0] + 11, centerY = (r[1] + r[3]) / 2;
         if (chat) {
-            String[] icon = Icons.SMALL_CHAT;
-            Icons.draw(icon, iconCenterX - Icons.width(icon) / 2, centerY - icon.length / 2, color);
+            drawRound(CHAT_ICON, iconCenterX, centerY, 8, 0xFFFFFFFF);
         } else {
             drawAvatar(iconCenterX, centerY, 8, name, color);
         }
