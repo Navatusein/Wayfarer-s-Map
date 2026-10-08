@@ -566,9 +566,9 @@ public class GuiMapData extends ScaledScreen {
         long[] freed = new long[1];
         String what = id == ID_LOGS ? "logs folder"
             : id == ID_CACHE ? "3D picture cache folder"
-            : (id == ID_DEL_2D ? "2D map" : id == ID_DEL_3D ? "3D map" : "2D and 3D map")
-                + (dimension == null ? " of every dimension" : " of " + dimension.getName())
-                + " (Map data screen)";
+                : (id == ID_DEL_2D ? "2D map" : id == ID_DEL_3D ? "3D map" : "2D and 3D map")
+                    + (dimension == null ? " of every dimension" : " of " + dimension.getName())
+                    + " (Map data screen)";
         MapManager.INSTANCE.resetMaps(what, () -> {
             if (id == ID_LOGS) {
                 freed[0] = MapCleaner.clearLogs(logsDirectory);
@@ -853,7 +853,7 @@ public class GuiMapData extends ScaledScreen {
             long size = !canDelete ? 0
                 : b.id == ID_LOGS ? data.logs
                     : b.id == ID_CACHE ? data.cache
-                    : b.id == ID_DEL_2D ? scope[0] : b.id == ID_DEL_3D ? scope[1] : scope[0] + scope[1];
+                        : b.id == ID_DEL_2D ? scope[0] : b.id == ID_DEL_3D ? scope[1] : scope[0] + scope[1];
             b.displayString = I18n.format(
                 armed == b.id ? "wayfarmap.clean.confirm"
                     : b.id == ID_LOGS || b.id == ID_CACHE ? "wayfarmap.clean.clear" : "wayfarmap.clean.delete");

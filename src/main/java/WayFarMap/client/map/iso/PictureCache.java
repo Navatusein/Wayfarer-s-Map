@@ -14,10 +14,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+import WayFarMap.WayFarMap;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
-
-import WayFarMap.WayFarMap;
 
 /**
  * The caches of block pictures ({@link FaceRenderer#exportCaches}) kept from game to game: which pictures a block
@@ -93,8 +92,9 @@ final class PictureCache {
             int generation = in.readInt(), packs = in.readInt();
             long mods = in.readLong();
             if (generation != palette.generation || packs != palette.packs) {
-                IsoLog.log("PICTURE_CACHE ignored: made for other pictures (resource packs changed or the 3D map was"
-                    + " deleted)");
+                IsoLog.log(
+                    "PICTURE_CACHE ignored: made for other pictures (resource packs changed or the 3D map was"
+                        + " deleted)");
                 return;
             }
             if (mods != modsHash()) {

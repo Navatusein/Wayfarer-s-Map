@@ -193,6 +193,7 @@ public final class IsoMap implements BlockStore.Listener {
             this.remaining = remaining;
         }
     }
+
     /**
      * Signatures of stored copies with every picture, worked out by the writer for chunks not yet copied this
      * session ({@link #NO_SIGNATURE} if there is none such): a chunk whose blocks are the same as stored needs no
@@ -1023,8 +1024,8 @@ public final class IsoMap implements BlockStore.Listener {
      * @param resumed the chunk's copy whose pictures were read back since ({@link #awaiting}): finished with it,
      *                not copied again
      */
-    private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline,
-        boolean forLoad, ChunkBlocks resumed) {
+    private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline, boolean forLoad,
+        ChunkBlocks resumed) {
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
             return true;
@@ -1363,8 +1364,8 @@ public final class IsoMap implements BlockStore.Listener {
             changes.add(new long[] { store.dimension, chunkX, chunkZ, top, now, fresh });
         } else {
             changes.add(
-                new long[] { store.dimension, chunkX, chunkZ, top, now, fresh, box[0], box[1], box[2], box[3],
-                    box[4], box[5] });
+                new long[] { store.dimension, chunkX, chunkZ, top, now, fresh, box[0], box[1], box[2], box[3], box[4],
+                    box[5] });
         }
     }
 

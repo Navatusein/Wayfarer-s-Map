@@ -403,8 +403,11 @@ final class BlockDiag {
                 .append(
                     ids[view] == FacePalette.HIDDEN ? "HIDDEN"
                         : ids[view] == FacePalette.EMPTY ? "EMPTY"
-                        : ids[view] == 0 ? "NOT_TAKEN"
-                            : shot.coverage[view] + "%(solid " + shot.solid[view] + "%)/bright" + shot.brightness[view])
+                            : ids[view] == 0 ? "NOT_TAKEN"
+                                : shot.coverage[view] + "%(solid "
+                                    + shot.solid[view]
+                                    + "%)/bright"
+                                    + shot.brightness[view])
                 .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "")
                 .append(
                     cube && shot.shade[view] < 1f ? String.format(Locale.ROOT, "(shade %.2f)", shot.shade[view]) : "");

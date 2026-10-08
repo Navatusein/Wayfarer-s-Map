@@ -288,8 +288,8 @@ final class FaceRenderer {
     }
 
     /** What {@link DataClass#stats} count, in this order. */
-    static final String[] DATA_FIELDS = { "reused", "sharedInChunk", "drawn", "keysLearned", "confirmed",
-        "verified", "conflicts", "notFitting", "noKey" };
+    static final String[] DATA_FIELDS = { "reused", "sharedInChunk", "drawn", "keysLearned", "confirmed", "verified",
+        "conflicts", "notFitting", "noKey" };
     private static final int D_REUSED = 0, D_SHARED = 1, D_DRAWN = 2, D_KEYS = 3, D_CONFIRMED = 4, D_VERIFIED = 5,
         D_CONFLICTS = 6, D_NOT_FITTING = 7, D_NO_KEY = 8;
     /**
@@ -1891,8 +1891,7 @@ final class FaceRenderer {
             return 0;
         }
         String name = icon.getIconName();
-        return (long) (name == null ? 0 : name.hashCode()) << 32
-            ^ (long) Float.floatToIntBits(icon.getMinU()) * 31
+        return (long) (name == null ? 0 : name.hashCode()) << 32 ^ (long) Float.floatToIntBits(icon.getMinU()) * 31
             ^ Float.floatToIntBits(icon.getMinV());
     }
 

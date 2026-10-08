@@ -1062,8 +1062,9 @@ public final class ChunkLoadServer {
      */
     private static void unwatch(Job job, WorldServer world, int x, int z) {
         EntityPlayerMP toldTo = job.told.remove(key(x, z));
-        if (toldTo != null && toldTo.worldObj == world && !world.getPlayerManager()
-            .isPlayerWatchingChunk(toldTo, x, z)) {
+        if (toldTo != null && toldTo.worldObj == world
+            && !world.getPlayerManager()
+                .isPlayerWatchingChunk(toldTo, x, z)) {
             // (Unless the player came near it since: the game told them it watches it as it plays.)
             Watching.toldUnwatched(toldTo, x, z);
         }

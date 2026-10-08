@@ -397,7 +397,8 @@ public final class ChunkLoadView {
             Map<Long, long[]> savedRegions = SAVED_CHUNKS.get(dimension);
             anySaved = savedRegions != null && savedRegions.containsKey(regionKey(rx, rz));
         }
-        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz) && !anySaved
+        if (!surface.isInMemory(rx, rz) && !hasPending(pending, rx, rz)
+            && !anySaved
             && !IsoMap.INSTANCE.hasRegion(dimension, rx, rz)) {
             // Nothing of it on the map in memory, nothing picked: no need to look at its 1024 chunks.
             REGION_STATES.put(key, new Object[] { now, EMPTY, surface });

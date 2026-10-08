@@ -1408,15 +1408,7 @@ public final class IsoLog {
                     + (System.currentTimeMillis() - changeTimeMs)
                     + " changed="
                     + (box == null ? "whole"
-                        : box[0] + "," + box[1]
-                            + ","
-                            + box[2]
-                            + ".."
-                            + box[3]
-                            + ","
-                            + box[4]
-                            + ","
-                            + box[5])
+                        : box[0] + "," + box[1] + "," + box[2] + ".." + box[3] + "," + box[4] + "," + box[5])
                     + " tilesDirtied="
                     + tiles
                     + " tilesInMemory="
@@ -1848,8 +1840,8 @@ public final class IsoLog {
      * @param queuedNanos from its job being queued to its upload, -1 if not known
      * @param nanos       putting it on the card
      */
-    static void tileShown(IsoTiles.Key key, String source, boolean empty, long changeMs, long newNanos,
-        long waitNanos, long queuedNanos, long nanos) {
+    static void tileShown(IsoTiles.Key key, String source, boolean empty, long changeMs, long newNanos, long waitNanos,
+        long queuedNanos, long nanos) {
         if (!on()) {
             return;
         }

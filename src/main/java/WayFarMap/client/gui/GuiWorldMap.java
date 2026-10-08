@@ -2747,9 +2747,8 @@ public class GuiWorldMap extends ScaledScreen {
         // The colors: each word after a square of it.
         int legendRow = loadLegendRow();
         String[] words = legendWords();
-        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_MAPPED_3D,
-            ChunkLoadView.LEGEND_MAPPED_BOTH, ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING,
-            ChunkLoadView.LEGEND_PENDING_3D };
+        int[] squares = { ChunkLoadView.LEGEND_MAPPED, ChunkLoadView.LEGEND_MAPPED_3D, ChunkLoadView.LEGEND_MAPPED_BOTH,
+            ChunkLoadView.LEGEND_SAVED, ChunkLoadView.LEGEND_PENDING, ChunkLoadView.LEGEND_PENDING_3D };
         int hx = width / 2 - legendWidth() / 2;
         for (int i = 0; i < words.length; i++) {
             Theme.fill(hx, legendRow + 1, hx + 6, legendRow + 7, squares[i]);

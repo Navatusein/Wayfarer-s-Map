@@ -901,7 +901,12 @@ final class IsoTiles {
         long start = System.nanoTime();
         File[] files = new File[4];
         for (int i = 0; i < 4; i++) {
-            Key child = new Key(key.dimension, key.rotation, key.level - 1, key.tu * 2 + (i & 1), key.tv * 2 + (i >> 1));
+            Key child = new Key(
+                key.dimension,
+                key.rotation,
+                key.level - 1,
+                key.tu * 2 + (i & 1),
+                key.tv * 2 + (i >> 1));
             files[i] = tileFile(dimension, child);
             if (!files[i].isFile()) {
                 return null;
