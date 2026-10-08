@@ -75,6 +75,17 @@ public final class BlockInspect {
             .append(" px/block\n");
         int key = game(r, world, x, y, z);
         around(r, world, x, y, z);
+        r.append("\n== 2D MAP COLOR\n");
+        try {
+            r.append(
+                WayFarMap.client.map.BlockColors
+                    .describe(world, world.getBlock(x, y, z), world.getBlockMetadata(x, y, z), x, y, z))
+                .append('\n');
+        } catch (Throwable t) {
+            r.append("failed: ")
+                .append(t)
+                .append('\n');
+        }
         FacePalette palette = IsoMap.INSTANCE.palette();
         IsoMap.Dimension dimension = IsoMap.INSTANCE.dimension(world.provider.dimensionId);
         stored(r, directory, dimension, palette, x, y, z);

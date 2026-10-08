@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,13 @@ public final class IsoMap implements BlockStore.Listener {
      * away only now and then: copying every loaded chunk again and again costs frames while flying around.
      */
     private static final long RECAPTURE_MS = 10_000, FAR_RECAPTURE_MS = 60_000, CHANGED_RECAPTURE_MS = 3_000;
+    /**
+     * A chunk whose changes were only noise lately (fluids flowing, leaves, light: see {@link BlockNoise}) is copied
+     * again at most this often when it changes: an oil spring or a lava fall nearby changes it every few seconds.
+     */
+    static final long NOISY_RECAPTURE_MS = 30_000;
+    /** Noise alone is stored at most this often: the map catches up with fluids and light once in a while. */
+    static final long NOISE_STORE_MS = 60_000;
     /** Chunks from the player that count as near. */
     private static final int NEAR_CHUNKS = 2;
     /** Time for pictures of a chunk copied as it is let go. */
@@ -63,7 +71,7 @@ public final class IsoMap implements BlockStore.Listener {
         final int id;
         final File directory;
         final BlockStore store;
-        /** No sky (the Nether): dim at any time of day, lit only by its lava and lamps. */
+        /** Dark, no sky and a ceiling (the Nether, not the End): dim at any time of day, lit only by lava and lamps. */
         volatile boolean noSky;
 
         Dimension(int id, File directory, BlockStore.Listener listener) {
@@ -74,6 +82,8 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     private File worldDirectory;
+    /** Where the caches of the world's pictures are kept ({@link PictureCache}). */
+    private File pictureCache;
     private final Map<Integer, Dimension> dimensions = new HashMap<>();
     /** Stores the copied chunks, one after the other. */
     private ExecutorService writer;
@@ -124,12 +134,77 @@ public final class IsoMap implements BlockStore.Listener {
      * and again took half the game's time in a big base. {@code /wf chunkload 3d} takes them anew.
      */
     private final Map<Long, Long> signatures = new HashMap<>();
+    /** {@link ChunkBlocks#quietSignature} of the copies in {@link #signatures}. */
+    private final Map<Long, Long> quietSignatures = new HashMap<>();
+    /** When the writer last stored a chunk with changes this session (ms). */
+    private final Map<Long, Long> storedAt = new HashMap<>();
+    /** Chunks whose last copies changed only by noise: copied again seldom ({@link #NOISY_RECAPTURE_MS}). */
+    private final Set<Long> noisy = new HashSet<>();
+    /**
+     * What the writer did with chunks, for the render thread: {dimension, key, STORED or NOISE, 1 if a block (not
+     * only light or pictures) changed}.
+     */
+    private final Queue<long[]> writerResults = new ConcurrentLinkedQueue<>();
+    private static final long STORED = 1, NOISE = 2;
+    /**
+     * Chunks stored with pictures left out as hidden from the map ({@link MapVisibility}); a block changing within
+     * {@link MapVisibility#RADIUS} chunks of one (a roof taken off) has it looked at again ({@link #recheck}).
+     */
+    private final Set<Long> hiddenChunks = new HashSet<>();
+    /** Chunks whose pictures are looked at again though their blocks are the same: what can be seen changed. */
+    private final Set<Long> recheck = new HashSet<>();
+    /** Stored copies (of an earlier game) with pictures left out as hidden, found by the writer. */
+    private final Set<Long> storedHidden = ConcurrentHashMap.newKeySet();
+    /**
+     * Chunks copied before they settled (the 8 around them loaded, decoration maybe still arriving): copied again
+     * when the surface map scans them settled, which costs nothing (no pictures) if they stayed the same.
+     */
+    private final Set<Long> early = new HashSet<>();
+    /**
+     * Chunks whose pictures are being read back from the graphics card ({@link FaceRenderer#finishFlights}), with
+     * their copy: finished first the next tick, without copying them again.
+     */
+    private final LinkedHashMap<Long, Awaiting> awaiting = new LinkedHashMap<>();
+
+    /**
+     * Chunks of {@code /wf chunkload} whose pictures are being read back, with their copy: finished by
+     * {@link #captureForLoad} the next tick (kept apart from {@link #awaiting}: they aren't in the queues, and are
+     * done only once stored, as they are let go after).
+     */
+    private final Map<Long, ChunkBlocks> loadAwaiting = new HashMap<>();
+    /**
+     * Chunks of {@code /wf chunkload} whose ForgeMultipart blocks have no parts yet ({@link MultipartParts}), and
+     * since when: copied once they came, or after {@link #PARTS_WAIT_MS}. Once they never came, not waited for again.
+     */
+    private final Map<Long, Long> partsWait = new HashMap<>();
+    /** Chunks of /wf chunkload told waiting for the pictures to be saved (logged once each). */
+    private final Set<Long> paletteFullLogged = new HashSet<>();
+    private static final long PARTS_WAIT_MS = 3000;
+    private boolean partsNeverCame;
+
+    /** A chunk of {@link #awaiting}: its copy, and its blocks whose pictures are still to draw. */
+    private static final class Awaiting {
+
+        final ChunkBlocks blocks;
+        final int remaining;
+
+        Awaiting(ChunkBlocks blocks, int remaining) {
+            this.blocks = blocks;
+            this.remaining = remaining;
+        }
+    }
+
     /**
      * Signatures of stored copies with every picture, worked out by the writer for chunks not yet copied this
      * session ({@link #NO_SIGNATURE} if there is none such): a chunk whose blocks are the same as stored needs no
      * pictures after the game is started again, so a big base shows at once instead of being taken anew each time.
      */
     private final Map<Long, Long> storedSignatures = new ConcurrentHashMap<>();
+    /**
+     * {@link ChunkBlocks#quietSignature} of the same stored copies: a chunk whose stored copy differs only by noise
+     * (in a flight's log, mostly leaves marked for decay since an earlier game) needs no pictures either.
+     */
+    private final Map<Long, Long> storedQuietSignatures = new ConcurrentHashMap<>();
     private static final long NO_SIGNATURE = 0;
     /** Chunks whose stored copy the writer is looking at; they come back to their queue when it is done. */
     private final Set<Long> checking = new HashSet<>();
@@ -164,7 +239,15 @@ public final class IsoMap implements BlockStore.Listener {
         FaceRenderer.clear();
         this.worldDirectory = worldDirectory;
         IsoLog.open(Minecraft.getMinecraft().mcDataDir, worldDirectory);
+        IsoLog.log(
+            "PICTURES framebuffers=" + OwnFramebuffer.kind()
+                + " (the mod's own; the game's are "
+                + (net.minecraft.client.renderer.OpenGlHelper.isFramebufferEnabled() ? "on" : "OFF")
+                + ")");
         palette = FacePalette.load(worldDirectory, spriteCacheId());
+        // What was learned of the pictures in earlier games: a base taken before isn't drawn again.
+        pictureCache = PictureCache.fileFor(Minecraft.getMinecraft().mcDataDir, worldDirectory);
+        PictureCache.load(pictureCache, palette);
         writer = backgroundThread("WayFarMap 3D writer");
         saver = backgroundThread("WayFarMap 3D saver");
     }
@@ -202,7 +285,7 @@ public final class IsoMap implements BlockStore.Listener {
         if (writer != null) {
             // The chunks still to be stored first, then everything saved.
             finish(writer);
-            saver.submit(saveTask());
+            saver.submit(saveTask(true));
             finish(saver);
             writer = null;
             saver = null;
@@ -216,22 +299,53 @@ public final class IsoMap implements BlockStore.Listener {
         copiedWhileLoaded.clear();
         unfinished.clear();
         signatures.clear();
+        quietSignatures.clear();
+        storedAt.clear();
+        noisy.clear();
+        writerResults.clear();
+        early.clear();
+        awaiting.clear();
+        loadAwaiting.clear();
+        partsWait.clear();
+        paletteFullLogged.clear();
+        partsNeverCame = false;
+        hiddenChunks.clear();
+        recheck.clear();
+        storedHidden.clear();
+        FaceRenderer.dropFlights();
         refreshing.clear();
         storedSignatures.clear();
+        storedQuietSignatures.clear();
         checking.clear();
         checked.clear();
         loading.clear();
         inProgress = null;
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
+        pictureCache = null;
         palette = null;
         IsoLog.close();
     }
 
-    /** Saves the pictures, then the blocks that refer to them. */
-    private Runnable saveTask() {
+    /** Saves the pictures, then the caches and blocks that refer to them (made on the render thread). */
+    /** Caches of pictures copied for saving at most this often while playing (it holds up the render thread). */
+    private static final long CACHE_SAVE_MS = 5 * 60_000L;
+    private long cacheSavedAt;
+
+    /** @param closing the world is left: the caches are saved whenever they were last */
+    private Runnable saveTask(boolean closing) {
         List<Dimension> all = new ArrayList<>(dimensions.values());
         FacePalette pictures = palette;
+        File cacheFile = pictureCache;
+        // Copied now (the render thread's), written once the pictures they name are saved.
+        long copyStart = System.nanoTime();
+        boolean cacheDue = closing || copyStart / 1_000_000L - cacheSavedAt >= CACHE_SAVE_MS;
+        byte[] caches = !cacheDue || pictures == null || cacheFile == null ? null
+            : FaceRenderer.exportCaches(pictures.generation);
+        if (caches != null) {
+            cacheSavedAt = copyStart / 1_000_000L;
+        }
+        long copyNanos = System.nanoTime() - copyStart;
         return () -> {
             IsoLog.saverStart("save all");
             try {
@@ -239,6 +353,10 @@ public final class IsoMap implements BlockStore.Listener {
                     long start = System.nanoTime();
                     pictures.save();
                     IsoLog.log("PICTURES_SAVED ms=" + (System.nanoTime() - start) / 1_000_000);
+                    if (caches != null) {
+                        IsoLog.log("PICTURE_CACHE copied on the render thread ms=" + copyNanos / 1_000_000);
+                        PictureCache.save(cacheFile, caches, pictures.generation, pictures.packs);
+                    }
                 }
                 all.forEach(d -> d.store.save());
             } finally {
@@ -260,7 +378,7 @@ public final class IsoMap implements BlockStore.Listener {
             dimension = new Dimension(id, new File(worldDirectory, "dim" + id), this);
             dimensions.put(id, dimension);
         }
-        if (!dimension.noSky && MapManager.INSTANCE.hasNoSky(id)) {
+        if (!dimension.noSky && MapManager.INSTANCE.isDark(id)) {
             dimension.noSky = true;
         }
         return dimension;
@@ -275,7 +393,7 @@ public final class IsoMap implements BlockStore.Listener {
     /** Many new pictures (flying over new land): written now, so they don't pile up in memory. */
     private void savePicturesIfMany() {
         FacePalette pictures = palette;
-        if (pictures == null || savingPictures || pictures.unsavedBytes() < PICTURES_TO_SAVE) {
+        if (pictures == null || saver == null || savingPictures || pictures.unsavedBytes() < PICTURES_TO_SAVE) {
             return;
         }
         savingPictures = true;
@@ -315,8 +433,19 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** @return whether the time ran out with chunks still waiting */
     private boolean tickCapture(World world) {
+        long looks = Perf.start();
         BlockLooks.pump(TICK_LOOK_BUDGET_NANOS);
+        Perf.end(Perf.Part.LOOKS_TICK, looks);
         drainChanges();
+        drainWriterResults();
+        // Whatever is queued: /wf chunkload takes pictures with nothing queued here (block recording off), and
+        // without this they piled up until the palette was full and chunks were stored without them.
+        savePicturesIfMany();
+        // Reading out the pictures of the tick before counts in this tick's time for copying.
+        long tickStart = System.nanoTime();
+        long read = Perf.start();
+        FaceRenderer.finishFlights(palette);
+        Perf.end(Perf.Part.PICTURES_READ, read);
         Long done;
         while ((done = checked.poll()) != null) {
             // Its stored copy was looked at: its turn again (first, as a chunk new this session), now with the
@@ -325,7 +454,8 @@ public final class IsoMap implements BlockStore.Listener {
                 freshQueue.add(done);
             }
         }
-        if (world == null || writer == null || captureQueue.isEmpty() && freshQueue.isEmpty() && inProgress == null) {
+        if (world == null || writer == null
+            || captureQueue.isEmpty() && freshQueue.isEmpty() && inProgress == null && awaiting.isEmpty()) {
             return false;
         }
         if (world.provider.dimensionId != lastCaptureDimension) {
@@ -333,6 +463,9 @@ public final class IsoMap implements BlockStore.Listener {
                 .log("DIMENSION_CHANGED queues cleared: fresh=" + freshQueue.size() + " again=" + captureQueue.size());
             captureQueue.clear();
             freshQueue.clear();
+            awaiting.clear();
+            loadAwaiting.clear();
+            FaceRenderer.dropFlights();
             partial.clear();
             copiedWhileLoaded.clear();
             unfinished.clear();
@@ -340,22 +473,137 @@ public final class IsoMap implements BlockStore.Listener {
             inProgress = null;
             return false;
         }
-        savePicturesIfMany();
         // A chunk takes a fraction of a millisecond, more with pictures.
-        long start = System.nanoTime(), budget = Config.isoCaptureMs * 1_000_000L;
+        long start = tickStart, budget = Config.isoCaptureMs * 1_000_000L;
         // The chunk being finished first, with most of the time; the rest for the others (most take a fraction of
         // a millisecond), so new land keeps coming while a big base is taken.
+        // Those whose pictures were read back since the last tick first: they only need storing.
+        resumeAwaiting(world, start + budget * 3 / 4);
         continueInProgress(world, start + budget * 3 / 4);
         long end = start + budget;
         captureFrom(world, freshQueue, end);
         captureFrom(world, captureQueue, end);
-        return !freshQueue.isEmpty() || !captureQueue.isEmpty() || inProgress != null;
+        return !freshQueue.isEmpty() || !captureQueue.isEmpty() || inProgress != null || !awaiting.isEmpty();
+    }
+
+    /**
+     * Finishes the chunks whose pictures were read back (see {@link #awaiting}): the ones with all their pictures
+     * drawn are stored; of those with more to draw only the chunk being finished goes on (the first one becomes it),
+     * the others wait their turn with their copy.
+     */
+    private void resumeAwaiting(World world, long deadline) {
+        if (awaiting.isEmpty()) {
+            return;
+        }
+        List<Map.Entry<Long, Awaiting>> all = new ArrayList<>(awaiting.entrySet());
+        awaiting.clear();
+        for (Map.Entry<Long, Awaiting> entry : all) {
+            long key = entry.getKey();
+            Awaiting waiting = entry.getValue();
+            int cx = (int) (key >> 32), cz = (int) key;
+            boolean current = inProgress != null && inProgress == key;
+            if (!world.getChunkProvider()
+                .chunkExists(cx, cz)) {
+                unfinished.remove(key);
+                if (current) {
+                    inProgress = null;
+                }
+                IsoLog.dropped(cx, cz, "no longer loaded while its pictures were read back");
+                continue;
+            }
+            if (waiting.remaining > 0 && !current) {
+                if (inProgress != null) {
+                    // Another one is being finished: this one waits, its pictures so far kept.
+                    awaiting.put(key, waiting);
+                    continue;
+                }
+                current = true;
+                inProgress = key;
+                inProgressSince = System.currentTimeMillis();
+                inProgressTries = 0;
+            }
+            if (current) {
+                inProgressTries++;
+            }
+            Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
+            if (capture(world, chunk, false, false, deadline, false, waiting.blocks)) {
+                if (current) {
+                    inProgress = null;
+                    logInProgressDone(key);
+                }
+            } else if (inProgress == null) {
+                // Pictures still to take that weren't sent off (the time ran out): finished first from now on.
+                inProgress = key;
+                inProgressSince = System.currentTimeMillis();
+                inProgressTries = 0;
+            }
+        }
+    }
+
+    private void drainWriterResults() {
+        long[] result;
+        long now = System.currentTimeMillis();
+        while ((result = writerResults.poll()) != null) {
+            if (result[0] != lastCaptureDimension) {
+                continue;
+            }
+            if (result[2] == STORED) {
+                storedAt.put(result[1], now);
+                noisy.remove(result[1]);
+                if (result[3] != 0) {
+                    recheckAround(result[1]);
+                }
+            } else {
+                noisy.add(result[1]);
+                if (signatures.containsKey(result[1])) {
+                    signatures.put(result[1], result[3]);
+                }
+            }
+        }
+        if (storedAt.size() > 100_000) {
+            storedAt.clear();
+        }
+        if (noisy.size() > 50_000) {
+            noisy.clear();
+        }
+    }
+
+    /**
+     * A block of the chunk changed: the chunks around it with pictures left out as hidden are looked at again (one may
+     * be seen now that wasn't).
+     */
+    private void recheckAround(long key) {
+        if (hiddenChunks.isEmpty()) {
+            return;
+        }
+        int cx = (int) (key >> 32), cz = (int) key;
+        for (int dx = -MapVisibility.RADIUS; dx <= MapVisibility.RADIUS; dx++) {
+            for (int dz = -MapVisibility.RADIUS; dz <= MapVisibility.RADIUS; dz++) {
+                long other = ((long) (cx + dx) << 32) | ((cz + dz) & 0xFFFFFFFFL);
+                if (other == key || !hiddenChunks.contains(other) || recheck.contains(other)) {
+                    continue;
+                }
+                recheck.add(other);
+                FaceRenderer.forgetSession(other);
+                if (!freshQueue.contains(other)) {
+                    captureQueue.add(other);
+                    IsoLog.queued(cx + dx, cz + dz, "visibility", "again", freshQueue.size(), captureQueue.size());
+                }
+            }
+        }
+        if (recheck.size() > 10_000) {
+            recheck.clear();
+        }
     }
 
     /** Takes more pictures of the chunk being finished, until the deadline (at least one batch). */
     private void continueInProgress(World world, long deadline) {
         Long key = inProgress;
         if (key == null) {
+            return;
+        }
+        if (awaiting.containsKey(key)) {
+            // Its pictures are being read back: it goes on with its copy (resumeAwaiting).
             return;
         }
         int cx = (int) (key >> 32), cz = (int) (long) key;
@@ -368,16 +616,21 @@ public final class IsoMap implements BlockStore.Listener {
         inProgressTries++;
         if (capture(world, world.getChunkFromChunkCoords(cx, cz), false, false, deadline)) {
             inProgress = null;
-            IsoLog.log(
-                "IN_PROGRESS_DONE " + cx
-                    + ","
-                    + cz
-                    + " finished in "
-                    + (System.currentTimeMillis() - inProgressSince)
-                    + " ms over "
-                    + inProgressTries
-                    + " more ticks; the next chunk may start");
+            logInProgressDone(key);
         }
+    }
+
+    private void logInProgressDone(long key) {
+        int cx = (int) (key >> 32), cz = (int) key;
+        IsoLog.log(
+            "IN_PROGRESS_DONE " + cx
+                + ","
+                + cz
+                + " finished in "
+                + (System.currentTimeMillis() - inProgressSince)
+                + " ms over "
+                + inProgressTries
+                + " more ticks; the next chunk may start");
     }
 
     /**
@@ -400,6 +653,10 @@ public final class IsoMap implements BlockStore.Listener {
             long key = it.next();
             it.remove();
             int cx = (int) (key >> 32), cz = (int) key;
+            if (awaiting.containsKey(key)) {
+                // Its pictures are being read back: it is finished from there.
+                continue;
+            }
             if (inProgress != null && unfinished.containsKey(key)) {
                 // A chunk with many pictures still to take, while another one is being finished: not tried now (a
                 // try found its blocks again and took a few pictures, and took the time of the chunks that are
@@ -430,6 +687,10 @@ public final class IsoMap implements BlockStore.Listener {
                                 + FaceRenderer.progressTotal
                                 + " taken; finished first in the next ticks");
                         return;
+                    }
+                    if (awaiting.containsKey(key)) {
+                        // Waits with its pictures in flight until the one being finished is done.
+                        continue;
                     }
                     // Another one is being finished: this one waits its turn (the pictures taken are kept).
                     queue.add(key);
@@ -468,12 +729,18 @@ public final class IsoMap implements BlockStore.Listener {
         // Waiting to be copied (for the first time, or again since it changed).
         boolean waitingFresh = freshQueue.contains(key);
         boolean waiting = freshQueue.remove(key) | captureQueue.remove(key);
+        if (awaiting.remove(key) != null) {
+            // Its pictures are being read back: read now, it is copied as it goes.
+            FaceRenderer.finishFlights(palette);
+            waiting = true;
+        }
         if (inProgress != null && inProgress == key) {
             inProgress = null;
             waiting = true;
         }
         // Copied again as a new chunk when it comes back.
         partial.remove(key);
+        early.remove(key);
         copiedWhileLoaded.remove(key);
         if (!mayCopy) {
             // No time left this tick: the chunk is copied the next time it is loaded.
@@ -545,8 +812,16 @@ public final class IsoMap implements BlockStore.Listener {
             copiedWhileLoaded.clear();
             unfinished.clear();
             signatures.clear();
+            quietSignatures.clear();
+            storedAt.clear();
+            noisy.clear();
+            early.clear();
+            hiddenChunks.clear();
+            recheck.clear();
+            storedHidden.clear();
             refreshing.clear();
             storedSignatures.clear();
+            storedQuietSignatures.clear();
             checking.clear();
             checked.clear();
             inProgress = null;
@@ -556,8 +831,16 @@ public final class IsoMap implements BlockStore.Listener {
         Long last = lastCapture.get(key);
         int cx = chunk.xPosition, cz = chunk.zPosition;
         if (last == null) {
+            // Copied once settled anyway: no second copy for having been ready early.
+            early.remove(key);
             freshQueue.add(key);
             IsoLog.queued(cx, cz, "fresh", "fresh", freshQueue.size(), captureQueue.size());
+            return;
+        }
+        if (early.remove(key) && !freshQueue.contains(key)) {
+            // Copied before it settled: copied again now that its decoration is there (nothing to do if none came).
+            captureQueue.add(key);
+            IsoLog.queued(cx, cz, "settled", "again", freshQueue.size(), captureQueue.size());
             return;
         }
         if (!copiedWhileLoaded.contains(key)) {
@@ -571,14 +854,19 @@ public final class IsoMap implements BlockStore.Listener {
             && Math.abs(chunk.xPosition - MathHelper.floor_double(player.posX / 16)) <= NEAR_CHUNKS
             && Math.abs(chunk.zPosition - MathHelper.floor_double(player.posZ / 16)) <= NEAR_CHUNKS;
         // A chunk whose blocks changed (trees and snow added after it arrived, or built on) is copied again soon.
-        long interval = changed ? CHANGED_RECAPTURE_MS : near ? RECAPTURE_MS : FAR_RECAPTURE_MS;
+        long interval = changed ? (noisy.contains(key) ? NOISY_RECAPTURE_MS : CHANGED_RECAPTURE_MS)
+            : near ? RECAPTURE_MS : FAR_RECAPTURE_MS;
         long since = System.currentTimeMillis() - last;
         if (since < interval || freshQueue.contains(key)) {
             IsoLog.scanDecision(
                 cx,
                 cz,
                 freshQueue.contains(key) ? "skip (still in fresh queue)"
-                    : "skip (copied lately, interval " + interval + "ms, changed=" + changed + ")",
+                    : "skip (copied lately, interval " + interval
+                        + "ms, changed="
+                        + changed
+                        + (noisy.contains(key) ? ", noisy" : "")
+                        + ")",
                 since);
             return;
         }
@@ -590,6 +878,27 @@ public final class IsoMap implements BlockStore.Listener {
             "again",
             freshQueue.size(),
             captureQueue.size());
+    }
+
+    /**
+     * The surface map found a new chunk with the 8 around it loaded, still settling (render thread): its blocks are
+     * copied now rather than once it settled, seconds later; it is copied again when it is scanned settled.
+     */
+    public void onChunkReady(World world, Chunk chunk) {
+        if (!Config.record3d || writer == null || world.provider.dimensionId != lastCaptureDimension) {
+            // Another dimension: the scan of the chunk once settled clears the queues first.
+            return;
+        }
+        long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        if (lastCapture.containsKey(key) || freshQueue.contains(key) || loading.contains(key)) {
+            return;
+        }
+        if (early.size() > 50_000) {
+            early.clear();
+        }
+        early.add(key);
+        freshQueue.add(key);
+        IsoLog.queued(chunk.xPosition, chunk.zPosition, "fresh", "fresh-early", freshQueue.size(), captureQueue.size());
     }
 
     /**
@@ -616,13 +925,69 @@ public final class IsoMap implements BlockStore.Listener {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        FacePalette pictures = palette;
+        if (pictures != null && pictures.full()) {
+            // No room for new pictures until those taken are saved: the chunk waits rather than being stored
+            // without them (it is let go after and wouldn't be taken again).
+            savePicturesIfMany();
+            if (paletteFullLogged.add(key)) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " pictures not saved yet fill the memory for them ("
+                        + (pictures.unsavedBytes() >> 20)
+                        + " MB): waits for them to be saved");
+            }
+            return false;
+        }
+        paletteFullLogged.remove(key);
         if (loading.add(key)) {
             // Copied and stored again whatever is stored (an old copy): the loading is asked for to make the 3D map
             // of the area anew.
             refreshing.add(key);
             IsoLog.log("CHUNKLOAD_CAPTURE " + chunk.xPosition + "," + chunk.zPosition + " forced (stored again)");
         }
-        boolean done = capture(world, chunk, false, false, deadline, true);
+        ChunkBlocks resumed = loadAwaiting.remove(key);
+        if (resumed == null && !partsNeverCame && MultipartParts.missing(chunk)) {
+            long now = System.currentTimeMillis();
+            Long since = partsWait.putIfAbsent(key, now);
+            if (since == null) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " ForgeMultipart parts not here yet: copied once they come");
+                return false;
+            }
+            if (now - since < PARTS_WAIT_MS) {
+                return false;
+            }
+            partsNeverCame = true;
+            IsoLog.log(
+                "CHUNKLOAD_WAIT_GAVE_UP " + chunk.xPosition
+                    + ","
+                    + chunk.zPosition
+                    + " no ForgeMultipart parts after "
+                    + PARTS_WAIT_MS
+                    + " ms: copied without them, not waited for again this game");
+        } else if (resumed == null) {
+            Long since = partsWait.remove(key);
+            if (since != null) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT_DONE " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " ForgeMultipart parts came after "
+                        + (System.currentTimeMillis() - since)
+                        + " ms");
+            }
+        }
+        if (awaiting.remove(key) != null || resumed != null) {
+            FaceRenderer.finishFlights(palette);
+        }
+        // Its pictures read back since the last tick: finished with its copy, not copied again.
+        boolean done = capture(world, chunk, false, false, deadline, true, resumed);
         if (done) {
             loading.remove(key);
         }
@@ -638,6 +1003,9 @@ public final class IsoMap implements BlockStore.Listener {
         unfinished.remove(key);
         freshQueue.remove(key);
         captureQueue.remove(key);
+        awaiting.remove(key);
+        loadAwaiting.remove(key);
+        partsWait.remove(key);
         if (inProgress != null && inProgress == key) {
             inProgress = null;
         }
@@ -649,6 +1017,15 @@ public final class IsoMap implements BlockStore.Listener {
      */
     private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline,
         boolean forLoad) {
+        return capture(world, chunk, whole, unloading, deadline, forLoad, null);
+    }
+
+    /**
+     * @param resumed the chunk's copy whose pictures were read back since ({@link #awaiting}): finished with it,
+     *                not copied again
+     */
+    private boolean capture(World world, Chunk chunk, boolean whole, boolean unloading, long deadline, boolean forLoad,
+        ChunkBlocks resumed) {
         Dimension dimension = dimension(world.provider.dimensionId);
         if (dimension == null) {
             return true;
@@ -672,20 +1049,40 @@ public final class IsoMap implements BlockStore.Listener {
         long signature = 0;
         boolean refresh = refreshing.contains(key);
         try {
-            blocks = BlockCapture.capture(world, chunk, whole);
+            blocks = resumed != null ? resumed : BlockCapture.capture(world, chunk, whole);
             t1 = System.nanoTime();
-            if (blocks != null) {
+            if (resumed != null) {
+                // Looked at when it was copied: only its pictures are to finish.
+                signature = resumed.signature();
+            } else if (blocks != null) {
                 signature = blocks.signature();
                 Long stored = signatures.get(key);
-                if (stored != null && stored == signature && !refresh) {
+                // Looked at again for what can be seen (blocks around changed): its pictures are found anew.
+                boolean again = recheck.remove(key);
+                if (stored != null && stored == signature && !refresh && !again) {
                     // Nothing changed but maybe pictures of animated blocks: left as it is.
                     unfinished.remove(key);
                     IsoLog.unchanged(cx, cz, unloading ? unloadReason : null, t1 - t0);
                     return true;
                 }
+                Long quietStored = quietSignatures.get(key);
+                Long lastStored = storedAt.get(key);
+                if (quietStored != null && lastStored != null
+                    && !refresh
+                    && !again
+                    && !unloading
+                    && System.currentTimeMillis() - lastStored < NOISE_STORE_MS
+                    && quietStored == blocks.quietSignature()) {
+                    // Only fluids flowing, leaves or light changed: no pictures, nothing stored, copied again seldom.
+                    unfinished.remove(key);
+                    noisy.add(key);
+                    IsoLog.noise(cx, cz, "render thread", System.nanoTime() - t0);
+                    return true;
+                }
                 if (stored == null && !refresh && !unloading && palette != null && !unfinished.containsKey(key)) {
                     // Not copied yet this session: the copy stored before (maybe in an earlier game) may be it.
                     Long onDisk = storedSignatures.remove(key);
+                    Long quietOnDisk = storedQuietSignatures.remove(key);
                     if (onDisk == null) {
                         if (checking.add(key)) {
                             checkStored(dimension, key, palette.generation);
@@ -694,8 +1091,23 @@ public final class IsoMap implements BlockStore.Listener {
                     }
                     if (onDisk == signature) {
                         signatures.put(key, signature);
+                        if (storedHidden.remove(key)) {
+                            hiddenChunks.add(key);
+                        }
                         unfinished.remove(key);
                         IsoLog.unchanged(cx, cz, "stored copy has the same blocks and every picture", t1 - t0);
+                        return true;
+                    }
+                    if (onDisk != NO_SIGNATURE && quietOnDisk != null && quietOnDisk == blocks.quietSignature()) {
+                        // Only noise since it was stored: the stored copy and its pictures stay, and copies alike
+                        // to this one are left as they are too.
+                        signatures.put(key, signature);
+                        if (storedHidden.remove(key)) {
+                            hiddenChunks.add(key);
+                        }
+                        quietSignatures.put(key, quietOnDisk);
+                        unfinished.remove(key);
+                        IsoLog.noise(cx, cz, "stored copy (only noise since an earlier game)", System.nanoTime() - t0);
                         return true;
                     }
                     IsoLog.log(
@@ -707,11 +1119,23 @@ public final class IsoMap implements BlockStore.Listener {
                 }
             }
             if (blocks != null && palette != null) {
-                complete = FaceRenderer.addFaces(world, chunk, blocks, palette, deadline);
+                // Read back later but for a chunk let go now (one of /wf chunkload is kept until stored).
+                // Only the chunks the map has hide blocks: one loaded but never put on it is empty for the tiles.
+                BlockStore store = dimension.store;
+                complete = FaceRenderer.addFaces(
+                    world,
+                    chunk,
+                    blocks,
+                    palette,
+                    deadline,
+                    !unloading,
+                    k -> store.time((int) (k >> 32), (int) k) != 0);
             }
         } catch (RuntimeException e) {
             WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);
-            IsoLog.captureFailed(cx, cz, "exception " + e);
+            // Where it was thrown too: an exception thrown often loses its message (and its stack trace).
+            StackTraceElement[] trace = e.getStackTrace();
+            IsoLog.captureFailed(cx, cz, "exception " + e + (trace.length > 0 ? " at " + trace[0] : ""));
             return true;
         }
         long t2 = System.nanoTime();
@@ -719,6 +1143,20 @@ public final class IsoMap implements BlockStore.Listener {
             unfinished.remove(key);
             IsoLog.captureFailed(cx, cz, "no blocks (empty chunk)");
             return true;
+        }
+        if (!complete && FaceRenderer.lastInFlight && forLoad) {
+            // Its pictures are being read back: not done until stored (it is let go after), finished next tick.
+            loadAwaiting.put(key, blocks);
+            IsoLog.inFlight(cx, cz, t1 - t0, t2 - t1, FaceRenderer.flights());
+            return false;
+        }
+        if (!complete && FaceRenderer.lastInFlight) {
+            // Its pictures are being read back: finished first thing next tick.
+            awaiting.put(key, new Awaiting(blocks, FaceRenderer.lastRemaining));
+            IsoLog.inFlight(cx, cz, t1 - t0, t2 - t1, FaceRenderer.flights());
+            // Done once they are read, if every one was drawn; else not done: it is the chunk finished first (one
+            // at a time: a batch of each of many chunks a tick finished none of them, and each was found anew).
+            return FaceRenderer.lastRemaining == 0;
         }
         // Their looks are worked out in the next ticks, so the 3D map has them when it opens.
         BlockLooks.warm(blocks.lookKeys());
@@ -782,12 +1220,26 @@ public final class IsoMap implements BlockStore.Listener {
         if (allPictures) {
             if (signatures.size() > 100_000) {
                 signatures.clear();
+                quietSignatures.clear();
             }
             signatures.put(key, signature);
+            quietSignatures.put(key, blocks.quietSignature());
         } else {
             signatures.remove(key);
+            quietSignatures.remove(key);
+        }
+        // Pictures left out as hidden: looked at again when a block around changes.
+        if (blocks.hasHidden()) {
+            if (hiddenChunks.size() > 100_000) {
+                hiddenChunks.clear();
+            }
+            hiddenChunks.add(key);
+        } else {
+            hiddenChunks.remove(key);
         }
         boolean force = refreshing.remove(key);
+        boolean mayBeNoise = !unloading && !whole;
+        int dimensionId = dimension.id;
         IsoLog.Trace trace = IsoLog.submitted(cx, cz);
         writer.submit(() -> {
             IsoLog.writerStart(trace);
@@ -806,7 +1258,23 @@ public final class IsoMap implements BlockStore.Listener {
                     IsoLog.log("STORE_SKIPPED " + cx + "," + cz + " same blocks, only pictures taken again");
                     return;
                 }
-                dimension.store.put(cx, cz, blocks, timing);
+                if (!force && mayBeNoise
+                    && blocks.onlyNoiseChanged(before)
+                    && System.currentTimeMillis() - dimension.store.time(cx, cz) < NOISE_STORE_MS) {
+                    // Fluids flowing or drawing back, leaves, light: the stored copy stays a while longer. Its
+                    // signature goes back (the render thread took this copy's): the next copy alike isn't taken
+                    // for stored, and is stored once the time is up.
+                    writerResults.add(new long[] { dimensionId, key, NOISE, before.signature() });
+                    IsoLog.noise(cx, cz, "writer", 0);
+                    return;
+                }
+                int[] box = blocks.changedBox(before);
+                // A block changed (not only light or pictures; a new chunk only adds what may hide others).
+                boolean blocksChanged = before != null && blocks.blocksDiffer(before);
+                dimension.store.put(cx, cz, blocks, timing, box);
+                if (timing[5] != 0) {
+                    writerResults.add(new long[] { dimensionId, key, STORED, blocksChanged ? 1 : 0 });
+                }
                 if (timing[5] != 0 && before != null) {
                     IsoLog.chunkDiff(cx, cz, trace, before, blocks);
                 }
@@ -835,12 +1303,18 @@ public final class IsoMap implements BlockStore.Listener {
                 ChunkBlocks stored = dimension.store.chunk(cx, cz);
                 if (stored != null && stored.allPicturesTaken(generation)) {
                     signature = stored.signature();
+                    if (stored.hasHidden()) {
+                        storedHidden.add(key);
+                    }
+                    // Before the signature: the render thread reads both once the chunk is back in its queue.
+                    storedQuietSignatures.put(key, stored.quietSignature());
                 }
             } catch (RuntimeException e) {
                 WayFarMap.LOG.debug("Could not read the stored 3D map chunk", e);
             } finally {
                 if (storedSignatures.size() > 100_000) {
                     storedSignatures.clear();
+                    storedQuietSignatures.clear();
                 }
                 storedSignatures.put(key, signature);
                 checked.add(key);
@@ -883,17 +1357,38 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     @Override
-    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top) {
-        changes.add(new long[] { store.dimension, chunkX, chunkZ, top, System.currentTimeMillis() });
+    public void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box, boolean added) {
+        long now = System.currentTimeMillis();
+        long fresh = added ? 1 : 0;
+        if (box == null || box.length == 0) {
+            changes.add(new long[] { store.dimension, chunkX, chunkZ, top, now, fresh });
+        } else {
+            changes.add(
+                new long[] { store.dimension, chunkX, chunkZ, top, now, fresh, box[0], box[1], box[2], box[3], box[4],
+                    box[5] });
+        }
     }
 
     private void drainChanges() {
         long[] change;
         while ((change = changes.poll()) != null) {
             if (tiles != null) {
-                int marked = tiles
-                    .chunkChanged((int) change[0], (int) change[1], (int) change[2], (int) change[3], change[4]);
-                IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size());
+                int[] box = null;
+                if (change.length > 6) {
+                    box = new int[6];
+                    for (int i = 0; i < 6; i++) {
+                        box[i] = (int) change[6 + i];
+                    }
+                }
+                int marked = tiles.chunkChanged(
+                    (int) change[0],
+                    (int) change[1],
+                    (int) change[2],
+                    (int) change[3],
+                    change[4],
+                    box,
+                    change[5] != 0);
+                IsoLog.marked((int) change[0], (int) change[1], (int) change[2], change[4], marked, tiles.size(), box);
             }
         }
     }
@@ -914,7 +1409,12 @@ public final class IsoMap implements BlockStore.Listener {
             for (long key : chunks) {
                 lastCapture.remove(key);
                 signatures.remove(key);
+                quietSignatures.remove(key);
+                storedAt.remove(key);
+                noisy.remove(key);
+                awaiting.remove(key);
                 storedSignatures.remove(key);
+                storedQuietSignatures.remove(key);
                 partial.remove(key);
                 unfinished.remove(key);
             }
@@ -935,12 +1435,24 @@ public final class IsoMap implements BlockStore.Listener {
         });
     }
 
+    /** Whether the 3D map of the dimension has the chunk's blocks (false while no world is open). Render thread. */
+    public boolean hasChunk(int dimensionId, int chunkX, int chunkZ) {
+        Dimension dimension = dimension(dimensionId);
+        return dimension != null && dimension.store.top(chunkX, chunkZ) >= 0;
+    }
+
+    /** Whether the 3D map of the dimension has any chunk of the region. Render thread. */
+    public boolean hasRegion(int dimensionId, int rx, int rz) {
+        Dimension dimension = dimension(dimensionId);
+        return dimension != null && dimension.store.anyInRegion(rx, rz);
+    }
+
     /** Starts writing the changed block files in the background. */
     public Future<?> save() {
         if (writer == null) {
             return null;
         }
-        return saver.submit(saveTask());
+        return saver.submit(saveTask(false));
     }
 
     /** Resource packs changed: blocks look different, pictures of them are taken again. */
@@ -967,6 +1479,7 @@ public final class IsoMap implements BlockStore.Listener {
         // Copied again as they come by, with pictures in the new textures.
         lastCapture.clear();
         signatures.clear();
+        quietSignatures.clear();
         if (tiles != null) {
             tiles.invalidateAll();
         }
@@ -1023,7 +1536,9 @@ public final class IsoMap implements BlockStore.Listener {
         if (dimension == null) {
             return;
         }
+        long looks = Perf.start();
         BlockLooks.pump(LOOK_BUDGET_NANOS);
+        Perf.end(Perf.Part.ISO_LOOKS, looks);
         drainChanges();
         IsoProjection projection = IsoProjection.of(rotation);
         IsoTiles view = tiles();
@@ -1042,7 +1557,10 @@ public final class IsoMap implements BlockStore.Listener {
 
     /** Chunks waiting to be copied for the 3D map (render thread). */
     public int chunksQueued() {
-        return freshQueue.size() + captureQueue.size() + checking.size() + (inProgress != null ? 1 : 0);
+        return freshQueue.size() + captureQueue.size()
+            + checking.size()
+            + awaiting.size()
+            + (inProgress != null ? 1 : 0);
     }
 
     /** Tiles of the 3D map waiting to be drawn, 0 if none. */

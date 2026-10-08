@@ -417,11 +417,15 @@ final class IsoTracer {
                         if (spriteMet && look.translucent) {
                             spriteRun = key;
                         }
-                        if (fallbacks != null && look.complex && !look.opaque && !look.noPictures) {
+                        if (fallbacks != null && spriteId == FacePalette.HIDDEN) {
+                            // Left out as hidden from the map, yet a ray got there: MapVisibility was wrong.
+                            fallbacks.computeIfAbsent(key, k -> new int[BlockDiag.FALLBACK_FIELDS])[3]++;
+                            IsoLog.hiddenReached(x, y, z, key, projection.rotation, -1);
+                        } else if (fallbacks != null && look.complex && !look.opaque && !look.noPictures) {
                             if (spriteId == 0) {
-                                fallbacks.computeIfAbsent(key, k -> new int[3])[0]++;
+                                fallbacks.computeIfAbsent(key, k -> new int[BlockDiag.FALLBACK_FIELDS])[0]++;
                             } else if (drawn == SPRITE_NONE) {
-                                fallbacks.computeIfAbsent(key, k -> new int[3])[1]++;
+                                fallbacks.computeIfAbsent(key, k -> new int[BlockDiag.FALLBACK_FIELDS])[1]++;
                             }
                         }
                         if (drawn == SPRITE_STOP) {
@@ -1011,8 +1015,15 @@ final class IsoTracer {
         if (look.opaque) {
             int id = pictureId(blocks, side);
             FacePalette.Sprite picture = id > 0 ? palette.sprite(id) : null;
-            if (fallbacks != null && look.complex && picture == null && cellIndex >= 0) {
-                fallbacks.computeIfAbsent(ChunkBlocks.lookKey(blocks.cells[cellIndex]), k -> new int[3])[2]++;
+            if (fallbacks != null && id == FacePalette.HIDDEN && cellIndex >= 0) {
+                // Left out as hidden from the map, yet a ray got there: MapVisibility was wrong.
+                int key = ChunkBlocks.lookKey(blocks.cells[cellIndex]);
+                fallbacks.computeIfAbsent(key, k -> new int[BlockDiag.FALLBACK_FIELDS])[3]++;
+                IsoLog.hiddenReached(x, y, z, key, projection.rotation, side);
+            } else if (fallbacks != null && look.complex && picture == null && cellIndex >= 0) {
+                fallbacks.computeIfAbsent(
+                    ChunkBlocks.lookKey(blocks.cells[cellIndex]),
+                    k -> new int[BlockDiag.FALLBACK_FIELDS])[2]++;
             }
             if (picture == null && id > 0) {
                 incomplete |= palette.has(id);

@@ -52,8 +52,12 @@ public final class BlockStore {
 
     public interface Listener {
 
-        /** A chunk's blocks changed; {@code top} is the highest block it had before or has now. */
-        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top);
+        /**
+         * A chunk's blocks changed; {@code top} is the highest block it had before or has now, {@code box} the
+         * blocks that changed ({@link ChunkBlocks#changedBox}), null for all of them; {@code added} if it had no
+         * blocks before (tiles drawn before show a hole there).
+         */
+        void chunkChanged(BlockStore store, int chunkX, int chunkZ, int top, int[] box, boolean added);
     }
 
     public final int dimension;
@@ -257,6 +261,16 @@ public final class BlockStore {
         return region.yMin[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
+    /** Whether any chunk of the region has blocks (its header is read from the file on first use). */
+    public boolean anyInRegion(int rx, int rz) {
+        for (short top : region(rx, rz).yMax) {
+            if (top >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** When the chunk's blocks last changed, 0 if there are none. */
     public long time(int chunkX, int chunkZ) {
         Region region = region(chunkX >> 5, chunkZ >> 5);
@@ -331,8 +345,10 @@ public final class BlockStore {
      *
      * @param timing for the log, filled in: nanos reading the region header, reading its chunks, encoding, trimming;
      *               bytes; 1 if changed; nanos waiting for the region's lock
+     * @param box    the blocks that changed against the copy stored, null if not known (see
+     *               {@link ChunkBlocks#changedBox})
      */
-    void put(int chunkX, int chunkZ, ChunkBlocks blocks, long[] timing) {
+    void put(int chunkX, int chunkZ, ChunkBlocks blocks, long[] timing, int[] box) {
         long t0 = System.nanoTime();
         byte[] blob = blocks.encode();
         long t1 = System.nanoTime();
@@ -380,7 +396,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax));
+        listener.chunkChanged(this, chunkX, chunkZ, Math.max(oldTop, blocks.yMax), box, oldTop < 0);
     }
 
     /**
@@ -419,7 +435,7 @@ public final class BlockStore {
                 decodedWeight -= old.weight();
             }
         }
-        listener.chunkChanged(this, chunkX, chunkZ, oldTop);
+        listener.chunkChanged(this, chunkX, chunkZ, oldTop, null, false);
         return true;
     }
 

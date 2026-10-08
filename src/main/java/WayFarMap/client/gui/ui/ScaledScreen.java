@@ -44,6 +44,8 @@ public abstract class ScaledScreen extends GuiScreen {
     private static int behindDepth;
 
     private int appliedFactor;
+    /** The mod's language the screen was laid out in: its texts are set then. */
+    private int appliedLanguage;
     /** When the screen was opened, and when it was last drawn (milliseconds). */
     private long openedAt, lastDrawn;
     /** The last of {@link #frame} it was drawn in. */
@@ -129,6 +131,7 @@ public abstract class ScaledScreen extends GuiScreen {
     @Override
     public void setWorldAndResolution(Minecraft mc, int width, int height) {
         appliedFactor = factor(mc);
+        appliedLanguage = Config.modLanguage;
         super.setWorldAndResolution(
             mc,
             (mc.displayWidth + appliedFactor - 1) / appliedFactor,
@@ -138,8 +141,8 @@ public abstract class ScaledScreen extends GuiScreen {
     @Override
     public final void drawScreen(int mouseX, int mouseY, float partialTicks) {
         int expectedWidth = (mc.displayWidth + appliedFactor - 1) / Math.max(1, appliedFactor);
-        if (factor(mc) != appliedFactor || width != expectedWidth) {
-            // The scale option changed, or the window: lay the screen out again.
+        if (factor(mc) != appliedFactor || width != expectedWidth || Config.modLanguage != appliedLanguage) {
+            // The scale option changed, the window or the mod's language: lay the screen out again.
             setWorldAndResolution(mc, 0, 0);
         }
         if (!drawingBehind) {

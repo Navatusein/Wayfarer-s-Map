@@ -3,7 +3,6 @@ package WayFarMap.client;
 import java.io.File;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.event.ClickEvent;
@@ -56,7 +55,7 @@ public final class InspectCommand extends CommandBase {
             if (hit == null || hit.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK) {
                 sender.addChatMessage(
                     new ChatComponentText(
-                        EnumChatFormatting.RED + I18n.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
+                        EnumChatFormatting.RED + Lang.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
                 return;
             }
             x = hit.blockX;
@@ -70,19 +69,19 @@ public final class InspectCommand extends CommandBase {
             } catch (NumberFormatException e) {
                 sender.addChatMessage(
                     new ChatComponentText(
-                        EnumChatFormatting.RED + I18n.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
+                        EnumChatFormatting.RED + Lang.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
                 return;
             }
         } else {
             sender.addChatMessage(
                 new ChatComponentText(
-                    EnumChatFormatting.RED + I18n.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
+                    EnumChatFormatting.RED + Lang.format("wayfarmap.inspect.usage", getCommandUsage(sender))));
             return;
         }
         try {
             File zip = BlockInspect.run(mc.theWorld, x, y, z);
             ChatComponentText message = new ChatComponentText(
-                EnumChatFormatting.GREEN + I18n.format("wayfarmap.inspect.done", x, y, z, zip.getName()));
+                EnumChatFormatting.GREEN + Lang.format("wayfarmap.inspect.done", x, y, z, zip.getName()));
             // Click: the folder with the report.
             message.setChatStyle(
                 new ChatStyle().setChatClickEvent(
@@ -94,7 +93,7 @@ public final class InspectCommand extends CommandBase {
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Could not write the 3D map report of a block", t);
             sender.addChatMessage(
-                new ChatComponentText(EnumChatFormatting.RED + I18n.format("wayfarmap.inspect.failed", t)));
+                new ChatComponentText(EnumChatFormatting.RED + Lang.format("wayfarmap.inspect.failed", t)));
         }
     }
 

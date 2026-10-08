@@ -4,12 +4,12 @@ import java.util.List;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 import WayFarMap.Config;
+import WayFarMap.client.Lang;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.Theme;
@@ -41,8 +41,8 @@ public class GuiMinimapPosition extends GuiScreen {
         buttonList.clear();
         int middle = width / 2;
         int y = height / 2 + 14;
-        buttonList.add(new FlatButton(ID_RESET, middle - 82, y, 80, 18, I18n.format("wayfarmap.settings.reset")));
-        buttonList.add(new FlatButton(ID_DONE, middle + 2, y, 80, 18, I18n.format("gui.done")));
+        buttonList.add(new FlatButton(ID_RESET, middle - 82, y, 80, 18, Lang.format("wayfarmap.settings.reset")));
+        buttonList.add(new FlatButton(ID_DONE, middle + 2, y, 80, 18, Lang.format("gui.done")));
     }
 
     private int boxLeft() {
@@ -186,8 +186,8 @@ public class GuiMinimapPosition extends GuiScreen {
         Theme.fill(x - 3, y - 3, x1 + 3, y1 + 1, hovered ? 0x304C9AFF : 0x184C9AFF);
         Theme.outline(x - 3, y - 3, x1 + 3, y1 + 1, hovered ? Theme.ACCENT : Theme.ACCENT_DIM);
 
-        String title = I18n.format("wayfarmap.minimap_position.title");
-        List<?> hints = fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.minimap_position.hint"), 220);
+        String title = Lang.format("wayfarmap.minimap_position.title");
+        List<?> hints = fontRendererObj.listFormattedStringToWidth(Lang.format("wayfarmap.minimap_position.hint"), 220);
         int panelTop = height / 2 - 18 - hints.size() * 10, panelBottom = height / 2 + 38;
         Theme.panel(width / 2 - 120, panelTop, width / 2 + 120, panelBottom);
         Theme.centered(fontRendererObj, title, width / 2, panelTop + 6, Theme.ACCENT);

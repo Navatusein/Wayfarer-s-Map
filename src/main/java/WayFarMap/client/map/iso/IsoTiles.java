@@ -65,9 +65,24 @@ final class IsoTiles {
      * to two seconds and was drawn again for each, keeping the renderers from the tiles just zoomed to.
      */
     private static final long REFRESH_MS = 1000, REFRESH_MAX_MS = 16_000;
+    /**
+     * A tile with a hole (a chunk stored where it showed nothing: drawn while flying before the chunk got there) is
+     * drawn again at most this often, as soon as tiles with nothing to show: waiting like a tile only out of date, the
+     * hole stayed black for seconds (11 s on average at level 4 in a flight's log) while zooming queued hundreds of
+     * new tiles ahead of it.
+     */
+    private static final long HOLE_REFRESH_MS = 500;
+
+    /** Whether a tile shows a hole where a chunk was stored since it was drawn. */
+    private static boolean hasHole(Tile tile) {
+        return tile.ready && tile.holeSince != 0 && tile.holeSince > tile.renderedAt;
+    }
 
     /** Whether a tile showing an older picture may be drawn again now. */
     private static boolean refreshDue(Tile tile, long now) {
+        if (hasHole(tile)) {
+            return now - tile.renderedAt >= HOLE_REFRESH_MS;
+        }
         long interval = Math.min(REFRESH_MAX_MS, REFRESH_MS << Math.min(4, tile.key.level / 2));
         return now - tile.renderedAt >= interval;
     }
@@ -129,6 +144,17 @@ final class IsoTiles {
         volatile long wantedFrame;
         boolean queued;
         long lastDrawn;
+        /**
+         * For the log: the oldest chunk change not shown yet (ms, 0 if none), and when it was first queued with
+         * nothing to show (nanos, 0 once shown).
+         */
+        long changedSince, firstQueued;
+        /** The oldest chunk stored where it showed nothing since it was drawn (ms), 0 if none. */
+        volatile long holeSince;
+        /** The job that draws it ({@link Job#order}); older ones still queued are left out. */
+        volatile long job;
+        /** Its job was queued as only out of date (behind the tiles with nothing to show). */
+        boolean queuedLate;
 
         Tile(Key key) {
             this.key = key;
@@ -173,6 +199,12 @@ final class IsoTiles {
         final boolean skipped;
         /** Read from the tile's file, not traced (for the log). */
         boolean fromDisk;
+        /** For the log: when its job was queued, and when the renderer finished it (nanos). */
+        long queuedAt, finishedAt;
+        /** Read from its file: how far toward the viewer its rays went ({@link IsoTracer#minToward}). */
+        double minToward;
+        /** Made from the four finer tiles' files instead of traced (for the log). */
+        boolean composed;
         /** Why it is drawn again, for the log; null if it isn't. */
         String retryWhy;
         /**
@@ -215,6 +247,7 @@ final class IsoTiles {
             .availableProcessors();
         int threads = Math.max(1, Math.max(Math.min(3, cores / 2), Math.min(8, (cores - 4) / 2)));
         workers = new Thread[threads];
+        IsoLog.renderers = threads;
         for (int i = 0; i < threads; i++) {
             Thread thread = new Thread(this::work, "WayFarMap 3D renderer " + (i + 1));
             thread.setDaemon(true);
@@ -246,6 +279,8 @@ final class IsoTiles {
         long perf = Perf.start();
         int uploaded = uploadResults();
         Perf.end(Perf.Part.ISO_UPLOAD, perf);
+        long tilesPerf = Perf.start();
+        quads = 0;
         int level = IsoProjection.levelFor(scale * factor, Config.isoPixelsPerBlock());
         int onScreen = 0, ready = 0, empty = 0, fromCoarser = 0, holes = 0;
         int blocks = IsoProjection.tileBlocks(level);
@@ -273,14 +308,24 @@ final class IsoTiles {
                 tile.wantedAt = now;
                 tile.wantedFrame = frame;
                 tile.lastDrawn = frame;
-                if ((!tile.ready || tile.stale() && refreshDue(tile, now)) && !tile.queued) {
+                boolean due = !tile.ready || tile.stale() && refreshDue(tile, now);
+                // Queued late as only out of date, and now with a hole: queued again ahead (the old job is left out).
+                boolean ahead = tile.queued && tile.queuedLate && hasHole(tile) && refreshDue(tile, now);
+                if (due && !tile.queued || ahead) {
                     double du = tu + 0.5 - middleU, dv = tv + 0.5 - middleV;
                     tile.queued = true;
+                    if (!tile.ready && tile.firstQueued == 0) {
+                        tile.firstQueued = System.nanoTime();
+                    }
                     // Tiles with nothing to show yet before ones only out of date (those still show their old picture),
                     // the nearest to the middle first.
-                    double priority = du * du + dv * dv + (tile.ready ? STALE_AFTER_MISSING : 0);
-                    queue.add(new Job(tile, dimension, priority, order.incrementAndGet()));
-                    IsoLog.tileQueued(key, tile.ready, queue.size());
+                    // A tile with a hole as one with nothing to show.
+                    tile.queuedLate = tile.ready && !hasHole(tile);
+                    double priority = du * du + dv * dv + (tile.queuedLate ? STALE_AFTER_MISSING : 0);
+                    long id = order.incrementAndGet();
+                    tile.job = id;
+                    queue.add(new Job(tile, dimension, priority, id));
+                    IsoLog.tileQueued(key, !tile.ready ? "new" : tile.queuedLate ? "stale" : "hole", queue.size());
                 }
                 double sx = x + width / 2.0 + ((double) tu * blocks - centerU) * scale;
                 double sy = y + height / 2.0 + ((double) tv * blocks - centerV) * scale;
@@ -301,8 +346,12 @@ final class IsoTiles {
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
-        evict();
+        Perf.end(Perf.Part.ISO_TILES, tilesPerf);
+        long evictPerf = Perf.start();
+        int textured = evict();
+        Perf.end(Perf.Part.ISO_EVICT, evictPerf);
         if (IsoLog.on()) {
+            IsoLog.frameDrawn(quads, textured, done.size());
             IsoLog.view(
                 dimension.id,
                 rotation,
@@ -375,6 +424,9 @@ final class IsoTiles {
         return any;
     }
 
+    /** Quads drawn this frame (for the log): one per tile by day, another by night. */
+    private static int quads;
+
     /** Draws (part of) a tile by day, and its night look over it as much as it is night. */
     private static void drawTile(Tile tile, double sx, double sy, double size, double u0, double v0, double part,
         float night) {
@@ -382,11 +434,13 @@ final class IsoTiles {
             GL11.glColor4f(1f, 1f, 1f, 1f);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.texture);
             quad(sx, sy, sx + size, sy + size, u0, v0, u0 + part, v0 + part);
+            quads++;
         }
         if (night > 0.01f && tile.nightTexture != -1) {
             GL11.glColor4f(1f, 1f, 1f, night);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, tile.nightTexture);
             quad(sx, sy, sx + size, sy + size, u0, v0, u0 + part, v0 + part);
+            quads++;
         }
     }
 
@@ -423,16 +477,42 @@ final class IsoTiles {
                 }
             }
             tile.renderedAt = result.renderedAt;
+            if (tile.holeSince != 0 && result.renderedAt >= tile.holeSince) {
+                tile.holeSince = 0;
+            }
             tile.hits = result.hits;
             tile.solid = result.solid;
             tile.empty = result.pixels == null;
             tile.ready = true;
+            long uploadStart = System.nanoTime();
             if (tile.empty) {
                 deleteTexture(tile);
-                continue;
+            } else {
+                tile.texture = upload(tile.texture, result.pixels);
+                tile.nightTexture = upload(tile.nightTexture, result.nightPixels);
             }
-            tile.texture = upload(tile.texture, result.pixels);
-            tile.nightTexture = upload(tile.nightTexture, result.nightPixels);
+            if (IsoLog.on()) {
+                long uploadEnd = System.nanoTime();
+                // Shown now: how long the oldest chunk change it shows waited, or the tile since it was wanted.
+                long changeMs = -1, newNanos = -1;
+                if (tile.changedSince != 0 && result.renderedAt >= tile.changedSince) {
+                    changeMs = System.currentTimeMillis() - tile.changedSince;
+                    tile.changedSince = 0;
+                }
+                if (tile.firstQueued != 0) {
+                    newNanos = uploadEnd - tile.firstQueued;
+                    tile.firstQueued = 0;
+                }
+                IsoLog.tileShown(
+                    tile.key,
+                    result.composed ? "composed" : result.fromDisk ? "disk" : "trace",
+                    tile.empty,
+                    changeMs,
+                    newNanos,
+                    result.finishedAt == 0 ? -1 : uploadStart - result.finishedAt,
+                    result.queuedAt == 0 ? -1 : uploadStart - result.queuedAt,
+                    uploadEnd - uploadStart);
+            }
         }
         return n;
     }
@@ -474,9 +554,10 @@ final class IsoTiles {
 
     /**
      * Frees the tiles not drawn lately while too many have pictures (or too many are kept in all). Tiles waiting for
-     * a renderer stay: dropped, they were queued again as new ones and drawn twice at once.
+     * a renderer stay: dropped, they were queued again as new ones and drawn twice at once. Returns the tiles with
+     * pictures (for the log).
      */
-    private void evict() {
+    private int evict() {
         int textured = 0;
         for (Tile tile : tiles.values()) {
             if (tile.texture != -1) {
@@ -484,7 +565,7 @@ final class IsoTiles {
             }
         }
         if (textured <= MAX_TILES && tiles.size() <= MAX_ALL_TILES) {
-            return;
+            return textured;
         }
         List<Tile> old = new ArrayList<>();
         for (Tile tile : tiles.values()) {
@@ -510,6 +591,7 @@ final class IsoTiles {
             deleteTexture(tile);
             tiles.remove(tile.key);
         }
+        return textured;
     }
 
     private static void deleteTexture(Tile tile) {
@@ -560,26 +642,54 @@ final class IsoTiles {
         return null;
     }
 
-    /** A chunk changed: the tiles in memory that show it are drawn again (render thread). */
-    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time) {
+    /**
+     * Blocks around a changed one whose look may change with it, in blocks: sprites reaching past their cell,
+     * connected textures.
+     */
+    private static final int CHANGE_MARGIN = 2;
+
+    /**
+     * A chunk changed: the tiles in memory that show it are drawn again (render thread).
+     *
+     * @param box   the blocks that changed, in the chunk's coordinates ({@link ChunkBlocks#changedBox}); null for the
+     *              whole chunk
+     * @param added the chunk had no blocks before: tiles drawn before show a hole there
+     */
+    int chunkChanged(int dimension, int chunkX, int chunkZ, int top, long time, int[] box, boolean added) {
         int marked = 0;
         double x0 = chunkX * 16.0, z0 = chunkZ * 16.0;
+        // Only the rays through the changed blocks: a few blocks of a chunk redrew every tile over its whole column.
+        double bx0 = x0, by0 = 0, bz0 = z0, bx1 = x0 + 16, by1 = top + 1, bz1 = z0 + 16;
+        if (box != null) {
+            bx0 = x0 + box[0] - CHANGE_MARGIN;
+            by0 = Math.max(0, box[1] - CHANGE_MARGIN);
+            bz0 = z0 + box[2] - CHANGE_MARGIN;
+            bx1 = x0 + box[3] + 1 + CHANGE_MARGIN;
+            by1 = Math.min(256, box[4] + 1 + CHANGE_MARGIN);
+            bz1 = z0 + box[5] + 1 + CHANGE_MARGIN;
+        }
         double[][] boxes = new double[4][];
         for (Tile tile : tiles.values()) {
             Key key = tile.key;
             if (key.dimension != dimension) {
                 continue;
             }
-            double[] box = boxes[key.rotation];
-            if (box == null) {
-                box = IsoProjection.of(key.rotation)
-                    .projectBox(x0, 0, z0, x0 + 16, top + 1, z0 + 16);
-                boxes[key.rotation] = box;
+            double[] area = boxes[key.rotation];
+            if (area == null) {
+                area = IsoProjection.of(key.rotation)
+                    .projectBox(bx0, by0, bz0, bx1, by1, bz1);
+                boxes[key.rotation] = area;
             }
             int blocks = IsoProjection.tileBlocks(key.level);
             double u0 = (double) key.tu * blocks, v0 = (double) key.tv * blocks;
-            if (box[0] < u0 + blocks && box[2] > u0 && box[1] < v0 + blocks && box[3] > v0) {
+            if (area[0] < u0 + blocks && area[2] > u0 && area[1] < v0 + blocks && area[3] > v0) {
                 tile.dirtyAt = Math.max(tile.dirtyAt, time);
+                if (tile.changedSince == 0) {
+                    tile.changedSince = time;
+                }
+                if (added && tile.holeSince == 0) {
+                    tile.holeSince = time;
+                }
                 marked++;
             }
         }
@@ -632,6 +742,10 @@ final class IsoTiles {
                 continue;
             }
             Tile tile = job.tile;
+            if (job.order != tile.job) {
+                // Queued again ahead since (a hole): that job draws it.
+                continue;
+            }
             // Off screen for a while and for a few frames (at a few frames a second the time alone would be).
             if (System.currentTimeMillis() - tile.wantedAt > UNWANTED_MS && frame - tile.wantedFrame > 2) {
                 // Scrolled or zoomed away before its turn.
@@ -643,11 +757,13 @@ final class IsoTiles {
                 long start = System.nanoTime();
                 IsoLog.tileStart();
                 Result result = produce(job);
+                result.queuedAt = job.created;
+                result.finishedAt = System.nanoTime();
                 IsoLog.tileDone(
                     tile.key,
                     start - job.created,
                     System.nanoTime() - start,
-                    result.fromDisk ? "disk" : "trace",
+                    result.composed ? "composed" : result.fromDisk ? "disk" : "trace",
                     result.retryWhy,
                     result.pixels,
                     result.nightPixels);
@@ -692,6 +808,12 @@ final class IsoTiles {
         } else if (work != null) {
             work.disk = file == null ? "not-kept (level " + key.level + ")" : "none";
         }
+        if (file != null && key.level > DISK_LEVEL) {
+            Result composed = compose(tile, dimension, dirtyAt, file);
+            if (composed != null) {
+                return composed;
+            }
+        }
         long start = System.currentTimeMillis();
         FacePalette palette = map.palette();
         if (work != null) {
@@ -714,6 +836,7 @@ final class IsoTiles {
         double q = 0.25 / pixelsPerBlock;
         double[] offsetU = { -q, q, -q }, offsetV = { -q, -q, q };
         int[] day = new int[4], night = new int[4];
+        long traceStart = System.nanoTime();
         // Column by column: the rays of one column pass through nearly the same chunks, the rays of a row don't.
         for (int px = 0; px < PIXELS && running; px++) {
             for (int py = 0; py < PIXELS; py++) {
@@ -737,6 +860,10 @@ final class IsoTiles {
                 any |= color != 0;
             }
         }
+        if (work != null) {
+            work.traceNanos = System.nanoTime() - traceStart;
+            work.rays = PIXELS * PIXELS * (supersample ? 4 : 1);
+        }
         Result result = new Result(tile, any ? pixels : null, any ? nightPixels : null, any ? hits : null, start);
         result.solid = any ? solid : null;
         BlockDiag.tracerFallbacks(tracer.fallbacks);
@@ -756,6 +883,121 @@ final class IsoTiles {
             }
         } else if (work != null && file != null) {
             work.saved = result.retry ? "not (drawn again)" : "not";
+        }
+        return result;
+    }
+
+    /**
+     * The tile made from the four finer tiles under it, from their files, if they are all saved and up to date: a
+     * pixel is the four pixels under it averaged (with {@link Config#isoSmooth}, else the first of them), which is
+     * what tracing it with four rays a pixel gives. Reading four files takes a few milliseconds, tracing the tile 15 to
+     * 30: zooming out over a part of the map seen closer, its coarser tiles come at once. Null if a finer tile is
+     * missing or out of date (then it is traced).
+     */
+    private Result compose(Tile tile, IsoMap.Dimension dimension, long dirtyAt, File file) {
+        Key key = tile.key;
+        IsoLog.TileWork work = IsoLog.work();
+        String disk = work == null ? null : work.disk;
+        long start = System.nanoTime();
+        File[] files = new File[4];
+        for (int i = 0; i < 4; i++) {
+            Key child = new Key(
+                key.dimension,
+                key.rotation,
+                key.level - 1,
+                key.tu * 2 + (i & 1),
+                key.tv * 2 + (i >> 1));
+            files[i] = tileFile(dimension, child);
+            if (!files[i].isFile()) {
+                return null;
+            }
+        }
+        Result[] children = new Result[4];
+        long renderedAt = Long.MAX_VALUE;
+        double minToward = Double.MAX_VALUE;
+        boolean any = false;
+        for (int i = 0; i < 4; i++) {
+            // Out of date also against what the coarse tile was told changed since it was drawn.
+            Result child = readCached(new Tile(key), files[i], dimension, dirtyAt);
+            if (child == null) {
+                if (work != null) {
+                    work.disk = disk;
+                }
+                return null;
+            }
+            children[i] = child;
+            renderedAt = Math.min(renderedAt, child.renderedAt);
+            minToward = Math.min(minToward, child.minToward);
+            any |= child.pixels != null;
+        }
+        Result result;
+        if (!any) {
+            result = new Result(tile, null, null, null, renderedAt);
+        } else {
+            int[] pixels = new int[PIXELS * PIXELS], nightPixels = new int[PIXELS * PIXELS];
+            short[] hits = new short[PIXELS * PIXELS], solid = new short[PIXELS * PIXELS];
+            int half = PIXELS / 2;
+            boolean smooth = Config.isoSmooth;
+            int[] day = new int[4], night = new int[4], under = new int[4];
+            for (int i = 0; i < 4; i++) {
+                Result child = children[i];
+                if (child.pixels == null) {
+                    // Nothing there: the quarter stays clear.
+                    continue;
+                }
+                int ox = (i & 1) * half, oy = (i >> 1) * half;
+                for (int py = 0; py < half; py++) {
+                    for (int px = 0; px < half; px++) {
+                        int at = (oy + py) * PIXELS + ox + px;
+                        int from = py * 2 * PIXELS + px * 2;
+                        under[0] = from;
+                        under[1] = from + 1;
+                        under[2] = from + PIXELS;
+                        under[3] = from + PIXELS + 1;
+                        if (smooth) {
+                            for (int n = 0; n < 4; n++) {
+                                day[n] = child.pixels[under[n]];
+                                night[n] = child.nightPixels[under[n]];
+                            }
+                            pixels[at] = average(day);
+                            nightPixels[at] = average(night);
+                        } else {
+                            pixels[at] = child.pixels[from];
+                            nightPixels[at] = child.nightPixels[from];
+                        }
+                        // The block under the mouse and where mobs hide: the first of the four that has one.
+                        for (int n : under) {
+                            if (child.hits[n] != 0) {
+                                hits[at] = child.hits[n];
+                                break;
+                            }
+                        }
+                        if (child.solid != null) {
+                            for (int n : under) {
+                                if (child.solid[n] != 0) {
+                                    solid[at] = child.solid[n];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            result = new Result(tile, pixels, nightPixels, hits, renderedAt);
+            result.solid = solid;
+        }
+        result.fromDisk = true;
+        result.composed = true;
+        if (running) {
+            long saveStart = System.nanoTime();
+            boolean ok = writeCached(file, result, minToward);
+            if (work != null) {
+                work.saved = !ok ? "FAILED" : result.pixels == null ? "saved-empty" : "saved";
+                work.savedNanos = System.nanoTime() - saveStart;
+            }
+        }
+        if (work != null) {
+            work.disk = "composed (from 4 finer tiles in " + (System.nanoTime() - start) / 100_000 / 10.0 + "ms)";
         }
         return result;
     }
@@ -865,7 +1107,11 @@ final class IsoTiles {
                 }
                 return null;
             }
+            long checkStart = System.nanoTime();
             long newest = newestChange(dimension, tile.key, minToward);
+            if (work != null) {
+                work.checkNanos = System.nanoTime() - checkStart;
+            }
             if (newest > renderedAt) {
                 if (work != null) {
                     work.disk = "stale (a chunk changed " + (newest - renderedAt) / 1000 + "s after it was drawn)";
@@ -878,7 +1124,9 @@ final class IsoTiles {
                     + " min ago)";
             }
             if (empty) {
-                return new Result(tile, null, null, null, renderedAt);
+                Result result = new Result(tile, null, null, null, renderedAt);
+                result.minToward = minToward;
+                return result;
             }
             byte[] raw = new byte[PIXELS * PIXELS * 12];
             DataInputStream data = new DataInputStream(new InflaterInputStream(in, new Inflater(), 1 << 15));
@@ -901,6 +1149,7 @@ final class IsoTiles {
                 .get(solid);
             Result result = new Result(tile, pixels, nightPixels, hits, renderedAt);
             result.solid = solid;
+            result.minToward = minToward;
             return result;
         } catch (IOException e) {
             if (work != null) {

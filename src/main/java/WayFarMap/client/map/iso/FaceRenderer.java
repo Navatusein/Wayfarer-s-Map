@@ -1,12 +1,22 @@
 package WayFarMap.client.map.iso;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,6 +25,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.LongPredicate;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
@@ -24,7 +35,6 @@ import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.tileentity.TileEntityChest;
 import net.minecraft.tileentity.TileEntityEnderChest;
@@ -38,6 +48,8 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GLContext;
 
@@ -86,7 +98,7 @@ final class FaceRenderer {
     private static final int[][] OFFSETS = { { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 },
         { 1, 0, 0 } };
 
-    private static Framebuffer framebuffer;
+    private static OwnFramebuffer framebuffer;
     private static IntBuffer readBuffer;
     private static int[] readPixels;
     private static FloatBuffer matrixBuffer;
@@ -109,7 +121,51 @@ final class FaceRenderer {
      * Blocks of chunks whose pictures are being taken, by chunk: a chunk with thousands of machines takes many ticks,
      * and finding its blocks again each tick (their surroundings above all) took half of each tick's time.
      */
-    private static final Map<Long, Session> SESSIONS = lru(8);
+    private static final Map<Long, Session> SESSIONS = lru(64);
+
+    /**
+     * A batch of pictures drawn and being read back into a pixel buffer object, without waiting for the graphics card:
+     * reading them at once ({@code glReadPixels} into memory) waited for it to finish all it was given, the last frame
+     * too, and took a third of the time of taking pictures. They are read out the next tick ({@link #finishFlights}),
+     * when it is long done.
+     */
+    private static final class Flight {
+
+        final List<Pending> batch;
+        final int pbo, usedRows, cell, perRow;
+        final boolean diagnose;
+        Map<Long, List<Pending>> waiting;
+
+        Flight(List<Pending> batch, int pbo, int usedRows, int cell, int perRow, boolean diagnose) {
+            this.batch = batch;
+            this.pbo = pbo;
+            this.usedRows = usedRows;
+            this.cell = cell;
+            this.perRow = perRow;
+            this.diagnose = diagnose;
+        }
+    }
+
+    /** Batches being read back, oldest first. */
+    private static final List<Flight> FLIGHTS = new ArrayList<>();
+    /** Pixel buffer objects not in use, and how many were made (at most {@link #MAX_PBOS}). */
+    private static final ArrayDeque<Integer> FREE_PBOS = new ArrayDeque<>();
+    private static final int MAX_PBOS = 8;
+    private static int pboCount;
+    /**
+     * Whether pictures may be read back later (OpenGL 2.1 pixel buffer objects); null until checked, false after any
+     * failure (then they are read at once, as before). {@code -Dwayfarmap.syncPictures=true} turns it off.
+     */
+    private static Boolean asyncWorks;
+    /** The last {@link #addFaces} is not complete only because its pictures are still being read back. */
+    static boolean lastInFlight;
+    /** Blocks of the last {@link #addFaces}'s chunk whose pictures are still to draw (not counting those in flight). */
+    static int lastRemaining;
+    /**
+     * For the log, since it last took them: time reading out and storing pictures drawn the tick before, of it the
+     * reading out, and the batches.
+     */
+    static long finishNanos, finishReadNanos, finishBatches;
 
     /** A map that lets go of the entries used longest ago past the size (render thread only). */
     private static <V> Map<Long, V> lru(int size) {
@@ -148,9 +204,15 @@ final class FaceRenderer {
         final long surroundings;
         final int[] ids;
         final long time;
+        /**
+         * What the block's tile entity and those next to it kept when drawn ({@link #dataKey}), 0 if unknown: given
+         * again only while it is the same (a machine changed while away is drawn again). Kept on disk with it.
+         */
+        final long data;
 
-        Cached(long surroundings, int[] ids, long time) {
+        Cached(long surroundings, int[] ids, long time, long data) {
             this.surroundings = surroundings;
+            this.data = data;
             this.ids = ids;
             this.time = time;
         }
@@ -180,6 +242,56 @@ final class FaceRenderer {
      */
     private static final Map<Long, Learned> BY_BLOCK = new HashMap<>();
     private static final int BLOCK_CONFIRMATIONS = 6, BLOCK_PLACES = 3;
+    /**
+     * Pictures of blocks with a tile entity by what makes them look as they do: the block and its surroundings (as
+     * {@link #BY_SURROUNDINGS}), its open sides, what its tile entity keeps (its NBT without where it is) and what the
+     * tile entities of the six blocks next to it keep (slopes and shapes of Carpenter's Blocks and ArchitectureCraft
+     * join and hide faces by their neighbours' shapes). A base of a hundred thousand such blocks is made of a few
+     * hundred kinds, yet each was drawn by place ({@link #BY_PLACE}). A key gives its pictures without drawing once
+     * they were drawn alike {@link #DATA_CONFIRMATIONS} more times (at once for a class of tile entity that proved
+     * reliable, see {@link DataClass#trusted}); every {@link #VERIFY_EVERY}th is drawn anyway to check, and a key that
+     * gave other pictures is drawn every time from then on. A class whose keys keep giving other pictures (what it
+     * draws depends on more than it keeps) is drawn by place again ({@link DataClass#off}).
+     * {@code -Dwayfarmap.noDataCache=true} turns it off.
+     */
+    private static final Map<Long, Learned> BY_DATA = new HashMap<>();
+    private static final int DATA_CONFIRMATIONS = 1;
+    private static final boolean DATA_CACHE = !Boolean.getBoolean("wayfarmap.noDataCache");
+    /** Keys kept at most; past it they are forgotten and learned again. */
+    private static final int MAX_DATA_KEYS = 300_000;
+    /** No hash of a tile entity's data (writing it failed): such a block is drawn by place. */
+    private static final long NO_HASH = Long.MIN_VALUE;
+    /** How {@link #BY_DATA} fared per class of tile entity. */
+    private static final Map<Class<?>, DataClass> DATA_CLASSES = new HashMap<>();
+
+    /** How the pictures by data fared for one class of tile entity. */
+    private static final class DataClass {
+
+        /** Confirmations needed before its keys are shared within a chunk and given at the first drawing. */
+        static final int TRUST_CONFIRMATIONS = 8;
+
+        final String name;
+        /** Since the game started: pictures drawn alike and other for the same key; whether it is drawn by place. */
+        long confirmedEver, conflictsEver;
+        boolean off, trustLogged;
+        /** For the log (cleared when it starts): see {@link #DATA_FIELDS}. */
+        final long[] stats = new long[DATA_FIELDS.length];
+
+        DataClass(String name) {
+            this.name = name;
+        }
+
+        /** Its keys gave the same pictures again and again, other ones (almost) never. */
+        boolean trusted() {
+            return !off && confirmedEver >= TRUST_CONFIRMATIONS && conflictsEver * 50 <= confirmedEver;
+        }
+    }
+
+    /** What {@link DataClass#stats} count, in this order. */
+    static final String[] DATA_FIELDS = { "reused", "sharedInChunk", "drawn", "keysLearned", "confirmed", "verified",
+        "conflicts", "notFitting", "noKey" };
+    private static final int D_REUSED = 0, D_SHARED = 1, D_DRAWN = 2, D_KEYS = 3, D_CONFIRMED = 4, D_VERIFIED = 5,
+        D_CONFLICTS = 6, D_NOT_FITTING = 7, D_NO_KEY = 8;
     /**
      * How far apart pictures of a block that can't reach its neighbours may be and still count as the same: plants
      * the game moves a little from place to place (tall grass, Biomes O' Plenty's foliage), so no two places give the
@@ -395,6 +507,7 @@ final class FaceRenderer {
         if (pending.unsure || !learnable(pending)) {
             return;
         }
+        cachesChanged = true;
         Learned learned = BY_KIND.get(pending.kindKey);
         if (learned == null) {
             BY_KIND.put(pending.kindKey, new Learned(pending.ids.clone()));
@@ -511,6 +624,40 @@ final class FaceRenderer {
         long kindKey, blockKey;
         /** It stays inside its cell on all four sides here (see {@link #detached}). */
         boolean detached;
+        /**
+         * Its pictures the map can't show ({@link MapVisibility#hidden}): not drawn, {@link FacePalette#HIDDEN}
+         * instead.
+         */
+        int hiddenMask;
+        /** {@link #hiddenMask} was worked out (only for the blocks that need it). */
+        boolean maskKnown;
+        /** Its key for {@link #BY_DATA}, 0 if none; whether it is drawn to check the pictures kept for it. */
+        long dataKey;
+        /** {@link #dataKey} of a block kept by place, whatever its class ({@link Cached#data}); 0 if unknown. */
+        long placeData;
+        boolean dataVerifying;
+
+        boolean hidden(int view) {
+            return (hiddenMask & 1 << view) != 0;
+        }
+
+        /** All of its pictures are hidden: nothing to draw. */
+        boolean allHidden() {
+            return hiddenMask == (1 << views()) - 1;
+        }
+
+        /**
+         * Key of the blocks drawn once for all ({@code waiting}): the same surroundings, and the same pictures
+         * hidden (one drawing with a side left out can't stand for a block seen from there).
+         */
+        long waitKey() {
+            return hiddenMask == 0 ? surroundings : surroundings ^ 0x9E3779B97F4A7C15L * hiddenMask;
+        }
+
+        /** The same for blocks with a tile entity drawn once for all by {@link #dataKey}. */
+        long dataWaitKey() {
+            return mixKey(mixKey(dataKey, 0xD1B54A32D192ED03L), hiddenMask);
+        }
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -657,8 +804,11 @@ final class FaceRenderer {
     }
 
     /** Whether sprites can be taken (off-screen buffers are available and nothing went wrong). */
+    /** Whether it was said that pictures can't be taken (said again once they could be in between). */
+    private static boolean offLogged;
+
     static boolean available() {
-        return !broken && OpenGlHelper.isFramebufferEnabled();
+        return !broken && OwnFramebuffer.supported();
     }
 
     /**
@@ -698,6 +848,25 @@ final class FaceRenderer {
     static int progressDone, progressTotal;
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
+    /**
+     * For the log ({@link MapVisibility}): blocks needing pictures looked at, those hidden from every view side (not
+     * drawn), pictures left out of the blocks drawn, and the time looking.
+     */
+    static int visibilityChecked, hiddenFound, hiddenToDraw;
+    static long visibilityNanos;
+    /** For the log: what {@link MapVisibility} did for the chunk (see its fields of the same names). */
+    static int visHiddenByReach, visHiddenByLines, visSeen;
+    static long visLinesFollowed, visLinesSkipped, visReachNanos, visLinesNanos;
+    /**
+     * For the log ({@link #BY_DATA}): blocks given pictures by their data, waiting for another one with the same key
+     * in the chunk, drawn as the key isn't confirmed yet, drawn to check, kept pictures not fitting (hidden there, seen
+     * here), drawn as their key proved unreliable or their class is off, without a key; time making keys.
+     */
+    static int dataHit, dataShared, dataLearning, dataVerify, dataNotFitting, dataUnreliableKey, dataClassOff,
+        dataNoKey;
+    static long dataKeyNanos;
+    /** Leaving out the pictures the map can't show; {@code -Dwayfarmap.drawHidden=true} draws them all. */
+    private static final boolean SKIP_HIDDEN = !Boolean.getBoolean("wayfarmap.drawHidden");
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
     /** Time remembering the pictures taken for their kinds ({@link #learn}). */
     static long learnNanos;
@@ -716,6 +885,13 @@ final class FaceRenderer {
         progressDone = progressTotal = 0;
         blocksLooked = expiredSame = expiredDiffer = sameAsTwin = differFromTwin = sameAsTwinWithData = 0;
         differFromTwinWithData = onlyBottomOpen = allEmpty = allEmptyOnlyBottom = 0;
+        visibilityChecked = hiddenFound = hiddenToDraw = 0;
+        visibilityNanos = 0;
+        visHiddenByReach = visHiddenByLines = visSeen = 0;
+        visLinesFollowed = visLinesSkipped = visReachNanos = visLinesNanos = 0;
+        dataHit = dataShared = dataLearning = dataVerify = dataNotFitting = dataUnreliableKey = dataClassOff = 0;
+        dataNoKey = 0;
+        dataKeyNanos = 0;
         exposedNanos = tileEntityNanos = surroundingsNanos = unshadeNanos = idNanos = learnNanos = 0;
     }
 
@@ -730,6 +906,388 @@ final class FaceRenderer {
         SESSIONS.clear();
         TWINS.clear();
         TWINS_WITH_DATA.clear();
+        BY_DATA.clear();
+        SAVED_DATA_CLASSES.clear();
+        cachesChanged = false;
+        MapVisibility.clear();
+        dropFlights();
+        // A world joined (or other resource packs): pictures given up on before are tried again.
+        broken = false;
+        failures = 0;
+    }
+
+    // ---------------------------------------------------------------- the caches kept on disk (PictureCache)
+
+    /** Whether the caches kept on disk changed since they were last taken for saving. */
+    private static boolean cachesChanged;
+    /** Classes of tile entities as the file left them, by class name, until met this game. */
+    private static final Map<String, long[]> SAVED_DATA_CLASSES = new HashMap<>();
+    /** At most this many ids per entry (a block has {@link ChunkBlocks#PER_CELL}). */
+    private static final int MAX_IDS = 16;
+
+    /**
+     * The caches of pictures (by surroundings, kind, block and data, which kinds hide a side, how sprites look, how
+     * classes of tile entities fared) as bytes for {@link PictureCache}, or null if nothing changed since the last
+     * time or they belong to another palette. Render thread: only copied here, written by the saver.
+     */
+    static byte[] exportCaches(int generation) {
+        if (!cachesChanged || cacheGeneration != generation) {
+            return null;
+        }
+        cachesChanged = false;
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(1 << 20);
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            out.writeInt(BY_SURROUNDINGS.size());
+            for (Map.Entry<Long, int[]> entry : BY_SURROUNDINGS.entrySet()) {
+                out.writeLong(entry.getKey());
+                writeIds(out, entry.getValue());
+            }
+            writeLearned(out, BY_KIND);
+            writeLearned(out, BY_BLOCK);
+            writeLearned(out, BY_DATA);
+            // By place: only those whose tile entity data is known (checked before they are given again).
+            int places = 0;
+            for (Cached cached : BY_PLACE.values()) {
+                places += cached.data != 0 ? 1 : 0;
+            }
+            out.writeInt(places);
+            for (Map.Entry<Long, Cached> entry : BY_PLACE.entrySet()) {
+                Cached cached = entry.getValue();
+                if (cached.data != 0) {
+                    out.writeLong(entry.getKey());
+                    out.writeLong(cached.surroundings);
+                    out.writeLong(cached.data);
+                    writeIds(out, cached.ids);
+                }
+            }
+            out.writeInt(WHOLE_CUBE.size());
+            for (Map.Entry<Long, Boolean> entry : WHOLE_CUBE.entrySet()) {
+                out.writeLong(entry.getKey());
+                out.writeBoolean(entry.getValue());
+            }
+            out.writeInt(LOOKS_OF_SPRITES.size());
+            for (Map.Entry<Integer, float[]> entry : LOOKS_OF_SPRITES.entrySet()) {
+                out.writeInt(entry.getKey());
+                out.writeByte(entry.getValue().length);
+                for (float v : entry.getValue()) {
+                    out.writeFloat(v);
+                }
+            }
+            Map<String, long[]> classes = new HashMap<>(SAVED_DATA_CLASSES);
+            for (Map.Entry<Class<?>, DataClass> entry : DATA_CLASSES.entrySet()) {
+                DataClass c = entry.getValue();
+                classes.put(
+                    entry.getKey()
+                        .getName(),
+                    new long[] { c.confirmedEver, c.conflictsEver, c.off ? 1 : 0 });
+            }
+            out.writeInt(classes.size());
+            for (Map.Entry<String, long[]> entry : classes.entrySet()) {
+                out.writeUTF(entry.getKey());
+                out.writeLong(entry.getValue()[0]);
+                out.writeLong(entry.getValue()[1]);
+                out.writeBoolean(entry.getValue()[2] != 0);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static void writeIds(DataOutputStream out, int[] ids) throws IOException {
+        out.writeByte(ids.length);
+        for (int id : ids) {
+            out.writeInt(id);
+        }
+    }
+
+    private static void writeLearned(DataOutputStream out, Map<Long, Learned> map) throws IOException {
+        out.writeInt(map.size());
+        for (Map.Entry<Long, Learned> entry : map.entrySet()) {
+            Learned learned = entry.getValue();
+            out.writeLong(entry.getKey());
+            writeIds(out, learned.ids);
+            out.writeInt(learned.confirmed);
+            out.writeBoolean(learned.unreliable);
+            out.writeByte(learned.placeCount);
+            for (int n = 0; n < learned.placeCount; n++) {
+                out.writeLong(learned.places[n]);
+            }
+        }
+    }
+
+    /** Counts of what {@link #importCaches} took in, for the log. */
+    static final class Imported {
+
+        int surroundings, kinds, blocks, data, places, wholeCubes, looks, classes, dropped;
+
+        int total() {
+            return surroundings + kinds + blocks + data + places + wholeCubes + looks + classes;
+        }
+    }
+
+    /**
+     * Takes in the caches {@link #exportCaches} gave in an earlier game, for the palette of that generation with
+     * this many pictures (render thread, before any picture is taken). Entries naming a picture the palette doesn't
+     * have (not saved before the game ended) are left out. Nothing is taken in if the bytes can't be read whole.
+     */
+    static Imported importCaches(DataInputStream in, int generation, int pictures) throws IOException {
+        Imported counts = new Imported();
+        Map<Long, int[]> surroundings = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong();
+            int[] ids = readIds(in, pictures);
+            if (ids != null) {
+                surroundings.put(key, ids);
+            } else {
+                counts.dropped++;
+            }
+        }
+        Map<Long, Learned> kinds = readLearned(in, pictures, counts), blocks = readLearned(in, pictures, counts),
+            data = readLearned(in, pictures, counts);
+        Map<Long, Cached> places = new LinkedHashMap<>();
+        long now = System.currentTimeMillis();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong(), around = in.readLong(), kept = in.readLong();
+            int[] ids = readIds(in, pictures);
+            if (ids != null) {
+                places.put(key, new Cached(around, ids, now, kept));
+            } else {
+                counts.dropped++;
+            }
+        }
+        Map<Long, Boolean> wholeCubes = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            wholeCubes.put(in.readLong(), in.readBoolean());
+        }
+        Map<Integer, float[]> looks = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            int id = in.readInt();
+            float[] look = new float[in.readUnsignedByte()];
+            for (int i = 0; i < look.length; i++) {
+                look[i] = in.readFloat();
+            }
+            if (id > 0 && id <= pictures) {
+                looks.put(id, look);
+            }
+        }
+        Map<String, long[]> classes = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            String name = in.readUTF();
+            classes.put(name, new long[] { in.readLong(), in.readLong(), in.readBoolean() ? 1 : 0 });
+        }
+        // All read: taken in.
+        BY_SURROUNDINGS.clear();
+        BY_SURROUNDINGS.putAll(surroundings);
+        BY_KIND.clear();
+        BY_KIND.putAll(kinds);
+        BY_BLOCK.clear();
+        BY_BLOCK.putAll(blocks);
+        BY_DATA.clear();
+        BY_DATA.putAll(data);
+        BY_PLACE.clear();
+        BY_PLACE.putAll(places);
+        WHOLE_CUBE.putAll(wholeCubes);
+        LOOKS_OF_SPRITES.clear();
+        LOOKS_OF_SPRITES.putAll(looks);
+        SAVED_DATA_CLASSES.clear();
+        for (Map.Entry<String, long[]> entry : classes.entrySet()) {
+            // Classes already met this game keep what they learned in it.
+            boolean met = false;
+            for (Class<?> type : DATA_CLASSES.keySet()) {
+                met |= type.getName()
+                    .equals(entry.getKey());
+            }
+            if (!met) {
+                SAVED_DATA_CLASSES.put(entry.getKey(), entry.getValue());
+            }
+        }
+        cacheGeneration = generation;
+        cachesChanged = false;
+        counts.surroundings = surroundings.size();
+        counts.kinds = kinds.size();
+        counts.blocks = blocks.size();
+        counts.data = data.size();
+        counts.places = places.size();
+        counts.wholeCubes = wholeCubes.size();
+        counts.looks = looks.size();
+        counts.classes = classes.size();
+        return counts;
+    }
+
+    /** Ids of an entry, or null if one names a picture the palette doesn't have. */
+    private static int[] readIds(DataInputStream in, int pictures) throws IOException {
+        int length = in.readUnsignedByte();
+        if (length > MAX_IDS) {
+            throw new IOException("bad entry: " + length + " ids");
+        }
+        int[] ids = new int[length];
+        boolean known = true;
+        for (int i = 0; i < length; i++) {
+            ids[i] = in.readInt();
+            known &= ids[i] >= FacePalette.HIDDEN && ids[i] <= pictures;
+        }
+        return known ? ids : null;
+    }
+
+    private static Map<Long, Learned> readLearned(DataInputStream in, int pictures, Imported counts)
+        throws IOException {
+        Map<Long, Learned> map = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong();
+            int[] ids = readIds(in, pictures);
+            int confirmed = in.readInt();
+            boolean unreliable = in.readBoolean();
+            int placeCount = in.readUnsignedByte();
+            if (placeCount > BLOCK_PLACES) {
+                throw new IOException("bad entry: " + placeCount + " places");
+            }
+            long[] places = new long[placeCount];
+            for (int i = 0; i < placeCount; i++) {
+                places[i] = in.readLong();
+            }
+            if (ids == null) {
+                counts.dropped++;
+                continue;
+            }
+            Learned learned = new Learned(ids);
+            learned.confirmed = confirmed;
+            learned.unreliable = unreliable;
+            for (long place : places) {
+                learned.place(place);
+            }
+            map.put(key, learned);
+        }
+        return map;
+    }
+
+    /** The chunk's blocks are found anew next time (what can be seen may have changed around it). */
+    static void forgetSession(long chunkKey) {
+        SESSIONS.remove(chunkKey);
+    }
+
+    /** Forgets the batches being read back (their blocks get pictures another time); render thread. */
+    static void dropFlights() {
+        for (Flight flight : FLIGHTS) {
+            FREE_PBOS.add(flight.pbo);
+        }
+        FLIGHTS.clear();
+    }
+
+    /** Batches being read back (for the log). */
+    static int flights() {
+        return FLIGHTS.size();
+    }
+
+    /**
+     * Reading pictures back later is off unless asked for ({@code -Dwayfarmap.asyncPictures=true}): with it on, a
+     * base taken by /wf chunkload came out wrong (glass where there is none, ArchitectureCraft as stone or missing),
+     * while read at once it was right.
+     */
+    private static final boolean ASYNC_PICTURES = Boolean.getBoolean("wayfarmap.asyncPictures");
+
+    private static boolean asyncAvailable() {
+        if (asyncWorks == null) {
+            boolean works;
+            try {
+                works = ASYNC_PICTURES && !Boolean.getBoolean("wayfarmap.syncPictures")
+                    && GLContext.getCapabilities().OpenGL21;
+            } catch (Throwable t) {
+                works = false;
+            }
+            asyncWorks = works;
+            IsoLog.log(
+                "PICTURES_READBACK " + (works ? "later (pixel buffer objects)"
+                    : ASYNC_PICTURES ? "at once" : "at once (-Dwayfarmap.asyncPictures=true reads them later)"));
+        }
+        return asyncWorks;
+    }
+
+    /** A free pixel buffer object for a batch, made if need be; -1 if none (then the batch is read at once). */
+    private static int takePbo() {
+        if (!asyncAvailable()) {
+            return -1;
+        }
+        Integer free = FREE_PBOS.poll();
+        if (free != null) {
+            return free;
+        }
+        if (pboCount >= MAX_PBOS) {
+            return -1;
+        }
+        int bound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+        int pbo = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+        GL15.glBufferData(GL21.GL_PIXEL_PACK_BUFFER, (long) SIZE * SIZE * 4, GL15.GL_STREAM_READ);
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, bound);
+        pboCount++;
+        return pbo;
+    }
+
+    /** Pictures can't be read back later after all: from now on at once. */
+    private static void asyncFailed(String why) {
+        if (asyncWorks == null || asyncWorks) {
+            WayFarMap.LOG.warn("The 3D map reads block pictures back at once from now on: {}", why);
+            IsoLog.log("PICTURES_READBACK at once from now on: " + why);
+        }
+        asyncWorks = false;
+    }
+
+    /**
+     * Reads out the batches of pictures drawn the tick before and gives them their ids, so the chunks waiting for
+     * them can be finished (render thread, before new pictures are drawn). A batch that can't be read gets none: its
+     * blocks are taken again.
+     */
+    static void finishFlights(FacePalette palette) {
+        if (FLIGHTS.isEmpty()) {
+            return;
+        }
+        long start = System.nanoTime();
+        List<Flight> flights = new ArrayList<>(FLIGHTS);
+        FLIGHTS.clear();
+        for (Flight flight : flights) {
+            boolean read = false;
+            long readStart = System.nanoTime();
+            int bound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+            try {
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flight.pbo);
+                // Only the rows used: mapping the whole buffer (4 MB) took twice as long as reading at once had.
+                int length = flight.usedRows * SIZE;
+                readBuffer.clear();
+                readBuffer.limit(length);
+                GL15.glGetBufferSubData(GL21.GL_PIXEL_PACK_BUFFER, 0, readBuffer);
+                if (readPixels == null) {
+                    readPixels = new int[SIZE * SIZE];
+                }
+                readBuffer.get(readPixels, 0, length);
+                readBuffer.clear();
+                read = true;
+            } catch (Throwable t) {
+                asyncFailed(String.valueOf(t));
+            } finally {
+                // As it was: another mod may read pixels into a buffer object of its own.
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, bound);
+                FREE_PBOS.add(flight.pbo);
+                finishReadNanos += System.nanoTime() - readStart;
+                finishBatches++;
+            }
+            try {
+                if (!read || palette == null || palette.generation != cacheGeneration) {
+                    throw new IllegalStateException(read ? "the palette changed" : "not read back");
+                }
+                store(flight.batch, readPixels, flight.cell, flight.perRow, palette, flight.diagnose);
+                if (IsoLog.on()) {
+                    checkSkippable(flight.batch);
+                }
+                afterBatch(flight.batch, flight.waiting);
+            } catch (Throwable t) {
+                for (Pending pending : flight.batch) {
+                    Arrays.fill(pending.ids, 0);
+                }
+                IsoLog.log("PICTURES_FAILED batch of " + flight.batch.size() + " read back later: " + t);
+            }
+        }
+        finishNanos += System.nanoTime() - start;
     }
 
     /**
@@ -737,17 +1295,31 @@ final class FaceRenderer {
      * stops once the deadline is past (after at least one batch): the blocks left have none this time.
      *
      * @param deadline {@link System#nanoTime()} to stop at
-     * @return false if some pictures weren't taken in time
+     * @param async    pictures may be read back later: then false is returned with {@link #lastInFlight} set, and
+     *                 the chunk is finished by calling this again with the same blocks after {@link #finishFlights}
+     * @param onMap    whether the map has a chunk (by key): only their blocks hide others ({@link MapVisibility})
+     * @return false if some pictures weren't taken in time (or are still being read back)
      */
-    static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline) {
+    static boolean addFaces(World world, Chunk chunk, ChunkBlocks blocks, FacePalette palette, long deadline,
+        boolean async, LongPredicate onMap) {
         resetStats();
+        lastInFlight = false;
         lastPaletteFull = palette.full();
         long findStart = System.nanoTime();
         if (!available()) {
             // The ones of the copy before are kept.
             blocks.picturesMissing = true;
+            if (!offLogged) {
+                offLogged = true;
+                String why = broken
+                    ? "drawing them failed again and again this game (see PICTURES_FAILED, maybe in an earlier log)"
+                    : "the graphics card has no framebuffers";
+                WayFarMap.LOG.warn("The 3D map takes no pictures of blocks, they are drawn from icons: {}", why);
+                IsoLog.log("PICTURES_OFF " + why + ": blocks drawn from their icons, old pictures kept");
+            }
             return true;
         }
+        offLogged = false;
         if (cacheGeneration != palette.generation) {
             BY_SURROUNDINGS.clear();
             BY_KIND.clear();
@@ -758,6 +1330,7 @@ final class FaceRenderer {
             SESSIONS.clear();
             TWINS.clear();
             TWINS_WITH_DATA.clear();
+            BY_DATA.clear();
             cacheGeneration = palette.generation;
         }
         // Which chunks around are there: without them, blocks at the edge are drawn as if the world ended there.
@@ -777,7 +1350,7 @@ final class FaceRenderer {
             // Same blocks as last tick: go on where it stopped.
             sessionReused = 1;
         } else {
-            session = find(world, chunk, blocks, around, signature, palette.generation);
+            session = find(world, chunk, blocks, around, signature, palette.generation, onMap);
             SESSIONS.put(chunkKey, session);
         }
         List<Pending> found = session.found, toDraw = session.toDraw;
@@ -812,16 +1385,43 @@ final class FaceRenderer {
             List<Pending> batch = toDraw.subList(from, to);
             from = to;
             prepareCovered(world, batch, palette);
-            draw(world, batch, palette);
+            Flight flight = drawBatch(world, batch, palette, async);
             if (IsoLog.on()) {
                 tryVariants(world, batch, palette);
             }
             lastDrawn += batch.size();
             batches++;
             slotsUsed += slots;
+            if (flight != null) {
+                // Read back and stored next tick.
+                flight.waiting = waiting;
+                FLIGHTS.add(flight);
+                lastInFlight = true;
+                continue;
+            }
             if (IsoLog.on()) {
                 checkSkippable(batch);
             }
+            afterBatch(batch, waiting);
+        }
+        session.from = from;
+        progressDone = from;
+        progressTotal = toDraw.size();
+        lastRemaining = toDraw.size() - from;
+        if (lastInFlight && !broken) {
+            // The session stays: called again once they are read, it goes on from here.
+            return false;
+        }
+        lastInFlight = false;
+        if (complete || broken) {
+            SESSIONS.remove(chunkKey);
+        }
+        return finish(found, blocks, palette, complete);
+    }
+
+    /** The pictures of a batch, taken: kept in the caches, and given to the blocks waiting for the same. */
+    private static void afterBatch(List<Pending> batch, Map<Long, List<Pending>> waiting) {
+        {
             for (Pending pending : batch) {
                 if (missing(pending)) {
                     lastMissing++;
@@ -832,19 +1432,39 @@ final class FaceRenderer {
                     // Kept until its surroundings change (or the player asks for new pictures): taking them again
                     // after a while gave the same pictures five times out of six, and kept big bases from ever
                     // being finished.
+                    long now = System.currentTimeMillis();
+                    placeData(pending);
                     BY_PLACE.put(
                         place(pending.x, pending.y, pending.z),
-                        new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
+                        new Cached(pending.surroundings, pending.ids.clone(), now, pending.placeData));
+                    cachesChanged = true;
+                    if (pending.dataKey != 0) {
+                        learnData(pending);
+                        List<Pending> same = waiting.get(pending.dataWaitKey());
+                        if (same != null) {
+                            for (Pending other : same) {
+                                System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
+                                placeData(other);
+                                BY_PLACE.put(
+                                    place(other.x, other.y, other.z),
+                                    new Cached(other.surroundings, other.ids.clone(), now, other.placeData));
+                            }
+                        }
+                    }
                 } else {
                     long learnStart = System.nanoTime();
-                    learn(pending);
+                    if (pending.hiddenMask == 0) {
+                        // A kind is learned from blocks with all their pictures.
+                        learn(pending);
+                    }
                     learnNanos += System.nanoTime() - learnStart;
                     if (BY_SURROUNDINGS.size() > 200_000) {
                         // A long game: start over rather than grow without end.
                         BY_SURROUNDINGS.clear();
                     }
                     BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
-                    List<Pending> same = waiting.get(pending.surroundings);
+                    cachesChanged = true;
+                    List<Pending> same = waiting.get(pending.waitKey());
                     if (same != null) {
                         for (Pending other : same) {
                             System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
@@ -853,12 +1473,10 @@ final class FaceRenderer {
                 }
             }
         }
-        session.from = from;
-        progressDone = from;
-        progressTotal = toDraw.size();
-        if (complete || broken) {
-            SESSIONS.remove(chunkKey);
-        }
+    }
+
+    /** Puts the pictures found into the chunk's copy. */
+    private static boolean finish(List<Pending> found, ChunkBlocks blocks, FacePalette palette, boolean complete) {
         if (broken) {
             blocks.picturesMissing = true;
             return true;
@@ -892,12 +1510,16 @@ final class FaceRenderer {
 
     /** Finds the chunk's blocks that need pictures, and which of them have none in the caches yet. */
     private static Session find(World world, Chunk chunk, ChunkBlocks blocks, boolean[] around, long signature,
-        int generation) {
+        int generation, LongPredicate onMap) {
         int baseX = chunk.xPosition * 16, baseZ = chunk.zPosition * 16;
         List<Pending> found = new ArrayList<>();
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
+        // Which pictures the map can show at all (the others aren't drawn): worked out for the blocks that need it.
+        Sight sight = new Sight(world, chunk, onMap);
+        // Hashes of what tile entities keep, each written once per chunk (most are next to several blocks).
+        Map<TileEntity, Long> dataHashes = new IdentityHashMap<>();
         // For the log: per kind that may need pictures, blocks hidden, only open at the bottom, drawn from icons,
         // given pictures.
         Map<Integer, int[]> decisions = IsoLog.on() ? new HashMap<>() : null;
@@ -1011,27 +1633,57 @@ final class FaceRenderer {
             if (pending.byPlace()) {
                 tileEntities++;
                 Cached cached = BY_PLACE.get(place(x, y, z));
-                if (cached != null && cached.surroundings == surroundings) {
+                if (cached != null && cached.data != 0 && cached.surroundings == surroundings) {
+                    // Only when there is a picture to check it against (writing the data of every tile entity
+                    // each time cost the big bases' ticks).
+                    long k0 = System.nanoTime();
+                    pending.placeData = dataKey(world, pending, dataHashes);
+                    dataKeyNanos += System.nanoTime() - k0;
+                }
+                if (cached != null && cached.surroundings == surroundings
+                    && (cached.data == 0 || cached.data == pending.placeData)
+                    && fits(cached.ids, pending, sight)) {
                     System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
                     placeHit++;
                     continue;
                 }
                 if (cached != null) {
-                    if (cached.surroundings != surroundings) {
+                    if (cached.surroundings != surroundings || cached.data != 0 && cached.data != pending.placeData) {
                         placeChanged++;
                     } else {
                         placeExpired++;
                         pending.oldIds = cached.ids;
                     }
                 }
+                if (byData(world, pending, sight, dataHashes)) {
+                    continue;
+                }
+                if (leaveOut(pending, key, sight)) {
+                    continue;
+                }
+                if (pending.dataKey != 0 && dataClass(pending.tileEntity).trusted()) {
+                    // A class whose keys proved reliable: drawn once for all the blocks with the same key here.
+                    List<Pending> same = waiting.get(pending.dataWaitKey());
+                    if (same != null) {
+                        same.add(pending);
+                        dataShared++;
+                        dataClass(pending.tileEntity).stats[D_SHARED]++;
+                        continue;
+                    }
+                    waiting.put(pending.dataWaitKey(), new ArrayList<>());
+                }
             } else {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
-                if (known != null) {
+                if (known != null && fits(known, pending, sight)) {
                     System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
                     surroundingsHit++;
                     continue;
                 }
+                if (leaveOut(pending, key, sight)) {
+                    continue;
+                }
                 if (learnable(pending)) {
+                    // (Learned from blocks with every picture drawn; given to any block, hidden sides or not.)
                     int tint = tint(world, block, x, y, z);
                     pending.kindKey = kindKey(world, key, exposed, pending.wide, tint, x, y, z);
                     pending.detached = detached(world, block, x, y, z);
@@ -1056,16 +1708,36 @@ final class FaceRenderer {
                         continue;
                     }
                 }
-                List<Pending> same = waiting.get(surroundings);
+                List<Pending> same = waiting.get(pending.waitKey());
                 if (same != null) {
                     // Drawn once for all the blocks with the same surroundings.
                     same.add(pending);
                     surroundingsShared++;
                     continue;
                 }
-                waiting.put(surroundings, new ArrayList<>());
+                waiting.put(pending.waitKey(), new ArrayList<>());
             }
             toDraw.add(pending);
+            hiddenToDraw += Integer.bitCount(pending.hiddenMask);
+            if (pending.dataKey != 0) {
+                dataClass(pending.tileEntity).stats[D_DRAWN]++;
+            }
+            if (sight.visibility != null && IsoLog.on()) {
+                IsoLog.visibility(key, false);
+            }
+        }
+        MapVisibility visibility = sight.visibility;
+        if (visibility != null) {
+            visHiddenByReach = visibility.hiddenByReach;
+            visHiddenByLines = visibility.hiddenByLines;
+            visSeen = visibility.seen;
+            visLinesFollowed = visibility.linesFollowed;
+            visLinesSkipped = visibility.linesSkipped;
+            visReachNanos = visibility.reachNanos;
+            visLinesNanos = visibility.linesNanos;
+            if (IsoLog.on()) {
+                IsoLog.visibilityTotals(visibilityChecked, hiddenFound, toDraw.size(), hiddenToDraw, visibilityNanos);
+            }
         }
         if (decisions != null && !decisions.isEmpty()) {
             StringBuilder b = new StringBuilder("FIND ").append(chunk.xPosition)
@@ -1210,6 +1882,19 @@ final class FaceRenderer {
      * blocks around it; other blocks (fences, panes, plants, pipes) with the 6 next to them. Blocks with the same
      * hash share their pictures, so a meadow of the same flowers is drawn a few times, not once per flower.
      */
+    /**
+     * An icon the same from game to game (its name and place in the block atlas), so the caches kept on disk
+     * ({@link #exportCaches}) are found again: the object itself is another one each game.
+     */
+    private static long iconKey(IIcon icon) {
+        if (icon == null) {
+            return 0;
+        }
+        String name = icon.getIconName();
+        return (long) (name == null ? 0 : name.hashCode()) << 32 ^ (long) Float.floatToIntBits(icon.getMinU()) * 31
+            ^ Float.floatToIntBits(icon.getMinV());
+    }
+
     private static long surroundings(World world, Block block, int x, int y, int z, boolean cube) {
         long h = 0xCBF29CE484222325L;
         if (cube) {
@@ -1229,7 +1914,7 @@ final class FaceRenderer {
         try {
             for (int side = 0; side < 6; side++) {
                 IIcon icon = block.getIcon(world, x, y, z, side);
-                h = (h ^ System.identityHashCode(icon)) * 0x100000001B3L;
+                h = (h ^ iconKey(icon)) * 0x100000001B3L;
             }
             h = (h ^ block.colorMultiplier(world, x, y, z)) * 0x100000001B3L;
         } catch (RuntimeException ignored) {}
@@ -1246,11 +1931,21 @@ final class FaceRenderer {
 
     /** Draws each block from the four view sides into the buffer, reads it back, stores the sprites. */
     private static void draw(World world, List<Pending> batch, FacePalette palette) {
+        drawBatch(world, batch, palette, false);
+    }
+
+    /**
+     * Draws the batch's pictures and reads them back: at once, or, if {@code async}, into a pixel buffer object read
+     * out the next tick ({@link #finishFlights}). Returns the batch then, null if it was read (or failed) now.
+     */
+    private static Flight drawBatch(World world, List<Pending> batch, FacePalette palette, boolean async) {
+        Flight flight = null;
+        int pbo = -1;
         long setupStart = System.nanoTime();
         Minecraft mc = Minecraft.getMinecraft();
         Tessellator tessellator = Tessellator.instance;
         int ambientOcclusion = mc.gameSettings.ambientOcclusion;
-        int previousFramebuffer = GL11.glGetInteger(0x8CA6); // GL_FRAMEBUFFER_BINDING
+        int previousFramebuffer = GL11.glGetInteger(OwnFramebuffer.BINDING);
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
@@ -1259,12 +1954,12 @@ final class FaceRenderer {
         boolean bound = false;
         try {
             if (framebuffer == null) {
-                framebuffer = new Framebuffer(SIZE, SIZE, true);
+                framebuffer = new OwnFramebuffer(SIZE, SIZE, true);
                 readBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
                 matrixBuffer = BufferUtils.createFloatBuffer(16);
                 planeBuffer = BufferUtils.createDoubleBuffer(4);
             }
-            framebuffer.bindFramebuffer(true);
+            framebuffer.bind();
             bound = true;
             GL11.glClearColor(0f, 0f, 0f, 0f);
             GL11.glClearDepth(1.0);
@@ -1296,6 +1991,10 @@ final class FaceRenderer {
                 }
                 long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
+                    if (pending.hidden(view)) {
+                        // Can't be seen on the map from there: its slot stays clear, not drawn.
+                        continue;
+                    }
                     int pixels = pending.pixels();
                     GL11.glViewport((slot % perRow) * cell, (slot / perRow) * cell, pixels, pixels);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
@@ -1365,78 +2064,28 @@ final class FaceRenderer {
             }
             // Only the rows of slots used: reading the buffer back waits for the graphics card, the less the better.
             int usedRows = Math.min(SIZE, (slotsUsed(batch) + perRow - 1) / perRow * cell);
-            readBuffer.clear();
-            GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
-            if (readPixels == null) {
-                readPixels = new int[SIZE * SIZE];
+            if (async && variant == 0 && !inspecting) {
+                pbo = readLater(usedRows);
             }
-            int[] all = readPixels;
-            readBuffer.get(all, 0, usedRows * SIZE);
-            long storeStart = System.nanoTime();
-            readNanos += storeStart - readStart;
-            slot = 0;
-            int slots = slotsUsed(batch);
-            int[][] images = new int[slots][];
-            for (Pending pending : batch) {
-                int pixels = pending.pixels();
-                for (int view = 0; view < pending.views(); view++, slot++) {
-                    int[] image = images[slot] = slotImage(slot, pixels * pixels);
-                    int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
-                    // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
-                    float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view)
-                        : 1f;
-                    if (pending.shot != null) {
-                        pending.shot.shade[view] = shade;
-                    }
-                    long u0 = System.nanoTime();
-                    // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a
-                    // table for the shade instead of dividing each color of each pixel.
-                    int[] table = shade >= 1f ? null : shadeTable(shade);
-                    for (int row = 0; row < pixels; row++) {
-                        // Read back bottom-up; pictures are top-down.
-                        int from = (sy + pixels - 1 - row) * SIZE + sx;
-                        if (table == null) {
-                            System.arraycopy(all, from, image, row * pixels, pixels);
-                            continue;
-                        }
-                        for (int column = 0; column < pixels; column++) {
-                            image[row * pixels + column] = unshade(all[from + column], table);
-                        }
-                    }
-                    long u1 = System.nanoTime();
-                    if (pending.shot != null) {
-                        BlockDiag.measure(image, pending.shot, view);
-                    }
-                    unshadeNanos += u1 - u0;
+            if (pbo >= 0) {
+                readNanos += System.nanoTime() - readStart;
+                flight = new Flight(batch, pbo, usedRows, cell, perRow, diagnose);
+            } else {
+                readBuffer.clear();
+                GL11.glReadPixels(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, readBuffer);
+                if (readPixels == null) {
+                    readPixels = new int[SIZE * SIZE];
                 }
-            }
-            if (variant == 0) {
-                // (Another variant's pictures are only compared in the log: they get no ids.)
-                long idStart = System.nanoTime();
-                identify(batch, images, palette);
-                idNanos += System.nanoTime() - idStart;
-            }
-            storeNanos += System.nanoTime() - storeStart;
-            if (diagnose && variant == 0 && !inspecting) {
-                for (Pending pending : batch) {
-                    BlockDiag.picture(
-                        pending.block,
-                        pending.lookKey,
-                        pending.tileEntity,
-                        pending.x,
-                        pending.y,
-                        pending.z,
-                        pending.cube,
-                        pending.exposed,
-                        pending.why,
-                        pending.ids,
-                        pending.views(),
-                        pending.shot);
-                    pending.shot = null;
-                }
+                readBuffer.get(readPixels, 0, usedRows * SIZE);
+                readNanos += System.nanoTime() - readStart;
+                store(batch, readPixels, cell, perRow, palette, diagnose);
             }
             failures = 0;
         } catch (Throwable t) {
+            if (pbo >= 0 && flight == null) {
+                FREE_PBOS.add(pbo);
+            }
+            flight = null;
             // These blocks are drawn from their icons this time.
             for (Pending pending : batch) {
                 Arrays.fill(pending.ids, 0);
@@ -1457,13 +2106,221 @@ final class FaceRenderer {
             mc.gameSettings.ambientOcclusion = ambientOcclusion;
             if (bound) {
                 // Back to the buffer bound before (the game's own while a frame is drawn).
-                IconReader.rebind(mc, previousFramebuffer, framebuffer);
+                OwnFramebuffer.bind(previousFramebuffer);
             }
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPopMatrix();
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+        return flight;
+    }
+
+    /** Whether reading into a pixel buffer object was checked for errors once. */
+    private static boolean pboChecked;
+    /**
+     * {@code GL11.glReadPixels} into a buffer object (its last argument an offset in it), called through a handle:
+     * Angelica turns the mods' calls of {@code GL11} methods into calls of its own state manager, which has no such
+     * one, and every batch failed with a NoSuchMethodError until pictures were given up on.
+     */
+    private static MethodHandle readPixelsIntoBuffer;
+
+    /**
+     * Starts reading the batch's pixels back into a pixel buffer object, without waiting; the buffer, or -1 if it
+     * can't be done (then they are read at once). Any failure makes pictures read at once from then on, and doesn't
+     * count as the batch failing.
+     */
+    private static int readLater(int usedRows) {
+        int pbo = -1;
+        try {
+            pbo = takePbo();
+            if (pbo < 0) {
+                return -1;
+            }
+            boolean first = pboChecked;
+            if (!first) {
+                // Errors before ours aren't ours.
+                for (int n = 0; n < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; n++) {}
+            }
+            if (readPixelsIntoBuffer == null) {
+                readPixelsIntoBuffer = MethodHandles.publicLookup()
+                    .findStatic(
+                        GL11.class,
+                        "glReadPixels",
+                        MethodType.methodType(
+                            void.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            int.class,
+                            long.class));
+            }
+            int packBound = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+            try {
+                // Into the buffer object: returns at once, the graphics card copies them when it gets there.
+                readPixelsIntoBuffer
+                    .invokeExact(0, 0, SIZE, usedRows, GL12.GL_BGRA, GL12.GL_UNSIGNED_INT_8_8_8_8_REV, 0L);
+            } finally {
+                GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBound);
+            }
+            if (!first) {
+                pboChecked = true;
+                int error = GL11.glGetError();
+                if (error != GL11.GL_NO_ERROR) {
+                    throw new IllegalStateException("reading into a pixel buffer object gave error " + error);
+                }
+            }
+            return pbo;
+        } catch (Throwable t) {
+            asyncFailed(String.valueOf(t));
+            if (pbo >= 0) {
+                FREE_PBOS.add(pbo);
+            }
+            return -1;
+        }
+    }
+
+    /**
+     * Takes the batch's pictures out of the pixels read back ({@code all}, rows bottom-up) and gives them their ids.
+     * The work on each picture (copying it out, taking the side's shade out, its fingerprints) is shared by the
+     * picture hash threads; the shade is worked out first here (it reads the blocks' looks, render thread only).
+     */
+    private static void store(List<Pending> batch, int[] all, int cell, int perRow, FacePalette palette,
+        boolean diagnose) throws Exception {
+        long storeStart = System.nanoTime();
+        int slots = slotsUsed(batch);
+        Pending[] owners = new Pending[slots];
+        int[] views = new int[slots];
+        int[][] images = new int[slots][];
+        int[][] tables = new int[slots][];
+        int slot = 0;
+        for (Pending pending : batch) {
+            int pixels = pending.pixels();
+            for (int view = 0; view < pending.views(); view++, slot++) {
+                owners[slot] = pending;
+                views[slot] = view;
+                images[slot] = slotImage(slot, pixels * pixels);
+                if (pending.hidden(view)) {
+                    // Not drawn (the map can't show it from there).
+                    continue;
+                }
+                int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
+                // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
+                float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view) : 1f;
+                if (pending.shot != null) {
+                    pending.shot.shade[view] = shade;
+                }
+                // Without shading (all pictures but cubes' sides) the rows are only copied; with it, through a table
+                // for the shade instead of dividing each color of each pixel.
+                tables[slot] = shade >= 1f ? null : shadeTable(shade);
+            }
+        }
+        // (Another variant's pictures are only compared in the log: they get no ids.)
+        boolean identify = variant == 0;
+        long[][] hashes = new long[slots][];
+        float[][] looks = new float[slots][];
+        long u0 = System.nanoTime();
+        forEachSlot(slots, n -> {
+            Pending pending = owners[n];
+            int pixels = pending.pixels(), view = views[n];
+            if (pending.hidden(view)) {
+                return;
+            }
+            int[] image = images[n], table = tables[n];
+            int sx = (n % perRow) * cell, sy = (n / perRow) * cell;
+            for (int row = 0; row < pixels; row++) {
+                // Read back bottom-up; pictures are top-down.
+                int from = (sy + pixels - 1 - row) * SIZE + sx;
+                if (table == null) {
+                    System.arraycopy(all, from, image, row * pixels, pixels);
+                    continue;
+                }
+                for (int column = 0; column < pixels; column++) {
+                    image[row * pixels + column] = unshade(all[from + column], table);
+                }
+            }
+            if (pending.shot != null) {
+                BlockDiag.measure(image, pending.shot, view);
+            }
+            if (identify) {
+                hashes[n] = FacePalette.hashes(image);
+                looks[n] = pending.detached ? look(image) : null;
+            }
+        });
+        unshadeNanos += System.nanoTime() - u0;
+        if (identify) {
+            long idStart = System.nanoTime();
+            for (int n = 0; n < slots; n++) {
+                if (owners[n].hidden(views[n])) {
+                    owners[n].ids[views[n]] = FacePalette.HIDDEN;
+                    continue;
+                }
+                int id = palette.idOf(images[n], hashes[n]);
+                owners[n].ids[views[n]] = id;
+                if (looks[n] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
+                    if (LOOKS_OF_SPRITES.size() > 200_000) {
+                        LOOKS_OF_SPRITES.clear();
+                    }
+                    LOOKS_OF_SPRITES.put(id, looks[n]);
+                    cachesChanged = true;
+                }
+            }
+            idNanos += System.nanoTime() - idStart;
+        }
+        storeNanos += System.nanoTime() - storeStart;
+        if (diagnose && variant == 0 && !inspecting) {
+            for (Pending pending : batch) {
+                BlockDiag.picture(
+                    pending.block,
+                    pending.lookKey,
+                    pending.tileEntity,
+                    pending.x,
+                    pending.y,
+                    pending.z,
+                    pending.cube,
+                    pending.exposed,
+                    pending.why,
+                    pending.ids,
+                    pending.views(),
+                    pending.shot);
+                pending.shot = null;
+            }
+        }
+    }
+
+    /** Runs the work for each slot, shared by the picture hash threads when there are enough. */
+    private static void forEachSlot(int slots, java.util.function.IntConsumer work) throws Exception {
+        if (slots < PARALLEL_FROM) {
+            for (int n = 0; n < slots; n++) {
+                work.accept(n);
+            }
+            return;
+        }
+        int parts = Math.min(
+            slots,
+            4 * Math.max(
+                1,
+                Math.min(
+                    6,
+                    Runtime.getRuntime()
+                        .availableProcessors() / 4)));
+        List<Callable<Void>> tasks = new ArrayList<>(parts);
+        for (int part = 0; part < parts; part++) {
+            int from = slots * part / parts, to = slots * (part + 1) / parts;
+            tasks.add(() -> {
+                for (int n = from; n < to; n++) {
+                    work.accept(n);
+                }
+                return null;
+            });
+        }
+        for (Future<Void> done : HASHERS.invokeAll(tasks)) {
+            // Throws what a task threw.
+            done.get();
         }
     }
 
@@ -1497,63 +2354,6 @@ final class FaceRenderer {
         });
     /** Fewer pictures than this are worked out on the render thread: handing them over would cost more. */
     private static final int PARALLEL_FROM = 8;
-
-    /** Gives each picture of the batch its id in the palette (and a block that can't reach out, its looks). */
-    private static void identify(List<Pending> batch, int[][] images, FacePalette palette) throws Exception {
-        int slots = images.length;
-        long[][] hashes = new long[slots][];
-        float[][] looks = new float[slots][];
-        boolean[] wantLooks = new boolean[slots];
-        int slot = 0;
-        for (Pending pending : batch) {
-            for (int view = 0; view < pending.views(); view++, slot++) {
-                wantLooks[slot] = pending.detached;
-            }
-        }
-        if (slots < PARALLEL_FROM) {
-            for (int n = 0; n < slots; n++) {
-                hashes[n] = FacePalette.hashes(images[n]);
-                looks[n] = wantLooks[n] ? look(images[n]) : null;
-            }
-        } else {
-            int parts = Math.min(
-                slots,
-                4 * Math.max(
-                    1,
-                    Math.min(
-                        6,
-                        Runtime.getRuntime()
-                            .availableProcessors() / 4)));
-            List<Callable<Void>> tasks = new ArrayList<>(parts);
-            for (int part = 0; part < parts; part++) {
-                int from = slots * part / parts, to = slots * (part + 1) / parts;
-                tasks.add(() -> {
-                    for (int n = from; n < to; n++) {
-                        hashes[n] = FacePalette.hashes(images[n]);
-                        looks[n] = wantLooks[n] ? look(images[n]) : null;
-                    }
-                    return null;
-                });
-            }
-            for (Future<Void> done : HASHERS.invokeAll(tasks)) {
-                // Throws what a task threw.
-                done.get();
-            }
-        }
-        slot = 0;
-        for (Pending pending : batch) {
-            for (int view = 0; view < pending.views(); view++, slot++) {
-                int id = palette.idOf(images[slot], hashes[slot]);
-                pending.ids[view] = id;
-                if (looks[slot] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
-                    if (LOOKS_OF_SPRITES.size() > 200_000) {
-                        LOOKS_OF_SPRITES.clear();
-                    }
-                    LOOKS_OF_SPRITES.put(id, looks[slot]);
-                }
-            }
-        }
-    }
 
     /**
      * For the log: whether the pictures just taken could have been skipped. Taken again only because they were too
@@ -1622,6 +2422,419 @@ final class FaceRenderer {
             return tag.hashCode();
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    /**
+     * Which pictures of a chunk's blocks the map can show ({@link MapVisibility}), worked out only for the blocks that
+     * need it: those to draw, and those given pictures with some left out (render thread).
+     */
+    private static final class Sight {
+
+        final World world;
+        final Chunk chunk;
+        final LongPredicate onMap;
+        /** Made for the first block that needs it. */
+        MapVisibility visibility;
+
+        Sight(World world, Chunk chunk, LongPredicate onMap) {
+            this.world = world;
+            this.chunk = chunk;
+            this.onMap = onMap;
+        }
+
+        /** Works out the block's {@link Pending#hiddenMask} if not done yet. */
+        void mask(Pending pending) {
+            if (pending.maskKnown) {
+                return;
+            }
+            pending.maskKnown = true;
+            if (!SKIP_HIDDEN || pending.wide || pending.overBig) {
+                // Models reaching past their cell are always drawn.
+                return;
+            }
+            long v0 = System.nanoTime();
+            if (visibility == null) {
+                visibility = new MapVisibility(world, chunk, onMap);
+            }
+            pending.hiddenMask = visibility.hidden(pending.x, pending.y, pending.z, pending.cube);
+            visibilityNanos += System.nanoTime() - v0;
+            visibilityChecked++;
+        }
+    }
+
+    /**
+     * A block the map can't show from any side, with no pictures known for it: none drawn, all left out as
+     * {@link FacePalette#HIDDEN}. False for any other block.
+     */
+    private static boolean leaveOut(Pending pending, int key, Sight sight) {
+        sight.mask(pending);
+        if (!pending.allHidden()) {
+            return false;
+        }
+        hiddenFound++;
+        Arrays.fill(pending.ids, 0, pending.views(), FacePalette.HIDDEN);
+        if (IsoLog.on()) {
+            IsoLog.visibility(key, true);
+        }
+        return true;
+    }
+
+    /**
+     * Whether pictures known for another block can be given to this one: none of them was left out
+     * ({@link FacePalette#HIDDEN}) where this block can be seen.
+     */
+    private static boolean fits(int[] ids, Pending pending, Sight sight) {
+        for (int view = 0; view < pending.views(); view++) {
+            if (ids[view] == FacePalette.HIDDEN) {
+                sight.mask(pending);
+                if (!pending.hidden(view)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Mixes a value into a 64-bit key, every bit of it reaching every bit of the result. */
+    private static long mixKey(long hash, long value) {
+        long h = (hash ^ value) * 0x9E3779B97F4A7C15L;
+        h ^= h >>> 32;
+        h *= 0xD6E8FEB86659FD93L;
+        return h ^ h >>> 32;
+    }
+
+    private static DataClass dataClass(TileEntity tileEntity) {
+        Class<?> type = tileEntity.getClass();
+        DataClass c = DATA_CLASSES.get(type);
+        if (c == null) {
+            c = new DataClass(type.getSimpleName());
+            // As an earlier game left it: a class trusted then shares at once, one turned off stays off.
+            long[] saved = SAVED_DATA_CLASSES.remove(type.getName());
+            if (saved != null) {
+                c.confirmedEver = saved[0];
+                c.conflictsEver = saved[1];
+                c.off = saved[2] != 0;
+                c.trustLogged = c.trusted();
+            }
+            DATA_CLASSES.put(type, c);
+        }
+        return c;
+    }
+
+    /**
+     * Hash of what a tile entity keeps (its NBT without where it is), {@link #NO_HASH} if it can't be written; once
+     * per tile entity and chunk.
+     */
+    /** 64-bit FNV-1a of the bytes written to it. */
+    private static final class HashingStream extends java.io.OutputStream {
+
+        long hash;
+
+        @Override
+        public void write(int b) {
+            hash = (hash ^ (b & 0xFF)) * 0x100000001B3L;
+        }
+    }
+
+    private static final HashingStream NBT_HASH = new HashingStream();
+    private static final DataOutputStream NBT_OUT = new DataOutputStream(NBT_HASH);
+
+    /**
+     * Hash of all the bytes of what a tile entity keeps (render thread). Not {@code NBTTagCompound.hashCode()}: 32
+     * bits summed over the entries, two states with values swapped between fields (facing 2 rotation 3, facing 3
+     * rotation 2) could give the same, and one block's pictures would be given to the other.
+     */
+    private static long nbtHash(net.minecraft.nbt.NBTTagCompound tag) throws IOException {
+        NBT_HASH.hash = 0xCBF29CE484222325L;
+        net.minecraft.nbt.CompressedStreamTools.write(tag, NBT_OUT);
+        NBT_OUT.flush();
+        return NBT_HASH.hash;
+    }
+
+    /**
+     * Sets {@link Pending#placeData} if it isn't yet (a block drawn without its data key worked out: an unreliable
+     * class), so its picture by place is checked against it later. Render thread.
+     */
+    private static void placeData(Pending pending) {
+        if (pending.placeData != 0 || pending.unsure || !DATA_CACHE || pending.tileEntity == null) {
+            return;
+        }
+        World world = pending.tileEntity.getWorldObj();
+        if (world != null) {
+            long k0 = System.nanoTime();
+            pending.placeData = dataKey(world, pending, new IdentityHashMap<>());
+            dataKeyNanos += System.nanoTime() - k0;
+        }
+    }
+
+    private static long tileEntityHash(TileEntity tileEntity, Map<TileEntity, Long> hashes) {
+        Long known = hashes.get(tileEntity);
+        if (known != null) {
+            return known;
+        }
+        long hash;
+        try {
+            net.minecraft.nbt.NBTTagCompound tag = new net.minecraft.nbt.NBTTagCompound();
+            tileEntity.writeToNBT(tag);
+            tag.removeTag("x");
+            tag.removeTag("y");
+            tag.removeTag("z");
+            // The class too: two tile entities keeping nothing look alike only if they are the same.
+            hash = mixKey(
+                tileEntity.getClass()
+                    .getName()
+                    .hashCode(),
+                nbtHash(tag));
+            if (hash == NO_HASH) {
+                hash++;
+            }
+        } catch (Throwable t) {
+            hash = NO_HASH;
+        }
+        hashes.put(tileEntity, hash);
+        return hash;
+    }
+
+    /**
+     * The block's key for {@link #BY_DATA}: its surroundings, open sides, what its tile entity keeps and what the
+     * tile entities next to it keep; 0 if there is none (one of them can't be written, or reading the world failed).
+     */
+    private static long dataKey(World world, Pending pending, Map<TileEntity, Long> hashes) {
+        long own = tileEntityHash(pending.tileEntity, hashes);
+        if (own == NO_HASH) {
+            return 0;
+        }
+        long h = mixKey(pending.surroundings, own);
+        h = mixKey(h, pending.exposed | (pending.ownRenderer ? 64 : 0) | (pending.cube ? 128 : 0));
+        try {
+            for (int[] offset : OFFSETS) {
+                int nx = pending.x + offset[0], ny = pending.y + offset[1], nz = pending.z + offset[2];
+                long next = 0;
+                if (ny >= 0 && ny <= 255) {
+                    Block block = world.getBlock(nx, ny, nz);
+                    if (block.hasTileEntity(world.getBlockMetadata(nx, ny, nz))) {
+                        TileEntity tileEntity = world.getTileEntity(nx, ny, nz);
+                        if (tileEntity != null) {
+                            next = tileEntityHash(tileEntity, hashes);
+                            if (next == NO_HASH) {
+                                return 0;
+                            }
+                        }
+                    }
+                }
+                h = mixKey(h, next);
+            }
+        } catch (RuntimeException e) {
+            return 0;
+        }
+        return h == 0 ? 1 : h;
+    }
+
+    /**
+     * Gives a block with a tile entity the pictures kept for its key ({@link #BY_DATA}) if there are and they may be
+     * used; false if it is to be drawn (its key is then set, so the pictures drawn are kept for it).
+     */
+    private static boolean byData(World world, Pending pending, Sight sight, Map<TileEntity, Long> hashes) {
+        if (!DATA_CACHE || pending.unsure || pending.wide || pending.overBig || pending.tileEntity == null) {
+            return false;
+        }
+        DataClass c = dataClass(pending.tileEntity);
+        if (c.off) {
+            dataClassOff++;
+            return false;
+        }
+        long t0 = System.nanoTime();
+        pending.dataKey = pending.placeData != 0 ? pending.placeData : dataKey(world, pending, hashes);
+        pending.placeData = pending.dataKey;
+        dataKeyNanos += System.nanoTime() - t0;
+        if (pending.dataKey == 0) {
+            dataNoKey++;
+            c.stats[D_NO_KEY]++;
+            return false;
+        }
+        Learned learned = BY_DATA.get(pending.dataKey);
+        if (learned == null) {
+            dataLearning++;
+            return false;
+        }
+        if (learned.unreliable) {
+            dataUnreliableKey++;
+            return false;
+        }
+        int needed = c.trusted() ? 0 : DATA_CONFIRMATIONS;
+        int[] ids = learned.reuse(needed, 0);
+        if (ids == null) {
+            if (learned.confirmed >= needed) {
+                // Every so often drawn anyway, to check.
+                dataVerify++;
+                pending.dataVerifying = true;
+            } else {
+                dataLearning++;
+            }
+            return false;
+        }
+        if (!fits(ids, pending, sight)) {
+            dataNotFitting++;
+            c.stats[D_NOT_FITTING]++;
+            return false;
+        }
+        System.arraycopy(ids, 0, pending.ids, 0, pending.ids.length);
+        pending.placeData = pending.dataKey;
+        BY_PLACE.put(
+            place(pending.x, pending.y, pending.z),
+            new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis(), pending.placeData));
+        dataHit++;
+        c.stats[D_REUSED]++;
+        return true;
+    }
+
+    /**
+     * Remembers the pictures just drawn of a block with a tile entity for its key: the same ones where both were
+     * drawn confirm them (pictures left out as hidden there are filled in), other ones make the key be drawn every
+     * time from then on, and a class whose keys keep doing that is drawn by place again.
+     */
+    private static void learnData(Pending pending) {
+        cachesChanged = true;
+        DataClass c = dataClass(pending.tileEntity);
+        Learned learned = BY_DATA.get(pending.dataKey);
+        if (learned == null) {
+            if (BY_DATA.size() >= MAX_DATA_KEYS) {
+                BY_DATA.clear();
+            }
+            BY_DATA.put(pending.dataKey, new Learned(pending.ids.clone()));
+            c.stats[D_KEYS]++;
+            return;
+        }
+        if (learned.unreliable) {
+            return;
+        }
+        boolean same = true;
+        for (int view = 0; view < pending.views() && same; view++) {
+            int was = learned.ids[view], now = pending.ids[view];
+            same = was == now || was == FacePalette.HIDDEN || now == FacePalette.HIDDEN;
+        }
+        if (same) {
+            for (int view = 0; view < pending.views(); view++) {
+                if (learned.ids[view] == FacePalette.HIDDEN) {
+                    learned.ids[view] = pending.ids[view];
+                }
+            }
+            learned.confirmed++;
+            c.confirmedEver++;
+            c.stats[D_CONFIRMED]++;
+            if (pending.dataVerifying) {
+                c.stats[D_VERIFIED]++;
+            }
+            if (!c.trustLogged && c.trusted()) {
+                c.trustLogged = true;
+                IsoLog.log(
+                    "DATA_CLASS_TRUSTED " + c.name
+                        + " after "
+                        + c.confirmedEver
+                        + " confirmations ("
+                        + c.conflictsEver
+                        + " conflicts): its blocks share pictures within a chunk and get them at the first drawing");
+            }
+            return;
+        }
+        learned.unreliable = true;
+        c.conflictsEver++;
+        c.stats[D_CONFLICTS]++;
+        if (c.stats[D_CONFLICTS] <= 3) {
+            IsoLog.log(
+                "DATA_UNRELIABLE " + BlockDiag.name(pending.lookKey)
+                    + " ["
+                    + c.name
+                    + "] at "
+                    + pending.x
+                    + ","
+                    + pending.y
+                    + ","
+                    + pending.z
+                    + (pending.dataVerifying ? " (checking)" : "")
+                    + " after "
+                    + learned.confirmed
+                    + " same: pictures "
+                    + Arrays.toString(Arrays.copyOf(learned.ids, pending.views()))
+                    + " now "
+                    + Arrays.toString(Arrays.copyOf(pending.ids, pending.views()))
+                    + " (this key is drawn every time from now on; logged 3 times per class at most)");
+        }
+        if (!c.off && c.conflictsEver >= 3 && c.conflictsEver * 10 > c.confirmedEver) {
+            c.off = true;
+            IsoLog.log(
+                "DATA_CLASS_OFF " + c.name
+                    + " confirmed="
+                    + c.confirmedEver
+                    + " conflicts="
+                    + c.conflictsEver
+                    + ": what it draws depends on more than it keeps, its blocks are drawn by place again");
+        }
+    }
+
+    /** The log started: the counts of {@link #BY_DATA} start again (what was learned stays). */
+    static void dataStatsClear() {
+        for (DataClass c : DATA_CLASSES.values()) {
+            Arrays.fill(c.stats, 0);
+        }
+    }
+
+    /** For the summaries: how the pictures by data fared per class of tile entity. */
+    static void dataSummary(String title) {
+        List<DataClass> list = new ArrayList<>();
+        long reused = 0, drawn = 0;
+        for (DataClass c : DATA_CLASSES.values()) {
+            if (c.stats[D_REUSED] + c.stats[D_SHARED] + c.stats[D_DRAWN] + c.stats[D_NO_KEY] > 0) {
+                list.add(c);
+                reused += c.stats[D_REUSED] + c.stats[D_SHARED];
+                drawn += c.stats[D_DRAWN];
+            }
+        }
+        if (list.isEmpty()) {
+            return;
+        }
+        list.sort(
+            (a, b) -> Long.compare(
+                b.stats[D_REUSED] + b.stats[D_SHARED] + b.stats[D_DRAWN],
+                a.stats[D_REUSED] + a.stats[D_SHARED] + a.stats[D_DRAWN]));
+        int unreliable = 0;
+        for (Learned l : BY_DATA.values()) {
+            if (l.unreliable) {
+                unreliable++;
+            }
+        }
+        IsoLog.log(
+            title + " pictures by tile entity data: given without drawing="
+                + reused
+                + " drawn="
+                + drawn
+                + " drawingSaved="
+                + (reused + drawn == 0 ? 0 : reused * 100 / (reused + drawn))
+                + "% keys="
+                + BY_DATA.size()
+                + " unreliableKeys="
+                + unreliable
+                + (DATA_CACHE ? "" : " (off: -Dwayfarmap.noDataCache=true)"));
+        for (int n = 0; n < Math.min(25, list.size()); n++) {
+            DataClass c = list.get(n);
+            StringBuilder b = new StringBuilder(title).append("   data#")
+                .append(n + 1)
+                .append(' ')
+                .append(c.name);
+            for (int f = 0; f < DATA_FIELDS.length; f++) {
+                b.append(' ')
+                    .append(DATA_FIELDS[f])
+                    .append('=')
+                    .append(c.stats[f]);
+            }
+            long given = c.stats[D_REUSED] + c.stats[D_SHARED];
+            b.append(" saved=")
+                .append(given + c.stats[D_DRAWN] == 0 ? 0 : given * 100 / (given + c.stats[D_DRAWN]))
+                .append("% trusted=")
+                .append(c.trusted())
+                .append(c.off ? " OFF" : "");
+            IsoLog.log(b.toString());
         }
     }
 
@@ -1876,6 +3089,7 @@ final class FaceRenderer {
                     int[][] images = part.get(i).shot.images;
                     boolean whole = images[0] != null && fillsOutline(images[0], FacePalette.SPRITE_SIZE);
                     WHOLE_CUBE.put(keys.get(from + i), whole);
+                    cachesChanged = true;
                 }
             }
         }

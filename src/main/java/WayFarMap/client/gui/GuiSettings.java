@@ -11,17 +11,18 @@ import java.util.Set;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
-import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.Lang;
 import WayFarMap.client.MapDrawer;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.MobPreview;
 import WayFarMap.client.PlayerTrail;
+import WayFarMap.client.gui.ui.Flags;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Icons;
@@ -225,7 +226,7 @@ public class GuiSettings extends ScaledScreen {
 
         boolean searchFocused = searchField != null && searchField.isFocused();
         searchField = new FlatTextField(fontRendererObj, right - 10 - SEARCH_WIDTH, top + 5, SEARCH_WIDTH, 15)
-            .setHint(I18n.format("wayfarmap.settings.search"))
+            .setHint(Lang.format("wayfarmap.settings.search"))
             .setOnCleared(this::searchChanged);
         searchField.setMaxStringLength(40);
         searchField.setText(searchText);
@@ -245,7 +246,7 @@ public class GuiSettings extends ScaledScreen {
                 top + 26 + i * 20,
                 SIDEBAR_WIDTH - 12,
                 18,
-                I18n.format("wayfarmap.settings." + category));
+                Lang.format("wayfarmap.settings." + category));
             tab.icon = tabIcon(category);
             tab.iconColor = tabColor(category);
             tab.iconSlot = iconSlot;
@@ -258,8 +259,8 @@ public class GuiSettings extends ScaledScreen {
                 bottom - 48,
                 SIDEBAR_WIDTH - 12,
                 18,
-                I18n.format("wayfarmap.settings.reset")));
-        buttonList.add(new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.done")));
+                Lang.format("wayfarmap.settings.reset")));
+        buttonList.add(new FlatButton(ID_DONE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, Lang.format("gui.done")));
         // Asked after the reset button: stacked over where it was.
         FlatButton resetAll = new FlatButton(
             ID_RESET_ALL,
@@ -267,7 +268,7 @@ public class GuiSettings extends ScaledScreen {
             bottom - 92,
             SIDEBAR_WIDTH - 12,
             18,
-            I18n.format("wayfarmap.settings.reset_all"));
+            Lang.format("wayfarmap.settings.reset_all"));
         resetAll.danger = true;
         buttonList.add(resetAll);
         FlatButton resetTab = new FlatButton(
@@ -276,11 +277,11 @@ public class GuiSettings extends ScaledScreen {
             bottom - 70,
             SIDEBAR_WIDTH - 12,
             18,
-            I18n.format("wayfarmap.settings.reset_tab"));
+            Lang.format("wayfarmap.settings.reset_tab"));
         resetTab.danger = true;
         buttonList.add(resetTab);
         buttonList.add(
-            new FlatButton(ID_RESET_CANCEL, left + 6, bottom - 48, SIDEBAR_WIDTH - 12, 18, I18n.format("gui.cancel")));
+            new FlatButton(ID_RESET_CANCEL, left + 6, bottom - 48, SIDEBAR_WIDTH - 12, 18, Lang.format("gui.cancel")));
         updateButtons();
         rows = null;
         clampScroll();
@@ -498,12 +499,12 @@ public class GuiSettings extends ScaledScreen {
             String title = null;
             Set<Config.Option> shown = new HashSet<>();
             for (Config.Option option : Config.getOptions(tab)) {
-                String text = I18n.format(option.langKey()) + "\n" + I18n.format(option.langKey() + ".desc");
+                String text = Lang.format(option.langKey()) + "\n" + Lang.format(option.langKey() + ".desc");
                 text = text.toLowerCase(Locale.ROOT);
                 if (!text.contains(query)) {
                     continue;
                 }
-                String optionTitle = I18n.format("wayfarmap.settings." + tab)
+                String optionTitle = Lang.format("wayfarmap.settings." + tab)
                     + (option.group.isEmpty() ? "" : " / " + groupTitle(option.group));
                 if (!optionTitle.equals(title)) {
                     y = closeCard(card, y);
@@ -527,7 +528,7 @@ public class GuiSettings extends ScaledScreen {
     }
 
     private static String groupTitle(String group) {
-        return I18n.format("wayfarmap.settings.group." + group);
+        return Lang.format("wayfarmap.settings.group." + group);
     }
 
     /** The minimap's tab shows a preview of it over the options. */
@@ -1072,7 +1073,7 @@ public class GuiSettings extends ScaledScreen {
 
         String category = Config.CATEGORIES.get(selectedCategory);
         String titleKey = searching() ? "search_results" : category;
-        String title = I18n.format("wayfarmap.settings." + titleKey);
+        String title = Lang.format("wayfarmap.settings." + titleKey);
         Theme.text(
             fontRendererObj,
             Theme.ellipsize(fontRendererObj, title, right - 10 - SEARCH_WIDTH - 8 - contentLeft),
@@ -1166,7 +1167,7 @@ public class GuiSettings extends ScaledScreen {
             }
             boolean locked = isLocked(option);
             int nameWidth = controlX() - x - controlLeftWidth(option) - 6;
-            String name = Theme.ellipsize(fontRendererObj, I18n.format(option.langKey()), nameWidth);
+            String name = Theme.ellipsize(fontRendererObj, Lang.format(option.langKey()), nameWidth);
             drawName(name, x, y + 7, locked ? Theme.TEXT_DISABLED : Theme.TEXT);
             drawControl(option, controlX(), y + 3, mouseX, mouseY, state[1]);
             if (locked) {
@@ -1198,7 +1199,7 @@ public class GuiSettings extends ScaledScreen {
         if (rows().isEmpty()) {
             Theme.centered(
                 fontRendererObj,
-                I18n.format("wayfarmap.settings.no_results"),
+                Lang.format("wayfarmap.settings.no_results"),
                 (contentLeft + right - 10) / 2,
                 listTop + 30,
                 Theme.TEXT_MUTED);
@@ -1265,7 +1266,7 @@ public class GuiSettings extends ScaledScreen {
                 resetX() + 1,
                 y + (HEADER_HEIGHT - RESET_ICON.length) / 2,
                 overReset ? Theme.ACCENT : Theme.TEXT_MUTED);
-            String count = I18n.format("wayfarmap.settings.changed_count", changed);
+            String count = Lang.format("wayfarmap.settings.changed_count", changed);
             int countX = resetX() - 5 - fontRendererObj.getStringWidth(count);
             Theme.text(fontRendererObj, count, countX, y + 5, overReset ? Theme.ACCENT : Theme.TEXT_MUTED);
             // A dot like the changed options' mark, before the count.
@@ -1286,6 +1287,8 @@ public class GuiSettings extends ScaledScreen {
         switch (group) {
             case "general":
                 return Icons.SMALL_GEAR;
+            case "language":
+                return Icons.SMALL_GLOBE;
             case "mapView":
                 return Icons.SMALL_ZOOM;
             case "compass":
@@ -1381,12 +1384,12 @@ public class GuiSettings extends ScaledScreen {
         int x0 = contentLeft, x1 = cardRight() - 4, y0 = y + 2, y1 = y + TRAIL_PREVIEW_HEIGHT - 4;
         drawPreviewGround(x0, y0, x1, y1);
         PlayerTrail.drawPreview(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
         if (!Config.playerTrail) {
             Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC0101418);
             Theme.centered(
                 fontRendererObj,
-                I18n.format("wayfarmap.settings.trail_off"),
+                Lang.format("wayfarmap.settings.trail_off"),
                 (x0 + x1) / 2,
                 (y0 + y1) / 2 - 4,
                 Theme.TEXT_MUTED);
@@ -1414,7 +1417,7 @@ public class GuiSettings extends ScaledScreen {
     private void drawMobsPreview(int y0) {
         int x0 = contentLeft, x1 = right - 10, y1 = y0 + MOBS_PREVIEW_HEIGHT - 6;
         drawPreviewGround(x0, y0, x1, y1);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
         Theme.clip(x0 + 1, y0 + 1, x1 - 1, y1 - 1);
         MobPreview.draw(fontRendererObj, x0 + 1, y0 + 20, x1 - 1, y1 - 2);
         Theme.unclip();
@@ -1428,7 +1431,7 @@ public class GuiSettings extends ScaledScreen {
         Theme.fill(x0, y0, middle, y1, 0xFF0C0E11);
         Theme.fill(middle, y0, x1, y1, 0xFFC9D3B4);
         Theme.outline(x0, y0, x1, y1, Theme.BORDER);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
         // Turning slowly, so its direction shows. The world map's size (5 at 100%).
         float yaw = (System.currentTimeMillis() % 8000L) * 360f / 8000f;
         double cy = (y0 + 12 + y1) / 2.0;
@@ -1445,7 +1448,7 @@ public class GuiSettings extends ScaledScreen {
         int x0 = contentLeft, x1 = right - 10, y1 = y0 + PREVIEW_HEIGHT - 6;
         Theme.fill(x0, y0, x1, y1, 0xFF0F1216);
         Theme.outline(x0, y0, x1, y1, Theme.BORDER);
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
         int thumbnailLeft = x1 - 8 - 96;
         drawScreenThumbnail(thumbnailLeft, y0 + 17, 96, 54);
 
@@ -1456,7 +1459,7 @@ public class GuiSettings extends ScaledScreen {
             if (shrunk < 0.995) {
                 Theme.text(
                     fontRendererObj,
-                    I18n.format("wayfarmap.settings.preview_shrunk", Math.round(shrunk * 100)),
+                    Lang.format("wayfarmap.settings.preview_shrunk", Math.round(shrunk * 100)),
                     thumbnailLeft,
                     y0 + 17 + 54 + 6,
                     Theme.TEXT_MUTED);
@@ -1470,7 +1473,7 @@ public class GuiSettings extends ScaledScreen {
             Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC00F1216);
             Theme.centered(
                 fontRendererObj,
-                I18n.format("wayfarmap.settings.minimap_off"),
+                Lang.format("wayfarmap.settings.minimap_off"),
                 (x0 + x1) / 2,
                 (y0 + y1) / 2 - 4,
                 Theme.TEXT_MUTED);
@@ -1583,7 +1586,7 @@ public class GuiSettings extends ScaledScreen {
 
     /** A small screen with the minimap where it is on the real one. */
     private void drawScreenThumbnail(int x, int y, int w, int h) {
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.settings.on_screen"), x, y - 11, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.on_screen"), x, y - 11, Theme.TEXT_MUTED);
         Theme.fill(x, y, x + w, y + h, 0xFF1B2430);
         Theme.outline(x, y, x + w, y + h, Theme.BORDER);
         // The hotbar, so it reads as the game's screen.
@@ -1681,26 +1684,26 @@ public class GuiSettings extends ScaledScreen {
         List<String> lines = new ArrayList<>();
         List<String> notes = new ArrayList<>();
         if (option == null) {
-            addWrapped(lines, I18n.format("wayfarmap.settings.hint"), textWidth);
+            addWrapped(lines, Lang.format("wayfarmap.settings.hint"), textWidth);
         } else {
-            title = I18n.format(option.langKey());
+            title = Lang.format(option.langKey());
             String defaultValue = defaultText(option);
             if (reset) {
                 String key = defaultValue == null ? "wayfarmap.settings.reset_option" : "wayfarmap.settings.reset_to";
-                notes.add(I18n.format(key, defaultValue));
+                notes.add(Lang.format(key, defaultValue));
             } else {
-                addWrapped(lines, I18n.format(option.langKey() + ".desc"), textWidth);
+                addWrapped(lines, Lang.format(option.langKey() + ".desc"), textWidth);
                 if (defaultValue != null) {
-                    notes.add(I18n.format("wayfarmap.settings.default", defaultValue));
+                    notes.add(Lang.format("wayfarmap.settings.default", defaultValue));
                 }
                 if (isTypable(option) && !isLocked(option)) {
-                    notes.add(I18n.format("wayfarmap.settings.type_value"));
+                    notes.add(Lang.format("wayfarmap.settings.type_value"));
                 }
                 Config.BoolOption waitsFor = offParent(option);
                 if (waitsFor != null) {
-                    notes.add(I18n.format("wayfarmap.settings.requires", I18n.format(waitsFor.langKey())));
+                    notes.add(Lang.format("wayfarmap.settings.requires", Lang.format(waitsFor.langKey())));
                 } else if (!option.applies()) {
-                    notes.add(I18n.format("wayfarmap.settings.not_used"));
+                    notes.add(Lang.format("wayfarmap.settings.not_used"));
                 }
             }
         }
@@ -1717,19 +1720,19 @@ public class GuiSettings extends ScaledScreen {
         List<String> notes = new ArrayList<>();
         int changed = row.changed();
         if (reset) {
-            notes.add(I18n.format("wayfarmap.settings.section_reset", changed));
+            notes.add(Lang.format("wayfarmap.settings.section_reset", changed));
         } else {
             String key = "wayfarmap.settings.group." + row.group + ".desc";
-            String description = I18n.format(key);
+            String description = Lang.format(key);
             if (!description.equals(key)) {
                 addWrapped(lines, description, textWidth);
             }
             if (row.section != null) {
                 boolean open = row.end > row.y + HEADER_HEIGHT;
-                notes.add(I18n.format(open ? "wayfarmap.settings.section_open" : "wayfarmap.settings.section_closed"));
+                notes.add(Lang.format(open ? "wayfarmap.settings.section_open" : "wayfarmap.settings.section_closed"));
             }
             if (changed > 0) {
-                notes.add(I18n.format("wayfarmap.settings.section_changed", changed));
+                notes.add(Lang.format("wayfarmap.settings.section_changed", changed));
             }
         }
         drawDescriptionBox(row.title, lines, notes, true);
@@ -1784,10 +1787,10 @@ public class GuiSettings extends ScaledScreen {
     /** The option's default value as shown on its control; null when it has none to show (the minimap position). */
     private String defaultText(Config.Option option) {
         if (option instanceof Config.BoolOption) {
-            return I18n.format(((Config.BoolOption) option).defaultValue ? "options.on" : "options.off");
+            return Lang.format(((Config.BoolOption) option).defaultValue ? "options.on" : "options.off");
         } else if (option instanceof Config.ChoiceOption) {
             Config.ChoiceOption choice = (Config.ChoiceOption) option;
-            return I18n.format(option.langKey() + "." + choice.values[choice.defaultValue]);
+            return Lang.format(option.langKey() + "." + choice.values[choice.defaultValue]);
         } else if (option instanceof Config.IntOption) {
             return intText((Config.IntOption) option, ((Config.IntOption) option).defaultValue);
         } else if (option instanceof Config.DoubleOption) {
@@ -1816,6 +1819,10 @@ public class GuiSettings extends ScaledScreen {
     /** How far left of its control the option draws: a slider's value box, a list's buttons wider than it. */
     private int controlLeftWidth(Config.Option option) {
         int segments = segmentsWidth(option);
+        if (segments > 0 && Config.isLanguage(option)) {
+            // The languages' flags, the name of the chosen one (or the one under the mouse) left of them.
+            return segments - CONTROL_WIDTH + languageNameWidth((Config.ChoiceOption) option) + 6;
+        }
         if (segments > 0) {
             return segments - CONTROL_WIDTH;
         }
@@ -1824,11 +1831,23 @@ public class GuiSettings extends ScaledScreen {
 
     /** A value of a list, translated. */
     private static String choiceText(Config.ChoiceOption choice, int value) {
-        return I18n.format(choice.langKey() + "." + choice.values[value]);
+        return Lang.format(choice.langKey() + "." + choice.values[value]);
     }
 
-    /** Width of a button of a list's value: its text and room around it. */
+    /** Width of the longest language's name. */
+    private int languageNameWidth(Config.ChoiceOption choice) {
+        int width = 0;
+        for (int i = 0; i < choice.values.length; i++) {
+            width = Math.max(width, fontRendererObj.getStringWidth(choiceText(choice, i)));
+        }
+        return width;
+    }
+
+    /** Width of a button of a list's value: its text (a language: its flag) and room around it. */
     private int segmentWidth(Config.ChoiceOption choice, int value) {
+        if (Config.isLanguage(choice)) {
+            return Flags.WIDTH + 8;
+        }
         return fontRendererObj.getStringWidth(choiceText(choice, value)) + 10;
     }
 
@@ -1853,7 +1872,7 @@ public class GuiSettings extends ScaledScreen {
             return 0;
         }
         int nameRoom = controlX() - (width - CONTROL_WIDTH) - contentLeft - INDENT - 6;
-        return fontRendererObj.getStringWidth(I18n.format(option.langKey())) <= nameRoom ? width : 0;
+        return fontRendererObj.getStringWidth(Lang.format(option.langKey())) <= nameRoom ? width : 0;
     }
 
     /** Edges of a list's buttons from x, the room left over shared between them: one more than there are values. */
@@ -1886,10 +1905,10 @@ public class GuiSettings extends ScaledScreen {
 
     private static String intText(Config.IntOption option, int value) {
         if (value == 0 && "maxDistance".equals(option.key)) {
-            return I18n.format("wayfarmap.settings.unlimited");
+            return Lang.format("wayfarmap.settings.unlimited");
         }
         if ("isoQuality".equals(option.key)) {
-            return I18n.format("wayfarmap.iso.quality_value", 8 << value);
+            return Lang.format("wayfarmap.iso.quality_value", 8 << value);
         }
         return String.valueOf(value);
     }
@@ -1907,7 +1926,7 @@ public class GuiSettings extends ScaledScreen {
             Theme.outline(switchX, switchY, switchX + 24, switchY + 12, rowHovered ? Theme.ACCENT : Theme.BORDER);
             int knobX = switchX + 2 + Math.round(12 * knob);
             Theme.fill(knobX, switchY + 2, knobX + 8, switchY + 10, Theme.TEXT);
-            String state = I18n.format(on ? "options.on" : "options.off");
+            String state = Lang.format(on ? "options.on" : "options.off");
             Theme.text(
                 fontRendererObj,
                 state,
@@ -1920,6 +1939,8 @@ public class GuiSettings extends ScaledScreen {
             int width = segmentsWidth(option);
             int[] edges = segmentEdges(choice, x + CONTROL_WIDTH - width, width);
             boolean anyHovered = Theme.inside(mouseX, mouseY, edges[0], y, edges[edges.length - 1], y + h);
+            boolean language = Config.isLanguage(option);
+            int named = choice.get();
             for (int i = 0; i < choice.values.length; i++) {
                 boolean chosen = i == choice.get();
                 boolean over = anyHovered && mouseX >= edges[i] && mouseX < edges[i + 1];
@@ -1928,12 +1949,34 @@ public class GuiSettings extends ScaledScreen {
                 if (i > 0) {
                     Theme.fill(edges[i], y + 1, edges[i] + 1, y + h - 1, Theme.BORDER);
                 }
+                if (language) {
+                    int flagX = (edges[i] + edges[i + 1] + 1 - Flags.WIDTH) / 2;
+                    int flagY = y + (h - Flags.HEIGHT) / 2;
+                    Flags.draw(Lang.CODES[i], flagX, flagY);
+                    if (!chosen && !over) {
+                        // The languages not chosen a little dimmed.
+                        Theme.fill(flagX, flagY, flagX + Flags.WIDTH, flagY + Flags.HEIGHT, 0x60000000);
+                    }
+                    if (over) {
+                        named = i;
+                    }
+                    continue;
+                }
                 Theme.centered(
                     fontRendererObj,
                     choiceText(choice, i),
                     (edges[i] + edges[i + 1] + 1) / 2,
                     y + (h - 8) / 2,
                     chosen || over ? Theme.TEXT : Theme.TEXT_MUTED);
+            }
+            if (language) {
+                String name = choiceText(choice, named);
+                Theme.text(
+                    fontRendererObj,
+                    name,
+                    edges[0] - 6 - fontRendererObj.getStringWidth(name),
+                    y + (h - 8) / 2,
+                    named == choice.get() ? Theme.TEXT : Theme.TEXT_MUTED);
             }
             int last = edges[edges.length - 1];
             Theme.outline(edges[0], y, last, y + h, anyHovered ? Theme.ACCENT : Theme.BORDER);
@@ -1953,7 +1996,7 @@ public class GuiSettings extends ScaledScreen {
                 x + CONTROL_WIDTH - 9,
                 y + (h - 8) / 2,
                 hovered && !backHovered ? Theme.ACCENT : Theme.TEXT_MUTED);
-            String value = I18n.format(option.langKey() + "." + choice.values[choice.get()]);
+            String value = Lang.format(option.langKey() + "." + choice.values[choice.get()]);
             Theme.centered(
                 fontRendererObj,
                 Theme.ellipsize(fontRendererObj, value, CONTROL_WIDTH - 24),
@@ -1986,7 +2029,7 @@ public class GuiSettings extends ScaledScreen {
             Theme.outline(x, y, x + CONTROL_WIDTH, y + h, hovered ? Theme.ACCENT : Theme.BORDER);
             Theme.centered(
                 fontRendererObj,
-                Theme.ellipsize(fontRendererObj, I18n.format("wayfarmap.minimap_position.change"), CONTROL_WIDTH - 8),
+                Theme.ellipsize(fontRendererObj, Lang.format("wayfarmap.minimap_position.change"), CONTROL_WIDTH - 8),
                 x + CONTROL_WIDTH / 2,
                 y + (h - 8) / 2,
                 Theme.TEXT);

@@ -6,6 +6,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,11 +27,14 @@ import net.minecraft.network.play.server.S26PacketMapChunkBulk;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.RegionFileCache;
 import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.world.ChunkWatchEvent;
 
 import WayFarMap.Config;
 import WayFarMap.Perf;
@@ -89,6 +93,13 @@ public final class ChunkLoadServer {
         boolean pausedTold;
         /** For the log: when the batch being loaded was started, and the time spent working on it. */
         long batchStarted, workNanos;
+        /**
+         * Chunks the player was made to watch for the map ({@link Watching}), by chunk key, with the player then: let
+         * go with the batch they belong to, or when the player leaves or changes dimension.
+         */
+        final Map<Long, EntityPlayerMP> watched = new HashMap<>();
+        /** Chunks the mods were only told the player watches (it couldn't be made a watcher): told it stops after. */
+        final Map<Long, EntityPlayerMP> told = new HashMap<>();
         /** {@link #savedOnly}: which region files are there, by region key (looked at once each). */
         final Map<Long, Boolean> regionFiles = new HashMap<>();
         /**
@@ -397,6 +408,27 @@ public final class ChunkLoadServer {
     private static final java.util.regex.Pattern REGION_FILE = java.util.regex.Pattern
         .compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
 
+    /**
+     * Some mods send what their blocks keep only to players who start watching the chunk, not with the chunk nor in
+     * a description packet (ForgeMultipart's parts: without them its microblocks came out empty on the 3D map, 52 to
+     * 99% of them, against 1-2% for chunks met while playing): told the player does, as the game tells them when it
+     * sends a chunk. That it no longer does when the chunk is let go ({@link Watching#unwatch}, the game tells
+     * them), not right after: ForgeMultipart sends the parts at the end of the tick, to the players watching then.
+     */
+    private static void tellWatched(WorldServer world, EntityPlayerMP player, Chunk chunk) {
+        try {
+            if (player.worldObj != world) {
+                // The mods look for the chunk in the player's world: only for the dimension the player is in.
+                return;
+            }
+            ChunkCoordIntPair at = chunk.getChunkCoordIntPair();
+            MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.Watch(at, player));
+        } catch (RuntimeException e) {
+            // A mod failing on it: its blocks are drawn without what it would have sent.
+            WayFarMap.LOG.debug("A mod failed on chunk " + chunk.xPosition + ", " + chunk.zPosition + " watched", e);
+        }
+    }
+
     /** The region files of the world's dimension, as {rx, rz}. */
     private static List<int[]> regionFiles(WorldServer world) {
         List<int[]> regions = new ArrayList<>();
@@ -418,6 +450,7 @@ public final class ChunkLoadServer {
         if (old != null) {
             release(old, old.previousOuter, null);
             release(old, old.loading, null);
+            unwatchAll(old);
             player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.replaced"));
         }
         // The chunks queued on the map so far are not loaded anymore: no longer shown waiting.
@@ -461,6 +494,7 @@ public final class ChunkLoadServer {
         }
         release(job, job.previousOuter, null);
         release(job, job.loading, null);
+        unwatchAll(job);
         save();
         player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.stopped", job.done, job.total));
     }
@@ -669,6 +703,7 @@ public final class ChunkLoadServer {
             jobs.remove(old.player);
             release(old, old.previousOuter, null);
             release(old, old.loading, null);
+            unwatchAll(old);
         }
         if (chunks.isEmpty()) {
             save();
@@ -743,10 +778,12 @@ public final class ChunkLoadServer {
             // Goes on when the player is back (the batch is sent again: the client lost it).
             job.waiting = false;
             job.sentTo = null;
+            unwatchAll(job);
             return;
         }
         if (player.dimension != job.dimension) {
             job.waiting = false;
+            unwatchAll(job);
             if (!job.pausedTold) {
                 job.pausedTold = true;
                 player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.paused", job.dimension));
@@ -772,6 +809,7 @@ public final class ChunkLoadServer {
         }
         if (job.index >= job.batches()) {
             jobs.remove(job.player);
+            unwatchAll(job);
             save();
             ended(player, job.seq, true);
             return;
@@ -862,11 +900,42 @@ public final class ChunkLoadServer {
                 reloaded,
                 missing);
         }
-        for (int from = 0; from < chunks.size(); from += PER_PACKET) {
-            player.playerNetServerHandler.sendPacket(
-                new S26PacketMapChunkBulk(chunks.subList(from, Math.min(chunks.size(), from + PER_PACKET))));
-        }
+        // Sent here, its tile entities too, and the mods told the player watches it (ForgeMultipart sends its parts
+        // then). The player is also made a watcher of the chunk in the game's chunk watcher, so mods sending to
+        // the players watching a chunk send to it too (GregTech's covers); the game itself isn't left to send it:
+        // it sends only chunks that ticked, which those far from players never do (they never came, the client
+        // waited 30 s for each). Chunks the player watches already as it plays are on its client: sent again,
+        // the client's copy was replaced and lost what the mods had sent (microblocks gone even from what the
+        // player recorded).
+        List<Chunk> toSend = new ArrayList<>();
+        int watching = 0, alreadyWatched = 0;
         for (Chunk chunk : chunks) {
+            long chunkKey = key(chunk.xPosition, chunk.zPosition);
+            if (job.watched.containsKey(chunkKey)) {
+                // Watched for an earlier batch (in the ring around it), maybe let go by the client since (it keeps
+                // only the chunks near the player): sent again.
+                watching++;
+                toSend.add(chunk);
+                continue;
+            }
+            if (player.worldObj == world && world.getPlayerManager()
+                .isPlayerWatchingChunk(player, chunk.xPosition, chunk.zPosition)) {
+                alreadyWatched++;
+                continue;
+            }
+            if (player.worldObj == world && Watching.watch(world, player, chunk.xPosition, chunk.zPosition)) {
+                // Sent here, not by the game (it would wait for the chunk to tick).
+                player.loadedChunks.remove(chunk.getChunkCoordIntPair());
+                job.watched.put(chunkKey, player);
+                watching++;
+            }
+            toSend.add(chunk);
+        }
+        for (int from = 0; from < toSend.size(); from += PER_PACKET) {
+            player.playerNetServerHandler.sendPacket(
+                new S26PacketMapChunkBulk(toSend.subList(from, Math.min(toSend.size(), from + PER_PACKET))));
+        }
+        for (Chunk chunk : toSend) {
             for (Object o : chunk.chunkTileEntityMap.values()) {
                 TileEntity tileEntity = (TileEntity) o;
                 try {
@@ -877,6 +946,11 @@ public final class ChunkLoadServer {
                 } catch (RuntimeException e) {
                     // A tile entity that can't describe itself: drawn as its block.
                 }
+            }
+            tellWatched(world, player, chunk);
+            long chunkKey = key(chunk.xPosition, chunk.zPosition);
+            if (player.worldObj == world && !job.watched.containsKey(chunkKey)) {
+                job.told.put(chunkKey, player);
             }
         }
         int[] inner = job.inner(job.index);
@@ -903,6 +977,8 @@ public final class ChunkLoadServer {
         batch.missing = missing;
         batch.serverMs = (int) ((System.nanoTime() - job.batchStarted) / 1_000_000L);
         batch.workMs = (int) (job.workNanos / 1_000_000L);
+        batch.watched = watching;
+        batch.alreadyWatched = alreadyWatched;
         if (job.selected != null) {
             int width = inner[2] - inner[0] + 1, count = width * (inner[3] - inner[1] + 1);
             batch.picked = new long[(count + 63) / 64];
@@ -934,6 +1010,7 @@ public final class ChunkLoadServer {
         if (job.index >= job.batches()) {
             jobs.remove(job.player);
             release(job, job.previousOuter, null);
+            unwatchAll(job);
             save();
             EntityPlayerMP player = online(job.player);
             long seconds = (System.currentTimeMillis() - job.started) / 1000;
@@ -978,6 +1055,167 @@ public final class ChunkLoadServer {
         }
     }
 
+    /**
+     * The player no longer watches a chunk it was made to watch for the map ({@link Job#watched}): the game tells its
+     * client to drop it and the mods that it no longer watches it. Unless the player came near it since: it is the
+     * game's then, watched on as it plays.
+     */
+    private static void unwatch(Job job, WorldServer world, int x, int z) {
+        EntityPlayerMP toldTo = job.told.remove(key(x, z));
+        if (toldTo != null && toldTo.worldObj == world
+            && !world.getPlayerManager()
+                .isPlayerWatchingChunk(toldTo, x, z)) {
+            // (Unless the player came near it since: the game told them it watches it as it plays.)
+            Watching.toldUnwatched(toldTo, x, z);
+        }
+        EntityPlayerMP player = job.watched.remove(key(x, z));
+        if (player == null) {
+            return;
+        }
+        int view = MinecraftServer.getServer()
+            .getConfigurationManager()
+            .getViewDistance();
+        if (player.worldObj == world && online(job.player) == player
+            && Math.abs(((int) Math.floor(player.posX) >> 4) - x) <= view
+            && Math.abs(((int) Math.floor(player.posZ) >> 4) - z) <= view) {
+            return;
+        }
+        Watching.unwatch(world, player, x, z);
+    }
+
+    /** Every chunk the player was made to watch for the map: the player left, changed dimension or it ended. */
+    private static void unwatchAll(Job job) {
+        if (job.watched.isEmpty() && job.told.isEmpty()) {
+            return;
+        }
+        WorldServer world = DimensionManager.getWorld(job.dimension);
+        java.util.Set<Long> keys = new java.util.HashSet<>(job.watched.keySet());
+        keys.addAll(job.told.keySet());
+        for (Long key : keys) {
+            int x = (int) (key >> 32), z = (int) (long) key;
+            if (world == null) {
+                job.watched.remove(key);
+                job.told.remove(key);
+            } else {
+                unwatch(job, world, x, z);
+            }
+        }
+    }
+
+    private static long key(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
+    }
+
+    /**
+     * Makes a player watch a chunk as the game does when the player comes near ({@code PlayerManager}'s watcher of
+     * the chunk): the game sends it, its tile entities and tells the mods (ForgeMultipart's parts, GregTech's covers
+     * go to players watching). Its methods are private, found by their names in the development and the game's
+     * mappings; without them the chunks are sent the way they were before.
+     */
+    static final class Watching {
+
+        private static boolean looked;
+        /** Making a player watch failed once: not tried again (letting go of those watched still is). */
+        private static boolean failed;
+        private static Method watcher, add, remove;
+        /** The watcher's list of players, to take one off without the game telling its client (see unwatch). */
+        private static java.lang.reflect.Field players;
+
+        private Watching() {}
+
+        static boolean works() {
+            if (!looked) {
+                looked = true;
+                try {
+                    watcher = method(
+                        net.minecraft.server.management.PlayerManager.class,
+                        new String[] { "getOrCreateChunkWatcher", "func_72690_a" },
+                        int.class,
+                        int.class,
+                        boolean.class);
+                    Class<?> instance = watcher.getReturnType();
+                    add = method(instance, new String[] { "addPlayer", "func_73255_a" }, EntityPlayerMP.class);
+                    remove = method(instance, new String[] { "removePlayer", "func_73252_b" }, EntityPlayerMP.class);
+                    for (java.lang.reflect.Field field : instance.getDeclaredFields()) {
+                        if (java.util.List.class.isAssignableFrom(field.getType())) {
+                            field.setAccessible(true);
+                            players = field;
+                            break;
+                        }
+                    }
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    WayFarMap.LOG
+                        .warn("/wf chunkload can't make the player watch the chunks it sends: {}", e.toString());
+                    watcher = null;
+                }
+            }
+            return watcher != null && !failed;
+        }
+
+        private static Method method(Class<?> type, String[] names, Class<?>... parameters)
+            throws NoSuchMethodException {
+            for (String name : names) {
+                try {
+                    Method method = type.getDeclaredMethod(name, parameters);
+                    method.setAccessible(true);
+                    return method;
+                } catch (NoSuchMethodException ignored) {}
+            }
+            throw new NoSuchMethodException(type.getName() + "." + names[0]);
+        }
+
+        /** Whether the player now watches the chunk (the server's main thread). */
+        static boolean watch(WorldServer world, EntityPlayerMP player, int x, int z) {
+            if (!works()) {
+                return false;
+            }
+            try {
+                Object chunkWatcher = watcher.invoke(world.getPlayerManager(), x, z, true);
+                if (chunkWatcher == null) {
+                    return false;
+                }
+                add.invoke(chunkWatcher, player);
+                return true;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                WayFarMap.LOG.warn("/wf chunkload could not make the player watch chunk " + x + ", " + z, e);
+                failed = true;
+                return false;
+            }
+        }
+
+        static void unwatch(WorldServer world, EntityPlayerMP player, int x, int z) {
+            if (watcher == null) {
+                return;
+            }
+            try {
+                Object chunkWatcher = watcher.invoke(world.getPlayerManager(), x, z, false);
+                if (chunkWatcher == null) {
+                    return;
+                }
+                if (player.worldObj == world) {
+                    remove.invoke(chunkWatcher, player);
+                    return;
+                }
+                // The player is in another dimension now: the game would tell its client to drop the chunk at
+                // those coordinates there (a hole near the player). Only taken off the list, the mods told.
+                if (players != null && ((java.util.List<?>) players.get(chunkWatcher)).remove(player)) {
+                    MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.UnWatch(new ChunkCoordIntPair(x, z), player));
+                }
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                WayFarMap.LOG.warn("/wf chunkload could not let go of chunk " + x + ", " + z, e);
+            }
+        }
+
+        /** The mods told the player no longer watches a chunk they were only told it watches. */
+        static void toldUnwatched(EntityPlayerMP player, int x, int z) {
+            try {
+                MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.UnWatch(new ChunkCoordIntPair(x, z), player));
+            } catch (RuntimeException e) {
+                WayFarMap.LOG.debug("A mod failed on chunk " + x + ", " + z + " no longer watched", e);
+            }
+        }
+    }
+
     /** Lets the server unload the chunks of an area (not those in {@code keep}, nor near any player). */
     private void release(Job job, int[] area, int[] keep) {
         if (area == null) {
@@ -1000,6 +1238,7 @@ public final class ChunkLoadServer {
                 if (keep != null && x >= keep[0] && x <= keep[2] && z >= keep[1] && z <= keep[3]) {
                     continue;
                 }
+                unwatch(job, world, x, z);
                 boolean seen = false;
                 for (int[] p : players) {
                     if (Math.abs(p[0] - x) <= near && Math.abs(p[1] - z) <= near) {
@@ -1054,6 +1293,8 @@ public final class ChunkLoadServer {
 
     public void stop() {
         save();
+        jobs.values()
+            .forEach(ChunkLoadServer::unwatchAll);
         jobs.clear();
         inbox.clear();
         toldAllowed.clear();

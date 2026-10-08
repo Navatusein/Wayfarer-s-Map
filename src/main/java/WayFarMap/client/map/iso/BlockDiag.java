@@ -310,7 +310,13 @@ final class BlockDiag {
         }
         List<String> problems = new ArrayList<>();
         int empty = 0, brightest = 0;
+        int hidden = 0;
         for (int view = 0; view < views; view++) {
+            if (ids[view] == FacePalette.HIDDEN) {
+                // Not drawn: the map can't show it from there.
+                hidden++;
+                continue;
+            }
             if (ids[view] == FacePalette.EMPTY || shot.coverage[view] == 0) {
                 empty++;
             }
@@ -328,7 +334,7 @@ final class BlockDiag {
         }
         // Sides the views can see: up and the four around (the views look from above).
         boolean seen = (exposed & ~1) != 0;
-        if (empty == views && seen) {
+        if (empty > 0 && empty == views - hidden && seen) {
             problems.add("EMPTY_BUT_VISIBLE");
         } else if (empty > 0 && !cube && (exposed & 2) != 0) {
             // With its top open every view sees some of it (a glass pane open to one side only is empty from the
@@ -395,9 +401,13 @@ final class BlockDiag {
                 .append(cube ? new String[] { "down", "up", "north", "south", "west", "east" }[view] : "view" + view)
                 .append('=')
                 .append(
-                    ids[view] == FacePalette.EMPTY ? "EMPTY"
-                        : ids[view] == 0 ? "NOT_TAKEN"
-                            : shot.coverage[view] + "%(solid " + shot.solid[view] + "%)/bright" + shot.brightness[view])
+                    ids[view] == FacePalette.HIDDEN ? "HIDDEN"
+                        : ids[view] == FacePalette.EMPTY ? "EMPTY"
+                            : ids[view] == 0 ? "NOT_TAKEN"
+                                : shot.coverage[view] + "%(solid "
+                                    + shot.solid[view]
+                                    + "%)/bright"
+                                    + shot.brightness[view])
                 .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "")
                 .append(
                     cube && shot.shade[view] < 1f ? String.format(Locale.ROOT, "(shade %.2f)", shot.shade[view]) : "");
@@ -572,15 +582,21 @@ final class BlockDiag {
                 .toString());
     }
 
+    /**
+     * Counts per kind of block of {@link #tracerFallbacks}: no picture, picture unreadable, a cube's side without one,
+     * and a picture left out as hidden from the map that a ray reached all the same.
+     */
+    static final int FALLBACK_FIELDS = 4;
+
     /** Rays of a tile that drew blocks from icons for want of a picture, merged in (renderer threads). */
     static void tracerFallbacks(Map<Integer, int[]> counts) {
         if (counts == null || counts.isEmpty()) {
             return;
         }
         for (Map.Entry<Integer, int[]> entry : counts.entrySet()) {
-            long[] total = FALLBACKS.computeIfAbsent(entry.getKey(), k -> new long[3]);
+            long[] total = FALLBACKS.computeIfAbsent(entry.getKey(), k -> new long[FALLBACK_FIELDS]);
             synchronized (total) {
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < FALLBACK_FIELDS; i++) {
                     total[i] += entry.getValue()[i];
                 }
             }
@@ -597,7 +613,8 @@ final class BlockDiag {
         IsoLog.log(
             title + " tiles drawing blocks from icons for want of a picture (rays): noPicture = the copy has none for"
                 + " the block, spriteUnreadable = its picture couldn't be read, sideNoPicture = a solid cube's side"
-                + " without one");
+                + " without one, hiddenReached = a picture left out as hidden from the map that a ray reached all the"
+                + " same (should be 0: see HIDDEN_REACHED)");
         for (int n = 0; n < Math.min(30, list.size()); n++) {
             long[] c = list.get(n)
                 .getValue();
@@ -613,11 +630,13 @@ final class BlockDiag {
                     + " spriteUnreadable="
                     + c[1]
                     + " sideNoPicture="
-                    + c[2]);
+                    + c[2]
+                    + " hiddenReached="
+                    + c[3]);
         }
     }
 
     private static long sum(long[] values) {
-        return values[0] + values[1] + values[2];
+        return values[0] + values[1] + values[2] + values[3];
     }
 }

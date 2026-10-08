@@ -198,6 +198,8 @@ public final class Icons {
         ".#...#." };
 
     /** Small icons (7x7) of the settings' sections. */
+    public static final String[] SMALL_GLOBE = { "..###..", ".#.#.#.", "#..#..#", "#######", "#..#..#", ".#.#.#.",
+        "..###.." };
     public static final String[] SMALL_GEAR = { "..#.#..", ".#####.", "##...##", ".#...#.", "##...##", ".#####.",
         "..#.#.." };
     public static final String[] SMALL_ZOOM = { ".###...", "#...#..", "#...#..", "#...#..", ".###...", "....##.",

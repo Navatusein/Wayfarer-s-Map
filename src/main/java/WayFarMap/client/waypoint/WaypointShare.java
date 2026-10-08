@@ -1,7 +1,6 @@
 package WayFarMap.client.waypoint;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.event.ClickEvent;
@@ -12,6 +11,7 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IChatComponent;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 
+import WayFarMap.client.Lang;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
@@ -175,7 +175,7 @@ public final class WaypointShare {
                 break;
             }
         }
-        IChatComponent shared = new ChatComponentText(I18n.format("wayfarmap.share.shared") + " ");
+        IChatComponent shared = new ChatComponentText(Lang.format("wayfarmap.share.shared") + " ");
         shared.getChatStyle()
             .setColor(EnumChatFormatting.GRAY);
         line.appendSibling(shared);
@@ -188,14 +188,14 @@ public final class WaypointShare {
         where.getChatStyle()
             .setColor(EnumChatFormatting.GRAY);
         line.appendSibling(where);
-        IChatComponent button = new ChatComponentText("[" + I18n.format("wayfarmap.share.add") + "]");
+        IChatComponent button = new ChatComponentText("[" + Lang.format("wayfarmap.share.add") + "]");
         ChatStyle style = button.getChatStyle();
         style.setColor(EnumChatFormatting.GREEN);
         style.setChatClickEvent(
             new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/" + COMMAND + " " + text.substring(start)));
-        String hint = I18n.format("wayfarmap.share.add_hint");
+        String hint = Lang.format("wayfarmap.share.add_hint");
         if (waypoint.group != null) {
-            hint += "\n" + I18n.format("wayfarmap.share.group", waypoint.group);
+            hint += "\n" + Lang.format("wayfarmap.share.group", waypoint.group);
         }
         style.setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ChatComponentText(hint)));
         line.appendSibling(button);
@@ -230,7 +230,7 @@ public final class WaypointShare {
             Waypoint waypoint = decode(String.join(" ", args));
             WaypointManager manager = WaypointManager.INSTANCE;
             if (waypoint == null || !manager.isLoaded()) {
-                sender.addChatMessage(new ChatComponentText("§c" + I18n.format("wayfarmap.share.invalid")));
+                sender.addChatMessage(new ChatComponentText("§c" + Lang.format("wayfarmap.share.invalid")));
                 return;
             }
             for (Waypoint existing : manager.getWaypoints()) {
@@ -239,7 +239,7 @@ public final class WaypointShare {
                     && existing.z == waypoint.z
                     && existing.name.equals(waypoint.name)) {
                     sender.addChatMessage(
-                        new ChatComponentText("§7" + I18n.format("wayfarmap.share.exists", waypoint.name)));
+                        new ChatComponentText("§7" + Lang.format("wayfarmap.share.exists", waypoint.name)));
                     return;
                 }
             }
@@ -248,7 +248,7 @@ public final class WaypointShare {
                 waypoint.group = manager.createGroup(waypoint.group).name;
             }
             manager.addWaypoint(waypoint);
-            sender.addChatMessage(new ChatComponentText("§a" + I18n.format("wayfarmap.share.added", waypoint.name)));
+            sender.addChatMessage(new ChatComponentText("§a" + Lang.format("wayfarmap.share.added", waypoint.name)));
         }
     }
 }

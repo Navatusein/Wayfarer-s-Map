@@ -195,7 +195,9 @@ public final class MapDrawer {
         // show them in full color.
         boolean darkCave = isDarkCave(dimension);
         boolean dimNether = isDimNether(dimension);
-        float night = darkCave || dimNether ? 1f : nightAmount(Minecraft.getMinecraft());
+        // The layer's own light, not the shown cave mode's: the surface faded out on the way into a cave keeps the
+        // night it was drawn with.
+        float night = darkCave || dimNether ? 1f : nightAmount(Minecraft.getMinecraft(), !dimension.cave);
         float[] tint = darkCave ? CAVE_TINT : dimNether ? NETHER_TINT : tint(night);
         GL11.glColor4f(tint[0], tint[1], tint[2], alpha);
 
@@ -505,10 +507,10 @@ public final class MapDrawer {
 
     /**
      * Dimensions without a sky, like the Nether, are dim at any time of day, surface and caves alike, with their lights
-     * glowing (unless the map is fixed to day).
+     * glowing (unless the map is fixed to day). Not the End: it is lit as by day, like JourneyMap shows it.
      */
     private static boolean isDimNether(MapDimension dimension) {
-        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
+        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimension.dimensionId);
     }
 
     /**
@@ -516,7 +518,7 @@ public final class MapDrawer {
      * the Nether, is dim at any time of day, lit only by its lava and lamps (unless the map is fixed to day).
      */
     public static float isoNightAmount(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return 1f;
         }
         return nightAmount(mc);
@@ -524,7 +526,7 @@ public final class MapDrawer {
 
     /** RGB multiplier for models on the 3D map of the dimension, as {@link #isoNightAmount} lights it. */
     public static float[] isoLightTint(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return NETHER_TINT.clone();
         }
         return lightTint(mc);
@@ -532,13 +534,18 @@ public final class MapDrawer {
 
     /** How much the map shows night: 0 at day, 1 at night (fixed by the day/night buttons, else the sun). */
     public static float nightAmount(Minecraft mc) {
+        return nightAmount(mc, false);
+    }
+
+    /** As {@link #nightAmount(Minecraft)}; {@code surface}: for the surface map, which follows the sun in any mode. */
+    private static float nightAmount(Minecraft mc, boolean surface) {
         float day;
         if (Config.mapLightMode == Config.LIGHT_DAY) {
             day = 1f;
         } else if (Config.mapLightMode == Config.LIGHT_NIGHT) {
             day = 0f;
         } else if (mc.theWorld == null || mc.theWorld.provider.hasNoSky
-            || MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
+            || !surface && MapManager.INSTANCE.getActiveCaveLayer() >= 0 && !MapManager.INSTANCE.isSurfaceView()) {
                 // No sunlight underground: caves look the same at any time of day (the surface shown whatever the
                 // cave mode follows the sun even with the player underground).
                 day = 1f;

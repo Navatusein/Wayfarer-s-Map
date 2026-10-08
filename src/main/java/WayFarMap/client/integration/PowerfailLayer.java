@@ -16,12 +16,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.IIcon;
 
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 
 /**
  * GregTech power failures ("powerfails"): machines of the player's team that ran out of power, as GregTech's own
@@ -122,7 +122,7 @@ public final class PowerfailLayer {
         /** "Machine ×3 · 5 minutes ago" style summary for the map label. */
         String summary() {
             String text = name + " ×" + count;
-            return duration != null ? text + " · " + I18n.format("wayfarmap.powerfail.ago", duration) : text;
+            return duration != null ? text + " · " + Lang.format("wayfarmap.powerfail.ago", duration) : text;
         }
     }
 
@@ -399,17 +399,17 @@ public final class PowerfailLayer {
         }
         Powerfail p = hovered;
         List<String> lines = new ArrayList<>();
-        lines.add("§c" + I18n.format("wayfarmap.powerfail.title") + ": §f" + p.name);
+        lines.add("§c" + Lang.format("wayfarmap.powerfail.title") + ": §f" + p.name);
         lines.add("§7" + p.x + ", " + p.y + ", " + p.z);
-        lines.add("§7" + I18n.format("wayfarmap.powerfail.count", p.count));
+        lines.add("§7" + Lang.format("wayfarmap.powerfail.count", p.count));
         if (p.last != null) {
             String when = DateFormat.getDateTimeInstance()
                 .format(p.last);
             lines.add(
-                "§7" + I18n.format("wayfarmap.powerfail.last", when)
-                    + (p.duration != null ? " (" + I18n.format("wayfarmap.powerfail.ago", p.duration) + ")" : ""));
+                "§7" + Lang.format("wayfarmap.powerfail.last", when)
+                    + (p.duration != null ? " (" + Lang.format("wayfarmap.powerfail.ago", p.duration) + ")" : ""));
         }
-        lines.add("§8" + I18n.format("wayfarmap.powerfail.hint"));
+        lines.add("§8" + Lang.format("wayfarmap.powerfail.hint"));
         return lines;
     }
 }

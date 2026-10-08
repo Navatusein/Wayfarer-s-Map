@@ -30,6 +30,7 @@ import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldProvider;
+import net.minecraft.world.WorldProviderEnd;
 import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
@@ -61,8 +62,8 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** Regions farther than this from the player are released when no fullscreen map is open. */
     private static final int KEEP_REGION_RADIUS = 2;
-    /** Solid blocks above the head needed to count as underground (a one block roof doesn't). */
-    private static final int UNDERGROUND_ROOF = 3;
+    /** Light opacity from which a block keeps the sun out (glass, fences, leaves, water let light through). */
+    private static final int ROOF_OPACITY = 15;
 
     /** One thread, so writes of the same file never overlap. */
     private final ExecutorService saveExecutor = createExecutor("WayFarMap saver", 1);
@@ -397,6 +398,22 @@ public class MapManager implements IResourceManagerReloadListener {
         return viewed != null && viewed.id == dimensionId && viewed.noSky;
     }
 
+    /**
+     * Whether the dimension is dark like the Nether: no sky and a ceiling, lit only by its lava and lamps. The End has
+     * no sky either, but is lit evenly at any time, as in the game.
+     */
+    public boolean isDark(int dimensionId) {
+        if (currentWorld != null && currentWorld.provider.dimensionId == dimensionId) {
+            return isDark(currentWorld.provider);
+        }
+        return hasNoSky(dimensionId) && dimensionId != 1;
+    }
+
+    /** Whether the provider's dimension is dark like the Nether (see {@link #isDark(int)}). */
+    public static boolean isDark(WorldProvider provider) {
+        return provider.hasNoSky && !(provider instanceof WorldProviderEnd);
+    }
+
     /** Id of the dimension shown on the world map. */
     public int getViewedDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
@@ -433,7 +450,8 @@ public class MapManager implements IResourceManagerReloadListener {
         if (viewed == null) {
             return activeCaveLayer;
         }
-        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && viewed.noSky);
+        boolean caves = Config.caveMode == Config.CAVES_ON
+            || (Config.caveMode == Config.CAVES_AUTO && isDark(viewed.id));
         if (!caves) {
             return -1;
         }
@@ -792,23 +810,39 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
-    /** In the Nether, or with a few solid blocks above the head (a cave, not a house or a forest). */
+    /**
+     * In the Nether, or with no sunlight: a block that keeps the light out above the head, over the player's column and
+     * the 8 around it (glass, fences, leaves and other blocks that let light through don't count). The End's open void
+     * above the islands is no roof.
+     */
     private static boolean isUnderground(WorldClient world, EntityPlayer player) {
-        if (world.provider.hasNoSky) {
+        if (isDark(world.provider)) {
             return true;
         }
         int x = MathHelper.floor_double(player.posX);
         int z = MathHelper.floor_double(player.posZ);
         int y = MathHelper.floor_double(player.boundingBox.minY) + 2;
-        int top = Math.min(255, world.getHeightValue(x, z));
-        int solid = 0;
-        for (int yy = y; yy <= top && solid < UNDERGROUND_ROOF; yy++) {
-            Block block = world.getBlock(x, yy, z);
-            if (block.isOpaqueCube()) {
-                solid++;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (!hasRoof(world, x + dx, y, z + dz)) {
+                    return false;
+                }
             }
         }
-        return solid >= UNDERGROUND_ROOF;
+        return true;
+    }
+
+    /** A block that keeps the sun out in the column, from {@code y} up. */
+    private static boolean hasRoof(WorldClient world, int x, int y, int z) {
+        // The height map stops at the highest block that lets any less light through: nothing keeps it out above.
+        int top = Math.min(255, world.getHeightValue(x, z) - 1);
+        for (int yy = Math.max(0, y); yy <= top; yy++) {
+            Block block = world.getBlock(x, yy, z);
+            if (block.getLightOpacity(world, x, yy, z) >= ROOF_OPACITY) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -859,6 +893,7 @@ public class MapManager implements IResourceManagerReloadListener {
                         + " ticks after its last scan: mapped again as a new chunk");
             }
             FlatLog.loaded(chunk.xPosition, chunk.zPosition);
+            IsoLog.loaded(chunk.xPosition, chunk.zPosition);
         }
     }
 
@@ -1313,12 +1348,14 @@ public class MapManager implements IResourceManagerReloadListener {
         private boolean settled(WorldClient world, Chunk chunk, long key) {
             int[] state = settling.get(key);
             if (state == null) {
-                // First seen, last change of the surface, neighbours all loaded once (for the log), the surface then.
-                state = new int[] { tick, tick, 0, signatureBits(chunk) };
+                // First seen, last change of the surface, neighbours all loaded once (for the log), the surface then,
+                // the 3D map told it is ready.
+                state = new int[] { tick, tick, 0, signatureBits(chunk), 0 };
                 settling.put(key, state);
                 if (surface) {
                     chunk.isModified = false;
                     IsoLog.seen(chunk.xPosition, chunk.zPosition, allAroundReady(world, chunk));
+                    tell3dIfReady(world, chunk, state);
                 }
                 if (FlatLog.on()) {
                     FlatLog.seen(
@@ -1333,6 +1370,9 @@ public class MapManager implements IResourceManagerReloadListener {
                     }
                 }
                 return false;
+            }
+            if (surface) {
+                tell3dIfReady(world, chunk, state);
             }
             if (surface && state[2] == 0 && FlatLog.on() && allAroundReady(world, chunk)) {
                 state[2] = 1;
@@ -1396,6 +1436,17 @@ public class MapManager implements IResourceManagerReloadListener {
                     tick - state[0]);
             }
             return true;
+        }
+
+        /**
+         * The 3D map copies a new chunk as soon as the 8 around it are loaded, without waiting for it to settle (a
+         * second or two): it copies it again once it is scanned settled, which costs nothing if it stayed the same.
+         */
+        private void tell3dIfReady(WorldClient world, Chunk chunk, int[] state) {
+            if (state[4] == 0 && allAroundReady(world, chunk)) {
+                state[4] = 1;
+                IsoMap.INSTANCE.onChunkReady(world, chunk);
+            }
         }
 
         /** The neighbours not loaded (for the log): "+x-z,-x" style, empty if all are. */

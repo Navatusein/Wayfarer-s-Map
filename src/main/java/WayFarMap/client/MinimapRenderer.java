@@ -1,6 +1,7 @@
 package WayFarMap.client;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
@@ -10,7 +11,6 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -113,9 +113,11 @@ public class MinimapRenderer {
     /**
      * The minimap exactly as the HUD draws it, for the settings' preview: at its size on the screen (in screen
      * pixels, whatever the screen's own scale), shrunk only when it doesn't fit in the box ({@code x}, {@code y},
-     * {@code width}, {@code height}) of the screen being drawn, and centered in it.
+     * {@code width}, {@code height}) of the screen being drawn, and centered in it. Only the map is shrunk: the text
+     * under it keeps its size on the screen, as a bigger minimap leaves it on the HUD, unless it is too wide for the
+     * box itself.
      *
-     * @return how much it was shrunk (1 at its real size), or 0 when there is no world to draw it from
+     * @return how much the map was shrunk (1 at its real size), or 0 when there is no world to draw it from
      */
     public static double drawPreview(int x, int y, int width, int height, float partialTicks) {
         Minecraft mc = Minecraft.getMinecraft();
@@ -131,17 +133,27 @@ public class MinimapRenderer {
         for (String line : lines) {
             textWidth = Math.max(textWidth, mc.fontRenderer.getStringWidth(line) * Config.minimapTextScale);
         }
-        double boxWidth = Math.max(size + 2 * frame, textWidth), boxHeight = boxHeight() + 2 * frame;
         int screenFactor = ScaledScreen.currentFactor();
         int hudFactor = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
         double real = hudFactor / (double) screenFactor;
-        double shrink = Math.min(real, Math.min(width / boxWidth, height / boxHeight));
+        // The text at its size on the screen; smaller only when it is wider than the box, or would leave the map
+        // less than half of its height.
+        double textHeight = lines.isEmpty() ? 0 : Config.minimapTextGap + lines.size() * lineHeight() - 3;
+        double textUnit = real;
+        if (textWidth > 0) {
+            textUnit = Math.min(textUnit, width / textWidth);
+        }
+        if (textHeight > 0) {
+            textUnit = Math.min(textUnit, height / 2.0 / textHeight);
+        }
+        double mapBox = size + 2 * frame;
+        double shrink = Math.min(real, Math.min(width / mapBox, (height - textHeight * textUnit) / mapBox));
         if (shrink <= 0) {
             return 0;
         }
         // Where the map's top left lands, on whole screen pixels so the map is as sharp as on the HUD.
-        double left = x + (width - boxWidth * shrink) / 2 + (boxWidth - size) / 2 * shrink;
-        double top = y + (height - boxHeight * shrink) / 2 + frame * shrink;
+        double left = x + (width - size * shrink) / 2;
+        double top = y + (height - mapBox * shrink - textHeight * textUnit) / 2 + frame * shrink;
         left = Math.round(left * screenFactor) / (double) screenFactor;
         top = Math.round(top * screenFactor) / (double) screenFactor;
         GL11.glPushMatrix();
@@ -151,7 +163,7 @@ public class MinimapRenderer {
             draw(
                 mc,
                 dimension,
-                lines,
+                Collections.emptyList(),
                 0,
                 0,
                 partialTicks,
@@ -162,6 +174,13 @@ public class MinimapRenderer {
         } finally {
             GL11.glPopMatrix();
         }
+        drawLines(
+            mc.fontRenderer,
+            lines,
+            left + size * shrink / 2,
+            top + size * shrink + Config.minimapTextGap * textUnit,
+            textUnit);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
         return Math.min(1, shrink / real);
     }
 
@@ -187,7 +206,7 @@ public class MinimapRenderer {
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
         if (caveLayer >= 0 && Config.mapDisplayMode == Config.DISPLAY_BLOCKS) {
-            lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
+            lines.add(Lang.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
             lines.add(mc.theWorld.getBiomeGenForCoords(blockX, blockZ).biomeName);
@@ -311,20 +330,27 @@ public class MinimapRenderer {
 
         drawZoomLabel(mc.fontRenderer, x, y, size, Config.MINIMAP_ZOOMS[zoom]);
 
-        int textY = y + size + Config.minimapTextGap;
-        double textScale = Config.minimapTextScale;
-        for (String line : lines) {
-            // Centered under the map at its size.
-            GL11.glPushMatrix();
-            GL11.glTranslated(x + size / 2.0 - mc.fontRenderer.getStringWidth(line) * textScale / 2, textY, 0);
-            GL11.glScaled(textScale, textScale, 1);
-            mc.fontRenderer.drawStringWithShadow(line, 0, 0, 0xFFFFFF);
-            GL11.glPopMatrix();
-            textY += lineHeight();
-        }
+        drawLines(mc.fontRenderer, lines, x + size / 2.0, y + size + Config.minimapTextGap, 1);
 
         GL11.glColor4f(1f, 1f, 1f, 1f);
         GL11.glPopMatrix();
+    }
+
+    /**
+     * The lines of text under the minimap, centered on {@code centerX} from {@code top} down, at their size times
+     * {@code unit}.
+     */
+    private static void drawLines(FontRenderer font, List<String> lines, double centerX, double top, double unit) {
+        double textScale = Config.minimapTextScale * unit;
+        double textY = top;
+        for (String line : lines) {
+            GL11.glPushMatrix();
+            GL11.glTranslated(centerX - font.getStringWidth(line) * textScale / 2, textY, 0);
+            GL11.glScaled(textScale, textScale, 1);
+            font.drawStringWithShadow(line, 0, 0, 0xFFFFFF);
+            GL11.glPopMatrix();
+            textY += lineHeight() * unit;
+        }
     }
 
     /** Moves the drawn scale toward {@code target}, in log space so every zoom step feels equally fast. */

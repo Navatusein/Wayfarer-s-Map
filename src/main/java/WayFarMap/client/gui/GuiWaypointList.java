@@ -13,13 +13,13 @@ import java.util.TreeSet;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
@@ -244,7 +244,7 @@ public class GuiWaypointList extends ScaledScreen {
         String oldSearch = searchField != null ? searchField.getText() : searchText;
         int searchRight = listRight - sortWidth - pickerWidth - 8;
         searchField = new FlatTextField(fontRendererObj, listLeft, toolbarY, searchRight - listLeft, 16)
-            .setHint(I18n.format("wayfarmap.gui.search_waypoints"))
+            .setHint(Lang.format("wayfarmap.gui.search_waypoints"))
             .setOnCleared(() -> setSearch(""));
         searchField.setMaxStringLength(48);
         searchField.setText(oldSearch);
@@ -258,7 +258,7 @@ public class GuiWaypointList extends ScaledScreen {
         // Under the groups: a new group's name, or a new name for one.
         String oldText = groupField != null ? groupField.getText() : "";
         groupField = new FlatTextField(fontRendererObj, sideLeft, sideBottom + 6, sideRight - sideLeft - 22, 16)
-            .setHint(I18n.format("wayfarmap.gui.new_group_hint"))
+            .setHint(Lang.format("wayfarmap.gui.new_group_hint"))
             .setOnCleared(this::updateGroupButton);
         groupField.setMaxStringLength(32);
         groupField.setText(oldText);
@@ -272,12 +272,12 @@ public class GuiWaypointList extends ScaledScreen {
             footerY,
             buttonWidth,
             18,
-            I18n.format("wayfarmap.gui.new_waypoint"));
+            Lang.format("wayfarmap.gui.new_waypoint"));
         newWaypoint.active = true;
         newWaypoint.icon = Icons.SMALL_PLUS;
         buttonList.add(newWaypoint);
         buttonList
-            .add(new FlatButton(ID_DONE, listRight - buttonWidth, footerY, buttonWidth, 18, I18n.format("gui.done")));
+            .add(new FlatButton(ID_DONE, listRight - buttonWidth, footerY, buttonWidth, 18, Lang.format("gui.done")));
         buttonList.add(WindowHeader.closeButton(ID_DONE, panelRight, panelTop));
         updateGroupButton();
         rebuildRows();
@@ -286,7 +286,7 @@ public class GuiWaypointList extends ScaledScreen {
     private void updateGroupButton() {
         boolean renaming = renamingGroup != null;
         groupActionButton.icon = renaming ? Icons.SMALL_CHECK : Icons.SMALL_PLUS;
-        groupActionButton.tooltip = I18n.format(renaming ? "wayfarmap.gui.rename_group" : "wayfarmap.gui.create_group");
+        groupActionButton.tooltip = Lang.format(renaming ? "wayfarmap.gui.rename_group" : "wayfarmap.gui.create_group");
         groupActionButton.active = renaming;
     }
 
@@ -449,7 +449,7 @@ public class GuiWaypointList extends ScaledScreen {
     }
 
     private String choiceLabel(int dimension) {
-        String name = dimension == ALL ? I18n.format("wayfarmap.gui.all_dimensions") : dimensionName(dimension);
+        String name = dimension == ALL ? Lang.format("wayfarmap.gui.all_dimensions") : dimensionName(dimension);
         return name + " (" + countIn(dimension) + ")";
     }
 
@@ -506,9 +506,9 @@ public class GuiWaypointList extends ScaledScreen {
 
     private String groupTitle(String key) {
         if (key == null) {
-            return I18n.format("wayfarmap.gui.all_waypoints");
+            return Lang.format("wayfarmap.gui.all_waypoints");
         }
-        return UNGROUPED_KEY.equals(key) ? I18n.format("wayfarmap.gui.no_group") : key;
+        return UNGROUPED_KEY.equals(key) ? Lang.format("wayfarmap.gui.no_group") : key;
     }
 
     // ---- Scrolling ----
@@ -993,8 +993,8 @@ public class GuiWaypointList extends ScaledScreen {
             panelRight,
             panelRight - WindowHeader.CLOSE_ROOM,
             Icons.WAYPOINTS,
-            I18n.format("wayfarmap.gui.waypoints"),
-            I18n.format("wayfarmap.gui.list_hint"),
+            Lang.format("wayfarmap.gui.waypoints"),
+            Lang.format("wayfarmap.gui.list_hint"),
             Theme.TEXT_MUTED,
             count);
 
@@ -1020,7 +1020,7 @@ public class GuiWaypointList extends ScaledScreen {
             .ellipsize(fontRendererObj, choiceLabel(shownDimension()), dimensionButton.getWidth() - 20)
             + (choicesOpen ? " ▴" : " ▾");
         dimensionButton.active = choicesOpen;
-        sortButton.displayString = I18n.format(sort.key);
+        sortButton.displayString = Lang.format(sort.key);
         sortButton.active = sort != Sort.KEPT;
         super.drawScaled(mouseX, mouseY, partialTicks);
         if (groupActionButton.isMouseOver(mouseX, mouseY)) {
@@ -1044,7 +1044,7 @@ public class GuiWaypointList extends ScaledScreen {
     private void drawSidebar(int mouseX, int mouseY, String dropTarget) {
         Theme.fill(sideLeft, sideTop - 14, sideRight, sideBottom, SIDEBAR);
         Theme.outline(sideLeft - 1, sideTop - 15, sideRight + 1, sideBottom + 1, Theme.BORDER);
-        String title = I18n.format("wayfarmap.gui.groups")
+        String title = Lang.format("wayfarmap.gui.groups")
             .toUpperCase(Locale.ROOT);
         Theme.text(fontRendererObj, title, sideLeft + 6, sideTop - 10, Theme.TEXT_MUTED);
         String groups = String.valueOf(
@@ -1165,17 +1165,17 @@ public class GuiWaypointList extends ScaledScreen {
                 mouseX,
                 mouseY,
                 () -> confirmDelete(group, () -> manager.removeGroup(group)),
-                I18n.format(pending ? "wayfarmap.gui.delete_group_sure" : "wayfarmap.gui.delete_group"));
+                Lang.format(pending ? "wayfarmap.gui.delete_group_sure" : "wayfarmap.gui.delete_group"));
             x -= ENTRY_ACTION + 1;
             entryButton(x, ay, SMALL_DOWN, Theme.TEXT_MUTED, 0, mouseX, mouseY, () -> {
                 manager.moveGroup(group, 1);
                 rebuildRows();
-            }, I18n.format("wayfarmap.gui.move_down"));
+            }, Lang.format("wayfarmap.gui.move_down"));
             x -= ENTRY_ACTION + 1;
             entryButton(x, ay, Icons.SMALL_UP, Theme.TEXT_MUTED, 0, mouseX, mouseY, () -> {
                 manager.moveGroup(group, -1);
                 rebuildRows();
-            }, I18n.format("wayfarmap.gui.move_up"));
+            }, Lang.format("wayfarmap.gui.move_up"));
             x -= ENTRY_ACTION + 1;
             entryButton(
                 x,
@@ -1186,7 +1186,7 @@ public class GuiWaypointList extends ScaledScreen {
                 mouseX,
                 mouseY,
                 () -> startRenaming(group),
-                I18n.format("wayfarmap.gui.rename_group"));
+                Lang.format("wayfarmap.gui.rename_group"));
             x -= ENTRY_ACTION + 1;
         }
         boolean visible = isGroupVisible(entry.key);
@@ -1204,7 +1204,7 @@ public class GuiWaypointList extends ScaledScreen {
             ex + ENTRY_ACTION,
             ey + ENTRY_ACTION,
             () -> toggleGroup(entry.key),
-            I18n.format(visible ? "wayfarmap.gui.hide_group" : "wayfarmap.gui.show_group"));
+            Lang.format(visible ? "wayfarmap.gui.hide_group" : "wayfarmap.gui.show_group"));
         return x - 2;
     }
 
@@ -1295,14 +1295,14 @@ public class GuiWaypointList extends ScaledScreen {
         GL11.glPopMatrix();
         String text;
         if (!searchText.isEmpty()) {
-            text = I18n.format("wayfarmap.gui.nothing_found");
+            text = Lang.format("wayfarmap.gui.nothing_found");
         } else if (pickedGroup != null) {
-            text = I18n.format("wayfarmap.gui.empty_group");
+            text = Lang.format("wayfarmap.gui.empty_group");
         } else {
-            text = I18n.format("wayfarmap.gui.no_waypoints_here");
+            text = Lang.format("wayfarmap.gui.no_waypoints_here");
         }
         Theme.centered(fontRendererObj, text, cx, cy + 6, Theme.TEXT_MUTED);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.gui.empty_hint"), cx, cy + 18, Theme.TEXT_DISABLED);
+        Theme.centered(fontRendererObj, Lang.format("wayfarmap.gui.empty_hint"), cx, cy + 18, Theme.TEXT_DISABLED);
     }
 
     /** A group's section title: its color, name and count; a click opens or closes it, and it can be cleared. */
@@ -1321,7 +1321,7 @@ public class GuiWaypointList extends ScaledScreen {
         }
         if (dropping) {
             Theme.outline(x0, y, x1, y + HEADER_HEIGHT, Theme.ACCENT);
-            String drop = I18n.format("wayfarmap.gui.drop_here");
+            String drop = Lang.format("wayfarmap.gui.drop_here");
             Theme.text(fontRendererObj, drop, x1 - 6 - fontRendererObj.getStringWidth(drop), y + 6, Theme.ACCENT);
         }
         int x = x0 + 6;
@@ -1343,7 +1343,7 @@ public class GuiWaypointList extends ScaledScreen {
         x += fontRendererObj.getStringWidth(count) + 6;
         if (!visible) {
             drawEyeOff(x, cy - 2, Theme.TEXT_DISABLED);
-            String hidden = I18n.format("wayfarmap.gui.hidden");
+            String hidden = Lang.format("wayfarmap.gui.hidden");
             Theme.text(fontRendererObj, hidden, x + 10, cy - 4, Theme.TEXT_DISABLED);
         }
         if (!dropping && lit > 0.05 && !row.matching.isEmpty()) {
@@ -1351,7 +1351,7 @@ public class GuiWaypointList extends ScaledScreen {
             final String pendingKey = "\u0000clear:" + key;
             final List<Waypoint> waypoints = row.matching;
             boolean pending = isPendingDelete(pendingKey);
-            String label = I18n.format(pending ? "wayfarmap.gui.confirm" : "wayfarmap.gui.clear_group");
+            String label = Lang.format(pending ? "wayfarmap.gui.confirm" : "wayfarmap.gui.clear_group");
             int w = fontRendererObj.getStringWidth(label) + 10;
             int bx1 = x1 - 4, bx0 = bx1 - w, by = y + 4;
             boolean over = Theme.inside(mouseX, mouseY, bx0, by, bx1, by + 12);
@@ -1365,7 +1365,7 @@ public class GuiWaypointList extends ScaledScreen {
                 bx1,
                 by + 12,
                 () -> confirmDelete(pendingKey, () -> WaypointManager.INSTANCE.removeWaypoints(waypoints)),
-                I18n.format("wayfarmap.gui.clear_group_hint"));
+                Lang.format("wayfarmap.gui.clear_group_hint"));
         }
     }
 
@@ -1404,7 +1404,7 @@ public class GuiWaypointList extends ScaledScreen {
         hit(ex - 3, ey - 4, ex + 10, ey + 9, () -> {
             waypoint.enabled = !waypoint.enabled;
             manager.waypointChanged();
-        }, I18n.format(waypoint.enabled ? "wayfarmap.gui.hide_waypoint" : "wayfarmap.gui.show_waypoint"));
+        }, Lang.format(waypoint.enabled ? "wayfarmap.gui.hide_waypoint" : "wayfarmap.gui.show_waypoint"));
 
         // Its icon, on a tile.
         int tx = x0 + 22, ty = y + 4;
@@ -1437,7 +1437,7 @@ public class GuiWaypointList extends ScaledScreen {
             drawActions(waypoint, x1 - 5, y + (CARD_HEIGHT - ACTION_SIZE) / 2, mouseX, mouseY, lit, background);
         }
         if (copied == waypoint && System.currentTimeMillis() - copiedAt < COPIED_MS) {
-            String done = I18n.format("wayfarmap.gui.copied");
+            String done = Lang.format("wayfarmap.gui.copied");
             int w = fontRendererObj.getStringWidth(done) + 8;
             int cx = x1 - actionsWidth - w - 10;
             Theme.fill(cx, y + 8, cx + w, y + 20, Theme.SUCCESS);
@@ -1536,7 +1536,7 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> confirmDelete(waypoint, () -> WaypointManager.INSTANCE.removeWaypoint(waypoint)),
-            I18n.format(pending ? "wayfarmap.gui.delete_sure" : "wayfarmap.gui.delete"));
+            Lang.format(pending ? "wayfarmap.gui.delete_sure" : "wayfarmap.gui.delete"));
         x -= ACTION_STEP;
         action(
             x,
@@ -1549,7 +1549,7 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> edit(waypoint),
-            I18n.format("wayfarmap.gui.edit"));
+            Lang.format("wayfarmap.gui.edit"));
         x -= ACTION_STEP;
         action(
             x,
@@ -1562,7 +1562,7 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> WaypointShare.share(waypoint),
-            I18n.format("wayfarmap.gui.share_chat"));
+            Lang.format("wayfarmap.gui.share_chat"));
         x -= ACTION_STEP;
         action(
             x,
@@ -1575,7 +1575,7 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> copyPlace(waypoint),
-            I18n.format("wayfarmap.gui.copy_coords"));
+            Lang.format("wayfarmap.gui.copy_coords"));
         x -= ACTION_STEP;
         action(
             x,
@@ -1588,14 +1588,14 @@ public class GuiWaypointList extends ScaledScreen {
             mouseX,
             mouseY,
             () -> showOnMap(waypoint),
-            I18n.format("wayfarmap.gui.show_on_map_hint"));
+            Lang.format("wayfarmap.gui.show_on_map_hint"));
         x -= ACTION_STEP;
         // Teleporting needs /tp permission and the same dimension.
         if (canTeleport(waypoint)) {
             action(x, y, SMALL_TELEPORT, Theme.SUCCESS, 0, lit, background, mouseX, mouseY, () -> {
                 mc.displayGuiScreen(null);
                 Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
-            }, I18n.format("wayfarmap.gui.teleport"));
+            }, Lang.format("wayfarmap.gui.teleport"));
         }
     }
 
@@ -1624,7 +1624,7 @@ public class GuiWaypointList extends ScaledScreen {
             }
         }
         int y = panelBottom - 26 + 5;
-        String stats = I18n.format(
+        String stats = Lang.format(
             "wayfarmap.gui.waypoint_stats",
             manager.getWaypoints()
                 .size(),

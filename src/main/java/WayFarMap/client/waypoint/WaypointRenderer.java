@@ -16,7 +16,6 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -31,6 +30,7 @@ import org.lwjgl.opengl.GL12;
 import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
@@ -233,20 +233,22 @@ public class WaypointRenderer {
             int color = 0xFF000000 | waypoint.outlineColor;
             frame(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             frame(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-        } else if (waypoint.outlineColor != null) {
+        } else if (waypoint.outlineColor != null && icon != null) {
             int color = 0xFF000000 | waypoint.outlineColor;
             Gui.drawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, 0xFF000000);
             Gui.drawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, color);
-            Gui.drawRect(x0, y0, x1, y1, icon != null ? 0xC0202020 : color);
+            Gui.drawRect(x0, y0, x1, y1, 0xC0202020);
         }
         if (symbol != null) {
             drawSymbol(symbol, cx, cy, size * SYMBOL_SCALE, 1f);
         } else if (icon != null) {
             drawItem(icon, cx, cy, size);
-        } else if (waypoint.outlineColor == null) {
+        } else {
+            // No icon: a small dot in the waypoint's color, the same size whether a color is set or not.
+            int dot = waypoint.outlineColor != null ? waypoint.outlineColor : DEFAULT_COLOR;
             int inset = Math.max(1, half / 3);
             Gui.drawRect(x0 + inset - 1, y0 + inset - 1, x1 - inset + 1, y1 - inset + 1, 0xFF000000);
-            Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | DEFAULT_COLOR);
+            Gui.drawRect(x0 + inset, y0 + inset, x1 - inset, y1 - inset, 0xFF000000 | dot);
         }
 
         if (!waypoint.enabled) {
@@ -353,13 +355,13 @@ public class WaypointRenderer {
         long minutes = Math.max(0, (System.currentTimeMillis() - waypoint.diedAt) / 60_000);
         String age;
         if (minutes < 1) {
-            age = I18n.format("wayfarmap.death.just_now");
+            age = Lang.format("wayfarmap.death.just_now");
         } else if (minutes < 60) {
-            age = I18n.format("wayfarmap.death.minutes_ago", minutes);
+            age = Lang.format("wayfarmap.death.minutes_ago", minutes);
         } else if (minutes < 60 * 24) {
-            age = I18n.format("wayfarmap.death.hours_ago", minutes / 60);
+            age = Lang.format("wayfarmap.death.hours_ago", minutes / 60);
         } else {
-            age = I18n.format("wayfarmap.death.days_ago", minutes / (60 * 24));
+            age = Lang.format("wayfarmap.death.days_ago", minutes / (60 * 24));
         }
         return "  " + age;
     }
@@ -639,7 +641,7 @@ public class WaypointRenderer {
             return 1f;
         }
         double dx = waypoint.x + 0.5 - RenderManager.renderPosX;
-        double dy = waypoint.y + 1.5 - RenderManager.renderPosY;
+        double dy = waypoint.y + 0.5 - RenderManager.renderPosY;
         double dz = waypoint.z + 0.5 - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         double end = Math.max(0, Config.waypointFadeEnd);
@@ -664,8 +666,9 @@ public class WaypointRenderer {
     }
 
     /**
-     * Draws a marker in the world at the given block position (x, z are block centers, y is the feet height): the
-     * icon above a box with the name and the distance. Seen through walls and kept readable from far away.
+     * Draws a marker in the world at the given block position (x, z are block centers, y is the block's bottom): the
+     * icon in the middle of the block, a box with the name and the distance under it. Seen through walls and kept
+     * readable from far away.
      *
      * @param outlineColor RGB of the box outline, or null for none
      * @param icon         draws the icon, or null for a colored square
@@ -692,7 +695,8 @@ public class WaypointRenderer {
         BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
-        double dy = y + 1.5 - RenderManager.renderPosY;
+        // The icon in the middle of the block, the box with the name and the distance under it.
+        double dy = y + 0.5 - RenderManager.renderPosY;
         double dz = z - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
@@ -735,8 +739,9 @@ public class WaypointRenderer {
         int nameWidth = font.getStringWidth(name);
         int distanceWidth = font.getStringWidth(distanceText);
         int boxHalf = Math.max(nameWidth, distanceWidth) / 2 + 3;
-        int top = 0;
-        int bottom = name.isEmpty() ? 11 : 21;
+        // The anchor is the icon's middle: the box starts just under the icon.
+        int top = 11;
+        int bottom = top + (name.isEmpty() ? 11 : 21);
 
         // The font draws text with almost no alpha as opaque: below that the box is left out.
         if (labelAlpha >= 0.03f) {
@@ -754,7 +759,12 @@ public class WaypointRenderer {
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         // The icon's cut-out edges as usual, its see-through parts scaled with the fading, so it fades with the box.
         GL11.glAlphaFunc(GL11.GL_GREATER, 0.1f * alpha);
-        if (outlineColor != null && !openFrame) {
+        if (icon == null) {
+            // No icon: a small dot in the waypoint's color, the same size whether a color is set or not.
+            int dot = outlineColor != null ? outlineColor : DEFAULT_COLOR;
+            fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
+            fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | dot, alpha));
+        } else if (outlineColor != null && !openFrame) {
             // As on the maps: a dark line, the waypoint's color around the icon, and a dark tile under it.
             fillRect(-10, top - 21, 10, top - 1, faded(0xFF000000, alpha));
             fillRect(-9, top - 20, 9, top - 2, faded(0xFF000000 | outlineColor, alpha));
@@ -767,10 +777,10 @@ public class WaypointRenderer {
             GL11.glEnable(GL11.GL_TEXTURE_2D);
         }
         boolean drawn = icon != null && icon.draw(0f, top - 11f, 16f);
-        if (!drawn && outlineColor != null) {
-            // No icon: the frame filled with the color, as on the maps.
+        if (icon != null && !drawn && outlineColor != null) {
+            // The icon could not be drawn: the frame filled with the color.
             fillRect(-8, top - 19, 8, top - 3, faded(0xFF000000 | outlineColor, alpha));
-        } else if (!drawn) {
+        } else if (icon != null && !drawn) {
             fillRect(-4, top - 12, 4, top - 4, faded(0xFF000000, alpha));
             fillRect(-3, top - 11, 3, top - 5, faded(0xFF000000 | DEFAULT_COLOR, alpha));
         }
@@ -791,13 +801,12 @@ public class WaypointRenderer {
         double yaw = Math.toRadians(view.playerViewY), pitch = Math.toRadians(view.playerViewX);
         double lookX = -Math.sin(yaw) * Math.cos(pitch), lookY = -Math.sin(pitch);
         double lookZ = Math.cos(yaw) * Math.cos(pitch);
-        // The icon sits 11 units over the anchor (the box's top), half of it 8 units wide; a little more is allowed.
-        double iconY = y + 11 * scale;
-        double length = Math.sqrt(x * x + iconY * iconY + z * z);
+        // The icon is at the anchor, half of it 8 units wide; a little more is allowed.
+        double length = Math.sqrt(x * x + y * y + z * z);
         if (length < 1e-6) {
             return true;
         }
-        double cos = (x * lookX + iconY * lookY + z * lookZ) / length;
+        double cos = (x * lookX + y * lookY + z * lookZ) / length;
         double angle = Math.acos(Math.max(-1, Math.min(1, cos)));
         // The icon itself, and around it as far as set: it needn't be aimed at exactly.
         double zone = Math.toRadians(Math.max(0, Config.waypointLookZone));

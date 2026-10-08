@@ -1,0 +1,44 @@
+<!--
+  The mod's changelog: shown in the "What's new" window (after the mod is updated, and from a button in "About").
+  One file per language: en_US.md, ru_RU.md, uk_UA.md, zh_CN.md. A language without a file shows en_US.md.
+
+  How to write it (newest version on top):
+
+  # 1.2.0 | 2026-10-08        a version; the date after "|" (optional)
+  ## Map                      a heading inside a version
+  - [new] text                a point with a tag: [new], [fix], [change], [remove]
+  - text                      a point without a tag
+    - text                    a point inside the one above (indented by 2 spaces)
+  > text                      a note in a frame
+  text                        a plain paragraph
+
+  In any text: **bold**, `key`, *italic*, and Minecraft's § colors.
+  A line right under a point carries it on. Comments like this one are left out.
+-->
+
+# 0.0.14
+
+## Windows
+- [new] Welcome window: what the mod can do, the first steps, who made it and the choice of the mod's language
+- [new] "What's new" window, shown after the mod is updated and from a button in the "About" window
+- [change] Redesigned "About" window: the author's and testers' avatars, links to GitHub, Boosty and Telegram
+- [new] A **Mod language** section in the settings: all of the mod's texts in the chosen language, whatever Minecraft's is
+
+## Map
+- [change] Grass, leaves and vines on the 2D map colored by their own biome
+- [change] Map without plants: grass blocks in their biome's own color
+- [change] The Nether on the 3D map is dim at any time of day, lit by its lava and lamps
+- [change] The End is lit as by day
+- [new] Copy and paste waypoints on the world map
+- [new] Waypoint list: groups pane, waypoint cards, compass arrows and hover actions
+
+## 3D map
+- [change] Block pictures are kept from game to game: the map builds faster
+- [fix] Blocks with metadata above 15 no longer break the hidden-picture check
+
+## Area loading
+- [new] Its own 3D switch, a Stop button, a progress bar and hints
+- [fix] `/wf chunkload` sends ForgeMultipart's parts, so microblocks aren't empty
+
+## Other
+- [remove] The GregTech ore vein (3x3 chunk) grid mode

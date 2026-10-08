@@ -4,7 +4,6 @@ import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.monster.EntityCreeper;
 import net.minecraft.entity.monster.EntityIronGolem;
@@ -77,7 +76,7 @@ public final class MobPreview {
                 { make(() -> new EntityZombie(world)), make(() -> new EntityCreeper(world)) }, { make(() -> {
                     // Named with a name tag, like the wolf: its name shows too.
                     EntityCow cow = new EntityCow(world);
-                    cow.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.mob_name"));
+                    cow.setCustomNameTag(Lang.format("wayfarmap.settings.mobs.mob_name"));
                     return cow;
                 }), make(() -> new EntityPig(world)) }, { make(() -> new EntityBat(world)), make(() -> {
                     EntityBat bat = new EntityBat(world);
@@ -86,7 +85,7 @@ public final class MobPreview {
                 }) }, { make(() -> new EntityVillager(world)), make(() -> new EntityIronGolem(world)) }, { make(() -> {
                     EntityWolf wolf = new EntityWolf(world);
                     wolf.setTamed(true);
-                    wolf.setCustomNameTag(I18n.format("wayfarmap.settings.mobs.pet_name"));
+                    wolf.setCustomNameTag(Lang.format("wayfarmap.settings.mobs.pet_name"));
                     return wolf;
                 }), make(() -> {
                     EntityOcelot cat = new EntityOcelot(world);
@@ -112,7 +111,7 @@ public final class MobPreview {
             boolean shown = shown(kind);
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             String label = Theme
-                .ellipsize(font, I18n.format("wayfarmap.settings.mobs." + KINDS[kind]), (int) columnWidth - 4);
+                .ellipsize(font, Lang.format("wayfarmap.settings.mobs." + KINDS[kind]), (int) columnWidth - 4);
             int labelX = (int) Math.round(cx - font.getStringWidth(label) / 2.0);
             font.drawStringWithShadow(label, labelX, top, shown ? COLORS[kind] : Theme.TEXT_DISABLED);
 

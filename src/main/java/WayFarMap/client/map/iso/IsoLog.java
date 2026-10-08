@@ -51,6 +51,8 @@ public final class IsoLog {
         final int cx, cz;
         /** Why it is copied: fresh, changed, near, far, back, neighbour, unload-edge, unload-late. */
         String reason;
+        /** Loaded by the game (its data arrived), or 0 if not known. */
+        long loaded;
         /** First seen by the scanner (waiting for the chunk to settle), or 0 if not known. */
         long seen;
         long settled;
@@ -81,11 +83,13 @@ public final class IsoLog {
     /** Chunks the scanner saw but didn't scan yet (settling): when they were first seen. */
     private static final Map<Long, Long> SEEN = new ConcurrentHashMap<>();
     private static final Map<Long, long[]> SETTLED = new ConcurrentHashMap<>();
+    /** Chunks the game loaded and the scanner didn't see yet: when they were loaded. */
+    private static final Map<Long, Long> LOADED = new ConcurrentHashMap<>();
     /** Phases of the chunks stored, for the summaries: see {@link #PHASES}. */
     private static final List<long[]> DONE = Collections.synchronizedList(new ArrayList<>());
     private static final List<String> DONE_NAMES = Collections.synchronizedList(new ArrayList<>());
     private static final String[] PHASES = { "total", "settle", "settled->scan", "scan->queue", "queue->capture",
-        "capturing", "captureCpu", "submit->writer", "writer" };
+        "capturing", "captureCpu", "submit->writer", "writer", "load->seen", "load->stored" };
 
     // Counters since the last stats line.
     private static final AtomicLong capturesDone = new AtomicLong(), captureNanosSum = new AtomicLong(),
@@ -98,6 +102,22 @@ public final class IsoLog {
     private static volatile long saverBusySince;
     private static volatile String saverTask = "";
     private static long lastStats, lastSummary;
+    /** Tile renderer threads (for how busy they are). */
+    static volatile int renderers;
+    /** Frames of the 3D view since the last stats line: quads drawn (all, most in one frame), and the last state. */
+    private static long viewFrames, viewQuads, viewQuadsMax;
+    private static int viewTextured, viewBacklog, viewBacklogMax;
+    /** Tiles put on the graphics card since the last stats line, and the time it took. */
+    private static final AtomicLong uploads = new AtomicLong(), uploadNanos = new AtomicLong(),
+        uploadMaxNanos = new AtomicLong();
+    /**
+     * For the summaries (ms): a chunk loaded until the scanner saw it, a chunk change until the tiles showing it were
+     * on screen, a tile with nothing yet from being wanted until on screen, a finished tile waiting to be uploaded.
+     */
+    private static final List<Long> CHANGE_SHOWN = Collections.synchronizedList(new ArrayList<>()),
+        NEW_SHOWN = Collections.synchronizedList(new ArrayList<>()),
+        UPLOAD_WAITS = Collections.synchronizedList(new ArrayList<>()),
+        LOAD_SEEN = Collections.synchronizedList(new ArrayList<>());
 
     private IsoLog() {}
 
@@ -176,6 +196,18 @@ public final class IsoLog {
         }
         FaceRenderer.kindStats()
             .clear();
+        LOADED.clear();
+        HIDDEN_KINDS.clear();
+        visChecked = visHidden = visToDraw = visToDrawHidden = visNanos = 0;
+        visByReach = visByLines = visSeen = visLinesFollowed = visLinesSkipped = visReachNanos = visLinesNanos = 0;
+        hiddenReachedCount.set(0);
+        FaceRenderer.dataStatsClear();
+        CHANGE_SHOWN.clear();
+        NEW_SHOWN.clear();
+        UPLOAD_WAITS.clear();
+        LOAD_SEEN.clear();
+        viewFrames = viewQuads = viewQuadsMax = 0;
+        viewBacklogMax = 0;
         perfStart = System.nanoTime();
         Runtime runtime = Runtime.getRuntime();
         line(
@@ -232,6 +264,57 @@ public final class IsoLog {
                 + "blurry parent shown, holes = nothing shown at all) -> VIEW_COMPLETE (how long the screen took). "
                 + "TILE_WARN marks what looks wrong (empty or black tiles saved, files that couldn't be read, slow "
                 + "tiles); LOOKS_WAIT are waits for block looks.");
+        line(
+            "LEGEND the whole way of a chunk: the game loads it (not a line of its own: SEEN sinceLoadMs) -> SEEN "
+                + "... -> STORE -> MARKED (tiles told) -> TILE_QUEUED -> TILE_DONE (trace[ms rays usPerRay] = ray "
+                + "tracing alone, 4 rays a pixel zoomed far out with isoSmooth; checkMs = finding whether its file is "
+                + "out of date) -> TILE_SHOWN (on the graphics card: changeMs = from the chunk change stored to on "
+                + "screen, newMs = a tile with nothing yet from first wanted to on screen, uploadWaitMs = finished, "
+                + "waiting for its turn to be uploaded, uploadMs = putting it on the card). DONE load->seen and "
+                + "load->stored: from the game loading the chunk. STATS renderers[busy] = share of the time the tile "
+                + "renderers were drawing; view[...] = frames of the 3D view, quads drawn a frame, tiles with "
+                + "pictures, results waiting for upload, uploads and their time. SUMMARY latency: those times as "
+                + "percentiles. PERF frame: 3dDraw [3dUpload 3dLooks 3dTiles 3dEvict] splits the 3D view's frame "
+                + "time; tick: capture3d [3dLooksAhead].");
+        line(
+            "LEGEND speed-ups: QUEUED queue=fresh-early = a new chunk copied as soon as the 8 around it are loaded, "
+                + "without waiting for it to settle; it is QUEUED reason=settled again once settled (UNCHANGED if "
+                + "nothing came). NOISE = copied again but only fluids flowing, leaves or light changed: no pictures "
+                + "taken, not stored (by=render thread, before the pictures; by=writer, after), the chunk is copied "
+                + "again at most every 30 s, and noise is stored at least every 60 s. MARKED changed=x,y,z..x,y,z = "
+                + "the blocks that changed (chunk coordinates): only tiles over them are drawn again (whole = all). "
+                + "TILE_DONE src=composed = a coarse tile made from the 4 finer tiles' files instead of traced. "
+                + "IN_FLIGHT = a chunk's pictures drawn and read back from the graphics card the next tick (no wait "
+                + "for it): the chunk's CAPTURE follows then; PERF tick: 3dPicturesRead, STATS picturesReadLaterMs = "
+                + "that reading and storing. PICTURES_READBACK says which way pictures are read. FACES "
+                + "hiddenFromMap[blocksNotDrawn=h/n picturesLeftOut=v ms] and SUMMARY 'hidden from the map': "
+                + "pictures the map can't show (every line of sight toward the viewer from that side meets a solid "
+                + "cube with solid icons first; glass, leaves, water, bars let it through) are not drawn: HIDDEN "
+                + "ids, drawn from icons should a ray get there. QUEUED reason=visibility: a block changed nearby, "
+                + "the chunk's hidden pictures are looked at again. -Dwayfarmap.drawHidden=true draws them all.");
+        line(
+            "LEGEND hiddenFromMap details: only the chunks the map has hide blocks (a chunk loaded but never stored "
+                + "is empty for the tiles), and only the blocks to draw are looked at. hiddenByReach = pictures hidden "
+                + "because open space from the sky reaches no cell around (no line followed), hiddenByLines = hidden "
+                + "after following the lines of sight, seen = can be seen; lines/linesSkipped = lines followed / left "
+                + "out as starting where open space doesn't reach; reachMs/linesMs = time of each step. A ray of a "
+                + "tile reaching a hidden picture is a mistake: HIDDEN_REACHED (where), SUMMARY "
+                + "raysReachingHiddenPictures and fallback hiddenReached should stay 0.");
+        line(
+            "LEGEND byData: pictures of blocks with a tile entity (Carpenter's Blocks, ArchitectureCraft, GregTech) by "
+                + "the block, its surroundings, open sides, what its tile entity keeps (NBT without x/y/z) and what "
+                + "the 6 tile entities next to it keep. hit = given without drawing, sharedInChunk = drawn once for "
+                + "all the blocks with the same key in the chunk (classes that proved reliable), learning = drawn as "
+                + "the key isn't confirmed yet, verify = drawn anyway to check (every 16th), notFitting = kept "
+                + "pictures hidden where this block can be seen, unreliable = key gave other pictures once (drawn "
+                + "every time), classOff = class turned off, noKey = its data couldn't be written. DATA_UNRELIABLE = a "
+                + "key gave other pictures (should be rare), DATA_CLASS_TRUSTED / DATA_CLASS_OFF = a class proved "
+                + "reliable / not. SUMMARY data#: per class of tile entity. -Dwayfarmap.noDataCache=true turns it "
+                + "off. PICTURE_CACHE: these caches (by surroundings, kind, block, data, and how classes fared) kept "
+                + "from game to game in wayfarmap/cache/<world>/3d-pictures.dat: loaded when the world is joined "
+                + "(entries, droppedForMissingPictures), saved with the pictures (copied ms on the render thread), "
+                + "ignored if the resource packs, the mods or their versions changed. With it, a base taken before "
+                + "shows hits instead of learning in FACES.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -260,6 +343,7 @@ public final class IsoLog {
         CHANGED_BY.clear();
         TILE_COUNTS.clear();
         VIEW_TIMES.clear();
+        LOADED.clear();
         viewKey = null;
     }
 
@@ -331,6 +415,18 @@ public final class IsoLog {
 
     // ---------------------------------------------------------------- scanner (render thread)
 
+    /** The game loaded a chunk (its data arrived from the server). */
+    public static void loaded(int cx, int cz) {
+        if (!on()) {
+            return;
+        }
+        if (LOADED.size() > 50_000) {
+            // Chunks loaded and let go before the scanner came to them: start over rather than grow without end.
+            LOADED.clear();
+        }
+        LOADED.put(key(cx, cz), System.nanoTime());
+    }
+
     /** The scanner found a new chunk loaded; it waits until the chunk is decorated. */
     public static void seen(int cx, int cz, boolean neighboursReady) {
         if (!on()) {
@@ -342,8 +438,20 @@ public final class IsoLog {
             SEEN.clear();
             SETTLED.clear();
         }
-        if (SEEN.putIfAbsent(key, System.nanoTime()) == null) {
-            line("SEEN " + cx + "," + cz + " neighboursReady=" + neighboursReady);
+        long now = System.nanoTime();
+        if (SEEN.putIfAbsent(key, now) == null) {
+            Long loaded = LOADED.get(key);
+            if (loaded != null && LOAD_SEEN.size() < 100_000) {
+                LOAD_SEEN.add((now - loaded) / 1_000_000L);
+            }
+            line(
+                "SEEN " + cx
+                    + ","
+                    + cz
+                    + " neighboursReady="
+                    + neighboursReady
+                    + " sinceLoadMs="
+                    + (loaded == null ? "-" : ms(now - loaded)));
         }
     }
 
@@ -417,6 +525,8 @@ public final class IsoLog {
         if (created) {
             trace = new Trace(cx, cz);
             trace.reason = reason;
+            Long loaded = LOADED.remove(key);
+            trace.loaded = loaded == null ? 0 : loaded;
             Long seen = SEEN.remove(key);
             long[] settled = SETTLED.remove(key);
             if (settled != null) {
@@ -473,7 +583,11 @@ public final class IsoLog {
         }
         long key = key(cx, cz);
         long now = System.nanoTime();
-        picturesReused.addAndGet(FaceRenderer.kindHit + FaceRenderer.surroundingsHit + FaceRenderer.placeHit);
+        picturesReused.addAndGet(
+            FaceRenderer.kindHit + FaceRenderer.surroundingsHit
+                + FaceRenderer.placeHit
+                + FaceRenderer.dataHit
+                + FaceRenderer.dataShared);
         picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
         Trace trace = TRACES.get(key);
         if (trace == null) {
@@ -562,6 +676,24 @@ public final class IsoLog {
                     + FaceRenderer.surroundingsShared
                     + " kindHit="
                     + FaceRenderer.kindHit
+                    + "] byData[hit="
+                    + FaceRenderer.dataHit
+                    + " sharedInChunk="
+                    + FaceRenderer.dataShared
+                    + " learning="
+                    + FaceRenderer.dataLearning
+                    + " verify="
+                    + FaceRenderer.dataVerify
+                    + " notFitting="
+                    + FaceRenderer.dataNotFitting
+                    + " unreliable="
+                    + FaceRenderer.dataUnreliableKey
+                    + " classOff="
+                    + FaceRenderer.dataClassOff
+                    + " noKey="
+                    + FaceRenderer.dataNoKey
+                    + " keyMs="
+                    + ms(FaceRenderer.dataKeyNanos)
                     + "] batches="
                     + FaceRenderer.batches
                     + " slots="
@@ -590,6 +722,28 @@ public final class IsoLog {
                     + ms(FaceRenderer.idNanos)
                     + " learnMs="
                     + ms(FaceRenderer.learnNanos)
+                    + "] hiddenFromMap[blocksNotDrawn="
+                    + FaceRenderer.hiddenFound
+                    + "/"
+                    + FaceRenderer.visibilityChecked
+                    + " picturesLeftOut="
+                    + FaceRenderer.hiddenToDraw
+                    + " ms="
+                    + ms(FaceRenderer.visibilityNanos)
+                    + " hiddenByReach="
+                    + FaceRenderer.visHiddenByReach
+                    + " hiddenByLines="
+                    + FaceRenderer.visHiddenByLines
+                    + " seen="
+                    + FaceRenderer.visSeen
+                    + " lines="
+                    + FaceRenderer.visLinesFollowed
+                    + " linesSkipped="
+                    + FaceRenderer.visLinesSkipped
+                    + " reachMs="
+                    + ms(FaceRenderer.visReachNanos)
+                    + " linesMs="
+                    + ms(FaceRenderer.visLinesNanos)
                     + "] skippable[expiredSame="
                     + FaceRenderer.expiredSame
                     + " expiredDiffer="
@@ -662,6 +816,209 @@ public final class IsoLog {
                 + " blocksMs="
                 + ms(nanos)
                 + " (same blocks, pictures kept)");
+    }
+
+    private static final AtomicLong noiseSkipped = new AtomicLong();
+
+    /**
+     * Copied again, but only noise changed (fluids flowing, leaves, light: see {@link BlockNoise}): not stored, no
+     * pictures taken (render thread) or not stored (writer); copied again seldom from now on.
+     */
+    static void noise(int cx, int cz, String where, long nanos) {
+        if (!on()) {
+            return;
+        }
+        noiseSkipped.incrementAndGet();
+        // From the writer the trace is gone already (it ends with the STORE line).
+        Trace trace = TRACES.remove(key(cx, cz));
+        line(
+            "NOISE " + cx
+                + ","
+                + cz
+                + " reason="
+                + (trace != null ? trace.reason : "?")
+                + " by="
+                + where
+                + " ms="
+                + ms(nanos)
+                + " (only fluids, leaves or light changed: not stored, copied again in "
+                + IsoMap.NOISY_RECAPTURE_MS / 1000
+                + "s at the earliest)");
+    }
+
+    /**
+     * Its pictures were drawn and are read back from the graphics card next tick; the chunk is finished then (its
+     * time so far counts in its copying).
+     */
+    static void inFlight(int cx, int cz, long blockNanos, long faceNanos, int flights) {
+        if (!on()) {
+            return;
+        }
+        Trace trace = TRACES.get(key(cx, cz));
+        if (trace != null) {
+            if (trace.firstCapture == 0) {
+                trace.firstCapture = System.nanoTime() - blockNanos - faceNanos;
+            }
+            trace.blockCaptureNanos += blockNanos;
+            trace.facesNanos += faceNanos;
+            trace.captureNanos += blockNanos + faceNanos;
+        }
+        captureNanosSum.addAndGet(blockNanos + faceNanos);
+        picturesDrawn.addAndGet(FaceRenderer.lastDrawn);
+        line(
+            "IN_FLIGHT " + cx
+                + ","
+                + cz
+                + " blocksMs="
+                + ms(blockNanos)
+                + " picturesMs="
+                + ms(faceNanos)
+                + " drawn="
+                + FaceRenderer.lastDrawn
+                + " batchesReadBack="
+                + flights
+                + " (pictures read back next tick, then stored)");
+    }
+
+    /**
+     * Blocks needing pictures since the log started ({@link MapVisibility}): looked at, hidden from every view side,
+     * to draw, to draw and hidden, nanos looking; and per kind of block to draw: {to draw, hidden}.
+     */
+    private static long visChecked, visHidden, visToDraw, visToDrawHidden, visNanos;
+    private static final Map<Integer, long[]> HIDDEN_KINDS = new ConcurrentHashMap<>();
+
+    /** A block needing pictures: not drawn at all (hidden from every side) or drawn (render thread). */
+    static void visibility(int lookKey, boolean hidden) {
+        long[] counts = HIDDEN_KINDS.get(lookKey);
+        if (counts == null) {
+            if (HIDDEN_KINDS.size() > 5000) {
+                return;
+            }
+            counts = new long[2];
+            HIDDEN_KINDS.put(lookKey, counts);
+        }
+        counts[0]++;
+        if (hidden) {
+            counts[1]++;
+        }
+    }
+
+    /**
+     * Pictures looked at by {@link MapVisibility} since the log started: hidden by its first step alone (open space
+     * reaches no cell around), hidden after following lines, seen; lines followed and skipped; time of each step.
+     */
+    private static long visByReach, visByLines, visSeen, visLinesFollowed, visLinesSkipped, visReachNanos,
+        visLinesNanos;
+
+    /** A chunk's blocks needing pictures were looked at (render thread). */
+    static void visibilityTotals(int checked, int hidden, int toDraw, int toDrawHidden, long nanos) {
+        visChecked += checked;
+        visHidden += hidden;
+        visToDraw += toDraw;
+        visToDrawHidden += toDrawHidden;
+        visNanos += nanos;
+        visByReach += FaceRenderer.visHiddenByReach;
+        visByLines += FaceRenderer.visHiddenByLines;
+        visSeen += FaceRenderer.visSeen;
+        visLinesFollowed += FaceRenderer.visLinesFollowed;
+        visLinesSkipped += FaceRenderer.visLinesSkipped;
+        visReachNanos += FaceRenderer.visReachNanos;
+        visLinesNanos += FaceRenderer.visLinesNanos;
+    }
+
+    /** Rays that reached a picture left out as hidden from the map (renderer threads): should be none. */
+    private static final AtomicLong hiddenReachedCount = new AtomicLong();
+    /** Lines logged for them at most per log (the count goes on). */
+    private static final int HIDDEN_REACHED_LINES = 40;
+
+    /**
+     * A ray of a tile reached a picture left out as hidden ({@link MapVisibility} said the map can't show it from
+     * there): the block is drawn from its icons. Counted; the first few logged with where it is (renderer threads).
+     *
+     * @param side the solid cube's side, -1 for a block that isn't one (then the view side counts)
+     */
+    static void hiddenReached(int x, int y, int z, int lookKey, int rotation, int side) {
+        if (!on()) {
+            return;
+        }
+        long n = hiddenReachedCount.incrementAndGet();
+        if (n <= HIDDEN_REACHED_LINES) {
+            line(
+                "HIDDEN_REACHED " + x
+                    + ","
+                    + y
+                    + ","
+                    + z
+                    + " "
+                    + BlockDiag.name(lookKey)
+                    + " view="
+                    + rotation
+                    + (side >= 0 ? " side=" + side : "")
+                    + " (left out as hidden, yet a ray got there: drawn from icons; logged "
+                    + HIDDEN_REACHED_LINES
+                    + " times at most)");
+        }
+    }
+
+    /** How many pictures were left out as hidden from the map, and of which kinds of blocks. */
+    private static void visibilitySummary(String title) {
+        if (visChecked == 0 && hiddenReachedCount.get() == 0) {
+            return;
+        }
+        line(
+            title + " hidden from the map (pictures left out, drawn from icons should a ray get there): blocks not "
+                + "drawn at all "
+                + visHidden
+                + "/"
+                + visChecked
+                + " ("
+                + share(visHidden, visChecked)
+                + "), of the "
+                + visToDraw
+                + " blocks drawn pictures left out "
+                + visToDrawHidden
+                + ", looking took "
+                + ms(visNanos)
+                + "ms (pictures hidden by reach alone "
+                + visByReach
+                + ", after following lines "
+                + visByLines
+                + ", seen "
+                + visSeen
+                + "; lines followed "
+                + visLinesFollowed
+                + ", skipped "
+                + visLinesSkipped
+                + "; reachMs="
+                + ms(visReachNanos)
+                + " linesMs="
+                + ms(visLinesNanos)
+                + ") raysReachingHiddenPictures="
+                + hiddenReachedCount.get()
+                + " (should be 0)");
+        List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(HIDDEN_KINDS.entrySet());
+        kinds.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+        for (int n = 0; n < Math.min(20, kinds.size()); n++) {
+            long[] c = kinds.get(n)
+                .getValue();
+            if (c[1] == 0) {
+                break;
+            }
+            line(
+                title + "   hidden#"
+                    + (n + 1)
+                    + " "
+                    + BlockDiag.name(
+                        kinds.get(n)
+                            .getKey())
+                    + " needingPictures="
+                    + c[0]
+                    + " notDrawnHidden="
+                    + c[1]
+                    + " ("
+                    + share(c[1], c[0])
+                    + ")");
+        }
     }
 
     /** Copying it failed or gave nothing. */
@@ -752,7 +1109,8 @@ public final class IsoLog {
             t.scanned != 0 && t.queued != 0 ? t.queued - t.scanned : -1,
             t.queued != 0 && t.firstCapture != 0 ? t.firstCapture - t.queued : -1,
             t.firstCapture != 0 ? t.lastCapture - t.firstCapture : -1, t.captureNanos, t.writerStart - t.submitted,
-            t.writerEnd - t.writerStart };
+            t.writerEnd - t.writerStart, t.loaded != 0 && t.seen != 0 ? t.seen - t.loaded : -1,
+            t.loaded != 0 ? t.writerEnd - t.loaded : -1 };
         StringBuilder b = new StringBuilder("DONE ").append(t.cx)
             .append(',')
             .append(t.cz)
@@ -1038,7 +1396,7 @@ public final class IsoLog {
     // ---------------------------------------------------------------- tiles
 
     /** Chunk changes reached the tiles in memory. */
-    static void marked(int dimension, int cx, int cz, long changeTimeMs, int tiles, int tilesInMemory) {
+    static void marked(int dimension, int cx, int cz, long changeTimeMs, int tiles, int tilesInMemory, int[] box) {
         if (on()) {
             line(
                 "MARKED " + cx
@@ -1048,6 +1406,9 @@ public final class IsoLog {
                     + dimension
                     + " delayMs="
                     + (System.currentTimeMillis() - changeTimeMs)
+                    + " changed="
+                    + (box == null ? "whole"
+                        : box[0] + "," + box[1] + "," + box[2] + ".." + box[3] + "," + box[4] + "," + box[5])
                     + " tilesDirtied="
                     + tiles
                     + " tilesInMemory="
@@ -1055,10 +1416,14 @@ public final class IsoLog {
         }
     }
 
-    static void tileQueued(IsoTiles.Key key, boolean stale, int queueSize) {
+    /**
+     * @param kind new (nothing to show yet), stale (only out of date: behind the new ones), hole (a chunk was stored
+     *             where it shows nothing: as soon as the new ones)
+     */
+    static void tileQueued(IsoTiles.Key key, String kind, int queueSize) {
         if (on()) {
-            line("TILE_QUEUED " + tile(key) + (stale ? " stale" : " new") + " queue=" + queueSize);
-            levelStats(key.level)[stale ? 1 : 0]++;
+            line("TILE_QUEUED " + tile(key) + " " + kind + " queue=" + queueSize);
+            levelStats(key.level)["new".equals(kind) ? 0 : 1]++;
         }
     }
 
@@ -1094,6 +1459,11 @@ public final class IsoLog {
         /** What was written to the tile's file. */
         String saved = "-";
         long savedNanos;
+        /** Ray tracing alone, and the rays cast. */
+        long traceNanos;
+        int rays;
+        /** Finding whether the tile's file is out of date (the chunks under it). */
+        long checkNanos;
     }
 
     private static final ThreadLocal<TileWork> TILE_WORK = new ThreadLocal<>();
@@ -1209,9 +1579,20 @@ public final class IsoLog {
                 b.append(" diskMs=")
                     .append(ms(w.diskNanos))
                     .append(" diskBytes=")
-                    .append(w.diskBytes);
+                    .append(w.diskBytes)
+                    .append(" checkMs=")
+                    .append(ms(w.checkNanos));
             }
-            if (!"disk".equals(source)) {
+            if (w.rays > 0) {
+                b.append(" trace[ms=")
+                    .append(ms(w.traceNanos))
+                    .append(" rays=")
+                    .append(w.rays)
+                    .append(" usPerRay=")
+                    .append(String.format(Locale.ROOT, "%.2f", w.traceNanos / 1e3 / w.rays))
+                    .append(']');
+            }
+            if ("trace".equals(source)) {
                 b.append(" chunks[store=")
                     .append(w.storeChunks)
                     .append(" none=")
@@ -1440,6 +1821,59 @@ public final class IsoLog {
         }
     }
 
+    /** A frame of the 3D view was drawn (render thread). */
+    static void frameDrawn(int quads, int textured, int backlog) {
+        viewFrames++;
+        viewQuads += quads;
+        viewQuadsMax = Math.max(viewQuadsMax, quads);
+        viewTextured = textured;
+        viewBacklog = backlog;
+        viewBacklogMax = Math.max(viewBacklogMax, backlog);
+    }
+
+    /**
+     * A tile was put on the graphics card and is on screen now (render thread).
+     *
+     * @param changeMs    from the oldest chunk change it shows to now, -1 if it shows none
+     * @param newNanos    from when it was first wanted with nothing to show, -1 if it had a picture
+     * @param waitNanos   from the renderer finishing it to its upload, -1 if not known
+     * @param queuedNanos from its job being queued to its upload, -1 if not known
+     * @param nanos       putting it on the card
+     */
+    static void tileShown(IsoTiles.Key key, String source, boolean empty, long changeMs, long newNanos, long waitNanos,
+        long queuedNanos, long nanos) {
+        if (!on()) {
+            return;
+        }
+        uploads.incrementAndGet();
+        uploadNanos.addAndGet(nanos);
+        uploadMaxNanos.accumulateAndGet(nanos, Math::max);
+        if (changeMs >= 0 && CHANGE_SHOWN.size() < 100_000) {
+            CHANGE_SHOWN.add(changeMs);
+        }
+        if (newNanos >= 0 && NEW_SHOWN.size() < 100_000) {
+            NEW_SHOWN.add(newNanos / 1_000_000L);
+        }
+        if (waitNanos >= 0 && UPLOAD_WAITS.size() < 100_000) {
+            UPLOAD_WAITS.add(waitNanos / 1_000_000L);
+        }
+        line(
+            "TILE_SHOWN " + tile(key)
+                + " src="
+                + source
+                + (empty ? " empty" : "")
+                + " changeMs="
+                + (changeMs < 0 ? "-" : String.valueOf(changeMs))
+                + " newMs="
+                + (newNanos < 0 ? "-" : ms(newNanos))
+                + " queuedToUploadMs="
+                + (queuedNanos < 0 ? "-" : ms(queuedNanos))
+                + " uploadWaitMs="
+                + (waitNanos < 0 ? "-" : ms(waitNanos))
+                + " uploadMs="
+                + ms(nanos));
+    }
+
     private static String tile(IsoTiles.Key key) {
         return "rot" + key.rotation + " L" + key.level + " " + key.tu + "," + key.tv;
     }
@@ -1491,7 +1925,9 @@ public final class IsoLog {
             || saverBusySince != 0
             || capturesDone.get() > 0;
         if (now - lastStats >= (busy ? 1000 : 10_000)) {
+            long statsMs = lastStats == 0 ? 1000 : now - lastStats;
             lastStats = now;
+            long tileSum = tileNanos.getAndSet(0);
             Runtime runtime = Runtime.getRuntime();
             long since = saverBusySince;
             line(
@@ -1514,8 +1950,12 @@ public final class IsoLog {
                     + incompleteCaptures.getAndSet(0)
                     + " unchanged="
                     + unchangedSkipped.getAndSet(0)
+                    + " noise="
+                    + noiseSkipped.getAndSet(0)
                     + " captureMs="
                     + ms(captureNanosSum.getAndSet(0))
+                    + " picturesReadLaterMs="
+                    + takeFinishNanos()
                     + " stored="
                     + stored.getAndSet(0)
                     + " storedUnchanged="
@@ -1539,7 +1979,13 @@ public final class IsoLog {
                     + " tilesDrawn="
                     + tilesDrawn.getAndSet(0)
                     + " tileMs="
-                    + ms(tileNanos.getAndSet(0))
+                    + ms(tileSum)
+                    + " renderers["
+                    + renderers
+                    + " busy="
+                    + share(tileSum, renderers * statsMs * 1_000_000L)
+                    + "]"
+                    + viewStats()
                     + " tilesFromDisk="
                     + tilesFromDisk.getAndSet(0)
                     + " tilesRetry="
@@ -1582,6 +2028,46 @@ public final class IsoLog {
             lastSummary = now;
             summary("SUMMARY");
         }
+    }
+
+    /** The 3D view's frames since the last stats line, and the tiles put on the graphics card; then starts again. */
+    private static String viewStats() {
+        long n = uploads.getAndSet(0), nanos = uploadNanos.getAndSet(0), max = uploadMaxNanos.getAndSet(0);
+        if (viewFrames == 0 && n == 0) {
+            return "";
+        }
+        String text = " view[frames=" + viewFrames
+            + " quadsPerFrame="
+            + (viewFrames == 0 ? 0 : viewQuads / viewFrames)
+            + " quadsMax="
+            + viewQuadsMax
+            + " textured="
+            + viewTextured
+            + " uploadBacklog="
+            + viewBacklog
+            + " uploadBacklogMax="
+            + viewBacklogMax
+            + " uploads="
+            + n
+            + " uploadMs="
+            + ms(nanos)
+            + " uploadMaxMs="
+            + ms(max)
+            + "]";
+        viewFrames = viewQuads = viewQuadsMax = 0;
+        viewBacklogMax = 0;
+        return text;
+    }
+
+    /** "ms[batches=n readMs=r]" of the pictures read back later since the last stats line; then starts again. */
+    private static String takeFinishNanos() {
+        String text = ms(FaceRenderer.finishNanos) + "[batches="
+            + FaceRenderer.finishBatches
+            + " readMs="
+            + ms(FaceRenderer.finishReadNanos)
+            + "]";
+        FaceRenderer.finishNanos = FaceRenderer.finishReadNanos = FaceRenderer.finishBatches = 0;
+        return text;
     }
 
     /** Garbage collections since the last stats line. */
@@ -1908,7 +2394,7 @@ public final class IsoLog {
     /** The phase new chunks spend longest in (by its median), with its share of their whole way, or null. */
     private static String slowestWait(List<long[]> all, List<String> names) {
         // The waits between steps and the steps themselves; not "total" (0) or the copying's CPU (6, inside 5).
-        int[] phases = { 1, 2, 3, 4, 5, 7, 8 };
+        int[] phases = { 1, 2, 3, 4, 5, 7, 8, 9 };
         String best = null;
         long bestMedian = -1, totalMedian = 0;
         List<Long> totals = new ArrayList<>();
@@ -2012,12 +2498,19 @@ public final class IsoLog {
                     + " cores: they may slow the game; lower isoQuality or isoSmooth off");
         }
         if (wait != null) {
-            if (wait.startsWith("settle")) {
+            // "settled->scan" before "settle": it starts with that too.
+            if (wait.startsWith("settled->scan") || wait.startsWith("scan->queue")) {
+                advice.add("new chunks wait most for the scanner: raise chunksScannedPerTick (costs a little TPS)");
+            } else if (wait.startsWith("load->seen")) {
+                advice.add(
+                    "new chunks wait most for the scanner to find them after the game loaded them: it scans "
+                        + Config.chunksScannedPerTick
+                        + " a tick (chunksScannedPerTick) from a queue around the player built again only now and "
+                        + "then");
+            } else if (wait.startsWith("settle")) {
                 advice.add(
                     "new chunks wait most for the game to finish them (neighbours loaded, decorated): that is the "
                         + "game's chunk loading, not the mod");
-            } else if (wait.startsWith("settled->scan") || wait.startsWith("scan->queue")) {
-                advice.add("new chunks wait most for the scanner: raise chunksScannedPerTick (costs a little TPS)");
             } else if (wait.startsWith("queue->capture") || wait.startsWith("capturing")) {
                 advice.add(
                     "new chunks wait most to be copied: raise isoCaptureMs (now " + Config.isoCaptureMs
@@ -2025,6 +2518,26 @@ public final class IsoLog {
             } else if (wait.startsWith("submit->writer") || wait.startsWith("writer")) {
                 advice.add("new chunks wait most for the writer thread: the disk or the CPU is the limit");
             }
+        }
+        double looks = parts[Perf.Part.ISO_LOOKS.ordinal()] / 1e6 / frameCount;
+        if (looks > 3) {
+            advice.add(
+                "working out block looks for the tile renderers takes " + f1(looks)
+                    + "ms a frame while the 3D view is open (up to 10 ms a frame): fewer looks to work out, or a "
+                    + "smaller budget, gives FPS back");
+        }
+        double evict = parts[Perf.Part.ISO_EVICT.ordinal()] / 1e6 / frameCount;
+        if (evict > 0.5) {
+            advice.add(
+                "looking for tiles to free takes " + f1(evict)
+                    + "ms a frame: it goes through every tile in memory each frame");
+        }
+        long uploadWait = median(UPLOAD_WAITS);
+        if (uploadWait > 100) {
+            advice.add(
+                "finished tiles wait " + uploadWait
+                    + "ms (median) to be put on the graphics card: 12 a frame at most, fewer tiles a second "
+                    + "while the FPS is low");
         }
         if (advice.isEmpty()) {
             advice.add("nothing of the mod stands out");
@@ -2044,9 +2557,12 @@ public final class IsoLog {
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
         bottleneck(title, all, names);
         tileSummary(title);
+        visibilitySummary(title);
+        latencySummary(title);
         levelSummary(title);
         attemptSummary(title);
         kindSummary(title);
+        FaceRenderer.dataSummary(title);
         blockSummary(title);
         changeSummary(title);
         BlockDiag.fallbackSummary(title);
@@ -2079,6 +2595,49 @@ public final class IsoLog {
                     + t.facesMissing);
         }
         writeSlowest(title, all, names);
+    }
+
+    /** Median of times kept for the summaries, 0 if none. */
+    private static long median(List<Long> times) {
+        List<Long> sorted;
+        synchronized (times) {
+            sorted = new ArrayList<>(times);
+        }
+        if (sorted.isEmpty()) {
+            return 0;
+        }
+        Collections.sort(sorted);
+        return sorted.get(sorted.size() / 2);
+    }
+
+    /** Percentiles of times kept for the summaries, "-" if none. */
+    private static String percentiles(List<Long> times) {
+        List<Long> sorted;
+        synchronized (times) {
+            sorted = new ArrayList<>(times);
+        }
+        if (sorted.isEmpty()) {
+            return "-";
+        }
+        Collections.sort(sorted);
+        int n = sorted.size();
+        return "n=" + n
+            + " p50="
+            + sorted.get(n / 2)
+            + " p90="
+            + sorted.get(n * 9 / 10)
+            + " p99="
+            + sorted.get(Math.min(n - 1, n * 99 / 100))
+            + " max="
+            + sorted.get(n - 1);
+    }
+
+    /** The parts of the way from the game loading a chunk to it on screen that aren't in the chunks' phases. */
+    private static void latencySummary(String title) {
+        line(title + " latency (ms) chunk loaded by the game -> seen by the scanner: " + percentiles(LOAD_SEEN));
+        line(title + " latency (ms) chunk change stored -> tiles showing it on screen: " + percentiles(CHANGE_SHOWN));
+        line(title + " latency (ms) tile wanted with nothing to show -> on screen: " + percentiles(NEW_SHOWN));
+        line(title + " latency (ms) tile finished by a renderer -> uploaded: " + percentiles(UPLOAD_WAITS));
     }
 
     /** Per level of the 3D view: tiles with nothing yet / only out of date queued, drawn, and drawing times. */

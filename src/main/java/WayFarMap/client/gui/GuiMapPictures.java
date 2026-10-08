@@ -23,13 +23,13 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.IconButton;
 import WayFarMap.client.gui.ui.Icons;
@@ -290,24 +290,24 @@ public class GuiMapPictures extends ScaledScreen {
         if (surface != null) {
             MapDimension bare = surface.plantless() != null ? surface.plantless() : surface;
             layers.add(
-                new Layer("2d", I18n.format("wayfarmap.pictures.layer.2d"), Icons.MAP2D, FLAT_COLOR, surface, false));
+                new Layer("2d", Lang.format("wayfarmap.pictures.layer.2d"), Icons.MAP2D, FLAT_COLOR, surface, false));
             layers.add(
                 new Layer(
                     "bare",
-                    I18n.format("wayfarmap.pictures.layer.bare"),
+                    Lang.format("wayfarmap.pictures.layer.bare"),
                     Icons.NO_PLANTS,
                     BARE_COLOR,
                     bare,
                     false));
             layers.add(
-                new Layer("topo", I18n.format("wayfarmap.pictures.layer.topo"), Icons.TOPO, TOPO_COLOR, surface, true));
+                new Layer("topo", Lang.format("wayfarmap.pictures.layer.topo"), Icons.TOPO, TOPO_COLOR, surface, true));
         }
         MapDimension biomes = maps.getViewBiomeMap();
         if (biomes != null) {
             layers.add(
                 new Layer(
                     "biomes",
-                    I18n.format("wayfarmap.pictures.layer.biomes"),
+                    Lang.format("wayfarmap.pictures.layer.biomes"),
                     Icons.BIOMES,
                     BIOMES_COLOR,
                     biomes,
@@ -318,7 +318,7 @@ public class GuiMapPictures extends ScaledScreen {
             layers.add(
                 new Layer(
                     flatWhat,
-                    I18n.format("wayfarmap.pictures.layer.caves", range),
+                    Lang.format("wayfarmap.pictures.layer.caves", range),
                     Icons.CAVES,
                     CAVES_COLOR,
                     maps.getViewMap(),
@@ -363,7 +363,7 @@ public class GuiMapPictures extends ScaledScreen {
             flatChoices.add(
                 new Quality(
                     pixels,
-                    I18n.format("wayfarmap.pictures.pixels", pixels),
+                    Lang.format("wayfarmap.pictures.pixels", pixels),
                     picture[0] * pixels + "×" + picture[1] * pixels,
                     !chosen.isEmpty()));
         }
@@ -379,13 +379,13 @@ public class GuiMapPictures extends ScaledScreen {
             }
             Set<Long> tiles = export.tiles();
             double minutes = tiles.size() * SECONDS_PER_TILE / export.threads() / 60;
-            String time = minutes < 1 ? I18n.format("wayfarmap.pictures.under_minute")
-                : I18n.format("wayfarmap.pictures.minutes", (int) Math.ceil(minutes));
+            String time = minutes < 1 ? Lang.format("wayfarmap.pictures.under_minute")
+                : Lang.format("wayfarmap.pictures.minutes", (int) Math.ceil(minutes));
             long[] picture = TilePyramid.pictureSize(tiles, export.tileSize());
             isoChoices.add(
                 new Quality(
                     level,
-                    I18n.format("wayfarmap.pictures.pixels", (int) export.pixelsPerBlock()),
+                    Lang.format("wayfarmap.pictures.pixels", (int) export.pixelsPerBlock()),
                     picture[0] + "×" + picture[1] + " · " + time,
                     !tiles.isEmpty()));
         }
@@ -541,7 +541,7 @@ public class GuiMapPictures extends ScaledScreen {
         buttonList.clear();
         buttonList.add(WindowHeader.closeButton(ID_CLOSE, right, top));
         int x = left + 10, half = (LEFT_WIDTH - 4) / 2;
-        flatButton = new FlatButton(ID_2D, x, contentTop, half, 20, I18n.format("wayfarmap.pictures.flat"));
+        flatButton = new FlatButton(ID_2D, x, contentTop, half, 20, Lang.format("wayfarmap.pictures.flat"));
         flatButton.icon = Icons.MAP2D;
         flatButton.iconColor = FLAT_COLOR;
         isoButton = new FlatButton(ID_3D, x + LEFT_WIDTH - half, contentTop, half, 20, "3D");
@@ -552,15 +552,15 @@ public class GuiMapPictures extends ScaledScreen {
         buttonList.add(isoButton);
         buttonList.add(makeButton);
 
-        String deleteAll = I18n.format("wayfarmap.pictures.delete_all");
+        String deleteAll = Lang.format("wayfarmap.pictures.delete_all");
         int deleteWidth = Math.max(
             fontRendererObj.getStringWidth(deleteAll),
-            fontRendererObj.getStringWidth(I18n.format("wayfarmap.pictures.sure"))) + iconButtonRoom(Icons.SMALL_TRASH);
+            fontRendererObj.getStringWidth(Lang.format("wayfarmap.pictures.sure"))) + iconButtonRoom(Icons.SMALL_TRASH);
         deleteAllButton = new FlatButton(ID_DELETE_ALL, right - 10 - deleteWidth, contentTop - 3, deleteWidth, 14, "");
         deleteAllButton.danger = true;
         deleteAllButton.icon = Icons.SMALL_TRASH;
         deleteAllButton.iconColor = Theme.DANGER;
-        String folder = I18n.format("wayfarmap.pictures.folder");
+        String folder = Lang.format("wayfarmap.pictures.folder");
         int folderWidth = fontRendererObj.getStringWidth(folder) + iconButtonRoom(Icons.SMALL_PASTE);
         folderButton = new FlatButton(
             ID_FOLDER,
@@ -613,10 +613,10 @@ public class GuiMapPictures extends ScaledScreen {
      * @param otherKey the text it shows at times (asking again), so it is wide enough for both; or null
      */
     private FlatButton viewButton(int id, String key, String otherKey, String[] icon, int rightX) {
-        String text = I18n.format(key);
+        String text = Lang.format(key);
         int textWidth = fontRendererObj.getStringWidth(text);
         if (otherKey != null) {
-            textWidth = Math.max(textWidth, fontRendererObj.getStringWidth(I18n.format(otherKey)));
+            textWidth = Math.max(textWidth, fontRendererObj.getStringWidth(Lang.format(otherKey)));
         }
         int buttonWidth = textWidth + iconButtonRoom(icon);
         FlatButton button = new FlatButton(id, rightX - buttonWidth, 6, buttonWidth, 16, text);
@@ -722,7 +722,7 @@ public class GuiMapPictures extends ScaledScreen {
         if (what.startsWith("caves_")) {
             return new Kind(
                 "caves",
-                I18n.format("wayfarmap.pictures.layer.caves", what.substring("caves_".length())),
+                Lang.format("wayfarmap.pictures.layer.caves", what.substring("caves_".length())),
                 Icons.CAVES,
                 CAVES_COLOR,
                 pixels,
@@ -734,7 +734,7 @@ public class GuiMapPictures extends ScaledScreen {
             case "bare":
                 return new Kind(
                     what,
-                    I18n.format("wayfarmap.pictures.layer.bare"),
+                    Lang.format("wayfarmap.pictures.layer.bare"),
                     Icons.NO_PLANTS,
                     BARE_COLOR,
                     pixels,
@@ -742,7 +742,7 @@ public class GuiMapPictures extends ScaledScreen {
             case "topo":
                 return new Kind(
                     what,
-                    I18n.format("wayfarmap.pictures.layer.topo"),
+                    Lang.format("wayfarmap.pictures.layer.topo"),
                     Icons.TOPO,
                     TOPO_COLOR,
                     pixels,
@@ -750,7 +750,7 @@ public class GuiMapPictures extends ScaledScreen {
             case "biomes":
                 return new Kind(
                     what,
-                    I18n.format("wayfarmap.pictures.layer.biomes"),
+                    Lang.format("wayfarmap.pictures.layer.biomes"),
                     Icons.BIOMES,
                     BIOMES_COLOR,
                     pixels,
@@ -758,7 +758,7 @@ public class GuiMapPictures extends ScaledScreen {
             default:
                 return new Kind(
                     what,
-                    I18n.format("wayfarmap.pictures.layer.2d"),
+                    Lang.format("wayfarmap.pictures.layer.2d"),
                     Icons.MAP2D,
                     FLAT_COLOR,
                     pixels,
@@ -777,7 +777,7 @@ public class GuiMapPictures extends ScaledScreen {
         if (kind.kind == null) {
             return picture.name;
         }
-        String night = kind.night ? " · " + I18n.format("wayfarmap.pictures.night_short") : "";
+        String night = kind.night ? " · " + Lang.format("wayfarmap.pictures.night_short") : "";
         return kind.label + " · " + kind.pixels + " px" + night;
     }
 
@@ -852,14 +852,14 @@ public class GuiMapPictures extends ScaledScreen {
     private void copy(MapPictures.Picture picture) {
         int[] size = dimensions(picture);
         boolean smaller = size != null && Math.max(size[0], size[1]) > MapPictures.CLIPBOARD_MAX;
-        say(I18n.format("wayfarmap.pictures.copying"), Theme.TEXT_MUTED);
+        say(Lang.format("wayfarmap.pictures.copying"), Theme.TEXT_MUTED);
         MapPictures.copy(picture, failure -> {
             if (failure != null) {
-                say(I18n.format("wayfarmap.pictures.copy_failed", failure), Theme.DANGER);
+                say(Lang.format("wayfarmap.pictures.copy_failed", failure), Theme.DANGER);
             } else if (smaller) {
-                say(I18n.format("wayfarmap.pictures.copied_smaller", MapPictures.CLIPBOARD_MAX), Theme.SUCCESS);
+                say(Lang.format("wayfarmap.pictures.copied_smaller", MapPictures.CLIPBOARD_MAX), Theme.SUCCESS);
             } else {
-                say(I18n.format("wayfarmap.pictures.copied"), Theme.SUCCESS);
+                say(Lang.format("wayfarmap.pictures.copied"), Theme.SUCCESS);
             }
         });
     }
@@ -867,9 +867,9 @@ public class GuiMapPictures extends ScaledScreen {
     /** Deletes the picture, saying how it went; the list is read again. */
     private void delete(MapPictures.Picture picture) {
         if (MapPictures.delete(picture)) {
-            say(I18n.format("wayfarmap.pictures.deleted"), Theme.SUCCESS);
+            say(Lang.format("wayfarmap.pictures.deleted"), Theme.SUCCESS);
         } else {
-            say(I18n.format("wayfarmap.pictures.delete_failed"), Theme.DANGER);
+            say(Lang.format("wayfarmap.pictures.delete_failed"), Theme.DANGER);
         }
     }
 
@@ -912,7 +912,7 @@ public class GuiMapPictures extends ScaledScreen {
             case ID_DELETE_ALL:
                 if (confirmed(ID_DELETE_ALL)) {
                     int deleted = MapPictures.deleteAll();
-                    say(I18n.format("wayfarmap.pictures.deleted_all", deleted), Theme.SUCCESS);
+                    say(Lang.format("wayfarmap.pictures.deleted_all", deleted), Theme.SUCCESS);
                     refresh();
                 }
                 break;
@@ -1198,7 +1198,7 @@ public class GuiMapPictures extends ScaledScreen {
     }
 
     private String chipText(int i) {
-        return I18n.format("wayfarmap.pictures.filter." + FILTERS[i]) + "  " + count(i);
+        return Lang.format("wayfarmap.pictures.filter." + FILTERS[i]) + "  " + count(i);
     }
 
     private int chipAt(int mouseX, int mouseY) {
@@ -1311,8 +1311,8 @@ public class GuiMapPictures extends ScaledScreen {
             right,
             right - WindowHeader.CLOSE_ROOM,
             Icons.CAMERA,
-            I18n.format("wayfarmap.pictures.title"),
-            I18n.format("wayfarmap.pictures.subtitle"),
+            Lang.format("wayfarmap.pictures.title"),
+            Lang.format("wayfarmap.pictures.subtitle"),
             Theme.TEXT_MUTED,
             null);
         drawChoices(big ? -10000 : mouseX, mouseY);
@@ -1346,7 +1346,7 @@ public class GuiMapPictures extends ScaledScreen {
             return;
         }
         drawHoveringText(
-            fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.pictures.iso_empty"), 180),
+            fontRendererObj.listFormattedStringToWidth(Lang.format("wayfarmap.pictures.iso_empty"), 180),
             mouseX,
             mouseY,
             fontRendererObj);
@@ -1365,17 +1365,17 @@ public class GuiMapPictures extends ScaledScreen {
         flatButton.enabled = !running;
         isoButton.enabled = !running && isoAvailable;
         int count = pictureCount();
-        makeButton.displayString = running ? I18n.format("wayfarmap.pictures.stop")
-            : count > 1 ? I18n.format("wayfarmap.pictures.make_many", count) : I18n.format("wayfarmap.pictures.make");
+        makeButton.displayString = running ? Lang.format("wayfarmap.pictures.stop")
+            : count > 1 ? Lang.format("wayfarmap.pictures.make_many", count) : Lang.format("wayfarmap.pictures.make");
         makeButton.danger = running;
         makeButton.active = !running && canMake();
         makeButton.enabled = running || canMake();
         makeButton.icon = running ? null : Icons.CAMERA;
-        deleteAllButton.displayString = I18n
+        deleteAllButton.displayString = Lang
             .format(armed == ID_DELETE_ALL ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete_all");
         deleteAllButton.active = armed == ID_DELETE_ALL;
         deleteAllButton.enabled = !allPictures.isEmpty() && !running;
-        deleteButton.displayString = I18n
+        deleteButton.displayString = Lang
             .format(armed == ID_VIEW_DELETE ? "wayfarmap.pictures.sure" : "wayfarmap.pictures.delete");
         deleteButton.active = armed == ID_VIEW_DELETE;
         previousButton.enabled = nextButton.enabled = pictures.size() > 1;
@@ -1399,7 +1399,7 @@ public class GuiMapPictures extends ScaledScreen {
 
         // What to save: the 2D maps (any of them, each a picture of its own), or 3D at night.
         sectionLabel(
-            I18n.format(iso ? "wayfarmap.pictures.options" : "wayfarmap.pictures.layers"),
+            Lang.format(iso ? "wayfarmap.pictures.options" : "wayfarmap.pictures.layers"),
             x,
             layersTop() - 12,
             x1);
@@ -1409,7 +1409,7 @@ public class GuiMapPictures extends ScaledScreen {
                 t,
                 Icons.NIGHT,
                 NIGHT_COLOR,
-                I18n.format("wayfarmap.pictures.night"),
+                Lang.format("wayfarmap.pictures.night"),
                 night,
                 !running,
                 Theme.inside(mouseX, mouseY, t[0], t[1], t[2], t[3]),
@@ -1417,7 +1417,7 @@ public class GuiMapPictures extends ScaledScreen {
         } else if (layers.isEmpty()) {
             Theme.text(
                 fontRendererObj,
-                I18n.format("wayfarmap.pictures.no_map"),
+                Lang.format("wayfarmap.pictures.no_map"),
                 x,
                 layersTop() + 6,
                 Theme.TEXT_DISABLED);
@@ -1436,18 +1436,18 @@ public class GuiMapPictures extends ScaledScreen {
                     hovered,
                     layer.hover);
                 if (hovered && !layer.usable) {
-                    tooltip = Collections.singletonList(I18n.format("wayfarmap.pictures.layer_empty"));
+                    tooltip = Collections.singletonList(Lang.format("wayfarmap.pictures.layer_empty"));
                 }
             }
         }
 
         // How detailed, with the picture's size.
         int qualityY = qualityLabelY();
-        sectionLabel(I18n.format("wayfarmap.pictures.quality"), x, qualityY, x1);
+        sectionLabel(Lang.format("wayfarmap.pictures.quality"), x, qualityY, x1);
         List<Quality> list = choices();
         int selected = iso ? isoQuality : flatQuality;
         if (list.isEmpty()) {
-            String none = I18n.format("wayfarmap.pictures.no_3d");
+            String none = Lang.format("wayfarmap.pictures.no_3d");
             Theme.text(fontRendererObj, none, x, qualityTop() + 3, Theme.TEXT_DISABLED);
         }
         for (int i = 0; i < list.size(); i++) {
@@ -1472,15 +1472,15 @@ public class GuiMapPictures extends ScaledScreen {
         }
 
         // One picture, or a page for the browser.
-        sectionLabel(I18n.format("wayfarmap.pictures.format"), x, formatLabelY(), x1);
+        sectionLabel(Lang.format("wayfarmap.pictures.format"), x, formatLabelY(), x1);
         String[] formats = { "single", "site" };
         for (int i = 0; i < formats.length; i++) {
             int y = formatTop() + i * (ROW + 1);
             boolean on = site == (i == 1);
             boolean hovered = !running && Theme.inside(mouseX, mouseY, x, y, x1, y + ROW);
             drawChoiceRow(x, y, x1, on, hovered, !running);
-            Theme.text(fontRendererObj, I18n.format("wayfarmap.pictures." + formats[i]), x + 14, y + 3, Theme.TEXT);
-            String tag = I18n.format("wayfarmap.pictures." + formats[i] + "_tag");
+            Theme.text(fontRendererObj, Lang.format("wayfarmap.pictures." + formats[i]), x + 14, y + 3, Theme.TEXT);
+            String tag = Lang.format("wayfarmap.pictures." + formats[i] + "_tag");
             int tagWidth = fontRendererObj.getStringWidth(tag);
             int tagX = x1 - 6 - tagWidth;
             Theme.fill(tagX - 3, y + 2, x1 - 3, y + ROW - 2, on ? Theme.ACCENT_DIM : Theme.CONTROL);
@@ -1488,7 +1488,7 @@ public class GuiMapPictures extends ScaledScreen {
         }
         int infoBottom = makeButton.yPosition - (running ? 30 : 16);
         int hintY = formatTop() + 2 * (ROW + 1) + 3;
-        String hintText = I18n.format("wayfarmap.pictures." + (site ? "site" : "single") + "_hint");
+        String hintText = Lang.format("wayfarmap.pictures." + (site ? "site" : "single") + "_hint");
         List<?> hint = fontRendererObj.listFormattedStringToWidth(hintText, LEFT_WIDTH);
         for (int i = 0; i < hint.size() && hintY + i * 10 + 8 <= infoBottom; i++) {
             Theme.text(fontRendererObj, (String) hint.get(i), x, hintY + i * 10, Theme.TEXT_DISABLED);
@@ -1503,7 +1503,7 @@ public class GuiMapPictures extends ScaledScreen {
         String summary;
         int color = Theme.TEXT_MUTED;
         if (!iso && chosenUsable().isEmpty()) {
-            summary = I18n.format(layers.isEmpty() ? "wayfarmap.pictures.no_map" : "wayfarmap.pictures.pick_layer");
+            summary = Lang.format(layers.isEmpty() ? "wayfarmap.pictures.no_map" : "wayfarmap.pictures.pick_layer");
             color = Theme.DANGER;
         } else if (!iso) {
             StringBuilder names = new StringBuilder();
@@ -1513,7 +1513,7 @@ public class GuiMapPictures extends ScaledScreen {
             }
             summary = names.toString();
         } else {
-            summary = "3D" + (night ? " · " + I18n.format("wayfarmap.pictures.night_short") : "");
+            summary = "3D" + (night ? " · " + Lang.format("wayfarmap.pictures.night_short") : "");
         }
         Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, summary, LEFT_WIDTH), x, summaryY, color);
     }
@@ -1525,11 +1525,11 @@ public class GuiMapPictures extends ScaledScreen {
         String label = MapExport.currentLabel();
         int[] position = MapExport.position();
         double overall = MapExport.progress(), one = MapExport.pictureProgress();
-        String left = label != null ? label : I18n.format("wayfarmap.pictures.making");
+        String left = label != null ? label : Lang.format("wayfarmap.pictures.making");
         if (position != null && position[1] > 1) {
             left = (position[0] + 1) + "/" + position[1] + " · " + left;
         }
-        String percent = overall < 0 ? I18n.format("wayfarmap.export.preparing")
+        String percent = overall < 0 ? Lang.format("wayfarmap.export.preparing")
             : (int) Math.floor((position != null && position[1] > 1 ? one : overall) * 100) + "%";
         int percentWidth = fontRendererObj.getStringWidth(percent);
         Theme
@@ -1615,14 +1615,14 @@ public class GuiMapPictures extends ScaledScreen {
 
     private void drawGallery(int mouseX, int mouseY) {
         int x1 = right - 10;
-        String title = I18n.format("wayfarmap.pictures.gallery");
+        String title = Lang.format("wayfarmap.pictures.gallery");
         Theme.text(fontRendererObj, title, galleryLeft, contentTop, Theme.TEXT);
         if (folderBytes > 0) {
             // How much the whole folder takes on disk, up to the buttons.
             int sizeX = galleryLeft + fontRendererObj.getStringWidth(title) + 6;
             String size = Theme.ellipsize(
                 fontRendererObj,
-                I18n.format("wayfarmap.pictures.folder_size", bytes(folderBytes)),
+                Lang.format("wayfarmap.pictures.folder_size", bytes(folderBytes)),
                 folderButton.xPosition - 6 - sizeX);
             Theme.text(fontRendererObj, size, sizeX, contentTop, Theme.TEXT_DISABLED);
         }
@@ -1638,12 +1638,12 @@ public class GuiMapPictures extends ScaledScreen {
             boolean none = allPictures.isEmpty();
             Theme.centered(
                 fontRendererObj,
-                I18n.format(none ? "wayfarmap.pictures.empty" : "wayfarmap.pictures.empty_filter"),
+                Lang.format(none ? "wayfarmap.pictures.empty" : "wayfarmap.pictures.empty_filter"),
                 cx,
                 cy - 4,
                 Theme.TEXT_MUTED);
             if (none) {
-                String hint = I18n.format("wayfarmap.pictures.empty_hint");
+                String hint = Lang.format("wayfarmap.pictures.empty_hint");
                 Theme.centered(fontRendererObj, hint, cx, cy + 8, Theme.TEXT_DISABLED);
             }
             return;
@@ -1696,7 +1696,7 @@ public class GuiMapPictures extends ScaledScreen {
                 on ? Theme.ACCENT_DIM : hovered ? Theme.CONTROL_HOVER : Theme.CONTROL);
             int border = on ? Theme.ACCENT : hovered ? Theme.ACCENT_DIM : Theme.BORDER;
             Theme.outline(chips[i][0], y0, chips[i][1], y1, border);
-            String label = I18n.format("wayfarmap.pictures.filter." + FILTERS[i]);
+            String label = Lang.format("wayfarmap.pictures.filter." + FILTERS[i]);
             int textX = chips[i][0] + 6;
             int color = on ? Theme.TEXT : count == 0 ? Theme.TEXT_DISABLED : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, label, textX, y0 + 3, color);
@@ -1749,14 +1749,14 @@ public class GuiMapPictures extends ScaledScreen {
         }
         int tagRight = cx + cardWidth - 4;
         if (picture.site) {
-            String web = I18n.format("wayfarmap.pictures.web");
+            String web = Lang.format("wayfarmap.pictures.web");
             int webWidth = fontRendererObj.getStringWidth(web) + 6;
             Theme.fill(tagRight - webWidth, cy + 4, tagRight, cy + 15, BADGE);
             Theme.text(fontRendererObj, web, tagRight - webWidth + 3, cy + 6, Theme.ACCENT);
             tagRight -= webWidth + 2;
         }
         if (fresh) {
-            String text = I18n.format("wayfarmap.pictures.new_badge");
+            String text = Lang.format("wayfarmap.pictures.new_badge");
             int w = fontRendererObj.getStringWidth(text) + 6;
             double pulse = 0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 300.0);
             Theme.fill(tagRight - w, cy + 4, tagRight, cy + 15, Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, pulse));
@@ -1786,11 +1786,11 @@ public class GuiMapPictures extends ScaledScreen {
                     y0 + (QUICK - icon.length) / 2,
                     Theme.blend(iconColor & 0x00FFFFFF, iconColor, lit));
                 if (q == quick) {
-                    tooltip = Collections.singletonList(I18n.format(armedHere ? "wayfarmap.pictures.sure" : keys[q]));
+                    tooltip = Collections.singletonList(Lang.format(armedHere ? "wayfarmap.pictures.sure" : keys[q]));
                 }
             }
             if (hovered && quick < 0 && mouseY < cy + thumbHeight) {
-                tooltip = java.util.Arrays.asList(picture.name, "§7" + I18n.format("wayfarmap.pictures.card_hint"));
+                tooltip = java.util.Arrays.asList(picture.name, "§7" + Lang.format("wayfarmap.pictures.card_hint"));
             }
         }
 
@@ -1816,11 +1816,11 @@ public class GuiMapPictures extends ScaledScreen {
         then.setTimeInMillis(time);
         String clock = new SimpleDateFormat("HH:mm").format(new Date(time));
         if (sameDay(then, now)) {
-            return I18n.format("wayfarmap.pictures.today", clock);
+            return Lang.format("wayfarmap.pictures.today", clock);
         }
         now.add(Calendar.DAY_OF_YEAR, -1);
         if (sameDay(then, now)) {
-            return I18n.format("wayfarmap.pictures.yesterday", clock);
+            return Lang.format("wayfarmap.pictures.yesterday", clock);
         }
         return new SimpleDateFormat("dd.MM.yyyy HH:mm").format(new Date(time));
     }
@@ -1865,7 +1865,7 @@ public class GuiMapPictures extends ScaledScreen {
     }
 
     private void drawNote(Shown shown, int x0, int y0, int x1, int y1) {
-        String note = I18n.format(shown.failed ? "wayfarmap.pictures.unreadable" : "wayfarmap.pictures.loading");
+        String note = Lang.format(shown.failed ? "wayfarmap.pictures.unreadable" : "wayfarmap.pictures.loading");
         if (!shown.failed) {
             // Three dots taking turns.
             long t = System.currentTimeMillis() / 250 % 3;
@@ -1937,7 +1937,7 @@ public class GuiMapPictures extends ScaledScreen {
             Theme.outline(ix0 - 1, iy0 - 1, ix1 + 1, iy1 + 1, Theme.blend(Theme.BORDER, kind.color, 0.35));
             Theme.unclip();
             // How close, bottom right of the picture's area.
-            String zoom = viewZoom <= 1 ? I18n.format("wayfarmap.pictures.fit") : String.format("×%.1f", viewZoom);
+            String zoom = viewZoom <= 1 ? Lang.format("wayfarmap.pictures.fit") : String.format("×%.1f", viewZoom);
             int zw = fontRendererObj.getStringWidth(zoom) + 8;
             Theme.fill(width - 30 - zw, areaBottom - 16, width - 30, areaBottom - 4, BADGE);
             Theme.text(fontRendererObj, zoom, width - 30 - zw + 4, areaBottom - 14, Theme.TEXT_MUTED);
@@ -1960,14 +1960,14 @@ public class GuiMapPictures extends ScaledScreen {
         String details = (size == null ? "" : size[0] + "×" + size[1] + " · ") + bytes(picture.bytes)
             + " · "
             + when(picture.modified)
-            + (picture.site ? " · " + I18n.format("wayfarmap.pictures.web") : "");
+            + (picture.site ? " · " + Lang.format("wayfarmap.pictures.web") : "");
         int textRoom = copyButton.xPosition - 8 - textX;
         Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, title(picture), textRoom), textX, 5, Theme.TEXT);
         Theme.text(fontRendererObj, Theme.ellipsize(fontRendererObj, details, textRoom), textX, 16, Theme.TEXT_MUTED);
 
         drawStrip(mouseX, mouseY);
         if (System.currentTimeMillis() - toastAt > TOAST_MS) {
-            String hint = I18n.format("wayfarmap.pictures.view_hint");
+            String hint = Lang.format("wayfarmap.pictures.view_hint");
             hint = Theme.ellipsize(fontRendererObj, hint, width - 2 * (40 + 60));
             Theme.centered(fontRendererObj, hint, width / 2, areaBottom - 14, Theme.TEXT_DISABLED);
         }

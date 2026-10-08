@@ -2,11 +2,11 @@ package WayFarMap.client.gui;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 
 import org.lwjgl.input.Keyboard;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
@@ -49,10 +49,10 @@ public class GuiTeleportY extends ScaledScreen {
         buttonList.clear();
         int w = (WIDTH - 24) / 2;
         int buttonY = top + WindowHeader.HEIGHT + 28;
-        teleportButton = new FlatButton(ID_TELEPORT, left + 10, buttonY, w, 18, I18n.format("wayfarmap.gui.teleport"));
+        teleportButton = new FlatButton(ID_TELEPORT, left + 10, buttonY, w, 18, Lang.format("wayfarmap.gui.teleport"));
         teleportButton.active = true;
         buttonList.add(teleportButton);
-        buttonList.add(new FlatButton(ID_CANCEL, left + WIDTH - 10 - w, buttonY, w, 18, I18n.format("gui.cancel")));
+        buttonList.add(new FlatButton(ID_CANCEL, left + WIDTH - 10 - w, buttonY, w, 18, Lang.format("gui.cancel")));
         buttonList.add(WindowHeader.closeButton(ID_CANCEL, left + WIDTH, top));
         validate();
     }
@@ -135,8 +135,8 @@ public class GuiTeleportY extends ScaledScreen {
             left + WIDTH,
             left + WIDTH - WindowHeader.CLOSE_ROOM,
             Icons.MARKER,
-            I18n.format("wayfarmap.gui.teleport_y_title"),
-            I18n.format("wayfarmap.gui.teleport_y_hint", x, z),
+            Lang.format("wayfarmap.gui.teleport_y_title"),
+            Lang.format("wayfarmap.gui.teleport_y_hint", x, z),
             Theme.TEXT_MUTED,
             null);
         yField.drawTextBox();

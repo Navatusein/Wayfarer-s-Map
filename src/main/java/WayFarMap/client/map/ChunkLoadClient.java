@@ -6,12 +6,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.WorldClient;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
+import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.share.ShareNetwork;
@@ -31,6 +32,14 @@ public final class ChunkLoadClient {
 
     /** How long to wait for a batch's chunks before mapping those that came. */
     private static final long WAIT_MS = 30_000;
+    /**
+     * For the 3D map, after the batch's chunks came: what the mods send for their blocks once the player watches the
+     * chunk (ForgeMultipart's parts at the end of the server's tick, GregTech's covers at its next update) comes
+     * after the chunk; copied before, those blocks were empty or bare.
+     */
+    private static final long SETTLE_MS = 1000;
+    /** When the batch's chunks had all come, 0 until then. */
+    private long arrivedAt;
 
     private final Queue<IMessage> inbox = new ConcurrentLinkedQueue<>();
     /** Whether the last tick was in a world (leaving it resets what the server allowed). */
@@ -77,9 +86,9 @@ public final class ChunkLoadClient {
             return null;
         }
         long percent = done * 100 / total;
-        String elapsed = I18n
+        String elapsed = Lang
             .format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", elapsedMs() / 1000));
-        return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
+        return Lang.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
     }
 
     /** Whether there is a loading to show: going on, or ended less than a minute ago. */
@@ -182,6 +191,12 @@ public final class ChunkLoadClient {
         if (!arrived(world, b) && System.currentTimeMillis() - batchSince < WAIT_MS) {
             return;
         }
+        if (arrivedAt == 0) {
+            arrivedAt = System.currentTimeMillis();
+        }
+        if (b.with3d && System.currentTimeMillis() - arrivedAt < SETTLE_MS) {
+            return;
+        }
         if (firstWorkAt == 0) {
             firstWorkAt = System.currentTimeMillis();
         }
@@ -189,7 +204,9 @@ public final class ChunkLoadClient {
         try {
             mapBatch(world, b, mc, start + Math.max(1, Config.chunkloadClientMs) * 1_000_000L);
         } finally {
-            workNanos += System.nanoTime() - start;
+            long nanos = System.nanoTime() - start;
+            workNanos += nanos;
+            Perf.add(Perf.Part.CHUNKLOAD_CLIENT, nanos);
         }
     }
 
@@ -283,6 +300,7 @@ public final class ChunkLoadClient {
             finishedAt = 0;
         }
         batch = b;
+        arrivedAt = 0;
         at = 0;
         firstWorkAt = 0;
         scanned = false;
@@ -318,6 +336,10 @@ public final class ChunkLoadClient {
             + b.serverMs
             + " workMs="
             + b.workMs
+            + " watched="
+            + b.watched
+            + " alreadyWatched="
+            + b.alreadyWatched
             + "] sinceLastBatchMs="
             + (lastBatchAt == 0 ? -1 : System.currentTimeMillis() - lastBatchAt);
         batchSince = System.currentTimeMillis();

@@ -20,13 +20,25 @@ public final class LodTile implements PixelSource {
     private static IntBuffer uploadBuffer;
 
     private final int[] pixels = new int[SIZE * SIZE];
+    /**
+     * How many of each pixel's 4x4 blocks are explored: the texture shows the pixel that much opaque, as the full
+     * region looks from as far out. A lone lava block seen through a hole in unexplored land is a faint speck, not a
+     * whole bright pixel.
+     */
+    private final byte[] coverage = new byte[SIZE * SIZE];
     /** Extra byte of one explored block per pixel (biome for the biome map); null if the region has none. */
     private byte[] extra;
     /**
-     * Block light per pixel, the brightest of its 4x4 blocks (a torch shows however far out the map is zoomed); null
-     * if nothing in the region is lit. Drawn at night as in {@link MapRegion#bindGlowTexture}.
+     * Block light per pixel, the brightest of its 4x4 blocks, with the topography flags; null if the region has none.
+     * The night glow is drawn from {@link #glow}.
      */
     private byte[] light;
+    /**
+     * The night glow per pixel ({@link MapRegion#glowTexel}) averaged over its 4x4 blocks, as the full region's glow
+     * looks from as far out: a single torch or lava block lights a sixteenth of the pixel, not all of it. Null while
+     * nothing in the region is lit.
+     */
+    private int[] glow;
     /** Some pixel has block light (not only topography flags). */
     private boolean lit;
     private int glowTextureId = -1;
@@ -55,6 +67,9 @@ public final class LodTile implements PixelSource {
 
     private void fill(int[] source, byte[] sourceExtra, byte[] sourceLight) {
         lit = false;
+        if (sourceLight == null) {
+            glow = null;
+        }
         if (sourceExtra != null && extra == null) {
             extra = new byte[SIZE * SIZE];
         }
@@ -70,6 +85,8 @@ public final class LodTile implements PixelSource {
                 int r = 0, g = 0, b = 0, count = 0, extraValue = 0, lightValue = 0;
                 // Topography flags: known if any block has them, water or lava if most of the known ones are.
                 int known = 0, water = 0, lava = 0;
+                // The glow's opacity summed over the blocks, and its colors weighted by it.
+                int glowAlpha = 0, glowR = 0, glowG = 0, glowB = 0;
                 for (int dz = 0; dz < FACTOR; dz++) {
                     int row = (tz * FACTOR + dz) * full + tx * FACTOR;
                     for (int dx = 0; dx < FACTOR; dx++) {
@@ -87,6 +104,13 @@ public final class LodTile implements PixelSource {
                         if (sourceLight != null) {
                             int level = sourceLight[row + dx];
                             lightValue = Math.max(lightValue, level & 15);
+                            if ((level & 15) != 0) {
+                                int alpha = MapRegion.glowAlpha(level & 15);
+                                glowAlpha += alpha;
+                                glowR += alpha * ((argb >> 16) & 0xFF);
+                                glowG += alpha * ((argb >> 8) & 0xFF);
+                                glowB += alpha * (argb & 0xFF);
+                            }
                             if ((level & MapRegion.TOPO_KNOWN) != 0) {
                                 known++;
                                 water += (level & MapRegion.TOPO_WATER) != 0 ? 1 : 0;
@@ -97,6 +121,7 @@ public final class LodTile implements PixelSource {
                 }
                 int index = tz * SIZE + tx;
                 pixels[index] = count == 0 ? 0 : 0xFF000000 | (r / count) << 16 | (g / count) << 8 | (b / count);
+                coverage[index] = (byte) count;
                 if (extra != null) {
                     extra[index] = (byte) extraValue;
                 }
@@ -105,7 +130,18 @@ public final class LodTile implements PixelSource {
                         : MapRegion.TOPO_KNOWN | (water * 2 > known ? MapRegion.TOPO_WATER : 0)
                             | (lava * 2 > known ? MapRegion.TOPO_LAVA : 0);
                     light[index] = (byte) (lightValue | flags);
-                    lit |= lightValue != 0;
+                    if (glowAlpha != 0) {
+                        if (glow == null) {
+                            glow = new int[SIZE * SIZE];
+                        }
+                        lit = true;
+                    }
+                }
+                if (glow != null) {
+                    glow[index] = glowAlpha == 0 ? 0
+                        : MapRegion.warmTexel(
+                            0xFF000000 | glowR / glowAlpha << 16 | glowG / glowAlpha << 8 | glowB / glowAlpha,
+                            glowAlpha / (FACTOR * FACTOR));
                 }
             }
         }
@@ -165,7 +201,10 @@ public final class LodTile implements PixelSource {
                 uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
             }
             uploadBuffer.clear();
-            uploadBuffer.put(pixels);
+            for (int i = 0; i < SIZE * SIZE; i++) {
+                int alpha = coverage[i] * 255 / (FACTOR * FACTOR);
+                uploadBuffer.put(alpha << 24 | pixels[i] & 0xFFFFFF);
+            }
             uploadBuffer.flip();
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
             GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
@@ -217,9 +256,9 @@ public final class LodTile implements PixelSource {
             uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
         }
         uploadBuffer.clear();
-        byte[] levels = light;
+        int[] texels = glow;
         for (int i = 0; i < SIZE * SIZE; i++) {
-            uploadBuffer.put(levels == null ? 0 : MapRegion.glowTexel(pixels[i], levels[i] & 15));
+            uploadBuffer.put(texels == null ? 0 : texels[i]);
         }
         uploadBuffer.flip();
         GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
