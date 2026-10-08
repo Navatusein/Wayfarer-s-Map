@@ -1,5 +1,10 @@
 package WayFarMap.client.map.iso;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -496,6 +501,7 @@ final class FaceRenderer {
         if (pending.unsure || !learnable(pending)) {
             return;
         }
+        cachesChanged = true;
         Learned learned = BY_KIND.get(pending.kindKey);
         if (learned == null) {
             BY_KIND.put(pending.kindKey, new Learned(pending.ids.clone()));
@@ -893,11 +899,229 @@ final class FaceRenderer {
         TWINS.clear();
         TWINS_WITH_DATA.clear();
         BY_DATA.clear();
+        SAVED_DATA_CLASSES.clear();
+        cachesChanged = false;
         MapVisibility.clear();
         dropFlights();
         // A world joined (or other resource packs): pictures given up on before are tried again.
         broken = false;
         failures = 0;
+    }
+
+    // ---------------------------------------------------------------- the caches kept on disk (PictureCache)
+
+    /** Whether the caches kept on disk changed since they were last taken for saving. */
+    private static boolean cachesChanged;
+    /** Classes of tile entities as the file left them, by class name, until met this game. */
+    private static final Map<String, long[]> SAVED_DATA_CLASSES = new HashMap<>();
+    /** At most this many ids per entry (a block has {@link ChunkBlocks#PER_CELL}). */
+    private static final int MAX_IDS = 16;
+
+    /**
+     * The caches of pictures (by surroundings, kind, block and data, which kinds hide a side, how sprites look, how
+     * classes of tile entities fared) as bytes for {@link PictureCache}, or null if nothing changed since the last
+     * time or they belong to another palette. Render thread: only copied here, written by the saver.
+     */
+    static byte[] exportCaches(int generation) {
+        if (!cachesChanged || cacheGeneration != generation) {
+            return null;
+        }
+        cachesChanged = false;
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(1 << 20);
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            out.writeInt(BY_SURROUNDINGS.size());
+            for (Map.Entry<Long, int[]> entry : BY_SURROUNDINGS.entrySet()) {
+                out.writeLong(entry.getKey());
+                writeIds(out, entry.getValue());
+            }
+            writeLearned(out, BY_KIND);
+            writeLearned(out, BY_BLOCK);
+            writeLearned(out, BY_DATA);
+            out.writeInt(WHOLE_CUBE.size());
+            for (Map.Entry<Long, Boolean> entry : WHOLE_CUBE.entrySet()) {
+                out.writeLong(entry.getKey());
+                out.writeBoolean(entry.getValue());
+            }
+            out.writeInt(LOOKS_OF_SPRITES.size());
+            for (Map.Entry<Integer, float[]> entry : LOOKS_OF_SPRITES.entrySet()) {
+                out.writeInt(entry.getKey());
+                out.writeByte(entry.getValue().length);
+                for (float v : entry.getValue()) {
+                    out.writeFloat(v);
+                }
+            }
+            Map<String, long[]> classes = new HashMap<>(SAVED_DATA_CLASSES);
+            for (Map.Entry<Class<?>, DataClass> entry : DATA_CLASSES.entrySet()) {
+                DataClass c = entry.getValue();
+                classes.put(
+                    entry.getKey()
+                        .getName(),
+                    new long[] { c.confirmedEver, c.conflictsEver, c.off ? 1 : 0 });
+            }
+            out.writeInt(classes.size());
+            for (Map.Entry<String, long[]> entry : classes.entrySet()) {
+                out.writeUTF(entry.getKey());
+                out.writeLong(entry.getValue()[0]);
+                out.writeLong(entry.getValue()[1]);
+                out.writeBoolean(entry.getValue()[2] != 0);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static void writeIds(DataOutputStream out, int[] ids) throws IOException {
+        out.writeByte(ids.length);
+        for (int id : ids) {
+            out.writeInt(id);
+        }
+    }
+
+    private static void writeLearned(DataOutputStream out, Map<Long, Learned> map) throws IOException {
+        out.writeInt(map.size());
+        for (Map.Entry<Long, Learned> entry : map.entrySet()) {
+            Learned learned = entry.getValue();
+            out.writeLong(entry.getKey());
+            writeIds(out, learned.ids);
+            out.writeInt(learned.confirmed);
+            out.writeBoolean(learned.unreliable);
+            out.writeByte(learned.placeCount);
+            for (int n = 0; n < learned.placeCount; n++) {
+                out.writeLong(learned.places[n]);
+            }
+        }
+    }
+
+    /** Counts of what {@link #importCaches} took in, for the log. */
+    static final class Imported {
+
+        int surroundings, kinds, blocks, data, wholeCubes, looks, classes, dropped;
+
+        int total() {
+            return surroundings + kinds + blocks + data + wholeCubes + looks + classes;
+        }
+    }
+
+    /**
+     * Takes in the caches {@link #exportCaches} gave in an earlier game, for the palette of that generation with
+     * this many pictures (render thread, before any picture is taken). Entries naming a picture the palette doesn't
+     * have (not saved before the game ended) are left out. Nothing is taken in if the bytes can't be read whole.
+     */
+    static Imported importCaches(DataInputStream in, int generation, int pictures) throws IOException {
+        Imported counts = new Imported();
+        Map<Long, int[]> surroundings = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong();
+            int[] ids = readIds(in, pictures);
+            if (ids != null) {
+                surroundings.put(key, ids);
+            } else {
+                counts.dropped++;
+            }
+        }
+        Map<Long, Learned> kinds = readLearned(in, pictures, counts), blocks = readLearned(in, pictures, counts),
+            data = readLearned(in, pictures, counts);
+        Map<Long, Boolean> wholeCubes = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            wholeCubes.put(in.readLong(), in.readBoolean());
+        }
+        Map<Integer, float[]> looks = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            int id = in.readInt();
+            float[] look = new float[in.readUnsignedByte()];
+            for (int i = 0; i < look.length; i++) {
+                look[i] = in.readFloat();
+            }
+            if (id > 0 && id <= pictures) {
+                looks.put(id, look);
+            }
+        }
+        Map<String, long[]> classes = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            String name = in.readUTF();
+            classes.put(name, new long[] { in.readLong(), in.readLong(), in.readBoolean() ? 1 : 0 });
+        }
+        // All read: taken in.
+        BY_SURROUNDINGS.clear();
+        BY_SURROUNDINGS.putAll(surroundings);
+        BY_KIND.clear();
+        BY_KIND.putAll(kinds);
+        BY_BLOCK.clear();
+        BY_BLOCK.putAll(blocks);
+        BY_DATA.clear();
+        BY_DATA.putAll(data);
+        WHOLE_CUBE.putAll(wholeCubes);
+        LOOKS_OF_SPRITES.clear();
+        LOOKS_OF_SPRITES.putAll(looks);
+        SAVED_DATA_CLASSES.clear();
+        for (Map.Entry<String, long[]> entry : classes.entrySet()) {
+            // Classes already met this game keep what they learned in it.
+            boolean met = false;
+            for (Class<?> type : DATA_CLASSES.keySet()) {
+                met |= type.getName()
+                    .equals(entry.getKey());
+            }
+            if (!met) {
+                SAVED_DATA_CLASSES.put(entry.getKey(), entry.getValue());
+            }
+        }
+        cacheGeneration = generation;
+        cachesChanged = false;
+        counts.surroundings = surroundings.size();
+        counts.kinds = kinds.size();
+        counts.blocks = blocks.size();
+        counts.data = data.size();
+        counts.wholeCubes = wholeCubes.size();
+        counts.looks = looks.size();
+        counts.classes = classes.size();
+        return counts;
+    }
+
+    /** Ids of an entry, or null if one names a picture the palette doesn't have. */
+    private static int[] readIds(DataInputStream in, int pictures) throws IOException {
+        int length = in.readUnsignedByte();
+        if (length > MAX_IDS) {
+            throw new IOException("bad entry: " + length + " ids");
+        }
+        int[] ids = new int[length];
+        boolean known = true;
+        for (int i = 0; i < length; i++) {
+            ids[i] = in.readInt();
+            known &= ids[i] >= FacePalette.HIDDEN && ids[i] <= pictures;
+        }
+        return known ? ids : null;
+    }
+
+    private static Map<Long, Learned> readLearned(DataInputStream in, int pictures, Imported counts)
+        throws IOException {
+        Map<Long, Learned> map = new HashMap<>();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong();
+            int[] ids = readIds(in, pictures);
+            int confirmed = in.readInt();
+            boolean unreliable = in.readBoolean();
+            int placeCount = in.readUnsignedByte();
+            if (placeCount > BLOCK_PLACES) {
+                throw new IOException("bad entry: " + placeCount + " places");
+            }
+            long[] places = new long[placeCount];
+            for (int i = 0; i < placeCount; i++) {
+                places[i] = in.readLong();
+            }
+            if (ids == null) {
+                counts.dropped++;
+                continue;
+            }
+            Learned learned = new Learned(ids);
+            learned.confirmed = confirmed;
+            learned.unreliable = unreliable;
+            for (long place : places) {
+                learned.place(place);
+            }
+            map.put(key, learned);
+        }
+        return map;
     }
 
     /** The chunk's blocks are found anew next time (what can be seen may have changed around it). */
@@ -1189,6 +1413,7 @@ final class FaceRenderer {
                         BY_SURROUNDINGS.clear();
                     }
                     BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
+                    cachesChanged = true;
                     List<Pending> same = waiting.get(pending.waitKey());
                     if (same != null) {
                         for (Pending other : same) {
@@ -1598,6 +1823,20 @@ final class FaceRenderer {
      * blocks around it; other blocks (fences, panes, plants, pipes) with the 6 next to them. Blocks with the same
      * hash share their pictures, so a meadow of the same flowers is drawn a few times, not once per flower.
      */
+    /**
+     * An icon the same from game to game (its name and place in the block atlas), so the caches kept on disk
+     * ({@link #exportCaches}) are found again: the object itself is another one each game.
+     */
+    private static long iconKey(IIcon icon) {
+        if (icon == null) {
+            return 0;
+        }
+        String name = icon.getIconName();
+        return (long) (name == null ? 0 : name.hashCode()) << 32
+            ^ (long) Float.floatToIntBits(icon.getMinU()) * 31
+            ^ Float.floatToIntBits(icon.getMinV());
+    }
+
     private static long surroundings(World world, Block block, int x, int y, int z, boolean cube) {
         long h = 0xCBF29CE484222325L;
         if (cube) {
@@ -1617,7 +1856,7 @@ final class FaceRenderer {
         try {
             for (int side = 0; side < 6; side++) {
                 IIcon icon = block.getIcon(world, x, y, z, side);
-                h = (h ^ System.identityHashCode(icon)) * 0x100000001B3L;
+                h = (h ^ iconKey(icon)) * 0x100000001B3L;
             }
             h = (h ^ block.colorMultiplier(world, x, y, z)) * 0x100000001B3L;
         } catch (RuntimeException ignored) {}
@@ -1969,6 +2208,7 @@ final class FaceRenderer {
                         LOOKS_OF_SPRITES.clear();
                     }
                     LOOKS_OF_SPRITES.put(id, looks[n]);
+                    cachesChanged = true;
                 }
             }
             idNanos += System.nanoTime() - idStart;
@@ -2211,6 +2451,14 @@ final class FaceRenderer {
         DataClass c = DATA_CLASSES.get(type);
         if (c == null) {
             c = new DataClass(type.getSimpleName());
+            // As an earlier game left it: a class trusted then shares at once, one turned off stays off.
+            long[] saved = SAVED_DATA_CLASSES.remove(type.getName());
+            if (saved != null) {
+                c.confirmedEver = saved[0];
+                c.conflictsEver = saved[1];
+                c.off = saved[2] != 0;
+                c.trustLogged = c.trusted();
+            }
             DATA_CLASSES.put(type, c);
         }
         return c;
@@ -2345,6 +2593,7 @@ final class FaceRenderer {
      * time from then on, and a class whose keys keep doing that is drawn by place again.
      */
     private static void learnData(Pending pending) {
+        cachesChanged = true;
         DataClass c = dataClass(pending.tileEntity);
         Learned learned = BY_DATA.get(pending.dataKey);
         if (learned == null) {
@@ -2738,6 +2987,7 @@ final class FaceRenderer {
                     int[][] images = part.get(i).shot.images;
                     boolean whole = images[0] != null && fillsOutline(images[0], FacePalette.SPRITE_SIZE);
                     WHOLE_CUBE.put(keys.get(from + i), whole);
+                    cachesChanged = true;
                 }
             }
         }

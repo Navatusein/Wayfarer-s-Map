@@ -82,6 +82,8 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     private File worldDirectory;
+    /** Where the caches of the world's pictures are kept ({@link PictureCache}). */
+    private File pictureCache;
     private final Map<Integer, Dimension> dimensions = new HashMap<>();
     /** Stores the copied chunks, one after the other. */
     private ExecutorService writer;
@@ -233,6 +235,9 @@ public final class IsoMap implements BlockStore.Listener {
                 + (net.minecraft.client.renderer.OpenGlHelper.isFramebufferEnabled() ? "on" : "OFF")
                 + ")");
         palette = FacePalette.load(worldDirectory, spriteCacheId());
+        // What was learned of the pictures in earlier games: a base taken before isn't drawn again.
+        pictureCache = PictureCache.fileFor(Minecraft.getMinecraft().mcDataDir, worldDirectory);
+        PictureCache.load(pictureCache, palette);
         writer = backgroundThread("WayFarMap 3D writer");
         saver = backgroundThread("WayFarMap 3D saver");
     }
@@ -304,14 +309,20 @@ public final class IsoMap implements BlockStore.Listener {
         inProgress = null;
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
+        pictureCache = null;
         palette = null;
         IsoLog.close();
     }
 
-    /** Saves the pictures, then the blocks that refer to them. */
+    /** Saves the pictures, then the caches and blocks that refer to them (made on the render thread). */
     private Runnable saveTask() {
         List<Dimension> all = new ArrayList<>(dimensions.values());
         FacePalette pictures = palette;
+        File cacheFile = pictureCache;
+        // Copied now (the render thread's), written once the pictures they name are saved.
+        long copyStart = System.nanoTime();
+        byte[] caches = pictures == null || cacheFile == null ? null : FaceRenderer.exportCaches(pictures.generation);
+        long copyNanos = System.nanoTime() - copyStart;
         return () -> {
             IsoLog.saverStart("save all");
             try {
@@ -319,6 +330,10 @@ public final class IsoMap implements BlockStore.Listener {
                     long start = System.nanoTime();
                     pictures.save();
                     IsoLog.log("PICTURES_SAVED ms=" + (System.nanoTime() - start) / 1_000_000);
+                    if (caches != null) {
+                        IsoLog.log("PICTURE_CACHE copied on the render thread ms=" + copyNanos / 1_000_000);
+                        PictureCache.save(cacheFile, caches, pictures.generation, pictures.packs);
+                    }
                 }
                 all.forEach(d -> d.store.save());
             } finally {

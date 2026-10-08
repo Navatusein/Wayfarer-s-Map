@@ -310,7 +310,11 @@ public final class IsoLog {
                 + "every time), classOff = class turned off, noKey = its data couldn't be written. DATA_UNRELIABLE = a "
                 + "key gave other pictures (should be rare), DATA_CLASS_TRUSTED / DATA_CLASS_OFF = a class proved "
                 + "reliable / not. SUMMARY data#: per class of tile entity. -Dwayfarmap.noDataCache=true turns it "
-                + "off.");
+                + "off. PICTURE_CACHE: these caches (by surroundings, kind, block, data, and how classes fared) kept "
+                + "from game to game in wayfarmap/cache/<world>/3d-pictures.dat: loaded when the world is joined "
+                + "(entries, droppedForMissingPictures), saved with the pictures (copied ms on the render thread), "
+                + "ignored if the resource packs, the mods or their versions changed. With it, a base taken before "
+                + "shows hits instead of learning in FACES.");
     }
 
     /** The world was left: writes the summary and closes the file. */
