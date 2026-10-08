@@ -177,6 +177,8 @@ public final class IsoMap implements BlockStore.Listener {
      * since when: copied once they came, or after {@link #PARTS_WAIT_MS}. Once they never came, not waited for again.
      */
     private final Map<Long, Long> partsWait = new HashMap<>();
+    /** Chunks of /wf chunkload told waiting for the pictures to be saved (logged once each). */
+    private final Set<Long> paletteFullLogged = new HashSet<>();
     private static final long PARTS_WAIT_MS = 3000;
     private boolean partsNeverCame;
 
@@ -304,6 +306,7 @@ public final class IsoMap implements BlockStore.Listener {
         awaiting.clear();
         loadAwaiting.clear();
         partsWait.clear();
+        paletteFullLogged.clear();
         partsNeverCame = false;
         hiddenChunks.clear();
         recheck.clear();
@@ -379,7 +382,7 @@ public final class IsoMap implements BlockStore.Listener {
     /** Many new pictures (flying over new land): written now, so they don't pile up in memory. */
     private void savePicturesIfMany() {
         FacePalette pictures = palette;
-        if (pictures == null || savingPictures || pictures.unsavedBytes() < PICTURES_TO_SAVE) {
+        if (pictures == null || saver == null || savingPictures || pictures.unsavedBytes() < PICTURES_TO_SAVE) {
             return;
         }
         savingPictures = true;
@@ -424,6 +427,9 @@ public final class IsoMap implements BlockStore.Listener {
         Perf.end(Perf.Part.LOOKS_TICK, looks);
         drainChanges();
         drainWriterResults();
+        // Whatever is queued: /wf chunkload takes pictures with nothing queued here (block recording off), and
+        // without this they piled up until the palette was full and chunks were stored without them.
+        savePicturesIfMany();
         // Reading out the pictures of the tick before counts in this tick's time for copying.
         long tickStart = System.nanoTime();
         long read = Perf.start();
@@ -456,7 +462,6 @@ public final class IsoMap implements BlockStore.Listener {
             inProgress = null;
             return false;
         }
-        savePicturesIfMany();
         // A chunk takes a fraction of a millisecond, more with pictures.
         long start = tickStart, budget = Config.isoCaptureMs * 1_000_000L;
         // The chunk being finished first, with most of the time; the rest for the others (most take a fraction of
@@ -906,6 +911,23 @@ public final class IsoMap implements BlockStore.Listener {
             return true;
         }
         long key = ((long) chunk.xPosition << 32) | (chunk.zPosition & 0xFFFFFFFFL);
+        FacePalette pictures = palette;
+        if (pictures != null && pictures.full()) {
+            // No room for new pictures until those taken are saved: the chunk waits rather than being stored
+            // without them (it is let go after and wouldn't be taken again).
+            savePicturesIfMany();
+            if (paletteFullLogged.add(key)) {
+                IsoLog.log(
+                    "CHUNKLOAD_WAIT " + chunk.xPosition
+                        + ","
+                        + chunk.zPosition
+                        + " pictures not saved yet fill the memory for them ("
+                        + (pictures.unsavedBytes() >> 20)
+                        + " MB): waits for them to be saved");
+            }
+            return false;
+        }
+        paletteFullLogged.remove(key);
         if (loading.add(key)) {
             // Copied and stored again whatever is stored (an old copy): the loading is asked for to make the 3D map
             // of the area anew.
