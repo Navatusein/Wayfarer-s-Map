@@ -236,6 +236,8 @@ public final class ShareNetwork {
          */
         public int sent, reloaded, missing;
         public int serverMs, workMs;
+        /** For the log: of those sent, the ones the player was made to watch, and those it watched already. */
+        public int watched, alreadyWatched;
         /**
          * For chunks picked on the world map: which inner chunks to map (bit (z - innerZ0) * width + x - innerX0);
          * null maps them all. The others are only there for their neighbours (loaded so the picked ones get
@@ -265,6 +267,8 @@ public final class ShareNetwork {
             missing = buf.readInt();
             serverMs = buf.readInt();
             workMs = buf.readInt();
+            watched = buf.readInt();
+            alreadyWatched = buf.readInt();
             int words = buf.readInt();
             if (words > 0) {
                 picked = new long[Math.min(words, 1024)];
@@ -296,6 +300,8 @@ public final class ShareNetwork {
             buf.writeInt(missing);
             buf.writeInt(serverMs);
             buf.writeInt(workMs);
+            buf.writeInt(watched);
+            buf.writeInt(alreadyWatched);
             buf.writeInt(picked == null ? 0 : picked.length);
             if (picked != null) {
                 for (long word : picked) {
