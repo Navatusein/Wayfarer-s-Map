@@ -1026,7 +1026,9 @@ public final class IsoMap implements BlockStore.Listener {
             }
         } catch (RuntimeException e) {
             WayFarMap.LOG.debug("Could not copy chunk blocks for the 3D map", e);
-            IsoLog.captureFailed(cx, cz, "exception " + e);
+            // Where it was thrown too: an exception thrown often loses its message (and its stack trace).
+            StackTraceElement[] trace = e.getStackTrace();
+            IsoLog.captureFailed(cx, cz, "exception " + e + (trace.length > 0 ? " at " + trace[0] : ""));
             return true;
         }
         long t2 = System.nanoTime();
