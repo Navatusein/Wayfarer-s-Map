@@ -43,7 +43,8 @@ import WayFarMap.client.waypoint.WaypointManager;
  * with a bar of what their files are; below, on the left, this world's dimensions, each with its size and a bar of
  * it beside the biggest one, and on the right the one picked (or all of them): a ring of its flat (2D) and 3D map,
  * a row for each with a button that deletes it, and what is kept whatever is deleted (waypoints and what was found
- * with the mods: GregTech ore veins, underground fluids, Thaumcraft nodes). At the bottom, the logs. Each delete
+ * with the mods: GregTech ore veins, underground fluids, Thaumcraft nodes). At the bottom, the logs and the cache of
+ * the 3D map's block pictures. Each delete
  * button asks again before it deletes, its time to do so running out under it. The sizes are counted again in the
  * background each time the screen is opened and after each cleaning; until then the last count is shown, dimmed.
  * Up and down pick the dimension, R counts again.
@@ -51,7 +52,7 @@ import WayFarMap.client.waypoint.WaypointManager;
 public class GuiMapData extends ScaledScreen {
 
     private static final int ID_DONE = 0, ID_REFRESH = 2, ID_DEL_2D = 3, ID_DEL_3D = 4, ID_DEL_ALL = 5, ID_LOGS = 6,
-        ID_FOLDER = 7;
+        ID_FOLDER = 7, ID_CACHE = 8;
     /** Height of a line of the dimension list, of a row of the details, of a card and of a kept count. */
     private static final int LIST_ROW = 20, ROW = 24, CARD = 30, CHIP = 22, BUTTON_WIDTH = 78;
     /** Where the body (the dimensions and the details) starts under the header, and the footer's height. */
@@ -88,6 +89,8 @@ public class GuiMapData extends ScaledScreen {
         final long[] all = new long[3];
         /** The 2D and 3D maps' logs, {@code wayfarmap/logs}. */
         long logs;
+        /** What the 3D map learned of block pictures, kept from game to game, {@code wayfarmap/cache}. */
+        long cache;
         long countedAt;
 
         Data(File worldDirectory) {
@@ -150,7 +153,7 @@ public class GuiMapData extends ScaledScreen {
     private static Integer picked;
 
     private final GuiScreen parent;
-    private final File logsDirectory;
+    private final File logsDirectory, cacheDirectory;
     /**
      * This world's folder, kept: a cleaning closes the maps, and until the next tick opens them again the map
      * manager has none (the count right after the cleaning still needs it).
@@ -186,9 +189,9 @@ public class GuiMapData extends ScaledScreen {
 
     public GuiMapData(GuiScreen parent) {
         this.parent = parent;
-        this.logsDirectory = new File(
-            new File(net.minecraft.client.Minecraft.getMinecraft().mcDataDir, "wayfarmap"),
-            "logs");
+        File root = new File(net.minecraft.client.Minecraft.getMinecraft().mcDataDir, "wayfarmap");
+        this.logsDirectory = new File(root, "logs");
+        this.cacheDirectory = new File(root, "cache");
     }
 
     /** This world's folder: the map manager's, or the one kept while the maps are closed. */
@@ -293,6 +296,10 @@ public class GuiMapData extends ScaledScreen {
         DeleteButton logs = new DeleteButton(ID_LOGS, 0, bottom - FOOTER + 7, BUTTON_WIDTH);
         deleteButtons.add(logs);
         buttonList.add(logs);
+        // After it, the cache of the 3D map's pictures.
+        DeleteButton cache = new DeleteButton(ID_CACHE, 0, bottom - FOOTER + 7, BUTTON_WIDTH);
+        deleteButtons.add(cache);
+        buttonList.add(cache);
         if (!started) {
             started = true;
             if (counting == null) {
@@ -383,6 +390,7 @@ public class GuiMapData extends ScaledScreen {
             }
         }
         data.logs = MapCleaner.size(new File(root, "logs"));
+        data.cache = MapCleaner.size(new File(root, "cache"));
         data.countedAt = System.currentTimeMillis();
         return data;
     }
@@ -557,12 +565,18 @@ public class GuiMapData extends ScaledScreen {
         File dimension = picked == null ? null : new File(worldDirectory, "dim" + picked);
         long[] freed = new long[1];
         String what = id == ID_LOGS ? "logs folder"
+            : id == ID_CACHE ? "3D picture cache folder"
             : (id == ID_DEL_2D ? "2D map" : id == ID_DEL_3D ? "3D map" : "2D and 3D map")
                 + (dimension == null ? " of every dimension" : " of " + dimension.getName())
                 + " (Map data screen)";
         MapManager.INSTANCE.resetMaps(what, () -> {
             if (id == ID_LOGS) {
                 freed[0] = MapCleaner.clearLogs(logsDirectory);
+                return;
+            }
+            if (id == ID_CACHE) {
+                // The maps are closed (their cache saved): deleted after, and learned again from nothing.
+                freed[0] = MapCleaner.clearLogs(cacheDirectory);
                 return;
             }
             boolean flat = id == ID_DEL_2D || id == ID_DEL_ALL, iso = id == ID_DEL_3D || id == ID_DEL_ALL;
@@ -782,6 +796,8 @@ public class GuiMapData extends ScaledScreen {
                 return I18n.format("wayfarmap.stats.iso");
             case ID_DEL_ALL:
                 return I18n.format("wayfarmap.data.whole");
+            case ID_CACHE:
+                return I18n.format("wayfarmap.data.cache");
             default:
                 return I18n.format("wayfarmap.data.logs");
         }
@@ -836,16 +852,17 @@ public class GuiMapData extends ScaledScreen {
         for (DeleteButton b : deleteButtons) {
             long size = !canDelete ? 0
                 : b.id == ID_LOGS ? data.logs
+                    : b.id == ID_CACHE ? data.cache
                     : b.id == ID_DEL_2D ? scope[0] : b.id == ID_DEL_3D ? scope[1] : scope[0] + scope[1];
             b.displayString = I18n.format(
                 armed == b.id ? "wayfarmap.clean.confirm"
-                    : b.id == ID_LOGS ? "wayfarmap.clean.clear" : "wayfarmap.clean.delete");
+                    : b.id == ID_LOGS || b.id == ID_CACHE ? "wayfarmap.clean.clear" : "wayfarmap.clean.delete");
             b.active = armed == b.id;
             // Nothing to delete: the button stays off (unless it waits for its second click).
             b.enabled = armed == b.id || size > 0;
             b.setWidth(
                 Math.max(BUTTON_WIDTH, fontRendererObj.getStringWidth(b.displayString) + 6 + Icons.width(b.icon) + 15));
-            if (b.id != ID_LOGS) {
+            if (b.id != ID_LOGS && b.id != ID_CACHE) {
                 b.xPosition = right - 18 - b.getWidth();
             }
         }
@@ -1362,21 +1379,29 @@ public class GuiMapData extends ScaledScreen {
         int y0 = bottom - FOOTER;
         Theme.fill(left + 1, y0, right - 1, bottom - 1, Theme.PANEL_ALT);
         Theme.fill(left + 1, y0, right - 1, y0 + 1, Theme.BORDER);
-        int x = left + 12;
-        Icons.draw(Icons.LOGS, x, y0 + (FOOTER - Icons.LOGS.length) / 2, Theme.TEXT_MUTED);
-        x += Icons.width(Icons.LOGS) + 6;
-        String label = rowLabel(ID_LOGS);
+        int x = drawFooterItem(Icons.LOGS, ID_LOGS, data == null ? -1 : data.logs, left + 12, y0, value);
+        deleteButtons.get(3).xPosition = x + 10;
+        x += 10 + deleteButtons.get(3)
+            .getWidth() + 18;
+        Theme.fill(x - 9, y0 + 7, x - 8, bottom - 7, Theme.BORDER);
+        x = drawFooterItem(Icons.PALETTE, ID_CACHE, data == null ? -1 : data.cache, x, y0, value);
+        deleteButtons.get(4).xPosition = x + 10;
+    }
+
+    /** An icon, a label and a size (-1: not counted yet) in the footer; returns where it ends. */
+    private int drawFooterItem(String[] icon, int id, long bytes, int x, int y0, int value) {
+        Icons.draw(icon, x, y0 + (FOOTER - icon.length) / 2, Theme.TEXT_MUTED);
+        x += Icons.width(icon) + 6;
+        String label = rowLabel(id);
         Theme.text(fontRendererObj, label, x, y0 + 11, Theme.TEXT);
         x += fontRendererObj.getStringWidth(label) + 6;
-        if (data == null) {
+        if (bytes < 0) {
             placeholder(x, y0 + 11, 30);
-            x += 30;
-        } else {
-            String size = bytes(data.logs);
-            Theme.text(fontRendererObj, size, x, y0 + 11, value == Theme.TEXT ? Theme.TEXT_MUTED : value);
-            x += fontRendererObj.getStringWidth(size);
+            return x + 30;
         }
-        deleteButtons.get(3).xPosition = x + 10;
+        String size = bytes(bytes);
+        Theme.text(fontRendererObj, size, x, y0 + 11, value == Theme.TEXT ? Theme.TEXT_MUTED : value);
+        return x + fontRendererObj.getStringWidth(size);
     }
 
     /**
@@ -1388,7 +1413,8 @@ public class GuiMapData extends ScaledScreen {
         int color;
         double shown;
         if (armed != -1) {
-            String what = armed == ID_LOGS ? rowLabel(armed) : rowLabel(armed) + " · " + scopeName();
+            String what = armed == ID_LOGS || armed == ID_CACHE ? rowLabel(armed)
+                : rowLabel(armed) + " · " + scopeName();
             text = I18n.format("wayfarmap.data.confirm", what);
             color = Theme.DANGER;
             shown = Math.min(1, (System.currentTimeMillis() - armedAt) / 150.0);

@@ -734,6 +734,7 @@ wayfarmap.data.title=地图数据
 wayfarmap.data.refresh=刷新
 wayfarmap.data.whole=整张地图（2D + 3D）
 wayfarmap.data.logs=日志（所有世界）
+wayfarmap.data.cache=3D 图片缓存
 wayfarmap.data.confirm=再次点击以删除：%s。此操作无法撤销。
 wayfarmap.data.note=磁盘占用大小。路径点永远不会被删除；你周围的地图会随着行走重新绘制。
 wayfarmap.data.dimensions=维度

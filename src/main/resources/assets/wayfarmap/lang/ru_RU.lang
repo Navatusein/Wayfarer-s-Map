@@ -734,6 +734,7 @@ wayfarmap.data.title=Данные карты
 wayfarmap.data.refresh=Обновить
 wayfarmap.data.whole=Вся карта (2D + 3D)
 wayfarmap.data.logs=Логи (все миры)
+wayfarmap.data.cache=Кэш картинок 3D
 wayfarmap.data.confirm=Нажмите ещё раз, чтобы удалить: %s. Отменить будет нельзя.
 wayfarmap.data.note=Размер на диске. Метки не удаляются; карта вокруг вас нарисуется заново, пока вы ходите.
 wayfarmap.data.dimensions=Измерения

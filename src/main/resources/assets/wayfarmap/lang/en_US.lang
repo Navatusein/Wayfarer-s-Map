@@ -734,6 +734,7 @@ wayfarmap.data.title=Map data
 wayfarmap.data.refresh=Refresh
 wayfarmap.data.whole=Whole map (2D + 3D)
 wayfarmap.data.logs=Logs (all worlds)
+wayfarmap.data.cache=3D picture cache
 wayfarmap.data.confirm=Click again to delete: %s. This can't be undone.
 wayfarmap.data.note=Sizes on disk. Waypoints are never deleted; the map around you is drawn again as you walk.
 wayfarmap.data.dimensions=Dimensions
