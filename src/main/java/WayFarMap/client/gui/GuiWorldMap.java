@@ -1031,10 +1031,9 @@ public class GuiWorldMap extends ScaledScreen {
                 closeWelcome();
                 break;
             case FINISH:
+                // After the language is chosen, what's new in it: on the first run too, not only after an update.
                 closeWelcome();
-                if (welcomeWindow.isUpdate()) {
-                    mc.displayGuiScreen(new GuiChangelog(this, welcomeWindow.updatedFrom()));
-                }
+                mc.displayGuiScreen(new GuiChangelog(this, welcomeWindow.updatedFrom()));
                 break;
             case HELP:
                 closeWelcome();

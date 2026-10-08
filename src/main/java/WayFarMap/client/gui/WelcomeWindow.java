@@ -24,7 +24,7 @@ import WayFarMap.client.gui.ui.Theme;
  * update it shows the version before and the new one); under it four pages slide sideways: what the mod can do (a
  * card per feature), the first things to know (numbered steps on key caps), who made it with the author's pages, and
  * the choice of the mod's language. The dots, Back and Next, the arrow keys and the mouse wheel flip the pages; the
- * last page's button (Let's go, or What's new after an update) and Enter on it finish it, the cross or Esc close it,
+ * last page's button (What's new: the changelog opens after it) and Enter on it finish it, the cross or Esc close it,
  * and Help closes it and opens the help.
  */
 final class WelcomeWindow {
@@ -105,11 +105,6 @@ final class WelcomeWindow {
         this.updatedFrom = updatedFrom;
         dotWidth[0].set(18);
         languageChosen[language()].set(1);
-    }
-
-    /** Whether the mod was updated since the window was last closed: its last button opens what's new. */
-    boolean isUpdate() {
-        return updatedFrom != null;
     }
 
     /** The version the window was last closed in, null on the first run. */
@@ -676,7 +671,7 @@ final class WelcomeWindow {
         drawButton(helpRect, help, Icons.HELP, false, false, helpLit);
 
         String next = Lang.format(
-            !last ? "wayfarmap.welcome.next" : isUpdate() ? "wayfarmap.welcome.whats_new" : "wayfarmap.welcome.ok");
+            !last ? "wayfarmap.welcome.next" : "wayfarmap.welcome.whats_new");
         int nextWidth = Math.max(90, font.getStringWidth(next) + 30);
         nextRect = new int[] { right - PAD - nextWidth, y, right - PAD, y + BUTTON_HEIGHT };
         if (last) {
@@ -686,7 +681,7 @@ final class WelcomeWindow {
             Theme.outline(nextRect[0] - 2, y - 2, nextRect[2] + 2, y + BUTTON_HEIGHT + 2, alpha | 0x4C9AFF);
         }
         double nextLit = nextLight.update(inside(mouseX, mouseY, nextRect) ? 1 : 0, 22);
-        drawButton(nextRect, next, last && !isUpdate() ? null : ARROW_RIGHT, true, true, nextLit);
+        drawButton(nextRect, next, ARROW_RIGHT, true, true, nextLit);
 
         // Back slides out from under Next on the pages after the first.
         double shown = backShown.update(page > 0 ? 1 : 0, 16);
