@@ -1,7 +1,6 @@
 package WayFarMap.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.util.ChatComponentText;
@@ -136,8 +135,8 @@ public class KeyHandler {
             mc.ingameGUI.getChatGUI()
                 .printChatMessage(
                     new ChatComponentText(
-                        I18n.format("wayfarmap.option.map.caveMode") + ": "
-                            + I18n.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode])));
+                        Lang.format("wayfarmap.option.map.caveMode") + ": "
+                            + Lang.format("wayfarmap.option.map.caveMode." + CAVE_MODE_KEYS[Config.caveMode])));
         }
         if (WAYPOINT_LIST.isPressed()) {
             mc.displayGuiScreen(new GuiWaypointList(null));
@@ -219,24 +218,24 @@ public class KeyHandler {
             Config.setMapLightMode((Config.mapLightMode + 1) % LIGHT_MODE_KEYS.length);
             say(
                 mc,
-                I18n.format("wayfarmap.option.map.lightMode") + ": "
-                    + I18n.format("wayfarmap.option.map.lightMode." + LIGHT_MODE_KEYS[Config.mapLightMode]));
+                Lang.format("wayfarmap.option.map.lightMode") + ": "
+                    + Lang.format("wayfarmap.option.map.lightMode." + LIGHT_MODE_KEYS[Config.mapLightMode]));
         }
     }
 
     /** False, with a message, if the mod the layer comes from isn't installed. */
     private static boolean installed(Minecraft mc, KeyBinding key, boolean available) {
         if (!available) {
-            say(mc, I18n.format(key.getKeyDescription()) + ": " + I18n.format("key.wayfarmap.not_installed"));
+            say(mc, Lang.format(key.getKeyDescription()) + ": " + Lang.format("key.wayfarmap.not_installed"));
         }
         return available;
     }
 
     /** The key's name, and on or off (nothing for a mode that is only set). */
     private static void tell(Minecraft mc, KeyBinding key, Boolean on) {
-        String text = I18n.format(key.getKeyDescription());
+        String text = Lang.format(key.getKeyDescription());
         if (on != null) {
-            text += ": " + I18n.format(on ? "options.on" : "options.off");
+            text += ": " + Lang.format(on ? "options.on" : "options.off");
         }
         say(mc, text);
     }

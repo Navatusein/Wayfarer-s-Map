@@ -47,7 +47,6 @@ import net.minecraft.client.renderer.entity.RendererLivingEntity;
 import net.minecraft.client.renderer.texture.ITextureObject;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.client.renderer.texture.TextureUtil;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
@@ -136,7 +135,7 @@ public final class MobIconDump extends CommandBase {
         }
         if (!OpenGlHelper.isFramebufferEnabled()) {
             sender.addChatMessage(
-                new ChatComponentText(EnumChatFormatting.RED + I18n.format("wayfarmap.mobicons.noFramebuffer")));
+                new ChatComponentText(EnumChatFormatting.RED + Lang.format("wayfarmap.mobicons.noFramebuffer")));
             return;
         }
         try {
@@ -144,7 +143,7 @@ public final class MobIconDump extends CommandBase {
             dump.run();
             ChatComponentText message = new ChatComponentText(
                 EnumChatFormatting.GREEN
-                    + I18n.format("wayfarmap.mobicons.done", dump.mobs, dump.failed, dump.zip.getName()));
+                    + Lang.format("wayfarmap.mobicons.done", dump.mobs, dump.failed, dump.zip.getName()));
             // Click: the folder with the zip.
             message.setChatStyle(
                 new ChatStyle().setChatClickEvent(
@@ -156,7 +155,7 @@ public final class MobIconDump extends CommandBase {
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Could not dump the mob icons", t);
             sender.addChatMessage(
-                new ChatComponentText(EnumChatFormatting.RED + I18n.format("wayfarmap.mobicons.failed", t)));
+                new ChatComponentText(EnumChatFormatting.RED + Lang.format("wayfarmap.mobicons.failed", t)));
         }
     }
 

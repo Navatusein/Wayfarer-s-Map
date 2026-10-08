@@ -16,7 +16,6 @@ import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -31,6 +30,7 @@ import org.lwjgl.opengl.GL12;
 import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
@@ -355,13 +355,13 @@ public class WaypointRenderer {
         long minutes = Math.max(0, (System.currentTimeMillis() - waypoint.diedAt) / 60_000);
         String age;
         if (minutes < 1) {
-            age = I18n.format("wayfarmap.death.just_now");
+            age = Lang.format("wayfarmap.death.just_now");
         } else if (minutes < 60) {
-            age = I18n.format("wayfarmap.death.minutes_ago", minutes);
+            age = Lang.format("wayfarmap.death.minutes_ago", minutes);
         } else if (minutes < 60 * 24) {
-            age = I18n.format("wayfarmap.death.hours_ago", minutes / 60);
+            age = Lang.format("wayfarmap.death.hours_ago", minutes / 60);
         } else {
-            age = I18n.format("wayfarmap.death.days_ago", minutes / (60 * 24));
+            age = Lang.format("wayfarmap.death.days_ago", minutes / (60 * 24));
         }
         return "  " + age;
     }

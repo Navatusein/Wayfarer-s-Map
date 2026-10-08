@@ -2,10 +2,10 @@ package WayFarMap.client.waypoint;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 
 import WayFarMap.Config;
+import WayFarMap.client.Lang;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -40,7 +40,7 @@ public class DeathMarker {
         }
         marked = true;
         Waypoint waypoint = new Waypoint(
-            I18n.format("wayfarmap.death.name"),
+            Lang.format("wayfarmap.death.name"),
             MathHelper.floor_double(player.posX),
             Math.max(0, MathHelper.floor_double(player.posY)),
             MathHelper.floor_double(player.posZ),
@@ -49,6 +49,6 @@ public class DeathMarker {
         waypoint.iconItem = "minecraft:skull";
         waypoint.diedAt = System.currentTimeMillis();
         WaypointManager.INSTANCE
-            .addDeathWaypoint(waypoint, I18n.format("wayfarmap.death.group"), Config.deathWaypointsKeep);
+            .addDeathWaypoint(waypoint, Lang.format("wayfarmap.death.group"), Config.deathWaypointsKeep);
     }
 }

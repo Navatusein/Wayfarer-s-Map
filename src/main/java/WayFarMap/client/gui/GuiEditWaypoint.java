@@ -6,11 +6,11 @@ import java.util.List;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Keyboard;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
@@ -84,7 +84,7 @@ public class GuiEditWaypoint extends ScaledScreen {
         yField = field(left + 75, top + 58, 70, String.valueOf(edited.y), 4);
         zField = field(left + 150, top + 58, 70, String.valueOf(edited.z), 9);
         newGroupField = field(left, top + 107, 170, "", 32);
-        ((FlatTextField) newGroupField).setHint(I18n.format("wayfarmap.gui.new_group_hint"));
+        ((FlatTextField) newGroupField).setHint(Lang.format("wayfarmap.gui.new_group_hint"));
         nameField.setFocused(true);
 
         buttonList.add(new FlatButton(ID_GROUP, left, top + 83, 220, 18, ""));
@@ -93,14 +93,14 @@ public class GuiEditWaypoint extends ScaledScreen {
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
         // Beacon beam switch, and sharing the waypoint in the chat.
         buttonList.add(new FlatButton(ID_BEAM, left, top + 179, 140, 18, ""));
-        buttonList.add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, I18n.format("wayfarmap.share.button")));
+        buttonList.add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, Lang.format("wayfarmap.share.button")));
         // Bottom row: Save [Teleport Delete] Cancel; teleport and delete only exist for saved waypoints. Each button
         // gets its text width plus an equal share of the remaining space.
-        FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.save"));
+        FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + BUTTON_ROW, 0, 18, Lang.format("wayfarmap.gui.save"));
         saveButton.active = true;
-        deleteButton = new FlatButton(ID_DELETE, 0, top + BUTTON_ROW, 0, 18, I18n.format("wayfarmap.gui.confirm"));
+        deleteButton = new FlatButton(ID_DELETE, 0, top + BUTTON_ROW, 0, 18, Lang.format("wayfarmap.gui.confirm"));
         deleteButton.danger = true;
-        FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + BUTTON_ROW, 0, 18, I18n.format("gui.cancel"));
+        FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + BUTTON_ROW, 0, 18, Lang.format("gui.cancel"));
         List<FlatButton> row = new ArrayList<>();
         row.add(saveButton);
         if (target != null) {
@@ -110,7 +110,7 @@ public class GuiEditWaypoint extends ScaledScreen {
                 top + BUTTON_ROW,
                 0,
                 18,
-                I18n.format("wayfarmap.gui.teleport"));
+                Lang.format("wayfarmap.gui.teleport"));
             teleport.enabled = Teleport.isAllowed() && mc.theWorld != null
                 && target.dimension == mc.theWorld.provider.dimensionId;
             row.add(teleport);
@@ -148,27 +148,27 @@ public class GuiEditWaypoint extends ScaledScreen {
             GuiButton button = (GuiButton) o;
             switch (button.id) {
                 case ID_GROUP:
-                    button.displayString = I18n.format("wayfarmap.gui.group") + ": "
-                        + (edited.group == null ? I18n.format("wayfarmap.gui.no_group") : edited.group);
+                    button.displayString = Lang.format("wayfarmap.gui.group") + ": "
+                        + (edited.group == null ? Lang.format("wayfarmap.gui.no_group") : edited.group);
                     break;
                 case ID_ICON:
                     ItemStack icon = edited.getIcon();
                     String symbol = edited.getSymbol();
                     String iconName = symbol != null ? Symbols.title(symbol)
-                        : icon == null ? I18n.format("wayfarmap.gui.none") : safeName(icon);
-                    button.displayString = I18n.format("wayfarmap.gui.icon") + ": " + iconName;
+                        : icon == null ? Lang.format("wayfarmap.gui.none") : safeName(icon);
+                    button.displayString = Lang.format("wayfarmap.gui.icon") + ": " + iconName;
                     break;
                 case ID_OUTLINE:
-                    button.displayString = I18n.format("wayfarmap.gui.outline") + ": "
-                        + I18n.format(edited.outlineColor != null ? "options.on" : "options.off");
+                    button.displayString = Lang.format("wayfarmap.gui.outline") + ": "
+                        + Lang.format(edited.outlineColor != null ? "options.on" : "options.off");
                     break;
                 case ID_BEAM:
-                    button.displayString = I18n.format("wayfarmap.gui.beam") + ": "
-                        + I18n.format(edited.beam ? "options.on" : "options.off");
+                    button.displayString = Lang.format("wayfarmap.gui.beam") + ": "
+                        + Lang.format(edited.beam ? "options.on" : "options.off");
                     ((FlatButton) button).active = edited.beam;
                     break;
                 case ID_DELETE:
-                    button.displayString = I18n
+                    button.displayString = Lang
                         .format(confirmDelete ? "wayfarmap.gui.confirm" : "wayfarmap.gui.delete");
                     break;
                 default:
@@ -378,12 +378,12 @@ public class GuiEditWaypoint extends ScaledScreen {
             left + 230,
             left + 230 - WindowHeader.CLOSE_ROOM,
             Icons.WAYPOINTS,
-            I18n.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
-            I18n.format("wayfarmap.gui.edit_waypoint_hint"),
+            Lang.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
+            Lang.format("wayfarmap.gui.edit_waypoint_hint"),
             Theme.TEXT_MUTED,
             null);
 
-        Theme.text(fontRendererObj, I18n.format("wayfarmap.gui.name"), left, top + 14, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.gui.name"), left, top + 14, Theme.TEXT_MUTED);
         Theme.text(fontRendererObj, "X", left, top + 48, Theme.TEXT_MUTED);
         Theme.text(fontRendererObj, "Y", left + 75, top + 48, Theme.TEXT_MUTED);
         Theme.text(fontRendererObj, "Z", left + 150, top + 48, Theme.TEXT_MUTED);

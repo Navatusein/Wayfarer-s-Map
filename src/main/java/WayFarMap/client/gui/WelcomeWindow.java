@@ -5,13 +5,13 @@ import java.util.List;
 import java.util.Random;
 
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Tags;
 import WayFarMap.client.KeyHandler;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
@@ -104,7 +104,7 @@ final class WelcomeWindow {
     }
 
     private List<?> tagline() {
-        return font.listFormattedStringToWidth(I18n.format("wayfarmap.welcome.text"), textWidth());
+        return font.listFormattedStringToWidth(Lang.format("wayfarmap.welcome.text"), textWidth());
     }
 
     private static int featureRows() {
@@ -115,12 +115,12 @@ final class WelcomeWindow {
     private static String[][] steps() {
         String waypointKey = KeyHandler.keyName("new_waypoint");
         List<String[]> steps = new ArrayList<>();
-        steps.add(new String[] { I18n.format("wayfarmap.welcome.key_drag"), I18n.format("wayfarmap.welcome.drag") });
-        steps.add(new String[] { I18n.format("wayfarmap.welcome.key_menu"), I18n.format("wayfarmap.welcome.menu") });
+        steps.add(new String[] { Lang.format("wayfarmap.welcome.key_drag"), Lang.format("wayfarmap.welcome.drag") });
+        steps.add(new String[] { Lang.format("wayfarmap.welcome.key_menu"), Lang.format("wayfarmap.welcome.menu") });
         if (waypointKey != null) {
-            steps.add(new String[] { waypointKey, I18n.format("wayfarmap.welcome.waypoint") });
+            steps.add(new String[] { waypointKey, Lang.format("wayfarmap.welcome.waypoint") });
         }
-        steps.add(new String[] { "?", I18n.format("wayfarmap.welcome.help") });
+        steps.add(new String[] { "?", Lang.format("wayfarmap.welcome.help") });
         return steps.toArray(new String[0][]);
     }
 
@@ -137,7 +137,7 @@ final class WelcomeWindow {
     private static String[] chips() {
         String[] chips = new String[GuiAbout.TESTERS.length + 1];
         System.arraycopy(GuiAbout.TESTERS, 0, chips, 0, GuiAbout.TESTERS.length);
-        chips[GuiAbout.TESTERS.length] = I18n.format("wayfarmap.about.tester_chat");
+        chips[GuiAbout.TESTERS.length] = Lang.format("wayfarmap.about.tester_chat");
         return chips;
     }
 
@@ -298,7 +298,7 @@ final class WelcomeWindow {
             restoreClip();
         }
 
-        String version = Theme.ellipsize(font, I18n.format("wayfarmap.about.version", Tags.VERSION), WIDTH - 80);
+        String version = Theme.ellipsize(font, Lang.format("wayfarmap.about.version", Tags.VERSION), WIDTH - 80);
         int pillWidth = font.getStringWidth(version) + 12;
         int pillLeft = centerX - pillWidth / 2;
         roundRect(pillLeft, y + 81, pillLeft + pillWidth, y + 93, 0xC0222831);
@@ -341,7 +341,7 @@ final class WelcomeWindow {
             y += 10;
         }
         int base = top + tagline().size() * 10 + 8;
-        sectionTitle(I18n.format("wayfarmap.welcome.features_title"), left, base + slide(start, 1));
+        sectionTitle(Lang.format("wayfarmap.welcome.features_title"), left, base + slide(start, 1));
         base += SECTION_TITLE;
         int cardWidth = (textWidth() - (FEATURE_COLUMNS - 1) * CARD_GAP) / FEATURE_COLUMNS;
         for (int i = 0; i < FEATURES.length; i++) {
@@ -369,14 +369,14 @@ final class WelcomeWindow {
         Icons.draw(icon, tileX + (tile - Icons.width(icon)) / 2, tileY + (tile - icon.length) / 2, color);
         int textX = tileX + tile + 7, textWidth = x1 - 6 - textX;
         String key = "wayfarmap.welcome.feature." + FEATURES[i][1];
-        Theme.text(font, Theme.ellipsize(font, I18n.format(key), textWidth), textX, y0 + 5, Theme.TEXT);
-        String description = Theme.ellipsize(font, I18n.format(key + ".desc"), textWidth);
+        Theme.text(font, Theme.ellipsize(font, Lang.format(key), textWidth), textX, y0 + 5, Theme.TEXT);
+        String description = Theme.ellipsize(font, Lang.format(key + ".desc"), textWidth);
         Theme.text(font, description, textX, y0 + 16, Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit * 0.5));
     }
 
     /** The second page: the first things to know, numbered along a line, each on its key cap. */
     private void drawSteps(int left, int top, long start) {
-        sectionTitle(I18n.format("wayfarmap.welcome.start_title"), left, top + slide(start, 0));
+        sectionTitle(Lang.format("wayfarmap.welcome.start_title"), left, top + slide(start, 0));
         String[][] steps = steps();
         int keyColumn = keyColumn(steps);
         int base = top + SECTION_TITLE;
@@ -412,12 +412,12 @@ final class WelcomeWindow {
         String[] tick = Icons.SMALL_CHECK;
         Icons.draw(tick, tickX - Icons.width(tick) / 2, tickY - tick.length / 2, 0xFF0E1A10);
         int textX = left + PAD + 30;
-        Theme.text(font, I18n.format("wayfarmap.welcome.ready_title"), textX, y + 2, Theme.SUCCESS);
-        String wish = Theme.ellipsize(font, I18n.format("wayfarmap.welcome.ready_text"), WIDTH - PAD - 30 - PAD);
+        Theme.text(font, Lang.format("wayfarmap.welcome.ready_title"), textX, y + 2, Theme.SUCCESS);
+        String wish = Theme.ellipsize(font, Lang.format("wayfarmap.welcome.ready_text"), WIDTH - PAD - 30 - PAD);
         Theme.text(font, wish, textX, y + 13, Theme.TEXT_MUTED);
 
         y = top + 30 + slide(start, 1);
-        sectionTitle(I18n.format("wayfarmap.welcome.credits_title"), left, y);
+        sectionTitle(Lang.format("wayfarmap.welcome.credits_title"), left, y);
         y += SECTION_TITLE;
         // The author first, in the accent, then the testers and the chat.
         boolean interactive = start != 0;
@@ -505,13 +505,13 @@ final class WelcomeWindow {
         int y = top + (FOOTER_HEIGHT - BUTTON_HEIGHT) / 2;
         boolean last = page == PAGES - 1;
 
-        String help = I18n.format("wayfarmap.welcome.open_help");
+        String help = Lang.format("wayfarmap.welcome.open_help");
         int helpWidth = font.getStringWidth(help) + 30;
         helpRect = new int[] { left + PAD, y, left + PAD + helpWidth, y + BUTTON_HEIGHT };
         double helpLit = helpLight.update(inside(mouseX, mouseY, helpRect) ? 1 : 0, 22);
         drawButton(helpRect, help, Icons.HELP, false, false, helpLit);
 
-        String next = I18n.format(last ? "wayfarmap.welcome.ok" : "wayfarmap.welcome.next");
+        String next = Lang.format(last ? "wayfarmap.welcome.ok" : "wayfarmap.welcome.next");
         int nextWidth = Math.max(90, font.getStringWidth(next) + 30);
         nextRect = new int[] { right - PAD - nextWidth, y, right - PAD, y + BUTTON_HEIGHT };
         if (last) {
@@ -525,7 +525,7 @@ final class WelcomeWindow {
 
         // Back slides out from under Next on the pages after the first.
         double shown = backShown.update(page > 0 ? 1 : 0, 16);
-        String back = I18n.format("wayfarmap.welcome.back");
+        String back = Lang.format("wayfarmap.welcome.back");
         int backWidth = font.getStringWidth(back) + 26;
         if (shown > 0.02) {
             int x1 = nextRect[0] - 6 + (int) Math.round((1 - shown) * (backWidth + 6));

@@ -11,13 +11,13 @@ import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 import WayFarMap.client.KeyHandler;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
@@ -133,7 +133,7 @@ public class GuiHelp extends ScaledScreen {
 
         buttonList.clear();
         // The close button stays at the bottom of the sidebar, under the list of sections, whatever their number.
-        String close = I18n.format("wayfarmap.help.close");
+        String close = Lang.format("wayfarmap.help.close");
         buttonList.add(new FlatButton(ID_CLOSE, left + 6, bottom - 26, SIDEBAR_WIDTH - 12, 18, close));
         // Under the text: the sections before and after this one.
         int half = (contentRight - contentLeft - 6) / 2;
@@ -249,7 +249,7 @@ public class GuiHelp extends ScaledScreen {
         StringBuffer out = new StringBuffer();
         while (matcher.find()) {
             String key = KeyHandler.keyName(matcher.group(1));
-            String shown = key != null ? key : "§7" + I18n.format("wayfarmap.help.key_none") + "§e";
+            String shown = key != null ? key : "§7" + Lang.format("wayfarmap.help.key_none") + "§e";
             matcher.appendReplacement(out, Matcher.quoteReplacement(shown));
         }
         matcher.appendTail(out);
@@ -257,11 +257,7 @@ public class GuiHelp extends ScaledScreen {
     }
 
     private static List<Section> load() {
-        Minecraft mc = Minecraft.getMinecraft();
-        String language = mc.getLanguageManager()
-            .getCurrentLanguage()
-            .getLanguageCode();
-        List<Section> sections = read(language);
+        List<Section> sections = read(Lang.code());
         if (sections.isEmpty()) {
             sections = read("en_US");
         }

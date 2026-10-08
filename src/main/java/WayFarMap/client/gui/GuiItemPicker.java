@@ -6,13 +6,13 @@ import java.util.Locale;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Icons;
@@ -128,11 +128,11 @@ public class GuiItemPicker extends ScaledScreen {
         String oldText = search != null ? search.getText() : "";
         // The tabs, then the search field.
         int tabsWidth = Math.max(
-            fontRendererObj.getStringWidth(I18n.format("wayfarmap.gui.tab_items")),
-            fontRendererObj.getStringWidth(I18n.format("wayfarmap.gui.tab_symbols"))) + 30;
+            fontRendererObj.getStringWidth(Lang.format("wayfarmap.gui.tab_items")),
+            fontRendererObj.getStringWidth(Lang.format("wayfarmap.gui.tab_symbols"))) + 30;
         int searchX = gridX + 2 * tabsWidth + 8;
         search = new FlatTextField(fontRendererObj, searchX, 20 + SEARCH_DOWN, gridX + columns * CELL - searchX, 18);
-        search.setHint(I18n.format("wayfarmap.gui.search"))
+        search.setHint(Lang.format("wayfarmap.gui.search"))
             .setOnCleared(this::applyFilter);
         search.setMaxStringLength(64);
         search.setText(oldText);
@@ -140,11 +140,11 @@ public class GuiItemPicker extends ScaledScreen {
         buttonList.clear();
         int buttonY = gridY + rows * CELL + 8;
         int half = (columns * CELL - 4) / 2;
-        buttonList.add(new FlatButton(ID_NO_ICON, gridX, buttonY, half, 18, I18n.format("wayfarmap.gui.no_icon")));
+        buttonList.add(new FlatButton(ID_NO_ICON, gridX, buttonY, half, 18, Lang.format("wayfarmap.gui.no_icon")));
         buttonList.add(
-            new FlatButton(ID_CANCEL, gridX + columns * CELL - half, buttonY, half, 18, I18n.format("gui.cancel")));
+            new FlatButton(ID_CANCEL, gridX + columns * CELL - half, buttonY, half, 18, Lang.format("gui.cancel")));
         buttonList.add(WindowHeader.closeButton(ID_CANCEL, gridX + columns * CELL + 8, 4));
-        String items = I18n.format("wayfarmap.gui.tab_items");
+        String items = Lang.format("wayfarmap.gui.tab_items");
         itemsTab = new FlatButton(ID_ITEMS, gridX, 20 + SEARCH_DOWN, tabsWidth, 18, items);
         itemsTab.icon = Icons.ORE;
         itemsTab.iconColor = 0xFFE8A040;
@@ -154,7 +154,7 @@ public class GuiItemPicker extends ScaledScreen {
             20 + SEARCH_DOWN,
             tabsWidth,
             18,
-            I18n.format("wayfarmap.gui.tab_symbols"));
+            Lang.format("wayfarmap.gui.tab_symbols"));
         symbolsTabButton.icon = Icons.TIP;
         symbolsTabButton.iconColor = 0xFF5BD6E0;
         buttonList.add(itemsTab);
@@ -275,8 +275,8 @@ public class GuiItemPicker extends ScaledScreen {
             gridX + columns * CELL + 8,
             gridX + columns * CELL + 8 - WindowHeader.CLOSE_ROOM,
             Icons.ORE,
-            I18n.format("wayfarmap.gui.pick_icon_title"),
-            I18n.format("wayfarmap.gui.pick_icon_hint"),
+            Lang.format("wayfarmap.gui.pick_icon_title"),
+            Lang.format("wayfarmap.gui.pick_icon_hint"),
             Theme.TEXT_MUTED,
             String.valueOf(count()));
         itemsTab.active = !symbolsTab;

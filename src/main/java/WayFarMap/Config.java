@@ -106,6 +106,8 @@ public class Config {
     public static int uiScale = 0;
     /** A right click on a text field of the mod's screens clears its text. */
     public static boolean rightClickClearsText = true;
+    /** Language of the mod's texts, whatever the game's is: an index into {@code Lang.CODES} (0 = English). */
+    public static int modLanguage = 0;
 
     /** Map lighting: {@link #LIGHT_AUTO} follows the day/night cycle. */
     public static int mapLightMode = LIGHT_AUTO;
@@ -396,6 +398,17 @@ public class Config {
 
         c = CATEGORY_MAP;
         tab(TAB_MAP);
+        group("language");
+        parent(null);
+        choice(
+            c,
+            "language",
+            "Language of the mod's texts, whatever Minecraft's is: 0 = English, 1 = Russian, 2 = Ukrainian, "
+                + "3 = Chinese.",
+            0,
+            new String[] { "en_US", "ru_RU", "uk_UA", "zh_CN" },
+            () -> modLanguage,
+            v -> modLanguage = v);
         group("general");
         parent(null);
         choice(
@@ -1773,6 +1786,11 @@ public class Config {
         public boolean isDefault() {
             return Math.abs(minimapX - defaultX) < 1e-4 && Math.abs(minimapY - defaultY) < 1e-4;
         }
+    }
+
+    /** Whether it is the choice of the mod's language, drawn with the languages' flags. */
+    public static boolean isLanguage(Option option) {
+        return option instanceof ChoiceOption && CATEGORY_MAP.equals(option.category) && "language".equals(option.key);
     }
 
     /** Tab the options declared next are shown on; null for their category's own. */

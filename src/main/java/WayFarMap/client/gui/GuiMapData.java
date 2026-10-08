@@ -14,13 +14,13 @@ import java.util.TreeSet;
 import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.IconButton;
 import WayFarMap.client.gui.ui.Icons;
@@ -276,13 +276,13 @@ public class GuiMapData extends ScaledScreen {
             right - WindowHeader.CLOSE_ROOM - 20,
             top + 7,
             REFRESH,
-            I18n.format("wayfarmap.data.refresh") + " (R)");
+            Lang.format("wayfarmap.data.refresh") + " (R)");
         folderButton = new IconButton(
             ID_FOLDER,
             refreshButton.xPosition - 24,
             top + 7,
             FOLDER,
-            I18n.format("wayfarmap.data.folder"));
+            Lang.format("wayfarmap.data.folder"));
         buttonList.add(folderButton);
         buttonList.add(refreshButton);
         buttonList.add(WindowHeader.closeButton(ID_DONE, right, top));
@@ -474,7 +474,7 @@ public class GuiMapData extends ScaledScreen {
     }
 
     private String scopeName() {
-        return picked == null ? I18n.format("wayfarmap.stats.all_dims") : dimensionName(picked);
+        return picked == null ? Lang.format("wayfarmap.stats.all_dims") : dimensionName(picked);
     }
 
     /** What the list offers: all dimensions (null), then each one. */
@@ -588,7 +588,7 @@ public class GuiMapData extends ScaledScreen {
             }
         });
         FlatLog.note("CLEANED " + what + " freedKB=" + (freed[0] >> 10));
-        toast = I18n.format("wayfarmap.clean.done", bytes(freed[0]));
+        toast = Lang.format("wayfarmap.clean.done", bytes(freed[0]));
         toastAt = System.currentTimeMillis();
         startCount();
     }
@@ -791,15 +791,15 @@ public class GuiMapData extends ScaledScreen {
     private String rowLabel(int id) {
         switch (id) {
             case ID_DEL_2D:
-                return I18n.format("wayfarmap.stats.flat");
+                return Lang.format("wayfarmap.stats.flat");
             case ID_DEL_3D:
-                return I18n.format("wayfarmap.stats.iso");
+                return Lang.format("wayfarmap.stats.iso");
             case ID_DEL_ALL:
-                return I18n.format("wayfarmap.data.whole");
+                return Lang.format("wayfarmap.data.whole");
             case ID_CACHE:
-                return I18n.format("wayfarmap.data.cache");
+                return Lang.format("wayfarmap.data.cache");
             default:
-                return I18n.format("wayfarmap.data.logs");
+                return Lang.format("wayfarmap.data.logs");
         }
     }
 
@@ -854,7 +854,7 @@ public class GuiMapData extends ScaledScreen {
                 : b.id == ID_LOGS ? data.logs
                     : b.id == ID_CACHE ? data.cache
                         : b.id == ID_DEL_2D ? scope[0] : b.id == ID_DEL_3D ? scope[1] : scope[0] + scope[1];
-            b.displayString = I18n.format(
+            b.displayString = Lang.format(
                 armed == b.id ? "wayfarmap.clean.confirm"
                     : b.id == ID_LOGS || b.id == ID_CACHE ? "wayfarmap.clean.clear" : "wayfarmap.clean.delete");
             b.active = armed == b.id;
@@ -874,22 +874,22 @@ public class GuiMapData extends ScaledScreen {
         int countedColor;
         if (updating) {
             int dots = (int) (System.currentTimeMillis() / 400 % 4);
-            counted = I18n.format("wayfarmap.stats.updating") + "...".substring(0, dots);
+            counted = Lang.format("wayfarmap.stats.updating") + "...".substring(0, dots);
             countedColor = Theme.ACCENT;
         } else if (data != null) {
-            counted = I18n.format(
+            counted = Lang.format(
                 "wayfarmap.stats.updated",
                 new SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new Date(data.countedAt)));
             countedColor = Theme.TEXT_MUTED;
         } else {
-            counted = I18n.format("wayfarmap.stats.none");
+            counted = Lang.format("wayfarmap.stats.none");
             countedColor = Theme.TEXT_MUTED;
         }
         // In the pill: what this world takes, all its dimensions together.
         String pill = null;
         if (data != null) {
             long[] world = data.sizes(null);
-            pill = I18n.format("wayfarmap.stats.this_world") + ": " + bytes(world[0] + world[1]);
+            pill = Lang.format("wayfarmap.stats.this_world") + ": " + bytes(world[0] + world[1]);
         }
         WindowHeader.draw(
             fontRendererObj,
@@ -898,7 +898,7 @@ public class GuiMapData extends ScaledScreen {
             right,
             folderButton.xPosition,
             Icons.STATS,
-            I18n.format("wayfarmap.data.title"),
+            Lang.format("wayfarmap.data.title"),
             counted,
             countedColor,
             pill);
@@ -919,11 +919,11 @@ public class GuiMapData extends ScaledScreen {
 
     private void drawAllWorlds(Data data, int value, int mouseX, int mouseY) {
         int y = top + WindowHeader.HEIGHT + 8;
-        sectionTitle(null, 0, I18n.format("wayfarmap.stats.all_worlds"), left + 10, y);
+        sectionTitle(null, 0, Lang.format("wayfarmap.stats.all_worlds"), left + 10, y);
         String[][] icons = { GLOBE, Icons.MAP2D, Icons.ISO, Icons.STATS };
         int[] colors = { 0xFF3FB9A6, Theme.ACCENT, ISO_COLOR, 0xFFF2C14E };
-        String[] labels = { I18n.format("wayfarmap.stats.worlds"), I18n.format("wayfarmap.stats.flat"),
-            I18n.format("wayfarmap.stats.iso"), I18n.format("wayfarmap.stats.total") };
+        String[] labels = { Lang.format("wayfarmap.stats.worlds"), Lang.format("wayfarmap.stats.flat"),
+            Lang.format("wayfarmap.stats.iso"), Lang.format("wayfarmap.stats.total") };
         String[] values = data == null ? new String[4]
             : new String[] { number(data.worlds), bytes(data.all[0]), bytes(data.all[1]),
                 bytes(data.all[0] + data.all[1] + data.all[2]) };
@@ -937,11 +937,11 @@ public class GuiMapData extends ScaledScreen {
                 long all = data.all[0] + data.all[1] + data.all[2];
                 tooltip = Arrays.asList(
                     labels[i] + ": " + values[i],
-                    "§7" + I18n
+                    "§7" + Lang
                         .format("wayfarmap.stats.flat") + ": " + bytes(data.all[0]) + "  " + percent(data.all[0], all),
-                    "§7" + I18n
+                    "§7" + Lang
                         .format("wayfarmap.stats.iso") + ": " + bytes(data.all[1]) + "  " + percent(data.all[1], all),
-                    "§7" + I18n
+                    "§7" + Lang
                         .format("wayfarmap.data.other") + ": " + bytes(data.all[2]) + "  " + percent(data.all[2], all));
             }
         }
@@ -964,7 +964,7 @@ public class GuiMapData extends ScaledScreen {
         sectionTitle(
             Icons.ADDONS,
             Theme.TEXT_MUTED,
-            I18n.format("wayfarmap.data.dimensions") + "  §8" + (choices.size() - 1),
+            Lang.format("wayfarmap.data.dimensions") + "  §8" + (choices.size() - 1),
             x0,
             bodyTop());
         Theme.fill(x0, y0, x1, y1, Theme.PANEL_ALT);
@@ -1013,7 +1013,7 @@ public class GuiMapData extends ScaledScreen {
             int sizeWidth = fontRendererObj.getStringWidth(size);
             String id = dimension == null ? "" : " " + dimension;
             int idWidth = fontRendererObj.getStringWidth(id);
-            String label = dimension == null ? I18n.format("wayfarmap.stats.all_dims") : dimensionName(dimension);
+            String label = dimension == null ? Lang.format("wayfarmap.stats.all_dims") : dimensionName(dimension);
             label = Theme.ellipsize(fontRendererObj, label, rowRight - 6 - sizeWidth - 6 - idWidth - textX);
             Theme.text(
                 fontRendererObj,
@@ -1049,15 +1049,15 @@ public class GuiMapData extends ScaledScreen {
             if (index == hovered) {
                 List<String> lines = new ArrayList<>();
                 lines.add(
-                    dimension == null ? I18n.format("wayfarmap.stats.all_dims")
+                    dimension == null ? Lang.format("wayfarmap.stats.all_dims")
                         : dimensionName(dimension) + " §8[" + dimension + "]");
                 if (sizes != null) {
-                    lines.add("§9■ §7" + I18n.format("wayfarmap.stats.flat") + ": §f" + bytes(sizes[0]));
-                    lines.add("§5■ §7" + I18n.format("wayfarmap.stats.iso") + ": §f" + bytes(sizes[1]));
+                    lines.add("§9■ §7" + Lang.format("wayfarmap.stats.flat") + ": §f" + bytes(sizes[0]));
+                    lines.add("§5■ §7" + Lang.format("wayfarmap.stats.iso") + ": §f" + bytes(sizes[1]));
                 }
-                lines.add("§7" + I18n.format("wayfarmap.stats.waypoints") + ": §f" + number(sum(waypoints, dimension)));
+                lines.add("§7" + Lang.format("wayfarmap.stats.waypoints") + ": §f" + number(sum(waypoints, dimension)));
                 if (dimension != null && dimension.equals(here)) {
-                    lines.add("§a" + I18n.format("wayfarmap.data.here"));
+                    lines.add("§a" + Lang.format("wayfarmap.data.here"));
                 }
                 tooltip = lines;
             }
@@ -1116,7 +1116,7 @@ public class GuiMapData extends ScaledScreen {
         int centerColor;
         if (scope == null) {
             center = null;
-            under = I18n.format("wayfarmap.stats.total");
+            under = Lang.format("wayfarmap.stats.total");
             centerColor = value;
         } else if (part == PART_FLAT || part == PART_ISO) {
             long size = part == PART_FLAT ? flat : iso;
@@ -1125,7 +1125,7 @@ public class GuiMapData extends ScaledScreen {
             centerColor = part == PART_FLAT ? Theme.ACCENT : ISO_COLOR;
         } else {
             center = bytes(whole);
-            under = empty ? I18n.format("wayfarmap.data.empty") : I18n.format("wayfarmap.stats.total");
+            under = empty ? Lang.format("wayfarmap.data.empty") : Lang.format("wayfarmap.stats.total");
             centerColor = value;
         }
         int hole = 2 * HOLE - 4;
@@ -1187,13 +1187,13 @@ public class GuiMapData extends ScaledScreen {
         // What is kept whatever is deleted.
         int keptY = keptY();
         Theme.fill(x0 + 8, keptY - 6, x1 - 8, keptY - 5, Theme.BORDER);
-        sectionTitle(Icons.SMALL_CHECK, Theme.SUCCESS, I18n.format("wayfarmap.data.kept"), x0 + 10, keptY);
+        sectionTitle(Icons.SMALL_CHECK, Theme.SUCCESS, Lang.format("wayfarmap.data.kept"), x0 + 10, keptY);
         List<String[]> icons = new ArrayList<>();
         List<Integer> colors = new ArrayList<>();
         List<String> labels = new ArrayList<>(), values = new ArrayList<>();
         icons.add(Icons.SMALL_FLAG);
         colors.add(0xFFF2C14E);
-        labels.add(I18n.format("wayfarmap.stats.waypoints"));
+        labels.add(Lang.format("wayfarmap.stats.waypoints"));
         values.add(number(sum(waypoints, picked)));
         if (prospected != null) {
             Map<Integer, Integer> veins = new HashMap<>(), fluids = new HashMap<>();
@@ -1203,17 +1203,17 @@ public class GuiMapData extends ScaledScreen {
             }
             icons.add(Icons.ORE);
             colors.add(0xFF3FB9A6);
-            labels.add(I18n.format("wayfarmap.stats.veins"));
+            labels.add(Lang.format("wayfarmap.stats.veins"));
             values.add(number(sum(veins, picked)));
             icons.add(Icons.SMALL_DROP);
             colors.add(0xFF58A6FF);
-            labels.add(I18n.format("wayfarmap.stats.fluids"));
+            labels.add(Lang.format("wayfarmap.stats.fluids"));
             values.add(number(sum(fluids, picked)));
         }
         if (nodes != null) {
             icons.add(Icons.NODE);
             colors.add(0xFFD2A8FF);
-            labels.add(I18n.format("wayfarmap.stats.nodes"));
+            labels.add(Lang.format("wayfarmap.stats.nodes"));
             values.add(number(sum(nodes, picked)));
         }
         int count = icons.size(), gap = 5, chipY = keptY + 12;
@@ -1255,7 +1255,7 @@ public class GuiMapData extends ScaledScreen {
         // At the bottom: what the sizes are and what is kept.
         int noteWidth = x1 - x0 - 20;
         List<String> note = new ArrayList<>();
-        for (Object line : fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.data.note"), noteWidth)) {
+        for (Object line : fontRendererObj.listFormattedStringToWidth(Lang.format("wayfarmap.data.note"), noteWidth)) {
             note.add((String) line);
         }
         int room = (y1 - 4 - (shares ? shareY + 36 : chipY + CHIP + 6)) / 10;
@@ -1328,7 +1328,7 @@ public class GuiMapData extends ScaledScreen {
     }
 
     private void drawShare(Data data, int x0, int y, int x1, int mouseX, int mouseY) {
-        sectionTitle(Icons.STATS, Theme.TEXT_MUTED, I18n.format("wayfarmap.data.share"), x0, y);
+        sectionTitle(Icons.STATS, Theme.TEXT_MUTED, Lang.format("wayfarmap.data.share"), x0, y);
         int barY = y + 13;
         shareX0 = x0;
         shareX1 = x1;
@@ -1415,7 +1415,7 @@ public class GuiMapData extends ScaledScreen {
         if (armed != -1) {
             String what = armed == ID_LOGS || armed == ID_CACHE ? rowLabel(armed)
                 : rowLabel(armed) + " · " + scopeName();
-            text = I18n.format("wayfarmap.data.confirm", what);
+            text = Lang.format("wayfarmap.data.confirm", what);
             color = Theme.DANGER;
             shown = Math.min(1, (System.currentTimeMillis() - armedAt) / 150.0);
         } else {

@@ -11,7 +11,6 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -207,7 +206,7 @@ public class MinimapRenderer {
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
         if (caveLayer >= 0 && Config.mapDisplayMode == Config.DISPLAY_BLOCKS) {
-            lines.add(I18n.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
+            lines.add(Lang.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
             lines.add(mc.theWorld.getBiomeGenForCoords(blockX, blockZ).biomeName);

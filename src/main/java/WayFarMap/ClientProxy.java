@@ -9,6 +9,7 @@ import net.minecraftforge.common.MinecraftForge;
 import WayFarMap.client.InspectCommand;
 import WayFarMap.client.IsoEntityDrawer;
 import WayFarMap.client.KeyHandler;
+import WayFarMap.client.Lang;
 import WayFarMap.client.MinimapRenderer;
 import WayFarMap.client.MobIconDump;
 import WayFarMap.client.PerfTicks;
@@ -48,6 +49,8 @@ public class ClientProxy extends CommonProxy {
         if (resourceManager instanceof IReloadableResourceManager) {
             // Texture packs change block colors.
             ((IReloadableResourceManager) resourceManager).registerReloadListener(manager);
+            // Resource packs can change the mod's translations.
+            ((IReloadableResourceManager) resourceManager).registerReloadListener(reloaded -> Lang.reload());
         }
 
         FMLCommonHandler.instance()
@@ -77,6 +80,7 @@ public class ClientProxy extends CommonProxy {
 
         // Waypoints shared in the chat: shown with an [Add] button that runs a client-side command.
         MinecraftForge.EVENT_BUS.register(WaypointShare.INSTANCE);
+        MinecraftForge.EVENT_BUS.register(Lang.ChatTranslator.INSTANCE);
         ClientCommandHandler.instance.registerCommand(new WaypointShare.AddCommand());
         // Report of how a block gets onto the 3D map, to send when it looks wrong there.
         ClientCommandHandler.instance.registerCommand(new InspectCommand());

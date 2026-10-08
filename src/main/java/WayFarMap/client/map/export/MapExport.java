@@ -12,13 +12,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.event.ClickEvent;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatStyle;
 import net.minecraft.util.EnumChatFormatting;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.map.MapManager;
 
 /**
@@ -100,13 +100,13 @@ public final class MapExport {
         }
         Job job = current.job;
         if (current.waitingForSave || job == null || job.total <= 0) {
-            return I18n.format("wayfarmap.export.preparing");
+            return Lang.format("wayfarmap.export.preparing");
         }
         long percent = Math.min(99, job.done * 100 / Math.max(1, job.total));
         if (current.size > 1) {
-            return I18n.format("wayfarmap.export.progress_of", current.index + 1, current.size, percent);
+            return Lang.format("wayfarmap.export.progress_of", current.index + 1, current.size, percent);
         }
-        return I18n.format("wayfarmap.export.progress", percent);
+        return Lang.format("wayfarmap.export.progress", percent);
     }
 
     /** How far the running export is, all its pictures together, 0 to 1; -1 while it prepares or none runs. */
@@ -272,7 +272,7 @@ public final class MapExport {
         }
         ChatComponentText message;
         if (!current.failed) {
-            message = new ChatComponentText(I18n.format("wayfarmap.export.done") + " ");
+            message = new ChatComponentText(Lang.format("wayfarmap.export.done") + " ");
             ChatComponentText link = new ChatComponentText(current.folder.getName());
             ChatStyle style = new ChatStyle();
             style.setUnderlined(true);
@@ -282,10 +282,10 @@ public final class MapExport {
             link.setChatStyle(style);
             message.appendSibling(link);
         } else if ("cancelled".equals(current.result)) {
-            message = new ChatComponentText(I18n.format("wayfarmap.export.cancelled"));
+            message = new ChatComponentText(Lang.format("wayfarmap.export.cancelled"));
         } else {
             message = new ChatComponentText(
-                EnumChatFormatting.RED + I18n.format("wayfarmap.export.failed", current.result));
+                EnumChatFormatting.RED + Lang.format("wayfarmap.export.failed", current.result));
         }
         mc.thePlayer.addChatMessage(message);
     }

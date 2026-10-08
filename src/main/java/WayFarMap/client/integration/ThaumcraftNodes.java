@@ -9,7 +9,6 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.StatCollector;
 
@@ -20,6 +19,7 @@ import com.dyonovan.tcnodetracker.integration.navigator.ThaumcraftNodeLayerManag
 import com.dyonovan.tcnodetracker.lib.JsonUtils;
 import com.dyonovan.tcnodetracker.lib.NodeList;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import thaumcraft.api.aspects.Aspect;
 
@@ -375,7 +375,7 @@ public final class ThaumcraftNodes {
                 node.x + 0.5,
                 node.y,
                 node.z + 0.5,
-                I18n.format("wayfarmap.node.tracked_name", aspect),
+                Lang.format("wayfarmap.node.tracked_name", aspect),
                 node.color(),
                 (cx, cy, size) -> {
                     drawIcon(node, cx, cy, size);
@@ -434,7 +434,7 @@ public final class ThaumcraftNodes {
         Node node = hovered;
         List<String> lines = new ArrayList<>();
         if (node.tracked()) {
-            lines.add("§6" + I18n.format("wayfarmap.node.tracked"));
+            lines.add("§6" + Lang.format("wayfarmap.node.tracked"));
         }
         lines.add("§l" + StatCollector.translateToLocal("tile.blockAiry.0.name"));
         String kind = StatCollector.translateToLocal("nodetype." + node.source.type + ".name");
@@ -448,7 +448,7 @@ public final class ThaumcraftNodes {
                     .getName() + " \u00a77" + node.amounts.get(i));
         }
         lines.add("§7" + node.x + ", " + node.y + ", " + node.z);
-        lines.add("§8" + I18n.format("wayfarmap.node.hint"));
+        lines.add("§8" + Lang.format("wayfarmap.node.hint"));
         return lines;
     }
 }

@@ -15,7 +15,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.texture.TextureMap;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
@@ -36,6 +35,7 @@ import com.sinthoras.visualprospecting.integration.model.locations.UndergroundFl
 import com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBackground;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import gregtech.api.interfaces.IIconContainer;
@@ -346,7 +346,7 @@ public final class ProspectingLayer {
                 continue;
             }
             int max = location.getMaxProduction();
-            String title = I18n.format("visualprospecting.empty");
+            String title = Lang.format("visualprospecting.empty");
             String values = null;
             if (max > 0) {
                 title = location.getFluid()
@@ -567,13 +567,13 @@ public final class ProspectingLayer {
             lines.add(hovered.getDepletedHint());
         }
         if (isTrackedLocation(hovered)) {
-            lines.add("\u00a76" + I18n.format("wayfarmap.gui.vein_tracked"));
+            lines.add("\u00a76" + Lang.format("wayfarmap.gui.vein_tracked"));
         }
         lines.add(hovered.getName());
         if (!hovered.isDepleted()) {
             lines.addAll(hovered.getMaterialNames());
         }
-        lines.add("§8" + I18n.format("wayfarmap.gui.vein_toggle_hint"));
+        lines.add("§8" + Lang.format("wayfarmap.gui.vein_toggle_hint"));
         return lines;
     }
 
@@ -629,7 +629,7 @@ public final class ProspectingLayer {
         if (target == null || target.dimension != dimension) {
             return;
         }
-        String name = I18n.format("wayfarmap.gui.vein_tracked_name", strip(target.location.getName()));
+        String name = Lang.format("wayfarmap.gui.vein_tracked_name", strip(target.location.getName()));
         WaypointRenderer.renderBillboard(mc, target.x, target.y, target.z, name, TRACKED_COLOR, (cx, cy, size) -> {
             drawVeinIcon(target.location, cx - size / 2, cy - size / 2, size);
             return true;

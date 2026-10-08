@@ -10,7 +10,6 @@ import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -18,6 +17,7 @@ import org.lwjgl.opengl.GL11;
 
 import com.gtnewhorizon.gtnhlib.util.CoordinatePacker;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -368,12 +368,12 @@ public final class ClaimsLayer {
         List<String> lines = new ArrayList<>();
         lines.add(data.team.nameComponent != null ? data.team.nameComponent.getFormattedText() : "?");
         if (data.team.isMember) {
-            lines.add("§a" + I18n.format("wayfarmap.claims.own"));
+            lines.add("§a" + Lang.format("wayfarmap.claims.own"));
         } else if (data.team.isAlly) {
-            lines.add("§b" + I18n.format("wayfarmap.claims.ally"));
+            lines.add("§b" + Lang.format("wayfarmap.claims.ally"));
         }
         if (data.isLoaded()) {
-            lines.add("§e" + I18n.format("wayfarmap.claims.loaded"));
+            lines.add("§e" + Lang.format("wayfarmap.claims.loaded"));
         }
         return lines;
     }
@@ -383,7 +383,7 @@ public final class ClaimsLayer {
         if (!haveCounts) {
             return "";
         }
-        return I18n.format(
+        return Lang.format(
             "wayfarmap.claims.counts",
             claimed,
             maxClaimed < 0 ? "-" : maxClaimed == Integer.MAX_VALUE ? "∞" : String.valueOf(maxClaimed),

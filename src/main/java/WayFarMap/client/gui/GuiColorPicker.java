@@ -5,12 +5,12 @@ import java.awt.Color;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.FlatTextField;
 import WayFarMap.client.gui.ui.Icons;
@@ -137,11 +137,11 @@ public class GuiColorPicker extends ScaledScreen {
         buttonList.clear();
         int buttonY = top + panelHeight - PAD - 18;
         int w = (panelWidth - 2 * PAD - 4) / 2;
-        FlatButton done = new FlatButton(ID_DONE, left + PAD, buttonY, w, 18, I18n.format("gui.done"));
+        FlatButton done = new FlatButton(ID_DONE, left + PAD, buttonY, w, 18, Lang.format("gui.done"));
         done.active = true;
         buttonList.add(done);
         buttonList
-            .add(new FlatButton(ID_CANCEL, left + panelWidth - PAD - w, buttonY, w, 18, I18n.format("gui.cancel")));
+            .add(new FlatButton(ID_CANCEL, left + panelWidth - PAD - w, buttonY, w, 18, Lang.format("gui.cancel")));
         buttonList.add(WindowHeader.closeButton(ID_CANCEL, left + panelWidth, top));
     }
 
@@ -377,8 +377,8 @@ public class GuiColorPicker extends ScaledScreen {
             left + panelWidth,
             left + panelWidth - WindowHeader.CLOSE_ROOM,
             Icons.PALETTE,
-            I18n.format("wayfarmap.gui.pick_color"),
-            I18n.format("wayfarmap.gui.pick_color_hint"),
+            Lang.format("wayfarmap.gui.pick_color"),
+            Lang.format("wayfarmap.gui.pick_color_hint"),
             Theme.TEXT_MUTED,
             String.format("#%06X", color()));
 
@@ -455,9 +455,9 @@ public class GuiColorPicker extends ScaledScreen {
         // A soft shine along the top, so the two read as one glossy piece.
         Theme.fill(x0, y0, split, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
         Theme.fill(newX, y0, x1, y0 + PREVIEW_HEIGHT / 3, 0x18FFFFFF);
-        swatchText(I18n.format("wayfarmap.gui.color_old"), oldColor, x0 + 5, y0 + 5);
+        swatchText(Lang.format("wayfarmap.gui.color_old"), oldColor, x0 + 5, y0 + 5);
         swatchText(String.format("#%06X", oldColor), oldColor, x0 + 5, y1 - 13);
-        swatchText(I18n.format("wayfarmap.gui.color_new"), color(), newX + 5, y0 + 5);
+        swatchText(Lang.format("wayfarmap.gui.color_new"), color(), newX + 5, y0 + 5);
         swatchText(String.format("#%06X", color()), color(), newX + 5, y1 - 13);
         if (overOld) {
             Theme.outline(x0, y0, split, y1, 0xC0FFFFFF);
@@ -467,7 +467,7 @@ public class GuiColorPicker extends ScaledScreen {
 
         if (overOld) {
             drawHoveringText(
-                java.util.Collections.singletonList(I18n.format("wayfarmap.gui.color_old_hint")),
+                java.util.Collections.singletonList(Lang.format("wayfarmap.gui.color_old_hint")),
                 mouseX,
                 mouseY,
                 fontRendererObj);

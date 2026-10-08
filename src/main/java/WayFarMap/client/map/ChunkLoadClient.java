@@ -6,13 +6,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.WorldClient;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.chunk.Chunk;
 
 import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.share.ShareNetwork;
@@ -86,9 +86,9 @@ public final class ChunkLoadClient {
             return null;
         }
         long percent = done * 100 / total;
-        String elapsed = I18n
+        String elapsed = Lang
             .format("wayfarmap.chunkload.elapsed", String.format(Locale.US, "%,d", elapsedMs() / 1000));
-        return I18n.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
+        return Lang.format("wayfarmap.chunkload.progress", with3d ? "3D" : "2D", done, total, percent, elapsed);
     }
 
     /** Whether there is a loading to show: going on, or ended less than a minute ago. */

@@ -10,7 +10,6 @@ import java.util.Random;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.resources.I18n;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.Sys;
@@ -19,6 +18,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Tags;
 import WayFarMap.WayFarMap;
+import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
@@ -103,14 +103,14 @@ public class GuiAbout extends ScaledScreen {
     }
 
     private List<?> tagline() {
-        return fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.welcome.text"), textWidth());
+        return fontRendererObj.listFormattedStringToWidth(Lang.format("wayfarmap.welcome.text"), textWidth());
     }
 
     /** The testers' chips: the testers, then the chat. */
     private String[] chips() {
         String[] chips = new String[TESTERS.length + 1];
         System.arraycopy(TESTERS, 0, chips, 0, TESTERS.length);
-        chips[TESTERS.length] = I18n.format("wayfarmap.about.tester_chat");
+        chips[TESTERS.length] = Lang.format("wayfarmap.about.tester_chat");
         return chips;
     }
 
@@ -184,9 +184,9 @@ public class GuiAbout extends ScaledScreen {
         // The top: stars, the logo glowing softly, the name and the version.
         int y = top + slide(0);
         drawHero(left, right, y);
-        String version = I18n.format("wayfarmap.about.version", Tags.VERSION);
+        String version = Lang.format("wayfarmap.about.version", Tags.VERSION);
         boolean copied = copiedAt > 0 && System.currentTimeMillis() - copiedAt < COPIED_MS;
-        String pillText = copied ? I18n.format("wayfarmap.about.copied")
+        String pillText = copied ? Lang.format("wayfarmap.about.copied")
             : Theme.ellipsize(fontRendererObj, version, WIDTH - 60);
         int pillWidth = fontRendererObj.getStringWidth(pillText) + 12 + (copied ? 0 : 10);
         int pillLeft = centerX - pillWidth / 2;
@@ -217,7 +217,7 @@ public class GuiAbout extends ScaledScreen {
             if (!pillText.equals(version)) {
                 tooltip.add(version);
             }
-            tooltip.add(I18n.format("wayfarmap.about.copy_hint"));
+            tooltip.add(Lang.format("wayfarmap.about.copy_hint"));
         }
 
         // What it is, in a line or two.
@@ -230,7 +230,7 @@ public class GuiAbout extends ScaledScreen {
 
         // Who made it: a card with the author's avatar, a click opens their GitHub.
         y = base + slide(2);
-        sectionTitle(I18n.format("wayfarmap.about.author"), left, right, y);
+        sectionTitle(Lang.format("wayfarmap.about.author"), left, right, y);
         y += SECTION_TITLE;
         authorRect = new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT };
         boolean authorHovered = inside(mouseX, mouseY, authorRect);
@@ -242,7 +242,7 @@ public class GuiAbout extends ScaledScreen {
 
         // Who tested it: a chip for each tester and one for the chat.
         y = base + slide(3);
-        sectionTitle(I18n.format("wayfarmap.about.testers"), left, right, y);
+        sectionTitle(Lang.format("wayfarmap.about.testers"), left, right, y);
         y += SECTION_TITLE;
         String[] chips = chips();
         List<int[]> places = chipPlaces();
@@ -257,7 +257,7 @@ public class GuiAbout extends ScaledScreen {
 
         // The author's pages.
         y = base + slide(4);
-        sectionTitle(I18n.format("wayfarmap.about.links_title"), left, right, y);
+        sectionTitle(Lang.format("wayfarmap.about.links_title"), left, right, y);
         y += SECTION_TITLE;
         int gap = 6, linkWidth = (textWidth() - 2 * gap) / 3;
         for (int i = 0; i < LINKS.length; i++) {
@@ -278,7 +278,7 @@ public class GuiAbout extends ScaledScreen {
         int[] c = closeRect;
         Theme.fill(c[0], c[1], c[2], c[3], Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, closeLit));
         Theme.outline(c[0], c[1], c[2], c[3], Theme.ACCENT);
-        String close = I18n.format("wayfarmap.help.close");
+        String close = Lang.format("wayfarmap.help.close");
         Theme.centered(fontRendererObj, close, centerX, y + (BUTTON_HEIGHT - 8) / 2, Theme.TEXT);
 
         Theme.unclip();
@@ -377,7 +377,7 @@ public class GuiAbout extends ScaledScreen {
         drawRound(CIRCLE, avatarX, avatarY, 13, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
         drawAvatar(avatarX, avatarY, 11, AUTHOR, Theme.ACCENT);
         Theme.text(fontRendererObj, AUTHOR, r[0] + 38, r[1] + 6, Theme.TEXT);
-        String role = I18n.format("wayfarmap.about.author_role");
+        String role = Lang.format("wayfarmap.about.author_role");
         Theme.text(fontRendererObj, role, r[0] + 38, r[1] + 17, Theme.TEXT_MUTED);
         String[] icon = Icons.GITHUB;
         Icons.draw(
