@@ -667,7 +667,8 @@ public class WaypointRenderer {
 
     /**
      * Draws a marker in the world at the given block position (x, z are block centers, y is the block's bottom): the
-     * icon in the middle of the block, a box with the name and the distance under it. Seen through walls and kept readable from far away.
+     * icon in the middle of the block, a box with the name and the distance under it. Seen through walls and kept
+     * readable from far away.
      *
      * @param outlineColor RGB of the box outline, or null for none
      * @param icon         draws the icon, or null for a colored square
