@@ -22,7 +22,7 @@ import WayFarMap.client.gui.ui.Theme;
 
 /**
  * About the mod: its glowing logo over a starry top, the name and the version (a click copies it), what the mod is,
- * who made it, who tested it, and the author's pages. Its parts slide in one after
+ * who made it (a click opens the author's GitHub), who tested it, and the author's pages. Its parts slide in one after
  * another when it opens; Esc, the button at the bottom or a click outside the window closes it.
  */
 public class GuiAbout extends ScaledScreen {
@@ -32,6 +32,8 @@ public class GuiAbout extends ScaledScreen {
     static final String[] TESTERS = { "Faotik", "Octo" };
     static final String GITHUB_URL = "https://github.com/evgengoldwar", BOOSTY_URL = "https://boosty.to/evgenwargold",
         TELEGRAM_URL = "https://t.me/Shaterplay4";
+    /** The mod's own page, for the GitHub link at the bottom. */
+    static final String MOD_GITHUB_URL = "https://github.com/evgengoldwar/Wayfarer-s-Map";
 
     private static final int WIDTH = 300, PAD = 14;
     private static final int HERO_HEIGHT = 104, SECTION_TITLE = 14;
@@ -43,8 +45,8 @@ public class GuiAbout extends ScaledScreen {
     /** The colors of the testers' avatars, one after another. */
     private static final int[] AVATAR_COLORS = { 0xFF3FB950, 0xFFDB61A2, 0xFFE3B341, 0xFFA371F7 };
 
-    /** The author's pages: {name, url, icon, color}. */
-    private static final Object[][] LINKS = { { "GitHub", GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
+    /** The mod's and the author's pages: {name, url, icon, color}. */
+    private static final Object[][] LINKS = { { "GitHub", MOD_GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
         { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
     /** The stars twinkling over the top: {x, y} as parts of its size, and the phase of their twinkle. */
@@ -65,10 +67,10 @@ public class GuiAbout extends ScaledScreen {
     private long copiedAt;
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
-    private int[] panelRect = new int[4], versionRect = new int[4], closeRect = new int[4];
+    private int[] panelRect = new int[4], versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
     private final int[][] linkRects = new int[LINKS.length][4];
     /** How lit each thing is by the mouse. */
-    private final Smooth versionLight = new Smooth(0), closeLight = new Smooth(0);
+    private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0);
     private final Smooth[] linkLight = { new Smooth(0), new Smooth(0), new Smooth(0) };
     private final Smooth[] chipLight;
 
@@ -213,11 +215,16 @@ public class GuiAbout extends ScaledScreen {
         }
         int base = top + HERO_HEIGHT + 10 + tagline().size() * 10 + 8;
 
-        // Who made it: a card with the author's avatar.
+        // Who made it: a card with the author's avatar, a click opens their GitHub.
         y = base + slide(2);
         sectionTitle(I18n.format("wayfarmap.about.author"), left, right, y);
         y += SECTION_TITLE;
-        drawAuthorCard(new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT });
+        authorRect = new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT };
+        boolean authorHovered = inside(mouseX, mouseY, authorRect);
+        drawAuthorCard(authorRect, authorLight.update(authorHovered ? 1 : 0, 22));
+        if (authorHovered) {
+            tooltip = Collections.singletonList(GITHUB_URL);
+        }
         base += SECTION_TITLE + CARD_HEIGHT + 10;
 
         // Who tested it: a chip for each tester and one for the chat.
@@ -324,18 +331,24 @@ public class GuiAbout extends ScaledScreen {
             0xFF0E1116);
     }
 
-    /** The author: an avatar, the name and what they did. */
-    private void drawAuthorCard(int[] r) {
-        Theme.fill(r[0], r[1], r[2], r[3], Theme.CONTROL);
-        Theme.outline(r[0], r[1], r[2], r[3], Theme.BORDER);
+    /** The author: an avatar, the name and what they did, and the GitHub logo; lit under the mouse. */
+    private void drawAuthorCard(int[] r, double lit) {
+        Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+        Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, Theme.ACCENT, lit));
         // The accent along the left edge.
         Theme.fill(r[0] + 1, r[1] + 1, r[0] + 3, r[3] - 1, Theme.ACCENT);
         int avatarX = r[0] + 18, avatarY = (r[1] + r[3]) / 2;
-        Theme.disc(avatarX, avatarY, 11, 0x30000000 | (Theme.ACCENT & 0xFFFFFF));
+        Theme.disc(avatarX, avatarY, 11, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
         drawAvatar(avatarX, avatarY, 9, AUTHOR, Theme.ACCENT);
         Theme.text(fontRendererObj, AUTHOR, r[0] + 34, r[1] + 6, Theme.TEXT);
         String role = I18n.format("wayfarmap.about.author_role");
         Theme.text(fontRendererObj, role, r[0] + 34, r[1] + 17, Theme.TEXT_MUTED);
+        String[] icon = Icons.GITHUB;
+        Icons.draw(
+            icon,
+            r[2] - 10 - Icons.width(icon),
+            avatarY - icon.length / 2,
+            Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit));
     }
 
     /** A tester (an avatar and the name) or the chat (its icon and name); lit under the mouse. */
@@ -396,6 +409,8 @@ public class GuiAbout extends ScaledScreen {
         } else if (inside(mouseX, mouseY, versionRect)) {
             setClipboardString(Tags.VERSION);
             copiedAt = System.currentTimeMillis();
+        } else if (inside(mouseX, mouseY, authorRect)) {
+            openLink(GITHUB_URL);
         } else {
             for (int i = 0; i < LINKS.length; i++) {
                 if (inside(mouseX, mouseY, linkRects[i])) {
