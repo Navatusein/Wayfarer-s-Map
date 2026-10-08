@@ -197,6 +197,8 @@ public final class IsoLog {
         FaceRenderer.kindStats()
             .clear();
         LOADED.clear();
+        HIDDEN_KINDS.clear();
+        visChecked = visHidden = visToDraw = visToDrawHidden = visNanos = 0;
         CHANGE_SHOWN.clear();
         NEW_SHOWN.clear();
         UPLOAD_WAITS.clear();
@@ -281,7 +283,12 @@ public final class IsoLog {
                 + "TILE_DONE src=composed = a coarse tile made from the 4 finer tiles' files instead of traced. "
                 + "IN_FLIGHT = a chunk's pictures drawn and read back from the graphics card the next tick (no wait "
                 + "for it): the chunk's CAPTURE follows then; PERF tick: 3dPicturesRead, STATS picturesReadLaterMs = "
-                + "that reading and storing. PICTURES_READBACK says which way pictures are read.");
+                + "that reading and storing. PICTURES_READBACK says which way pictures are read. FACES "
+                + "hiddenFromMap[blocksNotDrawn=h/n picturesLeftOut=v ms] and SUMMARY 'hidden from the map': "
+                + "pictures the map can't show (every line of sight toward the viewer from that side meets a solid "
+                + "cube with solid icons first; glass, leaves, water, bars let it through) are not drawn: HIDDEN "
+                + "ids, drawn from icons should a ray get there. QUEUED reason=visibility: a block changed nearby, "
+                + "the chunk's hidden pictures are looked at again. -Dwayfarmap.drawHidden=true draws them all.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -667,6 +674,14 @@ public final class IsoLog {
                     + ms(FaceRenderer.idNanos)
                     + " learnMs="
                     + ms(FaceRenderer.learnNanos)
+                    + "] hiddenFromMap[blocksNotDrawn="
+                    + FaceRenderer.hiddenFound
+                    + "/"
+                    + FaceRenderer.visibilityChecked
+                    + " picturesLeftOut="
+                    + FaceRenderer.hiddenToDraw
+                    + " ms="
+                    + ms(FaceRenderer.visibilityNanos)
                     + "] skippable[expiredSame="
                     + FaceRenderer.expiredSame
                     + " expiredDiffer="
@@ -801,6 +816,83 @@ public final class IsoLog {
                 + " batchesReadBack="
                 + flights
                 + " (pictures read back next tick, then stored)");
+    }
+
+    /**
+     * Blocks needing pictures since the log started ({@link MapVisibility}): looked at, hidden from every view side,
+     * to draw, to draw and hidden, nanos looking; and per kind of block to draw: {to draw, hidden}.
+     */
+    private static long visChecked, visHidden, visToDraw, visToDrawHidden, visNanos;
+    private static final Map<Integer, long[]> HIDDEN_KINDS = new ConcurrentHashMap<>();
+
+    /** A block needing pictures: not drawn at all (hidden from every side) or drawn (render thread). */
+    static void visibility(int lookKey, boolean hidden) {
+        long[] counts = HIDDEN_KINDS.get(lookKey);
+        if (counts == null) {
+            if (HIDDEN_KINDS.size() > 5000) {
+                return;
+            }
+            counts = new long[2];
+            HIDDEN_KINDS.put(lookKey, counts);
+        }
+        counts[0]++;
+        if (hidden) {
+            counts[1]++;
+        }
+    }
+
+    /** A chunk's blocks needing pictures were looked at (render thread). */
+    static void visibilityTotals(int checked, int hidden, int toDraw, int toDrawHidden, long nanos) {
+        visChecked += checked;
+        visHidden += hidden;
+        visToDraw += toDraw;
+        visToDrawHidden += toDrawHidden;
+        visNanos += nanos;
+    }
+
+    /** How many pictures were left out as hidden from the map, and of which kinds of blocks. */
+    private static void visibilitySummary(String title) {
+        if (visChecked == 0) {
+            return;
+        }
+        line(
+            title + " hidden from the map (pictures left out, drawn from icons should a ray get there): blocks not "
+                + "drawn at all "
+                + visHidden
+                + "/"
+                + visChecked
+                + " ("
+                + share(visHidden, visChecked)
+                + "), of the "
+                + visToDraw
+                + " blocks drawn pictures left out "
+                + visToDrawHidden
+                + ", looking took "
+                + ms(visNanos)
+                + "ms");
+        List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(HIDDEN_KINDS.entrySet());
+        kinds.sort((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]));
+        for (int n = 0; n < Math.min(20, kinds.size()); n++) {
+            long[] c = kinds.get(n)
+                .getValue();
+            if (c[1] == 0) {
+                break;
+            }
+            line(
+                title + "   hidden#"
+                    + (n + 1)
+                    + " "
+                    + BlockDiag.name(
+                        kinds.get(n)
+                            .getKey())
+                    + " needingPictures="
+                    + c[0]
+                    + " notDrawnHidden="
+                    + c[1]
+                    + " ("
+                    + share(c[1], c[0])
+                    + ")");
+        }
     }
 
     /** Copying it failed or gave nothing. */
@@ -2347,6 +2439,7 @@ public final class IsoLog {
         line(title + " chunksStored=" + all.size() + " stillTraced=" + TRACES.size() + " stillSettling=" + SEEN.size());
         bottleneck(title, all, names);
         tileSummary(title);
+        visibilitySummary(title);
         latencySummary(title);
         levelSummary(title);
         attemptSummary(title);
