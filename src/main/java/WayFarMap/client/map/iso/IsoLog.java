@@ -284,11 +284,9 @@ public final class IsoLog {
                 + "IN_FLIGHT = a chunk's pictures drawn and read back from the graphics card the next tick (no wait "
                 + "for it): the chunk's CAPTURE follows then; PERF tick: 3dPicturesRead, STATS picturesReadLaterMs = "
                 + "that reading and storing. PICTURES_READBACK says which way pictures are read. FACES "
-                + "hiddenFromMap[blocksNotDrawn=h/n picturesLeftOut=v ms] and SUMMARY 'hidden from the map': "
-                + "pictures the map can't show (every line of sight toward the viewer from that side meets a solid "
-                + "cube with solid icons first; glass, leaves, water, bars let it through) are not drawn: HIDDEN "
-                + "ids, drawn from icons should a ray get there. QUEUED reason=visibility: a block changed nearby, "
-                + "the chunk's hidden pictures are looked at again. -Dwayfarmap.drawHidden=true draws them all.");
+                + "hiddenFromMap[found=h/n toDraw=d ms] and SUMMARY 'hidden from the map': blocks given pictures "
+                + "that can't be seen from any view side (every line of sight toward the viewer meets a solid cube "
+                + "first) - only counted, their pictures are still taken.");
     }
 
     /** The world was left: writes the summary and closes the file. */
@@ -674,11 +672,11 @@ public final class IsoLog {
                     + ms(FaceRenderer.idNanos)
                     + " learnMs="
                     + ms(FaceRenderer.learnNanos)
-                    + "] hiddenFromMap[blocksNotDrawn="
+                    + "] hiddenFromMap[found="
                     + FaceRenderer.hiddenFound
                     + "/"
                     + FaceRenderer.visibilityChecked
-                    + " picturesLeftOut="
+                    + " toDraw="
                     + FaceRenderer.hiddenToDraw
                     + " ms="
                     + ms(FaceRenderer.visibilityNanos)
@@ -825,7 +823,7 @@ public final class IsoLog {
     private static long visChecked, visHidden, visToDraw, visToDrawHidden, visNanos;
     private static final Map<Integer, long[]> HIDDEN_KINDS = new ConcurrentHashMap<>();
 
-    /** A block needing pictures: not drawn at all (hidden from every side) or drawn (render thread). */
+    /** A block whose pictures are to be drawn, and whether it can't be seen on the map (render thread). */
     static void visibility(int lookKey, boolean hidden) {
         long[] counts = HIDDEN_KINDS.get(lookKey);
         if (counts == null) {
@@ -850,24 +848,25 @@ public final class IsoLog {
         visNanos += nanos;
     }
 
-    /** How many pictures were left out as hidden from the map, and of which kinds of blocks. */
+    /** How many blocks given pictures can't be seen on the map at all, and of which kinds. */
     private static void visibilitySummary(String title) {
         if (visChecked == 0) {
             return;
         }
         line(
-            title + " hidden from the map (pictures left out, drawn from icons should a ray get there): blocks not "
-                + "drawn at all "
+            title + " hidden from the map (pictures not needed, not acted on yet): of blocks needing pictures "
                 + visHidden
                 + "/"
                 + visChecked
                 + " ("
                 + share(visHidden, visChecked)
-                + "), of the "
-                + visToDraw
-                + " blocks drawn pictures left out "
+                + "), of those drawn "
                 + visToDrawHidden
-                + ", looking took "
+                + "/"
+                + visToDraw
+                + " ("
+                + share(visToDrawHidden, visToDraw)
+                + "), looking took "
                 + ms(visNanos)
                 + "ms");
         List<Map.Entry<Integer, long[]>> kinds = new ArrayList<>(HIDDEN_KINDS.entrySet());
@@ -885,9 +884,9 @@ public final class IsoLog {
                     + BlockDiag.name(
                         kinds.get(n)
                             .getKey())
-                    + " needingPictures="
+                    + " drawn="
                     + c[0]
-                    + " notDrawnHidden="
+                    + " hidden="
                     + c[1]
                     + " ("
                     + share(c[1], c[0])

@@ -560,28 +560,8 @@ final class FaceRenderer {
         long kindKey, blockKey;
         /** It stays inside its cell on all four sides here (see {@link #detached}). */
         boolean detached;
-        /**
-         * Its pictures the map can't show ({@link MapVisibility#hidden}): not drawn, {@link FacePalette#HIDDEN}
-         * instead.
-         */
-        int hiddenMask;
-
-        boolean hidden(int view) {
-            return (hiddenMask & 1 << view) != 0;
-        }
-
-        /** All of its pictures are hidden: nothing to draw. */
-        boolean allHidden() {
-            return hiddenMask == (1 << views()) - 1;
-        }
-
-        /**
-         * Key of the blocks drawn once for all ({@code waiting}): the same surroundings, and the same pictures
-         * hidden (one drawing with a side left out can't stand for a block seen from there).
-         */
-        long waitKey() {
-            return hiddenMask == 0 ? surroundings : surroundings ^ 0x9E3779B97F4A7C15L * hiddenMask;
-        }
+        /** For the log: it can't be seen from any view side of the map ({@link MapVisibility}). */
+        boolean hiddenFromMap;
 
         Pending(int cellIndex, int x, int y, int z, Block block, TileEntity tileEntity, long surroundings, boolean cube,
             boolean ownRenderer) {
@@ -773,13 +753,11 @@ final class FaceRenderer {
     static int blocksLooked, expiredSame, expiredDiffer, sameAsTwin, differFromTwin, sameAsTwinWithData,
         differFromTwinWithData, onlyBottomOpen, allEmpty, allEmptyOnlyBottom;
     /**
-     * For the log ({@link MapVisibility}): blocks needing pictures looked at, those hidden from every view side (not
-     * drawn), pictures left out of the blocks drawn, and the time looking.
+     * For the log ({@link MapVisibility}): blocks needing pictures looked at, those hidden from every view side, of
+     * those to draw the hidden ones, and the time looking.
      */
     static int visibilityChecked, hiddenFound, hiddenToDraw;
     static long visibilityNanos;
-    /** Leaving out the pictures the map can't show; {@code -Dwayfarmap.drawHidden=true} draws them all. */
-    private static final boolean SKIP_HIDDEN = !Boolean.getBoolean("wayfarmap.drawHidden");
     static long exposedNanos, tileEntityNanos, surroundingsNanos, unshadeNanos, idNanos;
     /** Time remembering the pictures taken for their kinds ({@link #learn}). */
     static long learnNanos;
@@ -814,16 +792,10 @@ final class FaceRenderer {
         SESSIONS.clear();
         TWINS.clear();
         TWINS_WITH_DATA.clear();
-        MapVisibility.clear();
         dropFlights();
         // A world joined (or other resource packs): pictures given up on before are tried again.
         broken = false;
         failures = 0;
-    }
-
-    /** The chunk's blocks are found anew next time (what can be seen may have changed around it). */
-    static void forgetSession(long chunkKey) {
-        SESSIONS.remove(chunkKey);
     }
 
     /** Forgets the batches being read back (their blocks get pictures another time); render thread. */
@@ -1085,17 +1057,14 @@ final class FaceRenderer {
                         new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
                 } else {
                     long learnStart = System.nanoTime();
-                    if (pending.hiddenMask == 0) {
-                        // A kind is learned from blocks with all their pictures.
-                        learn(pending);
-                    }
+                    learn(pending);
                     learnNanos += System.nanoTime() - learnStart;
                     if (BY_SURROUNDINGS.size() > 200_000) {
                         // A long game: start over rather than grow without end.
                         BY_SURROUNDINGS.clear();
                     }
                     BY_SURROUNDINGS.put(pending.surroundings, pending.ids.clone());
-                    List<Pending> same = waiting.get(pending.waitKey());
+                    List<Pending> same = waiting.get(pending.surroundings);
                     if (same != null) {
                         for (Pending other : same) {
                             System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
@@ -1147,8 +1116,8 @@ final class FaceRenderer {
         List<Pending> toDraw = new ArrayList<>();
         Map<Long, List<Pending>> waiting = new HashMap<>();
         int[] cells = blocks.cells;
-        // Which pictures the map can show at all (the others aren't drawn).
-        MapVisibility visibility = SKIP_HIDDEN ? new MapVisibility(world, chunk) : null;
+        // For the log: whether the blocks needing pictures can be seen on the map at all.
+        MapVisibility visibility = IsoLog.on() ? new MapVisibility(world, chunk) : null;
         // For the log: per kind that may need pictures, blocks hidden, only open at the bottom, drawn from icons,
         // given pictures.
         Map<Integer, int[]> decisions = IsoLog.on() ? new HashMap<>() : null;
@@ -1258,18 +1227,20 @@ final class FaceRenderer {
                 pending.wide = reachesFar(world, block, tileEntity, x, y, z);
                 pending.overBig = drawnOverByBig(world, pending);
             }
-            found.add(pending);
             if (visibility != null && !pending.wide && !pending.overBig) {
-                // Models reaching past their cell are always drawn.
                 long v0 = System.nanoTime();
-                pending.hiddenMask = visibility.hidden(x, y, z, pending.cube);
+                pending.hiddenFromMap = visibility.hidden(x, y, z);
                 visibilityNanos += System.nanoTime() - v0;
                 visibilityChecked++;
+                if (pending.hiddenFromMap) {
+                    hiddenFound++;
+                }
             }
+            found.add(pending);
             if (pending.byPlace()) {
                 tileEntities++;
                 Cached cached = BY_PLACE.get(place(x, y, z));
-                if (cached != null && cached.surroundings == surroundings && fits(cached.ids, pending)) {
+                if (cached != null && cached.surroundings == surroundings) {
                     System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
                     placeHit++;
                     continue;
@@ -1282,21 +1253,14 @@ final class FaceRenderer {
                         pending.oldIds = cached.ids;
                     }
                 }
-                if (leaveOut(pending, key)) {
-                    continue;
-                }
             } else {
                 int[] known = BY_SURROUNDINGS.get(surroundings);
-                if (known != null && fits(known, pending)) {
+                if (known != null) {
                     System.arraycopy(known, 0, pending.ids, 0, pending.ids.length);
                     surroundingsHit++;
                     continue;
                 }
-                if (leaveOut(pending, key)) {
-                    continue;
-                }
                 if (learnable(pending)) {
-                    // (Learned from blocks with every picture drawn; given to any block, hidden sides or not.)
                     int tint = tint(world, block, x, y, z);
                     pending.kindKey = kindKey(world, key, exposed, pending.wide, tint, x, y, z);
                     pending.detached = detached(world, block, x, y, z);
@@ -1321,19 +1285,21 @@ final class FaceRenderer {
                         continue;
                     }
                 }
-                List<Pending> same = waiting.get(pending.waitKey());
+                List<Pending> same = waiting.get(surroundings);
                 if (same != null) {
                     // Drawn once for all the blocks with the same surroundings.
                     same.add(pending);
                     surroundingsShared++;
                     continue;
                 }
-                waiting.put(pending.waitKey(), new ArrayList<>());
+                waiting.put(surroundings, new ArrayList<>());
             }
             toDraw.add(pending);
-            hiddenToDraw += Integer.bitCount(pending.hiddenMask);
+            if (pending.hiddenFromMap) {
+                hiddenToDraw++;
+            }
             if (visibility != null) {
-                IsoLog.visibility(key, false);
+                IsoLog.visibility(key, pending.hiddenFromMap);
             }
         }
         if (visibility != null) {
@@ -1578,10 +1544,6 @@ final class FaceRenderer {
                 }
                 long blockStart = System.nanoTime();
                 for (int view = 0; view < pending.views(); view++, slot++) {
-                    if (pending.hidden(view)) {
-                        // Can't be seen on the map from there: its slot stays clear, not drawn.
-                        continue;
-                    }
                     int pixels = pending.pixels();
                     GL11.glViewport((slot % perRow) * cell, (slot / perRow) * cell, pixels, pixels);
                     GL11.glMatrixMode(GL11.GL_PROJECTION);
@@ -1791,10 +1753,6 @@ final class FaceRenderer {
                 owners[slot] = pending;
                 views[slot] = view;
                 images[slot] = slotImage(slot, pixels * pixels);
-                if (pending.hidden(view)) {
-                    // Not drawn (the map can't show it from there).
-                    continue;
-                }
                 int sx = (slot % perRow) * cell, sy = (slot / perRow) * cell;
                 // A side seen straight on is shaded by the game for that side; the tracer shades it itself.
                 float shade = pending.cube && !pending.ownRenderer ? sideShade(all, sx, sy, pixels, pending, view) : 1f;
@@ -1814,9 +1772,6 @@ final class FaceRenderer {
         forEachSlot(slots, n -> {
             Pending pending = owners[n];
             int pixels = pending.pixels(), view = views[n];
-            if (pending.hidden(view)) {
-                return;
-            }
             int[] image = images[n], table = tables[n];
             int sx = (n % perRow) * cell, sy = (n / perRow) * cell;
             for (int row = 0; row < pixels; row++) {
@@ -1842,10 +1797,6 @@ final class FaceRenderer {
         if (identify) {
             long idStart = System.nanoTime();
             for (int n = 0; n < slots; n++) {
-                if (owners[n].hidden(views[n])) {
-                    owners[n].ids[views[n]] = FacePalette.HIDDEN;
-                    continue;
-                }
                 int id = palette.idOf(images[n], hashes[n]);
                 owners[n].ids[views[n]] = id;
                 if (looks[n] != null && id > 0 && !LOOKS_OF_SPRITES.containsKey(id)) {
@@ -2012,33 +1963,6 @@ final class FaceRenderer {
     }
 
     /** Whether a picture of the block wasn't taken (0: the palette had no room, or drawing failed). */
-    /**
-     * A block the map can't show from any side, with no pictures known for it: none drawn, all left out as
-     * {@link FacePalette#HIDDEN}. False for any other block.
-     */
-    private static boolean leaveOut(Pending pending, int key) {
-        if (!pending.allHidden()) {
-            return false;
-        }
-        hiddenFound++;
-        Arrays.fill(pending.ids, 0, pending.views(), FacePalette.HIDDEN);
-        IsoLog.visibility(key, true);
-        return true;
-    }
-
-    /**
-     * Whether pictures known for another block can be given to this one: none of them was left out
-     * ({@link FacePalette#HIDDEN}) where this block can be seen.
-     */
-    private static boolean fits(int[] ids, Pending pending) {
-        for (int view = 0; view < pending.views(); view++) {
-            if (ids[view] == FacePalette.HIDDEN && !pending.hidden(view)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private static boolean missing(Pending pending) {
         for (int view = 0; view < pending.views(); view++) {
             if (pending.ids[view] == 0) {

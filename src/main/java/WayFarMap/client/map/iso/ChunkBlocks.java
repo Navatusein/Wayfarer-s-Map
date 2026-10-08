@@ -166,11 +166,8 @@ public final class ChunkBlocks {
                 continue;
             }
             for (int slot = 0; slot < PER_CELL; slot++) {
-                int id = faceIds[at + slot], oldId = old.faceIds[oldAt + slot];
-                // Not taken, or left out as hidden while the copy before has a picture there (better than icons
-                // should a ray get there after all).
-                if (id == 0 || id == FacePalette.HIDDEN && oldId != 0) {
-                    faceIds[at + slot] = oldId;
+                if (faceIds[at + slot] == 0) {
+                    faceIds[at + slot] = old.faceIds[oldAt + slot];
                 }
             }
         }
@@ -267,9 +264,7 @@ public final class ChunkBlocks {
         for (int n = 0; n < faceCells.length; n++) {
             int j = Arrays.binarySearch(old.faceCells, faceCells[n]);
             for (int slot = 0; slot < PER_CELL; slot++) {
-                int id = faceIds[n * PER_CELL + slot];
-                int oldId = j < 0 ? 0 : old.faceIds[j * PER_CELL + slot];
-                if (id != 0 && id != FacePalette.HIDDEN && (oldId == 0 || oldId == FacePalette.HIDDEN)) {
+                if (faceIds[n * PER_CELL + slot] != 0 && (j < 0 || old.faceIds[j * PER_CELL + slot] == 0)) {
                     return false;
                 }
             }
@@ -369,40 +364,13 @@ public final class ChunkBlocks {
                 return false;
             }
             for (int slot = 0; slot < PER_CELL; slot++) {
-                int oldId = old.faceIds[j * PER_CELL + slot], id = faceIds[n * PER_CELL + slot];
-                if ((oldId == 0 || oldId == FacePalette.HIDDEN) && id != 0 && id != FacePalette.HIDDEN) {
-                    // A picture missing or left out before (hidden then): this copy fills it in.
+                if (old.faceIds[j * PER_CELL + slot] == 0 && faceIds[n * PER_CELL + slot] != 0) {
+                    // A picture missing before (stored with some not taken): this copy fills it in.
                     return false;
                 }
             }
         }
         return true;
-    }
-
-    /**
-     * Whether a block (id and metadata) differs from the old copy, or the heights kept: light, colors and pictures
-     * don't count. Such a change may let blocks around be seen that weren't (a roof taken off).
-     */
-    boolean blocksDiffer(ChunkBlocks old) {
-        if (old == null || old.yMin != yMin || old.yMax != yMax) {
-            return true;
-        }
-        for (int i = 0; i < cells.length; i++) {
-            if (lookKey(cells[i]) != lookKey(old.cells[i])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Whether some picture was left out as hidden from the map ({@link FacePalette#HIDDEN}). */
-    boolean hasHidden() {
-        for (int id : faceIds) {
-            if (id == FacePalette.HIDDEN) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

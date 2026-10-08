@@ -243,11 +243,6 @@ final class FacePalette {
 
     /** Id of a sprite with nothing on it: the block can't be seen from that side (0 means "no sprite"). */
     static final int EMPTY = -1;
-    /**
-     * Id of a picture not taken because the map can't show the block from there ({@link MapVisibility}): counts as
-     * taken; drawn from the block's icons should a ray get there after all.
-     */
-    static final int HIDDEN = -2;
 
     /** Id of the sprite, added if new; {@link #EMPTY} if nothing was drawn. */
     int idOf(int[] image) {

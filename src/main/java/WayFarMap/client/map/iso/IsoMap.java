@@ -138,21 +138,9 @@ public final class IsoMap implements BlockStore.Listener {
     private final Map<Long, Long> storedAt = new HashMap<>();
     /** Chunks whose last copies changed only by noise: copied again seldom ({@link #NOISY_RECAPTURE_MS}). */
     private final Set<Long> noisy = new HashSet<>();
-    /**
-     * What the writer did with chunks, for the render thread: {dimension, key, STORED or NOISE, 1 if a block (not
-     * only light or pictures) changed}.
-     */
+    /** What the writer did with chunks, for the render thread: {dimension, key, STORED or NOISE}. */
     private final Queue<long[]> writerResults = new ConcurrentLinkedQueue<>();
     private static final long STORED = 1, NOISE = 2;
-    /**
-     * Chunks stored with pictures left out as hidden from the map ({@link MapVisibility}); a block changing within
-     * {@link MapVisibility#RADIUS} chunks of one (a roof taken off) has it looked at again ({@link #recheck}).
-     */
-    private final Set<Long> hiddenChunks = new HashSet<>();
-    /** Chunks whose pictures are looked at again though their blocks are the same: what can be seen changed. */
-    private final Set<Long> recheck = new HashSet<>();
-    /** Stored copies (of an earlier game) with pictures left out as hidden, found by the writer. */
-    private final Set<Long> storedHidden = ConcurrentHashMap.newKeySet();
     /**
      * Chunks copied before they settled (the 8 around them loaded, decoration maybe still arriving): copied again
      * when the surface map scans them settled, which costs nothing (no pictures) if they stayed the same.
@@ -283,9 +271,6 @@ public final class IsoMap implements BlockStore.Listener {
         writerResults.clear();
         early.clear();
         awaiting.clear();
-        hiddenChunks.clear();
-        recheck.clear();
-        storedHidden.clear();
         FaceRenderer.dropFlights();
         refreshing.clear();
         storedSignatures.clear();
@@ -501,9 +486,6 @@ public final class IsoMap implements BlockStore.Listener {
             if (result[2] == STORED) {
                 storedAt.put(result[1], now);
                 noisy.remove(result[1]);
-                if (result[3] != 0) {
-                    recheckAround(result[1]);
-                }
             } else {
                 noisy.add(result[1]);
             }
@@ -513,34 +495,6 @@ public final class IsoMap implements BlockStore.Listener {
         }
         if (noisy.size() > 50_000) {
             noisy.clear();
-        }
-    }
-
-    /**
-     * A block of the chunk changed: the chunks around it with pictures left out as hidden are looked at again (one may
-     * be seen now that wasn't).
-     */
-    private void recheckAround(long key) {
-        if (hiddenChunks.isEmpty()) {
-            return;
-        }
-        int cx = (int) (key >> 32), cz = (int) key;
-        for (int dx = -MapVisibility.RADIUS; dx <= MapVisibility.RADIUS; dx++) {
-            for (int dz = -MapVisibility.RADIUS; dz <= MapVisibility.RADIUS; dz++) {
-                long other = ((long) (cx + dx) << 32) | ((cz + dz) & 0xFFFFFFFFL);
-                if (other == key || !hiddenChunks.contains(other) || recheck.contains(other)) {
-                    continue;
-                }
-                recheck.add(other);
-                FaceRenderer.forgetSession(other);
-                if (!freshQueue.contains(other)) {
-                    captureQueue.add(other);
-                    IsoLog.queued(cx + dx, cz + dz, "visibility", "again", freshQueue.size(), captureQueue.size());
-                }
-            }
-        }
-        if (recheck.size() > 10_000) {
-            recheck.clear();
         }
     }
 
@@ -764,9 +718,6 @@ public final class IsoMap implements BlockStore.Listener {
             storedAt.clear();
             noisy.clear();
             early.clear();
-            hiddenChunks.clear();
-            recheck.clear();
-            storedHidden.clear();
             refreshing.clear();
             storedSignatures.clear();
             storedQuietSignatures.clear();
@@ -950,9 +901,7 @@ public final class IsoMap implements BlockStore.Listener {
             } else if (blocks != null) {
                 signature = blocks.signature();
                 Long stored = signatures.get(key);
-                // Looked at again for what can be seen (blocks around changed): its pictures are found anew.
-                boolean again = recheck.remove(key);
-                if (stored != null && stored == signature && !refresh && !again) {
+                if (stored != null && stored == signature && !refresh) {
                     // Nothing changed but maybe pictures of animated blocks: left as it is.
                     unfinished.remove(key);
                     IsoLog.unchanged(cx, cz, unloading ? unloadReason : null, t1 - t0);
@@ -962,7 +911,6 @@ public final class IsoMap implements BlockStore.Listener {
                 Long lastStored = storedAt.get(key);
                 if (quietStored != null && lastStored != null
                     && !refresh
-                    && !again
                     && !unloading
                     && System.currentTimeMillis() - lastStored < NOISE_STORE_MS
                     && quietStored == blocks.quietSignature()) {
@@ -984,9 +932,6 @@ public final class IsoMap implements BlockStore.Listener {
                     }
                     if (onDisk == signature) {
                         signatures.put(key, signature);
-                        if (storedHidden.remove(key)) {
-                            hiddenChunks.add(key);
-                        }
                         unfinished.remove(key);
                         IsoLog.unchanged(cx, cz, "stored copy has the same blocks and every picture", t1 - t0);
                         return true;
@@ -995,9 +940,6 @@ public final class IsoMap implements BlockStore.Listener {
                         // Only noise since it was stored: the stored copy and its pictures stay, and copies alike
                         // to this one are left as they are too.
                         signatures.put(key, signature);
-                        if (storedHidden.remove(key)) {
-                            hiddenChunks.add(key);
-                        }
                         quietSignatures.put(key, quietOnDisk);
                         unfinished.remove(key);
                         IsoLog.noise(cx, cz, "stored copy (only noise since an earlier game)", System.nanoTime() - t0);
@@ -1104,15 +1046,6 @@ public final class IsoMap implements BlockStore.Listener {
             signatures.remove(key);
             quietSignatures.remove(key);
         }
-        // Pictures left out as hidden: looked at again when a block around changes.
-        if (blocks.hasHidden()) {
-            if (hiddenChunks.size() > 100_000) {
-                hiddenChunks.clear();
-            }
-            hiddenChunks.add(key);
-        } else {
-            hiddenChunks.remove(key);
-        }
         boolean force = refreshing.remove(key);
         boolean mayBeNoise = !unloading && !whole;
         int dimensionId = dimension.id;
@@ -1138,16 +1071,14 @@ public final class IsoMap implements BlockStore.Listener {
                     && blocks.onlyNoiseChanged(before)
                     && System.currentTimeMillis() - dimension.store.time(cx, cz) < NOISE_STORE_MS) {
                     // Fluids flowing or drawing back, leaves, light: the stored copy stays a while longer.
-                    writerResults.add(new long[] { dimensionId, key, NOISE, 0 });
+                    writerResults.add(new long[] { dimensionId, key, NOISE });
                     IsoLog.noise(cx, cz, "writer", 0);
                     return;
                 }
                 int[] box = blocks.changedBox(before);
-                // A block changed (not only light or pictures; a new chunk only adds what may hide others).
-                boolean blocksChanged = before != null && blocks.blocksDiffer(before);
                 dimension.store.put(cx, cz, blocks, timing, box);
                 if (timing[5] != 0) {
-                    writerResults.add(new long[] { dimensionId, key, STORED, blocksChanged ? 1 : 0 });
+                    writerResults.add(new long[] { dimensionId, key, STORED });
                 }
                 if (timing[5] != 0 && before != null) {
                     IsoLog.chunkDiff(cx, cz, trace, before, blocks);
@@ -1177,9 +1108,6 @@ public final class IsoMap implements BlockStore.Listener {
                 ChunkBlocks stored = dimension.store.chunk(cx, cz);
                 if (stored != null && stored.allPicturesTaken(generation)) {
                     signature = stored.signature();
-                    if (stored.hasHidden()) {
-                        storedHidden.add(key);
-                    }
                     // Before the signature: the render thread reads both once the chunk is back in its queue.
                     storedQuietSignatures.put(key, stored.quietSignature());
                 }
