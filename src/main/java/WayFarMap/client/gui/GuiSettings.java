@@ -60,6 +60,9 @@ public class GuiSettings extends ScaledScreen {
     private static final String TRAIL_LAST_OPTION = "playerTrailAnimated";
     /** Room over the minimap's options for its preview. */
     private static final int PREVIEW_HEIGHT = 128;
+    /** The same with the preview collapsed to its title, and the height of that title. */
+    private static final int PREVIEW_CLOSED_HEIGHT = 22, PREVIEW_TITLE_HEIGHT = 16;
+    private static boolean minimapPreviewClosed;
     /** Room over the mobs' options for their preview. */
     private static final int MOBS_PREVIEW_HEIGHT = 100;
     /** Room over the player icon's options for its preview. */
@@ -536,6 +539,13 @@ public class GuiSettings extends ScaledScreen {
         return !searching() && Config.CATEGORY_MINIMAP.equals(Config.CATEGORIES.get(selectedCategory));
     }
 
+    private boolean overMinimapPreviewTitle(int mouseX, int mouseY) {
+        return showsMinimapPreview() && mouseX >= contentLeft
+            && mouseX < right - 10
+            && mouseY >= contentTop
+            && mouseY < contentTop + PREVIEW_TITLE_HEIGHT;
+    }
+
     /** The mobs' tab shows a preview of them over the options. */
     private boolean showsMobsPreview() {
         return !searching() && Config.TAB_MOBS.equals(Config.CATEGORIES.get(selectedCategory));
@@ -549,7 +559,7 @@ public class GuiSettings extends ScaledScreen {
     /** Top of the options list. */
     private int listTop() {
         if (showsMinimapPreview()) {
-            return contentTop + PREVIEW_HEIGHT;
+            return contentTop + (minimapPreviewClosed ? PREVIEW_CLOSED_HEIGHT : PREVIEW_HEIGHT);
         }
         if (showsMarkerPreview()) {
             return contentTop + MARKER_PREVIEW_HEIGHT;
@@ -794,6 +804,10 @@ public class GuiSettings extends ScaledScreen {
         }
         super.mouseClicked(mouseX, mouseY, button);
         searchField.mouseClicked(mouseX, mouseY, button);
+        if (button == 0 && overMinimapPreviewTitle(mouseX, mouseY)) {
+            minimapPreviewClosed = !minimapPreviewClosed;
+            return;
+        }
         int listTop = listTop();
         if (mouseY < listTop || mouseY >= contentBottom) {
             return;
@@ -1087,7 +1101,7 @@ public class GuiSettings extends ScaledScreen {
         float opened = Math.min(1f, (System.currentTimeMillis() - tabOpenedAt) / (float) TAB_SLIDE_MS);
         int slide = Math.round((1 - opened) * (1 - opened) * 8);
         if (showsMinimapPreview()) {
-            drawMinimapPreview(contentTop + slide);
+            drawMinimapPreview(contentTop + slide, mouseX, mouseY);
         }
         if (showsMobsPreview()) {
             drawMobsPreview(contentTop + slide);
@@ -1451,11 +1465,23 @@ public class GuiSettings extends ScaledScreen {
      * Over the minimap's options: the minimap itself, drawn by the HUD's own code at its size on the screen (smaller
      * only when it doesn't fit), and where on the screen it is.
      */
-    private void drawMinimapPreview(int y0) {
-        int x0 = contentLeft, x1 = right - 10, y1 = y0 + PREVIEW_HEIGHT - 6;
+    private void drawMinimapPreview(int y0, int mouseX, int mouseY) {
+        boolean closed = minimapPreviewClosed;
+        int x0 = contentLeft, x1 = right - 10;
+        int y1 = y0 + (closed ? PREVIEW_TITLE_HEIGHT : PREVIEW_HEIGHT - 6);
         Theme.fill(x0, y0, x1, y1, 0xFF0F1216);
         Theme.outline(x0, y0, x1, y1, Theme.BORDER);
-        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 6, y0 + 6, Theme.ACCENT);
+        String[] arrow = closed ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
+        boolean hovered = overMinimapPreviewTitle(mouseX, mouseY);
+        Icons.draw(
+            arrow,
+            x0 + 6,
+            y0 + (PREVIEW_TITLE_HEIGHT - arrow.length) / 2 + 1,
+            hovered ? Theme.TEXT : Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 15, y0 + 5, Theme.ACCENT);
+        if (closed) {
+            return;
+        }
         int thumbnailLeft = x1 - 8 - 96;
         drawScreenThumbnail(thumbnailLeft, y0 + 17, 96, 54);
 
