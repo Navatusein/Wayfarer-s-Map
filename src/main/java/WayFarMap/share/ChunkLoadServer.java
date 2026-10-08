@@ -406,23 +406,17 @@ public final class ChunkLoadServer {
     private static final java.util.regex.Pattern REGION_FILE = java.util.regex.Pattern
         .compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
 
-    /** The region files of the world's dimension, as {rx, rz}. */
     /**
      * Some mods send what their blocks keep only to players who start watching the chunk, not with the chunk nor in
      * a description packet (ForgeMultipart's parts: without them its microblocks came out empty on the 3D map, 52 to
-     * 99% of them, against 1-2% for chunks met while playing). Only when the player can't be made to watch the chunk
-     * ({@link Watching}): the mods are told it does. Not that it no longer does right after: ForgeMultipart sends the
-     * parts at the end of the tick, to the players still watching then.
+     * 99% of them, against 1-2% for chunks met while playing): told the player does, as the game tells them when it
+     * sends a chunk. That it no longer does when the chunk is let go ({@link Watching#unwatch}, the game tells
+     * them), not right after: ForgeMultipart sends the parts at the end of the tick, to the players watching then.
      */
     private static void tellWatched(WorldServer world, EntityPlayerMP player, Chunk chunk) {
         try {
             if (player.worldObj != world) {
                 // The mods look for the chunk in the player's world: only for the dimension the player is in.
-                return;
-            }
-            if (world.getPlayerManager()
-                .isPlayerWatchingChunk(player, chunk.xPosition, chunk.zPosition)) {
-                // Sent to the player already as it plays (and watched on).
                 return;
             }
             ChunkCoordIntPair at = chunk.getChunkCoordIntPair();
@@ -433,6 +427,7 @@ public final class ChunkLoadServer {
         }
     }
 
+    /** The region files of the world's dimension, as {rx, rz}. */
     private static List<int[]> regionFiles(WorldServer world) {
         List<int[]> regions = new ArrayList<>();
         File[] files = new File(world.getChunkSaveLocation(), "region").listFiles();
@@ -903,30 +898,23 @@ public final class ChunkLoadServer {
                 reloaded,
                 missing);
         }
-        // As the game sends chunks to a player: the player watches each one (the game sends it, its tile entities,
-        // and tells the mods, which send what their blocks keep: ForgeMultipart's parts, GregTech's covers).
-        // Those the player watches already are on its client as they are: sent again, the client's copy was
-        // replaced and lost what the mods had sent (microblocks gone even from what the player recorded).
-        List<Chunk> ownWay = new ArrayList<>();
+        // Sent here, its tile entities too, and the mods told the player watches it (ForgeMultipart sends its parts
+        // then). The player is also made a watcher of the chunk in the game's chunk watcher, so mods sending to
+        // the players watching a chunk send to it too (GregTech's covers); the game itself isn't left to send it:
+        // it sends only chunks that ticked, which those far from players never do (they never came, the client
+        // waited 30 s for each). Chunks the player watches already as it plays are on its client: sent again,
+        // the client's copy was replaced and lost what the mods had sent (microblocks gone even from what the
+        // player recorded).
+        List<Chunk> toSend = new ArrayList<>();
         int watching = 0, alreadyWatched = 0;
         for (Chunk chunk : chunks) {
             long chunkKey = key(chunk.xPosition, chunk.zPosition);
-            EntityPlayerMP watcher = job.watched.get(chunkKey);
-            if (watcher != null && player.worldObj == world) {
-                // Watched for an earlier batch (the ring around it): still to be sent, or sent and let go by the
-                // client since (it keeps only the chunks near the player). The game counts it as on the client
-                // and wouldn't send it again: the client waited 30 s for it and left a hole.
-                if (watcher == player && player.loadedChunks.contains(chunk.getChunkCoordIntPair())) {
-                    watching++;
-                    continue;
-                }
-                job.watched.remove(chunkKey);
-                Watching.unwatch(world, watcher, chunk.xPosition, chunk.zPosition);
-                if (Watching.watch(world, player, chunk.xPosition, chunk.zPosition)) {
-                    job.watched.put(chunkKey, player);
-                    watching++;
-                    continue;
-                }
+            if (job.watched.containsKey(chunkKey)) {
+                // Watched for an earlier batch (in the ring around it), maybe let go by the client since (it keeps
+                // only the chunks near the player): sent again.
+                watching++;
+                toSend.add(chunk);
+                continue;
             }
             if (player.worldObj == world && world.getPlayerManager()
                 .isPlayerWatchingChunk(player, chunk.xPosition, chunk.zPosition)) {
@@ -934,21 +922,18 @@ public final class ChunkLoadServer {
                 continue;
             }
             if (player.worldObj == world && Watching.watch(world, player, chunk.xPosition, chunk.zPosition)) {
+                // Sent here, not by the game (it would wait for the chunk to tick).
+                player.loadedChunks.remove(chunk.getChunkCoordIntPair());
                 job.watched.put(chunkKey, player);
                 watching++;
-                continue;
             }
-            ownWay.add(chunk);
+            toSend.add(chunk);
         }
-        if (!ownWay.isEmpty() && Watching.works()) {
-            WayFarMap.LOG.debug("/wf chunkload batch {}: {} chunks sent without watching", job.index, ownWay.size());
-        }
-        // Without it (the game's methods not found, another dimension): sent here, and the mods told.
-        for (int from = 0; from < ownWay.size(); from += PER_PACKET) {
+        for (int from = 0; from < toSend.size(); from += PER_PACKET) {
             player.playerNetServerHandler.sendPacket(
-                new S26PacketMapChunkBulk(ownWay.subList(from, Math.min(ownWay.size(), from + PER_PACKET))));
+                new S26PacketMapChunkBulk(toSend.subList(from, Math.min(toSend.size(), from + PER_PACKET))));
         }
-        for (Chunk chunk : ownWay) {
+        for (Chunk chunk : toSend) {
             for (Object o : chunk.chunkTileEntityMap.values()) {
                 TileEntity tileEntity = (TileEntity) o;
                 try {
