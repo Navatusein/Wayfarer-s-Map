@@ -1142,16 +1142,26 @@ final class FaceRenderer {
         return FLIGHTS.size();
     }
 
+    /**
+     * Reading pictures back later is off unless asked for ({@code -Dwayfarmap.asyncPictures=true}): with it on, a
+     * base taken by /wf chunkload came out wrong (glass where there is none, ArchitectureCraft as stone or missing),
+     * while read at once it was right.
+     */
+    private static final boolean ASYNC_PICTURES = Boolean.getBoolean("wayfarmap.asyncPictures");
+
     private static boolean asyncAvailable() {
         if (asyncWorks == null) {
             boolean works;
             try {
-                works = !Boolean.getBoolean("wayfarmap.syncPictures") && GLContext.getCapabilities().OpenGL21;
+                works = ASYNC_PICTURES && !Boolean.getBoolean("wayfarmap.syncPictures")
+                    && GLContext.getCapabilities().OpenGL21;
             } catch (Throwable t) {
                 works = false;
             }
             asyncWorks = works;
-            IsoLog.log("PICTURES_READBACK " + (works ? "later (pixel buffer objects)" : "at once"));
+            IsoLog.log(
+                "PICTURES_READBACK " + (works ? "later (pixel buffer objects)"
+                    : ASYNC_PICTURES ? "at once" : "at once (-Dwayfarmap.asyncPictures=true reads them later)"));
         }
         return asyncWorks;
     }
