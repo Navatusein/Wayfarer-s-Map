@@ -4,10 +4,13 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.Sys;
 import org.lwjgl.input.Keyboard;
@@ -37,7 +40,7 @@ public class GuiAbout extends ScaledScreen {
 
     private static final int WIDTH = 300, PAD = 14;
     private static final int HERO_HEIGHT = 104, SECTION_TITLE = 14;
-    private static final int CARD_HEIGHT = 30, CHIP_HEIGHT = 18, CHIP_GAP = 6, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
+    private static final int CARD_HEIGHT = 32, CHIP_HEIGHT = 22, CHIP_GAP = 6, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
     /** How long a part takes to slide in, and how much later each part starts than the one before (ms). */
     private static final long SLIDE_MS = 260, STAGGER_MS = 70;
     /** How long "Copied!" stays on the version after a click (ms). */
@@ -102,7 +105,7 @@ public class GuiAbout extends ScaledScreen {
 
     private int chipWidth(String name) {
         // An avatar (or the chat's icon), a gap, the name and the padding.
-        return 6 + 12 + 5 + fontRendererObj.getStringWidth(name) + 8;
+        return 3 + 16 + 6 + fontRendererObj.getStringWidth(name) + 8;
     }
 
     /** Where each chip goes, wrapping to new rows, relative to the top left of the chips: {x, y, width}. */
@@ -317,17 +320,28 @@ public class GuiAbout extends ScaledScreen {
         Theme.fill(lineX, y + 4, right - PAD, y + 5, Theme.BORDER);
     }
 
-    /** A round avatar with the name's first letter. */
+    /** A round picture of the person (cut to a circle in the file) in a thin ring of the color. */
     private void drawAvatar(int centerX, int centerY, int radius, String name, int color) {
-        Theme.disc(centerX, centerY, radius, color);
-        String letter = name.substring(0, 1)
-            .toUpperCase();
-        Theme.text(
-            fontRendererObj,
-            letter,
-            centerX - fontRendererObj.getStringWidth(letter) / 2 + 1,
-            centerY - 3,
-            0xFF0E1116);
+        Theme.disc(centerX, centerY, radius + 1, color);
+        ResourceLocation picture = new ResourceLocation(
+            "wayfarmap",
+            "textures/gui/avatars/" + name.toLowerCase(Locale.ROOT) + ".png");
+        mc.getTextureManager()
+            .bindTexture(picture);
+        // Smooth, not blocky: the picture is drawn smaller than it is.
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        tessellator.addVertexWithUV(centerX - radius, centerY + radius, 0, 0, 1);
+        tessellator.addVertexWithUV(centerX + radius, centerY + radius, 0, 1, 1);
+        tessellator.addVertexWithUV(centerX + radius, centerY - radius, 0, 1, 0);
+        tessellator.addVertexWithUV(centerX - radius, centerY - radius, 0, 0, 0);
+        tessellator.draw();
     }
 
     /** The author: an avatar, the name and what they did, and the GitHub logo; lit under the mouse. */
@@ -336,12 +350,12 @@ public class GuiAbout extends ScaledScreen {
         Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, Theme.ACCENT, lit));
         // The accent along the left edge.
         Theme.fill(r[0] + 1, r[1] + 1, r[0] + 3, r[3] - 1, Theme.ACCENT);
-        int avatarX = r[0] + 18, avatarY = (r[1] + r[3]) / 2;
-        Theme.disc(avatarX, avatarY, 11, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
-        drawAvatar(avatarX, avatarY, 9, AUTHOR, Theme.ACCENT);
-        Theme.text(fontRendererObj, AUTHOR, r[0] + 34, r[1] + 6, Theme.TEXT);
+        int avatarX = r[0] + 19, avatarY = (r[1] + r[3]) / 2;
+        Theme.disc(avatarX, avatarY, 13, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
+        drawAvatar(avatarX, avatarY, 11, AUTHOR, Theme.ACCENT);
+        Theme.text(fontRendererObj, AUTHOR, r[0] + 38, r[1] + 6, Theme.TEXT);
         String role = I18n.format("wayfarmap.about.author_role");
-        Theme.text(fontRendererObj, role, r[0] + 34, r[1] + 17, Theme.TEXT_MUTED);
+        Theme.text(fontRendererObj, role, r[0] + 38, r[1] + 17, Theme.TEXT_MUTED);
         String[] icon = Icons.GITHUB;
         Icons.draw(
             icon,
@@ -356,16 +370,16 @@ public class GuiAbout extends ScaledScreen {
         int color = chat ? 0xFF2AABEE : AVATAR_COLORS[i % AVATAR_COLORS.length];
         Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
         Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, color, lit));
-        int iconCenterX = r[0] + 12, centerY = (r[1] + r[3]) / 2;
+        int iconCenterX = r[0] + 11, centerY = (r[1] + r[3]) / 2;
         if (chat) {
             String[] icon = Icons.SMALL_CHAT;
             Icons.draw(icon, iconCenterX - Icons.width(icon) / 2, centerY - icon.length / 2, color);
         } else {
-            drawAvatar(iconCenterX, centerY, 6, name, color);
+            drawAvatar(iconCenterX, centerY, 8, name, color);
         }
-        String shown = Theme.ellipsize(fontRendererObj, name, r[2] - r[0] - 31);
+        String shown = Theme.ellipsize(fontRendererObj, name, r[2] - r[0] - 33);
         int textColor = Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.5 + lit / 2);
-        Theme.text(fontRendererObj, shown, r[0] + 23, r[1] + 5, textColor);
+        Theme.text(fontRendererObj, shown, r[0] + 25, r[1] + 7, textColor);
     }
 
     /** One of the author's pages: its logo in the site's color and its name, lit in that color under the mouse. */
