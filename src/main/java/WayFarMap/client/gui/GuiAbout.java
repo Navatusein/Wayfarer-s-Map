@@ -52,6 +52,11 @@ public class GuiAbout extends ScaledScreen {
     private static final Object[][] LINKS = { { "GitHub", MOD_GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
         { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
+    /** A white circle with smooth edges, tinted for the avatars' rings and the glows. */
+    private static final ResourceLocation CIRCLE = new ResourceLocation(
+        "wayfarmap",
+        "textures/gui/avatars/circle.png");
+
     /** The stars twinkling over the top: {x, y} as parts of its size, and the phase of their twinkle. */
     private static final double[][] STARS = new double[22][3];
 
@@ -298,8 +303,8 @@ public class GuiAbout extends ScaledScreen {
         double pulse = 0.5 + 0.5 * Math.sin(now / 600.0);
         int logoCenterY = y + 32;
         int glow = Theme.ACCENT & 0xFFFFFF;
-        Theme.disc(centerX, logoCenterY, 32, (int) (0x0C + 0x08 * pulse) << 24 | glow);
-        Theme.disc(centerX, logoCenterY, 25, (int) (0x10 + 0x0C * pulse) << 24 | glow);
+        drawRound(CIRCLE, centerX, logoCenterY, 32, (int) (0x0C + 0x08 * pulse) << 24 | glow);
+        drawRound(CIRCLE, centerX, logoCenterY, 25, (int) (0x10 + 0x0C * pulse) << 24 | glow);
         GL11.glPushMatrix();
         GL11.glTranslatef(centerX - Icons.LOGO_SIZE * 3 / 2f, logoCenterY - Icons.LOGO_SIZE * 3 / 2f, 0f);
         GL11.glScalef(3f, 3f, 1f);
@@ -322,19 +327,29 @@ public class GuiAbout extends ScaledScreen {
 
     /** A round picture of the person (cut to a circle in the file) in a thin ring of the color. */
     private void drawAvatar(int centerX, int centerY, int radius, String name, int color) {
-        Theme.disc(centerX, centerY, radius + 1, color);
-        ResourceLocation picture = new ResourceLocation(
-            "wayfarmap",
-            "textures/gui/avatars/" + name.toLowerCase(Locale.ROOT) + ".png");
+        drawRound(CIRCLE, centerX, centerY, radius + 1, color);
+        String file = "textures/gui/avatars/" + name.toLowerCase(Locale.ROOT) + ".png";
+        drawRound(new ResourceLocation("wayfarmap", file), centerX, centerY, radius, 0xFFFFFFFF);
+    }
+
+    /**
+     * Draws a round picture tinted with the color: a texture with smooth edges, so the circle is round at any scale,
+     * not stepped like one drawn of rectangles.
+     */
+    private void drawRound(ResourceLocation picture, double centerX, double centerY, double radius, int color) {
         mc.getTextureManager()
             .bindTexture(picture);
-        // Smooth, not blocky: the picture is drawn smaller than it is.
+        // Smooth, not blocky: the picture is drawn at another size than it is.
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glColor4f(
+            (color >> 16 & 0xFF) / 255f,
+            (color >> 8 & 0xFF) / 255f,
+            (color & 0xFF) / 255f,
+            (color >>> 24) / 255f);
         Tessellator tessellator = Tessellator.instance;
         tessellator.startDrawingQuads();
         tessellator.addVertexWithUV(centerX - radius, centerY + radius, 0, 0, 1);
@@ -342,6 +357,7 @@ public class GuiAbout extends ScaledScreen {
         tessellator.addVertexWithUV(centerX + radius, centerY - radius, 0, 1, 0);
         tessellator.addVertexWithUV(centerX - radius, centerY - radius, 0, 0, 0);
         tessellator.draw();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /** The author: an avatar, the name and what they did, and the GitHub logo; lit under the mouse. */
@@ -351,7 +367,7 @@ public class GuiAbout extends ScaledScreen {
         // The accent along the left edge.
         Theme.fill(r[0] + 1, r[1] + 1, r[0] + 3, r[3] - 1, Theme.ACCENT);
         int avatarX = r[0] + 19, avatarY = (r[1] + r[3]) / 2;
-        Theme.disc(avatarX, avatarY, 13, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
+        drawRound(CIRCLE, avatarX, avatarY, 13, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
         drawAvatar(avatarX, avatarY, 11, AUTHOR, Theme.ACCENT);
         Theme.text(fontRendererObj, AUTHOR, r[0] + 38, r[1] + 6, Theme.TEXT);
         String role = I18n.format("wayfarmap.about.author_role");
