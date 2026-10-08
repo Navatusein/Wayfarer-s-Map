@@ -230,7 +230,7 @@ final class WelcomeWindow {
         Theme.text(font, I18n.format("wayfarmap.about.author"), left + PAD, y, Theme.TEXT_MUTED);
         Theme.text(font, GuiAbout.AUTHOR, left + PAD, y + 11, Theme.ACCENT);
         Theme.text(font, I18n.format("wayfarmap.about.testers"), half + 4, y, Theme.TEXT_MUTED);
-        String testers = GuiAbout.TESTER + ", " + I18n.format("wayfarmap.about.tester_chat");
+        String testers = String.join(", ", GuiAbout.TESTERS) + ", " + I18n.format("wayfarmap.about.tester_chat");
         Theme.text(font, Theme.ellipsize(font, testers, right - PAD - half - 4), half + 4, y + 11, Theme.TEXT);
         y += 24;
         int gap = 6, linkWidth = (textWidth() - 2 * gap) / 3;

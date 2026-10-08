@@ -1,10 +1,11 @@
 package WayFarMap.client.gui;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Random;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 
@@ -14,112 +15,419 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Tags;
 import WayFarMap.WayFarMap;
-import WayFarMap.client.gui.ui.FlatButton;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 
-/** About the mod: its name and version, who made and tested it, and links to the author's pages. */
+/**
+ * About the mod: its glowing logo over a starry top, the name and the version (a click copies it), what the mod is,
+ * who made it (a click opens the author's GitHub), who tested it, and the author's pages. Its parts slide in one after
+ * another when it opens; Esc, the button at the bottom or a click outside the window closes it.
+ */
 public class GuiAbout extends ScaledScreen {
-
-    private static final int WIDTH = 260, HEIGHT = 220;
-    private static final int ID_CLOSE = 0, ID_GITHUB = 1, ID_BOOSTY = 2, ID_TELEGRAM = 3;
 
     /** Who made and who tested the mod, and the author's pages; the welcome window shows them too. */
     static final String AUTHOR = "EvgenWarGold";
-    static final String TESTER = "Faotik";
+    static final String[] TESTERS = { "Faotik", "Octo" };
     static final String GITHUB_URL = "https://github.com/evgengoldwar", BOOSTY_URL = "https://boosty.to/evgenwargold",
         TELEGRAM_URL = "https://t.me/Shaterplay4";
 
+    private static final int WIDTH = 300, PAD = 14;
+    private static final int HERO_HEIGHT = 104, SECTION_TITLE = 14;
+    private static final int CARD_HEIGHT = 30, CHIP_HEIGHT = 18, CHIP_GAP = 6, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
+    /** How long a part takes to slide in, and how much later each part starts than the one before (ms). */
+    private static final long SLIDE_MS = 260, STAGGER_MS = 70;
+    /** How long "Copied!" stays on the version after a click (ms). */
+    private static final long COPIED_MS = 1500;
+    /** The colors of the testers' avatars, one after another. */
+    private static final int[] AVATAR_COLORS = { 0xFF3FB950, 0xFFDB61A2, 0xFFE3B341, 0xFFA371F7 };
+
+    /** The author's pages: {name, url, icon, color}. */
+    private static final Object[][] LINKS = { { "GitHub", GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
+        { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
+
+    /** The stars twinkling over the top: {x, y} as parts of its size, and the phase of their twinkle. */
+    private static final double[][] STARS = new double[22][3];
+
+    static {
+        Random random = new Random(7);
+        for (double[] star : STARS) {
+            star[0] = random.nextDouble();
+            star[1] = 0.06 + random.nextDouble() * 0.6;
+            star[2] = random.nextDouble() * Math.PI * 2;
+        }
+    }
+
     private final GuiScreen parent;
-    private int left, top;
+    private final long openedAt = System.currentTimeMillis();
+    /** When the version was copied, 0 if it wasn't. */
+    private long copiedAt;
+
+    /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
+    private int[] panelRect = new int[4], versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
+    private final int[][] linkRects = new int[LINKS.length][4];
+    /** How lit each thing is by the mouse. */
+    private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0);
+    private final Smooth[] linkLight = { new Smooth(0), new Smooth(0), new Smooth(0) };
+    private final Smooth[] chipLight;
 
     public GuiAbout(GuiScreen parent) {
         this.parent = parent;
+        chipLight = new Smooth[TESTERS.length + 1];
+        for (int i = 0; i < chipLight.length; i++) {
+            chipLight[i] = new Smooth(0);
+        }
     }
 
-    /** A button opening one of the author's pages: a pixel logo in the site's color and its name. */
-    private static final class LinkButton extends FlatButton {
+    // ---------------------------------------------------------------- layout
 
-        final String url;
-        final int brand;
-        private final Smooth hover = new Smooth(0);
+    private static int textWidth() {
+        return WIDTH - 2 * PAD;
+    }
 
-        LinkButton(int id, int x, int y, int width, String text, String url, String[] icon, int brand) {
-            super(id, x, y, width, 20, text);
-            this.url = url;
-            this.icon = icon;
-            this.brand = brand;
-        }
+    private List<?> tagline() {
+        return fontRendererObj.listFormattedStringToWidth(I18n.format("wayfarmap.welcome.text"), textWidth());
+    }
 
-        @Override
-        public void drawButton(Minecraft mc, int mouseX, int mouseY) {
-            if (!visible) {
-                return;
+    /** The testers' chips: the testers, then the chat. */
+    private String[] chips() {
+        String[] chips = new String[TESTERS.length + 1];
+        System.arraycopy(TESTERS, 0, chips, 0, TESTERS.length);
+        chips[TESTERS.length] = I18n.format("wayfarmap.about.tester_chat");
+        return chips;
+    }
+
+    private int chipWidth(String name) {
+        // An avatar (or the chat's icon), a gap, the name and the padding.
+        return 6 + 12 + 5 + fontRendererObj.getStringWidth(name) + 8;
+    }
+
+    /** Where each chip goes, wrapping to new rows, relative to the top left of the chips: {x, y, width}. */
+    private List<int[]> chipPlaces() {
+        List<int[]> places = new ArrayList<>();
+        int x = 0, y = 0;
+        for (String chip : chips()) {
+            int w = Math.min(textWidth(), chipWidth(chip));
+            if (x > 0 && x + w > textWidth()) {
+                x = 0;
+                y += CHIP_HEIGHT + 4;
             }
-            boolean hovered = isMouseOver(mouseX, mouseY);
-            double lit = hover.update(hovered ? 1 : 0, 22);
-            int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
-            Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
-            int border = Theme.blend(Theme.BORDER, brand, lit);
-            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, border);
-            // The site's color as a strip along the bottom.
-            Theme.fill(xPosition + 1, yPosition + height - 2, xPosition + width - 1, yPosition + height - 1, brand);
-            int iconWidth = Icons.width(icon);
-            int textWidth = mc.fontRenderer.getStringWidth(displayString);
-            int x = xPosition + (width - iconWidth - 4 - textWidth) / 2;
-            Icons.draw(icon, x, yPosition + (height - 1 - icon.length) / 2, brand);
-            Theme.text(
-                mc.fontRenderer,
-                displayString,
-                x + iconWidth + 4,
-                yPosition + (height - 9) / 2,
-                hovered ? Theme.TEXT : Theme.TEXT_MUTED);
+            places.add(new int[] { x, y, w });
+            x += w + CHIP_GAP;
+        }
+        return places;
+    }
+
+    private int chipsHeight() {
+        List<int[]> places = chipPlaces();
+        return places.get(places.size() - 1)[1] + CHIP_HEIGHT;
+    }
+
+    /** Height of the whole window. */
+    private int windowHeight() {
+        return HERO_HEIGHT + 10
+            + tagline().size() * 10
+            + 8
+            + SECTION_TITLE
+            + CARD_HEIGHT
+            + 10
+            + SECTION_TITLE
+            + chipsHeight()
+            + 10
+            + SECTION_TITLE
+            + LINK_HEIGHT
+            + 14
+            + BUTTON_HEIGHT
+            + PAD;
+    }
+
+    /** How far a part (0 the first) is still below its place, sliding up into it. */
+    private int slide(int part) {
+        double t = (System.currentTimeMillis() - openedAt - part * STAGGER_MS) / (double) SLIDE_MS;
+        t = Math.max(0, Math.min(1, t));
+        return (int) Math.round(Math.pow(1 - t, 3) * 12);
+    }
+
+    // ---------------------------------------------------------------- drawing
+
+    @Override
+    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
+        int windowHeight = windowHeight();
+        int left = (width - WIDTH) / 2, top = Math.max(4, (height - windowHeight) / 2);
+        int right = left + WIDTH, bottom = top + windowHeight, centerX = left + WIDTH / 2;
+        panelRect = new int[] { left, top, right, bottom };
+        // A soft shadow under the window, so it stands off the map.
+        Theme.fill(left - 2, top + 2, right + 2, bottom + 4, 0x40000000);
+        Theme.fill(left - 1, top + 1, right + 1, bottom + 2, 0x40000000);
+        Theme.panel(left, top, right, bottom);
+        // Parts slide in under the panel's edges, so they are cut to it.
+        Theme.clip(left + 1, top + 1, right - 1, bottom - 1);
+        List<String> tooltip = null;
+
+        // The top: stars, the logo glowing softly, the name and the version.
+        int y = top + slide(0);
+        drawHero(left, right, y);
+        String version = I18n.format("wayfarmap.about.version", Tags.VERSION);
+        boolean copied = copiedAt > 0 && System.currentTimeMillis() - copiedAt < COPIED_MS;
+        String pillText = copied ? I18n.format("wayfarmap.about.copied")
+            : Theme.ellipsize(fontRendererObj, version, WIDTH - 60);
+        int pillWidth = fontRendererObj.getStringWidth(pillText) + 12 + (copied ? 0 : 10);
+        int pillLeft = centerX - pillWidth / 2;
+        versionRect = new int[] { pillLeft, y + 82, pillLeft + pillWidth, y + 95 };
+        boolean versionHovered = inside(mouseX, mouseY, versionRect);
+        double versionLit = versionLight.update(versionHovered ? 1 : 0, 22);
+        int pillColor = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, versionLit);
+        Theme.fill(pillLeft, y + 82, pillLeft + pillWidth, y + 95, pillColor);
+        Theme.outline(
+            pillLeft,
+            y + 82,
+            pillLeft + pillWidth,
+            y + 95,
+            copied ? Theme.SUCCESS : Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, versionLit));
+        if (copied) {
+            Theme.text(fontRendererObj, pillText, pillLeft + 6, y + 85, Theme.SUCCESS);
+        } else {
+            int textColor = Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, versionLit);
+            Theme.text(fontRendererObj, pillText, pillLeft + 6, y + 85, textColor);
+            Icons.draw(
+                Icons.SMALL_COPY,
+                pillLeft + pillWidth - 13,
+                y + 85,
+                Theme.blend(Theme.TEXT_MUTED, Theme.ACCENT, versionLit));
+        }
+        if (versionHovered && !copied) {
+            tooltip = new ArrayList<>();
+            if (!pillText.equals(version)) {
+                tooltip.add(version);
+            }
+            tooltip.add(I18n.format("wayfarmap.about.copy_hint"));
+        }
+
+        // What it is, in a line or two.
+        y = top + HERO_HEIGHT + 10 + slide(1);
+        for (Object line : tagline()) {
+            Theme.centered(fontRendererObj, String.valueOf(line), centerX, y, Theme.TEXT);
+            y += 10;
+        }
+        int base = top + HERO_HEIGHT + 10 + tagline().size() * 10 + 8;
+
+        // Who made it: a card with the author's avatar, a click opens their GitHub.
+        y = base + slide(2);
+        sectionTitle(I18n.format("wayfarmap.about.author"), left, right, y);
+        y += SECTION_TITLE;
+        authorRect = new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT };
+        boolean authorHovered = inside(mouseX, mouseY, authorRect);
+        drawAuthorCard(authorRect, authorLight.update(authorHovered ? 1 : 0, 22));
+        if (authorHovered) {
+            tooltip = Collections.singletonList(GITHUB_URL);
+        }
+        base += SECTION_TITLE + CARD_HEIGHT + 10;
+
+        // Who tested it: a chip for each tester and one for the chat.
+        y = base + slide(3);
+        sectionTitle(I18n.format("wayfarmap.about.testers"), left, right, y);
+        y += SECTION_TITLE;
+        String[] chips = chips();
+        List<int[]> places = chipPlaces();
+        for (int i = 0; i < chips.length; i++) {
+            int[] place = places.get(i);
+            int[] r = { left + PAD + place[0], y + place[1], left + PAD + place[0] + place[2],
+                y + place[1] + CHIP_HEIGHT };
+            boolean hovered = inside(mouseX, mouseY, r);
+            drawChip(r, chips[i], i, chipLight[i].update(hovered ? 1 : 0, 22));
+        }
+        base += SECTION_TITLE + chipsHeight() + 10;
+
+        // The author's pages.
+        y = base + slide(4);
+        sectionTitle(I18n.format("wayfarmap.about.links_title"), left, right, y);
+        y += SECTION_TITLE;
+        int gap = 6, linkWidth = (textWidth() - 2 * gap) / 3;
+        for (int i = 0; i < LINKS.length; i++) {
+            int x0 = left + PAD + i * (linkWidth + gap);
+            linkRects[i] = new int[] { x0, y, i == LINKS.length - 1 ? right - PAD : x0 + linkWidth, y + LINK_HEIGHT };
+            boolean hovered = inside(mouseX, mouseY, linkRects[i]);
+            drawLink(i, linkRects[i], linkLight[i].update(hovered ? 1 : 0, 22));
+            if (hovered) {
+                tooltip = Collections.singletonList((String) LINKS[i][1]);
+            }
+        }
+        base += SECTION_TITLE + LINK_HEIGHT + 14;
+
+        // Close.
+        y = base + slide(5);
+        closeRect = new int[] { left + PAD, y, right - PAD, y + BUTTON_HEIGHT };
+        double closeLit = closeLight.update(inside(mouseX, mouseY, closeRect) ? 1 : 0, 22);
+        int[] c = closeRect;
+        Theme.fill(c[0], c[1], c[2], c[3], Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, closeLit));
+        Theme.outline(c[0], c[1], c[2], c[3], Theme.ACCENT);
+        String close = I18n.format("wayfarmap.help.close");
+        Theme.centered(fontRendererObj, close, centerX, y + (BUTTON_HEIGHT - 8) / 2, Theme.TEXT);
+
+        Theme.unclip();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        if (tooltip != null) {
+            drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
+        }
+    }
+
+    /** The top of the window: a darker band with twinkling stars, the glowing logo and the name. */
+    private void drawHero(int left, int right, int y) {
+        int centerX = (left + right) / 2;
+        long now = System.currentTimeMillis();
+        Theme.fill(left + 1, y + 1, right - 1, y + HERO_HEIGHT, Theme.PANEL_ALT);
+        Theme.fill(left + 1, y + 1, right - 1, y + 3, Theme.ACCENT);
+        Theme.fill(left + 1, y + HERO_HEIGHT, right - 1, y + HERO_HEIGHT + 1, Theme.BORDER);
+        int heroWidth = right - left - 2;
+        for (double[] star : STARS) {
+            double twinkle = 0.5 + 0.5 * Math.sin(now / 700.0 + star[2]);
+            int sx = left + 1 + (int) (star[0] * heroWidth), sy = y + 4 + (int) (star[1] * HERO_HEIGHT);
+            if (Math.abs(sx - centerX) < 40 && sy < y + 76) {
+                // Not over the logo and the name.
+                continue;
+            }
+            int alpha = (int) (0x18 + 0x70 * twinkle);
+            Theme.fill(sx, sy, sx + 1, sy + 1, alpha << 24 | (Theme.TEXT & 0xFFFFFF));
+        }
+        double pulse = 0.5 + 0.5 * Math.sin(now / 600.0);
+        int logoCenterY = y + 32;
+        int glow = Theme.ACCENT & 0xFFFFFF;
+        Theme.disc(centerX, logoCenterY, 32, (int) (0x0C + 0x08 * pulse) << 24 | glow);
+        Theme.disc(centerX, logoCenterY, 25, (int) (0x10 + 0x0C * pulse) << 24 | glow);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(centerX - Icons.LOGO_SIZE * 3 / 2f, logoCenterY - Icons.LOGO_SIZE * 3 / 2f, 0f);
+        GL11.glScalef(3f, 3f, 1f);
+        Icons.drawLogo(0, 0);
+        GL11.glPopMatrix();
+        String title = "Wayfarer's Map";
+        GL11.glPushMatrix();
+        GL11.glTranslatef(centerX - fontRendererObj.getStringWidth(title), y + 60, 0f);
+        GL11.glScalef(2f, 2f, 1f);
+        fontRendererObj.drawStringWithShadow(title, 0, 0, Theme.TEXT);
+        GL11.glPopMatrix();
+    }
+
+    /** A small title in the accent color with a line after it, like the settings' sections. */
+    private void sectionTitle(String title, int left, int right, int y) {
+        Theme.text(fontRendererObj, title, left + PAD, y, Theme.ACCENT);
+        int lineX = left + PAD + fontRendererObj.getStringWidth(title) + 6;
+        Theme.fill(lineX, y + 4, right - PAD, y + 5, Theme.BORDER);
+    }
+
+    /** A round avatar with the name's first letter. */
+    private void drawAvatar(int centerX, int centerY, int radius, String name, int color) {
+        Theme.disc(centerX, centerY, radius, color);
+        String letter = name.substring(0, 1)
+            .toUpperCase();
+        Theme.text(
+            fontRendererObj,
+            letter,
+            centerX - fontRendererObj.getStringWidth(letter) / 2 + 1,
+            centerY - 3,
+            0xFF0E1116);
+    }
+
+    /** The author: an avatar, the name and what they did, and the GitHub logo; lit under the mouse. */
+    private void drawAuthorCard(int[] r, double lit) {
+        Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+        Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, Theme.ACCENT, lit));
+        // The accent along the left edge.
+        Theme.fill(r[0] + 1, r[1] + 1, r[0] + 3, r[3] - 1, Theme.ACCENT);
+        int avatarX = r[0] + 18, avatarY = (r[1] + r[3]) / 2;
+        Theme.disc(avatarX, avatarY, 11, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
+        drawAvatar(avatarX, avatarY, 9, AUTHOR, Theme.ACCENT);
+        Theme.text(fontRendererObj, AUTHOR, r[0] + 34, r[1] + 6, Theme.TEXT);
+        String role = I18n.format("wayfarmap.about.author_role");
+        Theme.text(fontRendererObj, role, r[0] + 34, r[1] + 17, Theme.TEXT_MUTED);
+        String[] icon = Icons.GITHUB;
+        Icons.draw(
+            icon,
+            r[2] - 10 - Icons.width(icon),
+            avatarY - icon.length / 2,
+            Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit));
+    }
+
+    /** A tester (an avatar and the name) or the chat (its icon and name); lit under the mouse. */
+    private void drawChip(int[] r, String name, int i, double lit) {
+        boolean chat = i >= TESTERS.length;
+        int color = chat ? 0xFF2AABEE : AVATAR_COLORS[i % AVATAR_COLORS.length];
+        Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+        Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, color, lit));
+        int iconCenterX = r[0] + 12, centerY = (r[1] + r[3]) / 2;
+        if (chat) {
+            String[] icon = Icons.SMALL_CHAT;
+            Icons.draw(icon, iconCenterX - Icons.width(icon) / 2, centerY - icon.length / 2, color);
+        } else {
+            drawAvatar(iconCenterX, centerY, 6, name, color);
+        }
+        String shown = Theme.ellipsize(fontRendererObj, name, r[2] - r[0] - 31);
+        int textColor = Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.5 + lit / 2);
+        Theme.text(fontRendererObj, shown, r[0] + 23, r[1] + 5, textColor);
+    }
+
+    /** One of the author's pages: its logo in the site's color and its name, lit in that color under the mouse. */
+    private void drawLink(int i, int[] r, double lit) {
+        int brand = (Integer) LINKS[i][3];
+        Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+        Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, brand, lit));
+        // The site's color as a strip along the bottom, growing from the middle under the mouse.
+        int half = (int) Math.round((r[2] - r[0] - 2) / 2.0 * (0.3 + 0.7 * lit));
+        int middle = (r[0] + r[2]) / 2;
+        Theme.fill(middle - half, r[3] - 2, middle + half, r[3] - 1, brand);
+        String[] icon = (String[]) LINKS[i][2];
+        String name = (String) LINKS[i][0];
+        int contentWidth = Icons.width(icon) + 5 + fontRendererObj.getStringWidth(name);
+        int x = (r[0] + r[2] - contentWidth) / 2;
+        // The content lifts a pixel under the mouse.
+        int lift = (int) Math.round(lit);
+        Icons.draw(icon, x, r[1] + (LINK_HEIGHT - 1 - icon.length) / 2 - lift, brand);
+        Theme.text(
+            fontRendererObj,
+            name,
+            x + Icons.width(icon) + 5,
+            r[1] + (LINK_HEIGHT - 9) / 2 - lift,
+            Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit));
+    }
+
+    private static boolean inside(int mouseX, int mouseY, int[] r) {
+        return Theme.inside(mouseX, mouseY, r[0], r[1], r[2], r[3]);
+    }
+
+    // ---------------------------------------------------------------- input
+
+    @Override
+    protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (button != 0) {
+            return;
+        }
+        if (!inside(mouseX, mouseY, panelRect) || inside(mouseX, mouseY, closeRect)) {
+            close();
+        } else if (inside(mouseX, mouseY, versionRect)) {
+            setClipboardString(Tags.VERSION);
+            copiedAt = System.currentTimeMillis();
+        } else if (inside(mouseX, mouseY, authorRect)) {
+            openLink(GITHUB_URL);
+        } else {
+            for (int i = 0; i < LINKS.length; i++) {
+                if (inside(mouseX, mouseY, linkRects[i])) {
+                    openLink((String) LINKS[i][1]);
+                    return;
+                }
+            }
         }
     }
 
     @Override
-    public void initGui() {
-        left = (width - WIDTH) / 2;
-        top = (height - HEIGHT) / 2;
-        buttonList.clear();
-        int gap = 6;
-        int linkWidth = (WIDTH - 20 - 2 * gap) / 3;
-        int linkY = top + 166;
-        buttonList.add(
-            new LinkButton(ID_GITHUB, left + 10, linkY, linkWidth, "GitHub", GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0));
-        buttonList.add(
-            new LinkButton(
-                ID_BOOSTY,
-                left + 10 + linkWidth + gap,
-                linkY,
-                linkWidth,
-                "Boosty",
-                BOOSTY_URL,
-                Icons.BOOSTY,
-                0xFFF15F2C));
-        buttonList.add(
-            new LinkButton(
-                ID_TELEGRAM,
-                left + WIDTH - 10 - linkWidth,
-                linkY,
-                linkWidth,
-                "Telegram",
-                TELEGRAM_URL,
-                Icons.TELEGRAM,
-                0xFF2AABEE));
-        buttonList
-            .add(new FlatButton(ID_CLOSE, left + 10, top + 193, WIDTH - 20, 18, I18n.format("wayfarmap.help.close")));
+    protected void keyTyped(char typedChar, int keyCode) {
+        if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN) {
+            close();
+        }
     }
 
-    @Override
-    protected void actionPerformed(GuiButton button) {
-        if (button instanceof LinkButton) {
-            openLink(((LinkButton) button).url);
-        } else if (button.id == ID_CLOSE) {
-            mc.displayGuiScreen(parent);
-        }
+    private void close() {
+        mc.displayGuiScreen(parent);
     }
 
     /** Opens the page in the system browser. */
@@ -139,66 +447,6 @@ public class GuiAbout extends ScaledScreen {
         } catch (Throwable t) {
             WayFarMap.LOG.warn("Couldn't open " + url, t);
         }
-    }
-
-    @Override
-    protected void keyTyped(char typedChar, int keyCode) {
-        if (keyCode == Keyboard.KEY_ESCAPE) {
-            mc.displayGuiScreen(parent);
-        }
-    }
-
-    @Override
-    public void drawScaled(int mouseX, int mouseY, float partialTicks) {
-        Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
-        Theme.panel(left, top, left + WIDTH, top + HEIGHT);
-        // Accent line along the top of the panel.
-        Theme.fill(left + 1, top + 1, left + WIDTH - 1, top + 3, Theme.ACCENT);
-        int centerX = left + WIDTH / 2;
-
-        // The compass logo and the title, both twice the size.
-        GL11.glPushMatrix();
-        GL11.glTranslatef(centerX - Icons.LOGO_SIZE, top + 12, 0f);
-        GL11.glScalef(2f, 2f, 1f);
-        Icons.drawLogo(0, 0);
-        GL11.glPopMatrix();
-        String title = "Wayfarer's Map";
-        GL11.glPushMatrix();
-        GL11.glTranslatef(centerX - fontRendererObj.getStringWidth(title), top + 48, 0f);
-        GL11.glScalef(2f, 2f, 1f);
-        Theme.text(fontRendererObj, title, 0, 0, Theme.TEXT);
-        GL11.glPopMatrix();
-        // A long version (a dev build's git description) is cut to the panel; the full one shows on hover.
-        String version = I18n.format("wayfarmap.about.version", Tags.VERSION);
-        String shownVersion = Theme.ellipsize(fontRendererObj, version, WIDTH - 20);
-        Theme.centered(fontRendererObj, shownVersion, centerX, top + 70, Theme.TEXT_MUTED);
-        int versionWidth = fontRendererObj.getStringWidth(shownVersion);
-        boolean versionHovered = !shownVersion.equals(version) && Theme
-            .inside(mouseX, mouseY, centerX - versionWidth / 2, top + 69, centerX + versionWidth / 2 + 1, top + 79);
-
-        divider(top + 84);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.author"), centerX, top + 92, Theme.TEXT_MUTED);
-        Theme.centered(fontRendererObj, AUTHOR, centerX, top + 103, Theme.ACCENT);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.testers"), centerX, top + 120, Theme.TEXT_MUTED);
-        Theme.centered(fontRendererObj, TESTER, centerX, top + 131, Theme.TEXT);
-        Theme.centered(fontRendererObj, I18n.format("wayfarmap.about.tester_chat"), centerX, top + 142, Theme.TEXT);
-        divider(top + 158);
-
-        super.drawScaled(mouseX, mouseY, partialTicks);
-
-        if (versionHovered) {
-            drawHoveringText(Collections.singletonList(version), mouseX, mouseY, fontRendererObj);
-        }
-        for (Object o : buttonList) {
-            if (o instanceof LinkButton && ((LinkButton) o).isMouseOver(mouseX, mouseY)) {
-                drawHoveringText(Collections.singletonList(((LinkButton) o).url), mouseX, mouseY, fontRendererObj);
-            }
-        }
-    }
-
-    /** Thin line across the panel, short of its edges. */
-    private void divider(int y) {
-        Theme.fill(left + 20, y, left + WIDTH - 20, y + 1, Theme.BORDER);
     }
 
     @Override
