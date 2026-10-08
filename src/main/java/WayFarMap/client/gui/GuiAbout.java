@@ -22,7 +22,7 @@ import WayFarMap.client.gui.ui.Theme;
 
 /**
  * About the mod: its glowing logo over a starry top, the name and the version (a click copies it), what the mod is,
- * who made it (a click opens the author's GitHub), who tested it, and the author's pages. Its parts slide in one after
+ * who made it, who tested it, and the author's pages. Its parts slide in one after
  * another when it opens; Esc, the button at the bottom or a click outside the window closes it.
  */
 public class GuiAbout extends ScaledScreen {
@@ -65,10 +65,10 @@ public class GuiAbout extends ScaledScreen {
     private long copiedAt;
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
-    private int[] panelRect = new int[4], versionRect = new int[4], authorRect = new int[4], closeRect = new int[4];
+    private int[] panelRect = new int[4], versionRect = new int[4], closeRect = new int[4];
     private final int[][] linkRects = new int[LINKS.length][4];
     /** How lit each thing is by the mouse. */
-    private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0);
+    private final Smooth versionLight = new Smooth(0), closeLight = new Smooth(0);
     private final Smooth[] linkLight = { new Smooth(0), new Smooth(0), new Smooth(0) };
     private final Smooth[] chipLight;
 
@@ -213,16 +213,11 @@ public class GuiAbout extends ScaledScreen {
         }
         int base = top + HERO_HEIGHT + 10 + tagline().size() * 10 + 8;
 
-        // Who made it: a card with the author's avatar, a click opens their GitHub.
+        // Who made it: a card with the author's avatar.
         y = base + slide(2);
         sectionTitle(I18n.format("wayfarmap.about.author"), left, right, y);
         y += SECTION_TITLE;
-        authorRect = new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT };
-        boolean authorHovered = inside(mouseX, mouseY, authorRect);
-        drawAuthorCard(authorRect, authorLight.update(authorHovered ? 1 : 0, 22));
-        if (authorHovered) {
-            tooltip = Collections.singletonList(GITHUB_URL);
-        }
+        drawAuthorCard(new int[] { left + PAD, y, right - PAD, y + CARD_HEIGHT });
         base += SECTION_TITLE + CARD_HEIGHT + 10;
 
         // Who tested it: a chip for each tester and one for the chat.
@@ -329,24 +324,18 @@ public class GuiAbout extends ScaledScreen {
             0xFF0E1116);
     }
 
-    /** The author: an avatar, the name and what they did, and the GitHub logo; lit under the mouse. */
-    private void drawAuthorCard(int[] r, double lit) {
-        Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
-        Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, Theme.ACCENT, lit));
+    /** The author: an avatar, the name and what they did. */
+    private void drawAuthorCard(int[] r) {
+        Theme.fill(r[0], r[1], r[2], r[3], Theme.CONTROL);
+        Theme.outline(r[0], r[1], r[2], r[3], Theme.BORDER);
         // The accent along the left edge.
         Theme.fill(r[0] + 1, r[1] + 1, r[0] + 3, r[3] - 1, Theme.ACCENT);
         int avatarX = r[0] + 18, avatarY = (r[1] + r[3]) / 2;
-        Theme.disc(avatarX, avatarY, 11, (int) (0x30 + 0x40 * lit) << 24 | (Theme.ACCENT & 0xFFFFFF));
+        Theme.disc(avatarX, avatarY, 11, 0x30000000 | (Theme.ACCENT & 0xFFFFFF));
         drawAvatar(avatarX, avatarY, 9, AUTHOR, Theme.ACCENT);
         Theme.text(fontRendererObj, AUTHOR, r[0] + 34, r[1] + 6, Theme.TEXT);
         String role = I18n.format("wayfarmap.about.author_role");
         Theme.text(fontRendererObj, role, r[0] + 34, r[1] + 17, Theme.TEXT_MUTED);
-        String[] icon = Icons.GITHUB;
-        Icons.draw(
-            icon,
-            r[2] - 10 - Icons.width(icon),
-            avatarY - icon.length / 2,
-            Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit));
     }
 
     /** A tester (an avatar and the name) or the chat (its icon and name); lit under the mouse. */
@@ -407,8 +396,6 @@ public class GuiAbout extends ScaledScreen {
         } else if (inside(mouseX, mouseY, versionRect)) {
             setClipboardString(Tags.VERSION);
             copiedAt = System.currentTimeMillis();
-        } else if (inside(mouseX, mouseY, authorRect)) {
-            openLink(GITHUB_URL);
         } else {
             for (int i = 0; i < LINKS.length; i++) {
                 if (inside(mouseX, mouseY, linkRects[i])) {
