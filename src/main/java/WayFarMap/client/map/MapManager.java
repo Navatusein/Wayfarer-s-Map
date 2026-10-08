@@ -61,8 +61,8 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /** Regions farther than this from the player are released when no fullscreen map is open. */
     private static final int KEEP_REGION_RADIUS = 2;
-    /** Solid blocks above the head needed to count as underground (a one block roof doesn't). */
-    private static final int UNDERGROUND_ROOF = 3;
+    /** Light opacity from which a block keeps the sun out (glass, fences, leaves, water let light through). */
+    private static final int ROOF_OPACITY = 15;
 
     /** One thread, so writes of the same file never overlap. */
     private final ExecutorService saveExecutor = createExecutor("WayFarMap saver", 1);
@@ -792,7 +792,10 @@ public class MapManager implements IResourceManagerReloadListener {
         }
     }
 
-    /** In the Nether, or with a few solid blocks above the head (a cave, not a house or a forest). */
+    /**
+     * In the Nether, or with no sunlight: a block that keeps the light out above the head, over the player's column and
+     * the 8 around it (glass, fences, leaves and other blocks that let light through don't count).
+     */
     private static boolean isUnderground(WorldClient world, EntityPlayer player) {
         if (world.provider.hasNoSky) {
             return true;
@@ -800,15 +803,27 @@ public class MapManager implements IResourceManagerReloadListener {
         int x = MathHelper.floor_double(player.posX);
         int z = MathHelper.floor_double(player.posZ);
         int y = MathHelper.floor_double(player.boundingBox.minY) + 2;
-        int top = Math.min(255, world.getHeightValue(x, z));
-        int solid = 0;
-        for (int yy = y; yy <= top && solid < UNDERGROUND_ROOF; yy++) {
-            Block block = world.getBlock(x, yy, z);
-            if (block.isOpaqueCube()) {
-                solid++;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (!hasRoof(world, x + dx, y, z + dz)) {
+                    return false;
+                }
             }
         }
-        return solid >= UNDERGROUND_ROOF;
+        return true;
+    }
+
+    /** A block that keeps the sun out in the column, from {@code y} up. */
+    private static boolean hasRoof(WorldClient world, int x, int y, int z) {
+        // The height map stops at the highest block that lets any less light through: nothing keeps it out above.
+        int top = Math.min(255, world.getHeightValue(x, z) - 1);
+        for (int yy = Math.max(0, y); yy <= top; yy++) {
+            Block block = world.getBlock(x, yy, z);
+            if (block.getLightOpacity(world, x, yy, z) >= ROOF_OPACITY) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
