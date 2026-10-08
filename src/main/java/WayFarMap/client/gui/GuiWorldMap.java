@@ -2693,8 +2693,8 @@ public class GuiWorldMap extends ScaledScreen {
                 }
             });
         ChunkLoadView.refresh();
-        mc.thePlayer.addChatMessage(
-            Lang.chat(with3d ? "wayfarmap.chunkload.wiped_3d" : "wayfarmap.chunkload.wiped_2d"));
+        mc.thePlayer
+            .addChatMessage(Lang.chat(with3d ? "wayfarmap.chunkload.wiped_3d" : "wayfarmap.chunkload.wiped_2d"));
     }
 
     /**
@@ -3045,9 +3045,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         ChunkLoadView.refresh();
         mc.thePlayer.addChatMessage(
-            Lang.chat(
-                with3d ? "wayfarmap.chunkload.deleted_3d" : "wayfarmap.chunkload.deleted_2d",
-                deleted));
+            Lang.chat(with3d ? "wayfarmap.chunkload.deleted_3d" : "wayfarmap.chunkload.deleted_2d", deleted));
     }
 
     private static boolean isShiftDown() {

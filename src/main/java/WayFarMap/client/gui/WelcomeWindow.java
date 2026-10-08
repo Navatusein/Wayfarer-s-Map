@@ -670,8 +670,7 @@ final class WelcomeWindow {
         double helpLit = helpLight.update(inside(mouseX, mouseY, helpRect) ? 1 : 0, 22);
         drawButton(helpRect, help, Icons.HELP, false, false, helpLit);
 
-        String next = Lang.format(
-            !last ? "wayfarmap.welcome.next" : "wayfarmap.welcome.whats_new");
+        String next = Lang.format(!last ? "wayfarmap.welcome.next" : "wayfarmap.welcome.whats_new");
         int nextWidth = Math.max(90, font.getStringWidth(next) + 30);
         nextRect = new int[] { right - PAD - nextWidth, y, right - PAD, y + BUTTON_HEIGHT };
         if (last) {

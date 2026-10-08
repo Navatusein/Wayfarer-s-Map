@@ -34,6 +34,7 @@ final class Changelog {
 
     /** The tag of a point: how it is marked. */
     enum Tag {
+
         NEW(0xFF3FB950),
         FIX(0xFFE3B341),
         CHANGE(0xFF4C9AFF),

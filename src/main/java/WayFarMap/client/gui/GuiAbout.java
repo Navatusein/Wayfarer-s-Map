@@ -54,14 +54,10 @@ public class GuiAbout extends ScaledScreen {
         { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
     /** A white circle with smooth edges, tinted for the avatars' rings and the glows. */
-    static final ResourceLocation CIRCLE = new ResourceLocation(
-        "wayfarmap",
-        "textures/gui/avatars/circle.png");
+    static final ResourceLocation CIRCLE = new ResourceLocation("wayfarmap", "textures/gui/avatars/circle.png");
 
     /** The RU GTNH chat's icon. */
-    static final ResourceLocation CHAT_ICON = new ResourceLocation(
-        "wayfarmap",
-        "textures/gui/avatars/gtnh_chat.png");
+    static final ResourceLocation CHAT_ICON = new ResourceLocation("wayfarmap", "textures/gui/avatars/gtnh_chat.png");
 
     /** The stars twinkling over the top: {x, y} as parts of its size, and the phase of their twinkle. */
     private static final double[][] STARS = new double[22][3];
@@ -81,8 +77,7 @@ public class GuiAbout extends ScaledScreen {
     private long copiedAt;
 
     /** Where things were drawn last, for the clicks: {x0, y0, x1, y1}. */
-    private int[] versionRect = new int[4], authorRect = new int[4], closeRect = new int[4],
-        changelogRect = new int[4];
+    private int[] versionRect = new int[4], authorRect = new int[4], closeRect = new int[4], changelogRect = new int[4];
     private final int[][] linkRects = new int[LINKS.length][4];
     /** How lit each thing is by the mouse. */
     private final Smooth versionLight = new Smooth(0), authorLight = new Smooth(0), closeLight = new Smooth(0),
