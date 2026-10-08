@@ -507,10 +507,10 @@ public final class MapDrawer {
 
     /**
      * Dimensions without a sky, like the Nether, are dim at any time of day, surface and caves alike, with their lights
-     * glowing (unless the map is fixed to day).
+     * glowing (unless the map is fixed to day). Not the End: it is lit as by day, like JourneyMap shows it.
      */
     private static boolean isDimNether(MapDimension dimension) {
-        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimension.dimensionId);
+        return Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimension.dimensionId);
     }
 
     /**
@@ -518,7 +518,7 @@ public final class MapDrawer {
      * the Nether, is dim at any time of day, lit only by its lava and lamps (unless the map is fixed to day).
      */
     public static float isoNightAmount(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return 1f;
         }
         return nightAmount(mc);
@@ -526,7 +526,7 @@ public final class MapDrawer {
 
     /** RGB multiplier for models on the 3D map of the dimension, as {@link #isoNightAmount} lights it. */
     public static float[] isoLightTint(Minecraft mc, int dimensionId) {
-        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.hasNoSky(dimensionId)) {
+        if (Config.mapLightMode != Config.LIGHT_DAY && MapManager.INSTANCE.isDark(dimensionId)) {
             return NETHER_TINT.clone();
         }
         return lightTint(mc);

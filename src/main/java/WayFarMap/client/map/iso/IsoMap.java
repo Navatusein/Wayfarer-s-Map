@@ -71,7 +71,7 @@ public final class IsoMap implements BlockStore.Listener {
         final int id;
         final File directory;
         final BlockStore store;
-        /** No sky (the Nether): dim at any time of day, lit only by its lava and lamps. */
+        /** Dark, no sky and a ceiling (the Nether, not the End): dim at any time of day, lit only by lava and lamps. */
         volatile boolean noSky;
 
         Dimension(int id, File directory, BlockStore.Listener listener) {
@@ -377,7 +377,7 @@ public final class IsoMap implements BlockStore.Listener {
             dimension = new Dimension(id, new File(worldDirectory, "dim" + id), this);
             dimensions.put(id, dimension);
         }
-        if (!dimension.noSky && MapManager.INSTANCE.hasNoSky(id)) {
+        if (!dimension.noSky && MapManager.INSTANCE.isDark(id)) {
             dimension.noSky = true;
         }
         return dimension;

@@ -30,6 +30,7 @@ import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldProvider;
+import net.minecraft.world.WorldProviderEnd;
 import net.minecraft.world.WorldProviderHell;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
@@ -397,6 +398,22 @@ public class MapManager implements IResourceManagerReloadListener {
         return viewed != null && viewed.id == dimensionId && viewed.noSky;
     }
 
+    /**
+     * Whether the dimension is dark like the Nether: no sky and a ceiling, lit only by its lava and lamps. The End has
+     * no sky either, but is lit evenly at any time, as in the game.
+     */
+    public boolean isDark(int dimensionId) {
+        if (currentWorld != null && currentWorld.provider.dimensionId == dimensionId) {
+            return isDark(currentWorld.provider);
+        }
+        return hasNoSky(dimensionId) && dimensionId != 1;
+    }
+
+    /** Whether the provider's dimension is dark like the Nether (see {@link #isDark(int)}). */
+    public static boolean isDark(WorldProvider provider) {
+        return provider.hasNoSky && !(provider instanceof WorldProviderEnd);
+    }
+
     /** Id of the dimension shown on the world map. */
     public int getViewedDimensionId() {
         return viewed != null ? viewed.id : surface != null ? surface.dimensionId : 0;
@@ -433,7 +450,7 @@ public class MapManager implements IResourceManagerReloadListener {
         if (viewed == null) {
             return activeCaveLayer;
         }
-        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && viewed.noSky);
+        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && isDark(viewed.id));
         if (!caves) {
             return -1;
         }
@@ -794,10 +811,11 @@ public class MapManager implements IResourceManagerReloadListener {
 
     /**
      * In the Nether, or with no sunlight: a block that keeps the light out above the head, over the player's column and
-     * the 8 around it (glass, fences, leaves and other blocks that let light through don't count).
+     * the 8 around it (glass, fences, leaves and other blocks that let light through don't count). The End's open void
+     * above the islands is no roof.
      */
     private static boolean isUnderground(WorldClient world, EntityPlayer player) {
-        if (world.provider.hasNoSky) {
+        if (isDark(world.provider)) {
             return true;
         }
         int x = MathHelper.floor_double(player.posX);
