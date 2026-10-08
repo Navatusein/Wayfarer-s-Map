@@ -29,8 +29,8 @@ import WayFarMap.WayFarMap;
 final class PictureCache {
 
     private static final int MAGIC = 0x57465043; // "WFPC"
-    /** 2: caches of version 1 may hold pictures read back later, which came out wrong. */
-    private static final int VERSION = 2;
+    /** 3: pictures by place too. (2: caches of version 1 may hold pictures read back later, which came out wrong.) */
+    private static final int VERSION = 3;
     private static final String NAME = "3d-pictures.dat";
     private static long modsHash;
 
@@ -109,6 +109,8 @@ final class PictureCache {
                     + counts.blocks
                     + " data="
                     + counts.data
+                    + " places="
+                    + counts.places
                     + " wholeCubes="
                     + counts.wholeCubes
                     + " spriteLooks="

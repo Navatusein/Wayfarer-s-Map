@@ -204,9 +204,15 @@ final class FaceRenderer {
         final long surroundings;
         final int[] ids;
         final long time;
+        /**
+         * What the block's tile entity and those next to it kept when drawn ({@link #dataKey}), 0 if unknown: given
+         * again only while it is the same (a machine changed while away is drawn again). Kept on disk with it.
+         */
+        final long data;
 
-        Cached(long surroundings, int[] ids, long time) {
+        Cached(long surroundings, int[] ids, long time, long data) {
             this.surroundings = surroundings;
+            this.data = data;
             this.ids = ids;
             this.time = time;
         }
@@ -627,6 +633,8 @@ final class FaceRenderer {
         boolean maskKnown;
         /** Its key for {@link #BY_DATA}, 0 if none; whether it is drawn to check the pictures kept for it. */
         long dataKey;
+        /** {@link #dataKey} of a block kept by place, whatever its class ({@link Cached#data}); 0 if unknown. */
+        long placeData;
         boolean dataVerifying;
 
         boolean hidden(int view) {
@@ -937,6 +945,21 @@ final class FaceRenderer {
             writeLearned(out, BY_KIND);
             writeLearned(out, BY_BLOCK);
             writeLearned(out, BY_DATA);
+            // By place: only those whose tile entity data is known (checked before they are given again).
+            int places = 0;
+            for (Cached cached : BY_PLACE.values()) {
+                places += cached.data != 0 ? 1 : 0;
+            }
+            out.writeInt(places);
+            for (Map.Entry<Long, Cached> entry : BY_PLACE.entrySet()) {
+                Cached cached = entry.getValue();
+                if (cached.data != 0) {
+                    out.writeLong(entry.getKey());
+                    out.writeLong(cached.surroundings);
+                    out.writeLong(cached.data);
+                    writeIds(out, cached.ids);
+                }
+            }
             out.writeInt(WHOLE_CUBE.size());
             for (Map.Entry<Long, Boolean> entry : WHOLE_CUBE.entrySet()) {
                 out.writeLong(entry.getKey());
@@ -996,10 +1019,10 @@ final class FaceRenderer {
     /** Counts of what {@link #importCaches} took in, for the log. */
     static final class Imported {
 
-        int surroundings, kinds, blocks, data, wholeCubes, looks, classes, dropped;
+        int surroundings, kinds, blocks, data, places, wholeCubes, looks, classes, dropped;
 
         int total() {
-            return surroundings + kinds + blocks + data + wholeCubes + looks + classes;
+            return surroundings + kinds + blocks + data + places + wholeCubes + looks + classes;
         }
     }
 
@@ -1022,6 +1045,17 @@ final class FaceRenderer {
         }
         Map<Long, Learned> kinds = readLearned(in, pictures, counts), blocks = readLearned(in, pictures, counts),
             data = readLearned(in, pictures, counts);
+        Map<Long, Cached> places = new LinkedHashMap<>();
+        long now = System.currentTimeMillis();
+        for (int n = in.readInt(); n > 0; n--) {
+            long key = in.readLong(), around = in.readLong(), kept = in.readLong();
+            int[] ids = readIds(in, pictures);
+            if (ids != null) {
+                places.put(key, new Cached(around, ids, now, kept));
+            } else {
+                counts.dropped++;
+            }
+        }
         Map<Long, Boolean> wholeCubes = new HashMap<>();
         for (int n = in.readInt(); n > 0; n--) {
             wholeCubes.put(in.readLong(), in.readBoolean());
@@ -1051,6 +1085,8 @@ final class FaceRenderer {
         BY_BLOCK.putAll(blocks);
         BY_DATA.clear();
         BY_DATA.putAll(data);
+        BY_PLACE.clear();
+        BY_PLACE.putAll(places);
         WHOLE_CUBE.putAll(wholeCubes);
         LOOKS_OF_SPRITES.clear();
         LOOKS_OF_SPRITES.putAll(looks);
@@ -1072,6 +1108,7 @@ final class FaceRenderer {
         counts.kinds = kinds.size();
         counts.blocks = blocks.size();
         counts.data = data.size();
+        counts.places = places.size();
         counts.wholeCubes = wholeCubes.size();
         counts.looks = looks.size();
         counts.classes = classes.size();
@@ -1398,7 +1435,8 @@ final class FaceRenderer {
                     long now = System.currentTimeMillis();
                     BY_PLACE.put(
                         place(pending.x, pending.y, pending.z),
-                        new Cached(pending.surroundings, pending.ids.clone(), now));
+                        new Cached(pending.surroundings, pending.ids.clone(), now, pending.placeData));
+                    cachesChanged = true;
                     if (pending.dataKey != 0) {
                         learnData(pending);
                         List<Pending> same = waiting.get(pending.dataWaitKey());
@@ -1407,7 +1445,7 @@ final class FaceRenderer {
                                 System.arraycopy(pending.ids, 0, other.ids, 0, pending.ids.length);
                                 BY_PLACE.put(
                                     place(other.x, other.y, other.z),
-                                    new Cached(other.surroundings, other.ids.clone(), now));
+                                    new Cached(other.surroundings, other.ids.clone(), now, other.placeData));
                             }
                         }
                     }
@@ -1592,14 +1630,21 @@ final class FaceRenderer {
             found.add(pending);
             if (pending.byPlace()) {
                 tileEntities++;
+                if (!pending.unsure && DATA_CACHE) {
+                    long k0 = System.nanoTime();
+                    pending.placeData = dataKey(world, pending, dataHashes);
+                    dataKeyNanos += System.nanoTime() - k0;
+                }
                 Cached cached = BY_PLACE.get(place(x, y, z));
-                if (cached != null && cached.surroundings == surroundings && fits(cached.ids, pending, sight)) {
+                if (cached != null && cached.surroundings == surroundings
+                    && (cached.data == 0 || cached.data == pending.placeData)
+                    && fits(cached.ids, pending, sight)) {
                     System.arraycopy(cached.ids, 0, pending.ids, 0, pending.ids.length);
                     placeHit++;
                     continue;
                 }
                 if (cached != null) {
-                    if (cached.surroundings != surroundings) {
+                    if (cached.surroundings != surroundings || cached.data != 0 && cached.data != pending.placeData) {
                         placeChanged++;
                     } else {
                         placeExpired++;
@@ -2555,7 +2600,7 @@ final class FaceRenderer {
             return false;
         }
         long t0 = System.nanoTime();
-        pending.dataKey = dataKey(world, pending, hashes);
+        pending.dataKey = pending.placeData != 0 ? pending.placeData : dataKey(world, pending, hashes);
         dataKeyNanos += System.nanoTime() - t0;
         if (pending.dataKey == 0) {
             dataNoKey++;
@@ -2591,7 +2636,7 @@ final class FaceRenderer {
         System.arraycopy(ids, 0, pending.ids, 0, pending.ids.length);
         BY_PLACE.put(
             place(pending.x, pending.y, pending.z),
-            new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis()));
+            new Cached(pending.surroundings, pending.ids.clone(), System.currentTimeMillis(), pending.placeData));
         dataHit++;
         c.stats[D_REUSED]++;
         return true;
