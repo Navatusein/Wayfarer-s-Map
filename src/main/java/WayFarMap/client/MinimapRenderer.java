@@ -186,8 +186,9 @@ public class MinimapRenderer {
 
     /** The map the minimap shows: the world map's, without plants when that one is. */
     private static MapDimension shownDimension() {
-        MapDimension dimension = MapManager.INSTANCE.getDimension();
-        if (dimension != null && (!Config.showPlants || Topography.isShown()) && dimension.plantless() != null) {
+        MapDimension dimension = MapManager.INSTANCE.getDimension(true);
+        if (dimension != null && (!Config.showPlants(true) || Topography.isShown(true))
+            && dimension.plantless() != null) {
             // The world map shows the surface without grass and flowers: the minimap too. The topography is drawn
             // from the ground that map keeps.
             dimension = dimension.plantless();
@@ -205,7 +206,7 @@ public class MinimapRenderer {
             lines.add(blockX + ", " + MathHelper.floor_double(player.boundingBox.minY) + ", " + blockZ);
         }
         int caveLayer = MapManager.INSTANCE.getActiveCaveLayer();
-        if (caveLayer >= 0 && Config.mapDisplayMode == Config.DISPLAY_BLOCKS) {
+        if (caveLayer >= 0 && Config.displayMode(true) == Config.DISPLAY_BLOCKS) {
             lines.add(Lang.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15));
         }
         if (Config.minimapShowBiome) {
@@ -415,14 +416,15 @@ public class MinimapRenderer {
         GL11.glRotatef(rotation, 0f, 0f, 1f);
         GL11.glTranslated(-inner / 2.0, -inner / 2.0, 0);
         MapDrawer.iconRotation = rotation;
+        MapDrawer.minimapPass = true;
         try {
             MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
             // Drawn with the view off too: it fades out.
             Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner, true);
-            if (Config.chunkGrid) {
+            if (Config.chunkGrid(true)) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }
-            if (Config.showClaims && Mods.isClaimsAvailable()) {
+            if (Config.claims(true) && Mods.isClaimsAvailable()) {
                 // Claims as on the world map, when they are shown there.
                 Mods.draw(
                     Mods.Addon.CLAIMS,
@@ -431,25 +433,25 @@ public class MinimapRenderer {
             }
             if (Mods.isVisualProspectingLoaded()) {
                 int dimensionId = mc.theWorld.provider.dimensionId;
-                if (Config.showUndergroundFluids) {
+                if (Config.undergroundFluids(true)) {
                     Mods.draw(
                         Mods.Addon.VISUAL_PROSPECTING,
                         () -> ProspectingLayer.drawFluids(dimensionId, px, pz, scale, 0, 0, inner, inner, true));
                 }
-                if (Config.showOreVeins && Mods.isVisualProspectingLoaded()) {
+                if (Config.oreVeins(true) && Mods.isVisualProspectingLoaded()) {
                     Mods.draw(
                         Mods.Addon.VISUAL_PROSPECTING,
                         () -> ProspectingLayer
                             .drawOreVeins(dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
                 }
             }
-            if (Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable()) {
+            if (Config.thaumcraftNodes(true) && Mods.isThaumcraftNodesAvailable()) {
                 Mods.draw(
                     Mods.Addon.THAUMCRAFT_NODES,
                     () -> ThaumcraftNodes
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
-            if (Config.showPowerfails && Mods.isPowerfailsAvailable()) {
+            if (Config.powerfails(true) && Mods.isPowerfailsAvailable()) {
                 Mods.draw(
                     Mods.Addon.POWERFAILS,
                     () -> PowerfailLayer
@@ -472,6 +474,7 @@ public class MinimapRenderer {
                 false);
         } finally {
             MapDrawer.iconRotation = 0f;
+            MapDrawer.minimapPass = false;
             GL11.glPopMatrix();
             GL11.glColor4f(1f, 1f, 1f, 1f);
         }

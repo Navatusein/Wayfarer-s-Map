@@ -91,6 +91,16 @@ public class Config {
     public static int minimapFrameColor = MINIMAP_FRAME_COLOR;
     /** How opaque the minimap's frame is, in percent, and how thick its colored line is, in pixels. */
     public static int minimapFrameOpacity = 100, minimapFrameWidth = 1;
+    /** The minimap's own settings; each group is used only while its switch is on, else the world map's are. */
+    public static boolean minimapOwnView, minimapOwnLayers, minimapOwnGrid, minimapOwnMobs;
+    public static final int MINIMAP_VIEW_FLAT = 0, MINIMAP_VIEW_BARE = 1, MINIMAP_VIEW_TOPO = 2,
+        MINIMAP_VIEW_BIOMES = 3;
+    public static int minimapView = MINIMAP_VIEW_FLAT, minimapLightMode = LIGHT_AUTO;
+    public static boolean minimapOreVeins = true, minimapUndergroundFluids, minimapClaims, minimapPowerfails = true,
+        minimapThaumcraftNodes = true;
+    public static boolean minimapChunkGrid;
+    public static boolean minimapPlayers = true, minimapHostileMobs = true, minimapPassiveMobs = true,
+        minimapAmbientMobs = true, minimapOtherEntities = true, minimapPets = true;
     /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
     public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
         MARKER_CIRCLE = 4, MARKER_DOT = 5;
@@ -396,6 +406,123 @@ public class Config {
             () -> minimapTextGap,
             v -> minimapTextGap = v);
 
+        group("ownView");
+        parent("enabled");
+        bool(
+            c,
+            "ownView",
+            "The minimap has its own map view instead of the world map's.",
+            false,
+            () -> minimapOwnView,
+            v -> minimapOwnView = v);
+        parent("ownView");
+        choice(
+            c,
+            "view",
+            "Minimap view: 0 = 2D, 1 = 2D without plants, 2 = topography, 3 = biomes.",
+            MINIMAP_VIEW_FLAT,
+            new String[] { "flat", "bare", "topo", "biomes" },
+            () -> minimapView,
+            v -> minimapView = v);
+        choice(
+            c,
+            "light",
+            "Minimap lighting: 0 = follow the day/night cycle, 1 = always day, 2 = always night.",
+            LIGHT_AUTO,
+            new String[] { "auto", "day", "night" },
+            () -> minimapLightMode,
+            v -> minimapLightMode = v);
+        group("ownLayers");
+        parent("enabled");
+        bool(
+            c,
+            "ownLayers",
+            "The minimap has its own choice of mod layers instead of the world map's.",
+            false,
+            () -> minimapOwnLayers,
+            v -> minimapOwnLayers = v);
+        parent("ownLayers");
+        bool(c, "layerOreVeins", "Ore veins on the minimap.", true, () -> minimapOreVeins, v -> {
+            minimapOreVeins = v;
+            // One at a time, as on the world map.
+            if (v) minimapUndergroundFluids = false;
+        });
+        bool(
+            c,
+            "layerUndergroundFluids",
+            "Underground fluids on the minimap.",
+            false,
+            () -> minimapUndergroundFluids,
+            v -> {
+                minimapUndergroundFluids = v;
+                if (v) minimapOreVeins = false;
+            });
+        bool(c, "layerClaims", "Chunk claims on the minimap.", false, () -> minimapClaims, v -> minimapClaims = v);
+        bool(
+            c,
+            "layerPowerfails",
+            "GregTech power failures on the minimap.",
+            true,
+            () -> minimapPowerfails,
+            v -> minimapPowerfails = v);
+        bool(
+            c,
+            "layerThaumcraftNodes",
+            "Thaumcraft nodes on the minimap.",
+            true,
+            () -> minimapThaumcraftNodes,
+            v -> minimapThaumcraftNodes = v);
+        group("ownGrid");
+        parent("enabled");
+        bool(
+            c,
+            "ownGrid",
+            "The minimap has its own chunk grid switch instead of the world map's.",
+            false,
+            () -> minimapOwnGrid,
+            v -> minimapOwnGrid = v);
+        parent("ownGrid");
+        bool(c, "grid", "Chunk borders on the minimap.", false, () -> minimapChunkGrid, v -> minimapChunkGrid = v);
+        group("ownMobs");
+        parent("enabled");
+        bool(
+            c,
+            "ownMobs",
+            "The minimap has its own choice of players and mobs instead of the world map's.",
+            false,
+            () -> minimapOwnMobs,
+            v -> minimapOwnMobs = v);
+        parent("ownMobs");
+        bool(c, "mobsPlayers", "Other players on the minimap.", true, () -> minimapPlayers, v -> minimapPlayers = v);
+        bool(
+            c,
+            "mobsHostile",
+            "Hostile mobs on the minimap.",
+            true,
+            () -> minimapHostileMobs,
+            v -> minimapHostileMobs = v);
+        bool(
+            c,
+            "mobsPassive",
+            "Neutral mobs on the minimap.",
+            true,
+            () -> minimapPassiveMobs,
+            v -> minimapPassiveMobs = v);
+        bool(
+            c,
+            "mobsAmbient",
+            "Ambient mobs on the minimap.",
+            true,
+            () -> minimapAmbientMobs,
+            v -> minimapAmbientMobs = v);
+        bool(
+            c,
+            "mobsFriendly",
+            "Friendly mobs on the minimap.",
+            true,
+            () -> minimapOtherEntities,
+            v -> minimapOtherEntities = v);
+        bool(c, "mobsPets", "Tamed mobs on the minimap.", true, () -> minimapPets, v -> minimapPets = v);
         c = CATEGORY_MAP;
         tab(TAB_MAP);
         group("language");
@@ -1436,6 +1563,114 @@ public class Config {
     public static void setShowPlants(boolean show) {
         showPlants = show;
         save();
+    }
+
+    // What a map shows: the minimap's own settings where it has them, else the world map's.
+
+    public static int displayMode(boolean minimap) {
+        if (!minimap || !minimapOwnView) {
+            return mapDisplayMode;
+        }
+        return minimapView == MINIMAP_VIEW_BIOMES ? DISPLAY_BIOMES
+            : minimapView == MINIMAP_VIEW_TOPO ? DISPLAY_TOPO : DISPLAY_BLOCKS;
+    }
+
+    public static boolean showPlants(boolean minimap) {
+        return minimap && minimapOwnView ? minimapView != MINIMAP_VIEW_BARE : showPlants;
+    }
+
+    public static int lightMode(boolean minimap) {
+        return minimap && minimapOwnView ? minimapLightMode : mapLightMode;
+    }
+
+    public static boolean chunkGrid(boolean minimap) {
+        return minimap && minimapOwnGrid ? minimapChunkGrid : chunkGrid;
+    }
+
+    public static boolean oreVeins(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapOreVeins : showOreVeins;
+    }
+
+    public static boolean undergroundFluids(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapUndergroundFluids : showUndergroundFluids;
+    }
+
+    public static boolean claims(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapClaims : showClaims;
+    }
+
+    public static boolean powerfails(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapPowerfails : showPowerfails;
+    }
+
+    public static boolean thaumcraftNodes(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapThaumcraftNodes : showThaumcraftNodes;
+    }
+
+    public static boolean otherPlayers(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapPlayers : showOtherPlayers;
+    }
+
+    public static boolean hostileMobs(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapHostileMobs : showHostileMobs;
+    }
+
+    public static boolean passiveMobs(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapPassiveMobs : showPassiveMobs;
+    }
+
+    public static boolean ambientMobs(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapAmbientMobs : showAmbientMobs;
+    }
+
+    public static boolean otherEntities(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapOtherEntities : showOtherEntities;
+    }
+
+    public static boolean pets(boolean minimap) {
+        return minimap && minimapOwnMobs ? minimapPets : showPets;
+    }
+
+    // The minimap's keys: a group that was following the world map starts its own settings from what is shown now.
+
+    public static void ownMinimapView() {
+        if (!minimapOwnView) {
+            minimapView = mapDisplayMode == DISPLAY_BIOMES ? MINIMAP_VIEW_BIOMES
+                : mapDisplayMode == DISPLAY_TOPO ? MINIMAP_VIEW_TOPO
+                    : showPlants ? MINIMAP_VIEW_FLAT : MINIMAP_VIEW_BARE;
+            minimapLightMode = mapLightMode;
+            minimapOwnView = true;
+        }
+    }
+
+    public static void ownMinimapLayers() {
+        if (!minimapOwnLayers) {
+            minimapOreVeins = showOreVeins;
+            minimapUndergroundFluids = showUndergroundFluids;
+            minimapClaims = showClaims;
+            minimapPowerfails = showPowerfails;
+            minimapThaumcraftNodes = showThaumcraftNodes;
+            minimapOwnLayers = true;
+        }
+    }
+
+    public static void ownMinimapGrid() {
+        if (!minimapOwnGrid) {
+            minimapChunkGrid = chunkGrid;
+            minimapOwnGrid = true;
+        }
+    }
+
+    public static void ownMinimapMobs() {
+        if (!minimapOwnMobs) {
+            minimapPlayers = showOtherPlayers;
+            minimapHostileMobs = showHostileMobs;
+            minimapPassiveMobs = showPassiveMobs;
+            minimapAmbientMobs = showAmbientMobs;
+            minimapOtherEntities = showOtherEntities;
+            minimapPets = showPets;
+            minimapOwnMobs = true;
+        }
     }
 
     /** The grid button and key: turns the chunk borders on and off. */

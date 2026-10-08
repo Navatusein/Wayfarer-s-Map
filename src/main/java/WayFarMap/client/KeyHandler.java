@@ -1,5 +1,8 @@
 package WayFarMap.client;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
@@ -22,14 +25,22 @@ import cpw.mods.fml.common.gameevent.InputEvent;
 public class KeyHandler {
 
     private static final String CATEGORY = "key.categories.wayfarmap";
+    private static final String CATEGORY_MAP = "key.categories.wayfarmap.map";
+    private static final String CATEGORY_MINIMAP = "key.categories.wayfarmap.minimap";
 
     public static final KeyBinding OPEN_MAP = new KeyBinding("key.wayfarmap.open_map", Keyboard.KEY_M, CATEGORY);
     public static final KeyBinding TOGGLE_MINIMAP = new KeyBinding(
         "key.wayfarmap.toggle_minimap",
         Keyboard.KEY_N,
-        CATEGORY);
-    public static final KeyBinding ZOOM_IN = new KeyBinding("key.wayfarmap.zoom_in", Keyboard.KEY_EQUALS, CATEGORY);
-    public static final KeyBinding ZOOM_OUT = new KeyBinding("key.wayfarmap.zoom_out", Keyboard.KEY_MINUS, CATEGORY);
+        CATEGORY_MINIMAP);
+    public static final KeyBinding ZOOM_IN = new KeyBinding(
+        "key.wayfarmap.zoom_in",
+        Keyboard.KEY_EQUALS,
+        CATEGORY_MINIMAP);
+    public static final KeyBinding ZOOM_OUT = new KeyBinding(
+        "key.wayfarmap.zoom_out",
+        Keyboard.KEY_MINUS,
+        CATEGORY_MINIMAP);
     public static final KeyBinding NEW_WAYPOINT = new KeyBinding(
         "key.wayfarmap.new_waypoint",
         Keyboard.KEY_B,
@@ -59,9 +70,31 @@ public class KeyHandler {
     public static final KeyBinding PLAYERS = unbound("players");
     public static final KeyBinding LIGHT = unbound("light");
 
+    // The same for the minimap alone: a key gives that group of the minimap its own settings.
+    public static final KeyBinding MINIMAP_MODE_BLOCKS = unbound("minimap_mode_blocks", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_MODE_PLANTLESS = unbound("minimap_mode_plantless", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_MODE_TOPO = unbound("minimap_mode_topo", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_MODE_BIOMES = unbound("minimap_mode_biomes", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_ORES = unbound("minimap_ores", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_FLUIDS = unbound("minimap_fluids", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_CLAIMS = unbound("minimap_claims", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_POWERFAILS = unbound("minimap_powerfails", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_NODES = unbound("minimap_nodes", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_CHUNK_GRID = unbound("minimap_chunk_grid", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_HOSTILE_MOBS = unbound("minimap_hostile_mobs", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_PASSIVE_MOBS = unbound("minimap_passive_mobs", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_AMBIENT_MOBS = unbound("minimap_ambient_mobs", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_FRIENDLY_MOBS = unbound("minimap_friendly_mobs", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_PETS = unbound("minimap_pets", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_PLAYERS = unbound("minimap_players", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_LIGHT = unbound("minimap_light", CATEGORY_MINIMAP);
+
     private static final KeyBinding[] UNBOUND = { MODE_BLOCKS, MODE_PLANTLESS, MODE_TOPO, MODE_BIOMES, ORES, FLUIDS,
         CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS, FRIENDLY_MOBS, PETS, PLAYERS,
-        LIGHT };
+        LIGHT, MINIMAP_MODE_BLOCKS, MINIMAP_MODE_PLANTLESS, MINIMAP_MODE_TOPO, MINIMAP_MODE_BIOMES, MINIMAP_ORES,
+        MINIMAP_FLUIDS, MINIMAP_CLAIMS, MINIMAP_POWERFAILS, MINIMAP_NODES, MINIMAP_CHUNK_GRID, MINIMAP_HOSTILE_MOBS,
+        MINIMAP_PASSIVE_MOBS, MINIMAP_AMBIENT_MOBS, MINIMAP_FRIENDLY_MOBS, MINIMAP_PETS, MINIMAP_PLAYERS,
+        MINIMAP_LIGHT };
 
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
@@ -87,7 +120,11 @@ public class KeyHandler {
     }
 
     private static KeyBinding unbound(String name) {
-        return new KeyBinding("key.wayfarmap." + name, Keyboard.KEY_NONE, CATEGORY);
+        return unbound(name, CATEGORY_MAP);
+    }
+
+    private static KeyBinding unbound(String name, String category) {
+        return new KeyBinding("key.wayfarmap." + name, Keyboard.KEY_NONE, category);
     }
 
     public void register() {
@@ -142,6 +179,7 @@ public class KeyHandler {
             mc.displayGuiScreen(new GuiWaypointList(null));
         }
         viewKeys(mc);
+        minimapKeys(mc);
     }
 
     private static void viewKeys(Minecraft mc) {
@@ -221,6 +259,136 @@ public class KeyHandler {
                 Lang.format("wayfarmap.option.map.lightMode") + ": "
                     + Lang.format("wayfarmap.option.map.lightMode." + LIGHT_MODE_KEYS[Config.mapLightMode]));
         }
+    }
+
+    private static void minimapKeys(Minecraft mc) {
+        if (MINIMAP_MODE_BLOCKS.isPressed()) {
+            minimapView(mc, MINIMAP_MODE_BLOCKS, Config.MINIMAP_VIEW_FLAT, false);
+        }
+        if (MINIMAP_MODE_PLANTLESS.isPressed()) {
+            minimapView(mc, MINIMAP_MODE_PLANTLESS, Config.MINIMAP_VIEW_BARE, false);
+        }
+        if (MINIMAP_MODE_TOPO.isPressed()) {
+            minimapView(mc, MINIMAP_MODE_TOPO, Config.MINIMAP_VIEW_TOPO, true);
+        }
+        if (MINIMAP_MODE_BIOMES.isPressed()) {
+            minimapView(mc, MINIMAP_MODE_BIOMES, Config.MINIMAP_VIEW_BIOMES, true);
+        }
+        Runnable layers = Config::ownMinimapLayers;
+        if (MINIMAP_ORES.isPressed() && installed(mc, MINIMAP_ORES, Mods.isVisualProspectingLoaded())) {
+            minimapToggle(mc, MINIMAP_ORES, layers, () -> Config.minimapOreVeins, on -> {
+                Config.minimapOreVeins = on;
+                if (on) {
+                    Config.minimapUndergroundFluids = false;
+                }
+            });
+        }
+        if (MINIMAP_FLUIDS.isPressed() && installed(mc, MINIMAP_FLUIDS, Mods.isVisualProspectingLoaded())) {
+            minimapToggle(mc, MINIMAP_FLUIDS, layers, () -> Config.minimapUndergroundFluids, on -> {
+                Config.minimapUndergroundFluids = on;
+                if (on) {
+                    Config.minimapOreVeins = false;
+                }
+            });
+        }
+        if (MINIMAP_CLAIMS.isPressed() && installed(mc, MINIMAP_CLAIMS, Mods.isClaimsAvailable())) {
+            minimapToggle(mc, MINIMAP_CLAIMS, layers, () -> Config.minimapClaims, on -> {
+                Config.minimapClaims = on;
+                if (on) {
+                    ClaimsLayer.onShow();
+                }
+            });
+        }
+        if (MINIMAP_POWERFAILS.isPressed() && installed(mc, MINIMAP_POWERFAILS, Mods.isPowerfailsAvailable())) {
+            minimapToggle(
+                mc,
+                MINIMAP_POWERFAILS,
+                layers,
+                () -> Config.minimapPowerfails,
+                on -> Config.minimapPowerfails = on);
+        }
+        if (MINIMAP_NODES.isPressed() && installed(mc, MINIMAP_NODES, Mods.isThaumcraftNodesAvailable())) {
+            minimapToggle(
+                mc,
+                MINIMAP_NODES,
+                layers,
+                () -> Config.minimapThaumcraftNodes,
+                on -> Config.minimapThaumcraftNodes = on);
+        }
+        if (MINIMAP_CHUNK_GRID.isPressed()) {
+            minimapToggle(
+                mc,
+                MINIMAP_CHUNK_GRID,
+                Config::ownMinimapGrid,
+                () -> Config.minimapChunkGrid,
+                on -> Config.minimapChunkGrid = on);
+        }
+        Runnable mobs = Config::ownMinimapMobs;
+        if (MINIMAP_HOSTILE_MOBS.isPressed()) {
+            minimapToggle(
+                mc,
+                MINIMAP_HOSTILE_MOBS,
+                mobs,
+                () -> Config.minimapHostileMobs,
+                on -> Config.minimapHostileMobs = on);
+        }
+        if (MINIMAP_PASSIVE_MOBS.isPressed()) {
+            minimapToggle(
+                mc,
+                MINIMAP_PASSIVE_MOBS,
+                mobs,
+                () -> Config.minimapPassiveMobs,
+                on -> Config.minimapPassiveMobs = on);
+        }
+        if (MINIMAP_AMBIENT_MOBS.isPressed()) {
+            minimapToggle(
+                mc,
+                MINIMAP_AMBIENT_MOBS,
+                mobs,
+                () -> Config.minimapAmbientMobs,
+                on -> Config.minimapAmbientMobs = on);
+        }
+        if (MINIMAP_FRIENDLY_MOBS.isPressed()) {
+            minimapToggle(
+                mc,
+                MINIMAP_FRIENDLY_MOBS,
+                mobs,
+                () -> Config.minimapOtherEntities,
+                on -> Config.minimapOtherEntities = on);
+        }
+        if (MINIMAP_PETS.isPressed()) {
+            minimapToggle(mc, MINIMAP_PETS, mobs, () -> Config.minimapPets, on -> Config.minimapPets = on);
+        }
+        if (MINIMAP_PLAYERS.isPressed()) {
+            minimapToggle(mc, MINIMAP_PLAYERS, mobs, () -> Config.minimapPlayers, on -> Config.minimapPlayers = on);
+        }
+        if (MINIMAP_LIGHT.isPressed()) {
+            Config.ownMinimapView();
+            Config.minimapLightMode = (Config.minimapLightMode + 1) % LIGHT_MODE_KEYS.length;
+            Config.save();
+            say(
+                mc,
+                Lang.format("key.wayfarmap.minimap_light.name") + ": "
+                    + Lang.format("wayfarmap.option.minimap.light." + LIGHT_MODE_KEYS[Config.minimapLightMode]));
+        }
+    }
+
+    /** {@code toggles}: pressed again, the view goes back to the 2D map. */
+    private static void minimapView(Minecraft mc, KeyBinding key, int view, boolean toggles) {
+        Config.ownMinimapView();
+        boolean on = !toggles || Config.minimapView != view;
+        Config.minimapView = on ? view : Config.MINIMAP_VIEW_FLAT;
+        Config.save();
+        tell(mc, key, toggles ? on : null);
+    }
+
+    private static void minimapToggle(Minecraft mc, KeyBinding key, Runnable own, BooleanSupplier shown,
+        Consumer<Boolean> show) {
+        own.run();
+        boolean on = !shown.getAsBoolean();
+        show.accept(on);
+        Config.save();
+        tell(mc, key, on);
     }
 
     /** False, with a message, if the mod the layer comes from isn't installed. */

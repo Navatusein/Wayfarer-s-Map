@@ -140,6 +140,8 @@ All keys can be rebound in **Options → Controls → Wayfarer's Map**.
 
 Map view (2D, 2D without plants, topography, biomes) · ore veins · underground fluids · claims · power failures · Thaumcraft nodes · chunk grid · hostile / neutral / ambient / friendly mobs · pets · players · lighting (auto / day / night).
 
+Each of them also has a **minimap-only** key, under *Wayfarer's Map: Minimap*: pressing one gives that part of the minimap its own setting, apart from the world map.
+
 </details>
 
 ## ⚙️ Configuration

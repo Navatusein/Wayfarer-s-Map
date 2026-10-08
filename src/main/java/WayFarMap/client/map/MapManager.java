@@ -110,10 +110,16 @@ public class MapManager implements IResourceManagerReloadListener {
      * Nether), otherwise the active cave layer in cave mode or the surface. Null outside of a world.
      */
     public MapDimension getDimension() {
-        if (Config.mapDisplayMode == Config.DISPLAY_BIOMES) {
+        return getDimension(false);
+    }
+
+    /** As {@link #getDimension()}, in the minimap's own view if it has one. */
+    public MapDimension getDimension(boolean minimap) {
+        int mode = Config.displayMode(minimap);
+        if (mode == Config.DISPLAY_BIOMES) {
             return biomes;
         }
-        if (Config.mapDisplayMode == Config.DISPLAY_TOPO) {
+        if (mode == Config.DISPLAY_TOPO) {
             // The topography is drawn from the surface's heights.
             return surface;
         }
