@@ -1,5 +1,6 @@
 package WayFarMap.client.map.iso;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,30 +40,40 @@ final class MapVisibility {
     /** Per look key: whether it stops the tracer's rays (see the class). */
     private static final Map<Integer, Boolean> STOPS = new HashMap<>();
 
-    private final World world;
-    private final int chunkX, chunkZ;
+    /** Blocks across the chunks within {@link #RADIUS}. */
+    private static final int SPAN = (2 * RADIUS + 1) * 16;
+    /**
+     * Per cell of those chunks, whether it stops the rays (1), lets them through (2), or isn't looked at yet (0):
+     * the lines of sight of a chunk's blocks go through the same cells again and again, and looking up the block each
+     * time took 65 microseconds a block (more than drawing some). Shared, cleared for each chunk (render thread).
+     */
+    private static final byte[] CELLS = new byte[SPAN * SPAN * 256];
+    private static final byte STOPS_RAYS = 1, LETS_THROUGH = 2;
+
+    private final int chunkX, chunkZ, baseX, baseZ;
+    /** The chunks within {@link #RADIUS}, null where not loaded. */
+    private final Chunk[] chunks = new Chunk[(2 * RADIUS + 1) * (2 * RADIUS + 1)];
     /** Highest block of the chunks within {@link #RADIUS} (plus one): above it nothing hides anything. */
     private final int top;
-    private int lastChunkX = Integer.MIN_VALUE, lastChunkZ;
-    private boolean lastChunkReady;
 
     MapVisibility(World world, Chunk chunk) {
-        this.world = world;
         this.chunkX = chunk.xPosition;
         this.chunkZ = chunk.zPosition;
+        this.baseX = (chunkX - RADIUS) << 4;
+        this.baseZ = (chunkZ - RADIUS) << 4;
         int highest = 0;
         for (int dx = -RADIUS; dx <= RADIUS; dx++) {
             for (int dz = -RADIUS; dz <= RADIUS; dz++) {
                 int cx = chunkX + dx, cz = chunkZ + dz;
                 if (ChunkScanner.isChunkReady(world, cx, cz)) {
-                    highest = Math.max(
-                        highest,
-                        world.getChunkFromChunkCoords(cx, cz)
-                            .getTopFilledSegment() + 16);
+                    Chunk other = world.getChunkFromChunkCoords(cx, cz);
+                    chunks[(dz + RADIUS) * (2 * RADIUS + 1) + dx + RADIUS] = other;
+                    highest = Math.max(highest, other.getTopFilledSegment() + 16);
                 }
             }
         }
         top = Math.min(256, highest);
+        Arrays.fill(CELLS, 0, top * SPAN * SPAN, (byte) 0);
     }
 
     /** Resource packs changed: icons may have holes now or none. */
@@ -172,13 +183,25 @@ final class MapVisibility {
                 if (y >= top || y < 0) {
                     return false;
                 }
-                int cx = x >> 4, cz = z >> 4;
-                if (Math.abs(cx - chunkX) > RADIUS || Math.abs(cz - chunkZ) > RADIUS || !ready(cx, cz)) {
+                int gx = x - baseX, gz = z - baseZ;
+                if (gx < 0 || gz < 0 || gx >= SPAN || gz >= SPAN) {
                     return false;
                 }
-                Block block = world.getBlock(x, y, z);
-                if (block.getMaterial() != Material.air
-                    && stops(Block.getIdFromBlock(block) | world.getBlockMetadata(x, y, z) << 16)) {
+                int index = (y * SPAN + gz) * SPAN + gx;
+                byte known = CELLS[index];
+                if (known == 0) {
+                    Chunk chunk = chunks[(gz >> 4) * (2 * RADIUS + 1) + (gx >> 4)];
+                    if (chunk == null) {
+                        // Not loaded: what is there isn't known, counts as open.
+                        return false;
+                    }
+                    Block block = chunk.getBlock(x & 15, y, z & 15);
+                    boolean stops = block.getMaterial() != Material.air
+                        && stops(Block.getIdFromBlock(block) | chunk.getBlockMetadata(x & 15, y, z & 15) << 16);
+                    known = stops ? STOPS_RAYS : LETS_THROUGH;
+                    CELLS[index] = known;
+                }
+                if (known == STOPS_RAYS) {
                     return true;
                 }
             }
@@ -213,15 +236,6 @@ final class MapVisibility {
         }
         STOPS.put(key, stops);
         return stops;
-    }
-
-    private boolean ready(int cx, int cz) {
-        if (cx != lastChunkX || cz != lastChunkZ) {
-            lastChunkX = cx;
-            lastChunkZ = cz;
-            lastChunkReady = ChunkScanner.isChunkReady(world, cx, cz);
-        }
-        return lastChunkReady;
     }
 
     private static int floor(double v) {
