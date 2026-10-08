@@ -10,6 +10,7 @@ import javax.imageio.ImageIO;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.MapColor;
 import net.minecraft.client.Minecraft;
+import net.minecraft.init.Blocks;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.IBlockAccess;
@@ -42,7 +43,8 @@ public final class BlockColors {
         int base = getBaseColor(block, meta);
         int tint = 0xFFFFFF;
         try {
-            tint = block.colorMultiplier(world, x, y, z) & 0xFFFFFF;
+            tint = block == Blocks.grass ? grassTint(world, x, y, z)
+                : block.colorMultiplier(world, x, y, z) & 0xFFFFFF;
         } catch (Throwable ignored) {
             // Some modded blocks expect a real render context here.
         }
@@ -50,6 +52,26 @@ public final class BlockColors {
             return base;
         }
         return enhance(multiply(base, tint), Config.biomeColorSaturation);
+    }
+
+    /**
+     * The grass block's tint taken from the biomes themselves, averaged over the 3x3 around it as the game does. In
+     * modpacks the block's own color lookup can be changed and give some biomes (plains among them) another biome's
+     * bluer green, while the tall grass on it, which reads the biome directly, keeps the right one: the map without
+     * grass and flowers then showed those biomes wrong.
+     */
+    private static int grassTint(IBlockAccess world, int x, int y, int z) {
+        int r = 0, g = 0, b = 0;
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                int color = world.getBiomeGenForCoords(x + dx, z + dz)
+                    .getBiomeGrassColor(x + dx, y, z + dz);
+                r += (color >> 16) & 0xFF;
+                g += (color >> 8) & 0xFF;
+                b += color & 0xFF;
+            }
+        }
+        return (r / 9) << 16 | (g / 9) << 8 | b / 9;
     }
 
     /** Gray level that contrast pushes away from: about the middle of the map's colors. */
