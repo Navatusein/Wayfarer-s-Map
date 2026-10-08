@@ -450,7 +450,8 @@ public class MapManager implements IResourceManagerReloadListener {
         if (viewed == null) {
             return activeCaveLayer;
         }
-        boolean caves = Config.caveMode == Config.CAVES_ON || (Config.caveMode == Config.CAVES_AUTO && isDark(viewed.id));
+        boolean caves = Config.caveMode == Config.CAVES_ON
+            || (Config.caveMode == Config.CAVES_AUTO && isDark(viewed.id));
         if (!caves) {
             return -1;
         }
