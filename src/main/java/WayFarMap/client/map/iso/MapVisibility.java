@@ -317,8 +317,10 @@ final class MapVisibility {
                 return 0;
             }
             Block block = chunk.getBlock(x & 15, y, z & 15);
+            // Metadata as the map keeps it (4 bits; some mods give blocks more).
+            int meta = chunk.getBlockMetadata(x & 15, y, z & 15) & 15;
             boolean stops = block.getMaterial() != Material.air
-                && stops(Block.getIdFromBlock(block) & 0xFFFF | chunk.getBlockMetadata(x & 15, y, z & 15) << 16);
+                && stops(Block.getIdFromBlock(block) & 0xFFFF | meta << 16);
             known = stops ? STOPS_RAYS : LETS_THROUGH;
             CELLS[index] = known;
         }
