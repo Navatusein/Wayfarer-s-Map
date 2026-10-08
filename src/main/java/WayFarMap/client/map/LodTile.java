@@ -20,6 +20,12 @@ public final class LodTile implements PixelSource {
     private static IntBuffer uploadBuffer;
 
     private final int[] pixels = new int[SIZE * SIZE];
+    /**
+     * How many of each pixel's 4x4 blocks are explored: the texture shows the pixel that much opaque, as the full
+     * region looks from as far out. A lone lava block seen through a hole in unexplored land is a faint speck, not a
+     * whole bright pixel.
+     */
+    private final byte[] coverage = new byte[SIZE * SIZE];
     /** Extra byte of one explored block per pixel (biome for the biome map); null if the region has none. */
     private byte[] extra;
     /**
@@ -115,6 +121,7 @@ public final class LodTile implements PixelSource {
                 }
                 int index = tz * SIZE + tx;
                 pixels[index] = count == 0 ? 0 : 0xFF000000 | (r / count) << 16 | (g / count) << 8 | (b / count);
+                coverage[index] = (byte) count;
                 if (extra != null) {
                     extra[index] = (byte) extraValue;
                 }
@@ -194,7 +201,10 @@ public final class LodTile implements PixelSource {
                 uploadBuffer = BufferUtils.createIntBuffer(SIZE * SIZE);
             }
             uploadBuffer.clear();
-            uploadBuffer.put(pixels);
+            for (int i = 0; i < SIZE * SIZE; i++) {
+                int alpha = coverage[i] * 255 / (FACTOR * FACTOR);
+                uploadBuffer.put(alpha << 24 | pixels[i] & 0xFFFFFF);
+            }
             uploadBuffer.flip();
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
             GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
