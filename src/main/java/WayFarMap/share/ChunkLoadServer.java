@@ -910,13 +910,31 @@ public final class ChunkLoadServer {
         List<Chunk> ownWay = new ArrayList<>();
         int watching = 0, alreadyWatched = 0;
         for (Chunk chunk : chunks) {
+            long chunkKey = key(chunk.xPosition, chunk.zPosition);
+            EntityPlayerMP watcher = job.watched.get(chunkKey);
+            if (watcher != null && player.worldObj == world) {
+                // Watched for an earlier batch (the ring around it): still to be sent, or sent and let go by the
+                // client since (it keeps only the chunks near the player). The game counts it as on the client
+                // and wouldn't send it again: the client waited 30 s for it and left a hole.
+                if (watcher == player && player.loadedChunks.contains(chunk.getChunkCoordIntPair())) {
+                    watching++;
+                    continue;
+                }
+                job.watched.remove(chunkKey);
+                Watching.unwatch(world, watcher, chunk.xPosition, chunk.zPosition);
+                if (Watching.watch(world, player, chunk.xPosition, chunk.zPosition)) {
+                    job.watched.put(chunkKey, player);
+                    watching++;
+                    continue;
+                }
+            }
             if (player.worldObj == world && world.getPlayerManager()
                 .isPlayerWatchingChunk(player, chunk.xPosition, chunk.zPosition)) {
                 alreadyWatched++;
                 continue;
             }
             if (player.worldObj == world && Watching.watch(world, player, chunk.xPosition, chunk.zPosition)) {
-                job.watched.put(key(chunk.xPosition, chunk.zPosition), player);
+                job.watched.put(chunkKey, player);
                 watching++;
                 continue;
             }
