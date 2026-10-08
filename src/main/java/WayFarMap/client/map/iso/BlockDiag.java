@@ -310,7 +310,13 @@ final class BlockDiag {
         }
         List<String> problems = new ArrayList<>();
         int empty = 0, brightest = 0;
+        int hidden = 0;
         for (int view = 0; view < views; view++) {
+            if (ids[view] == FacePalette.HIDDEN) {
+                // Not drawn: the map can't show it from there.
+                hidden++;
+                continue;
+            }
             if (ids[view] == FacePalette.EMPTY || shot.coverage[view] == 0) {
                 empty++;
             }
@@ -328,7 +334,7 @@ final class BlockDiag {
         }
         // Sides the views can see: up and the four around (the views look from above).
         boolean seen = (exposed & ~1) != 0;
-        if (empty == views && seen) {
+        if (empty > 0 && empty == views - hidden && seen) {
             problems.add("EMPTY_BUT_VISIBLE");
         } else if (empty > 0 && !cube && (exposed & 2) != 0) {
             // With its top open every view sees some of it (a glass pane open to one side only is empty from the
@@ -395,7 +401,8 @@ final class BlockDiag {
                 .append(cube ? new String[] { "down", "up", "north", "south", "west", "east" }[view] : "view" + view)
                 .append('=')
                 .append(
-                    ids[view] == FacePalette.EMPTY ? "EMPTY"
+                    ids[view] == FacePalette.HIDDEN ? "HIDDEN"
+                        : ids[view] == FacePalette.EMPTY ? "EMPTY"
                         : ids[view] == 0 ? "NOT_TAKEN"
                             : shot.coverage[view] + "%(solid " + shot.solid[view] + "%)/bright" + shot.brightness[view])
                 .append(cube && (exposed & 1 << view) == 0 ? "(hidden)" : "")
