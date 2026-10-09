@@ -893,3 +893,4 @@ wayfarmap.option.waypoints.teamShown.desc=Show the waypoints teammates share as 
 wayfarmap.gui.copy_tag=Copy
 wayfarmap.gui.copy_of=Copy: %s
 wayfarmap.gui.go_original=Show the original
+wayfarmap.about.developer_role=Developer

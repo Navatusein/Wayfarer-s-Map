@@ -20,9 +20,12 @@
 
 ## Waypoints
 - [new] Team waypoints: share a waypoint with your ServerUtilities team (on servers with the mod) from its editor, the list or its menu
-  - A group can share its new waypoints by itself, and all it has with one button
-  - A teammate's waypoint is tagged with their name; hide it, or save it as your own to edit it: the copy says whose it is a copy of and leads back to the original
-  - Teammates' waypoints can come hidden: for all groups in the settings, or for one group in the list
+- [new] A waypoint group can share its new waypoints by itself, and all it has with one button
+- [new] A teammate's waypoint is tagged with their name; hide it, or save it as your own to edit it: the copy says whose it is a copy of and leads back to the original
+- [new] Teammates' waypoints can come hidden: for all groups in the settings, or for one group in the list
+
+## Windows
+- [change] "About" window: Navatusein added as a developer
 
 # 0.0.15
 

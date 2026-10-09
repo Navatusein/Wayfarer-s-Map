@@ -893,3 +893,4 @@ wayfarmap.option.waypoints.teamShown.desc=队友共享的路径点一到就显�
 wayfarmap.gui.copy_tag=副本
 wayfarmap.gui.copy_of=副本：%s
 wayfarmap.gui.go_original=显示原路径点
+wayfarmap.about.developer_role=开发者

@@ -893,3 +893,4 @@ wayfarmap.option.waypoints.teamShown.desc=Показывать метки, ко�
 wayfarmap.gui.copy_tag=Копия
 wayfarmap.gui.copy_of=Копия: %s
 wayfarmap.gui.go_original=Показать оригинал
+wayfarmap.about.developer_role=Разработчик
