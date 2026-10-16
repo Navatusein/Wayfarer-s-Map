@@ -45,6 +45,8 @@ public class WaypointManager {
 
     private File file;
     private Data data = new Data();
+    /** Goes up each time waypoints are loaded, so the death group's name is checked against the language again. */
+    private int loads;
     /** Goes up when teammates' waypoints change, so an open list knows to show them anew. */
     private int teamRevision;
 
@@ -60,6 +62,7 @@ public class WaypointManager {
             return;
         }
         file = newFile;
+        loads++;
         data = new Data();
         if (!file.isFile()) {
             return;
@@ -227,6 +230,63 @@ public class WaypointManager {
         data.groups.removeIf(
             g -> !g.name.equals(group) && oldNames.contains(g.name.trim()) && getWaypointsInGroup(g.name).isEmpty());
         save();
+    }
+
+    public int getLoads() {
+        return loads;
+    }
+
+    /**
+     * Gives the death group the name it has in the current language ({@code name}): the death group under its name in
+     * another language ({@code allNames}: its name in every language) is renamed, or merged into the group already
+     * called so. Returns whether anything changed.
+     */
+    public boolean renameDeathGroup(String name, Set<String> allNames) {
+        String target = name.trim();
+        boolean changed = false;
+        WaypointGroup current = getGroup(target);
+        for (WaypointGroup group : new ArrayList<>(data.groups)) {
+            if (group == current || !allNames.contains(group.name.trim())) {
+                continue;
+            }
+            if (current == null) {
+                // The first one found takes the new name, with its waypoints.
+                for (Waypoint waypoint : data.waypoints) {
+                    if (group.name.equals(waypoint.group)) {
+                        waypoint.group = target;
+                    }
+                }
+                group.name = target;
+                current = group;
+            } else {
+                // Another language's one besides it: its waypoints move over, and it goes.
+                for (Waypoint waypoint : data.waypoints) {
+                    if (group.name.equals(waypoint.group)) {
+                        waypoint.group = target;
+                    }
+                }
+                data.groups.remove(group);
+            }
+            changed = true;
+        }
+        if (changed) {
+            save();
+        }
+        return changed;
+    }
+
+    /** Death markers still named as in another language ({@code allNames}) take the name of the current one. */
+    public void renameDeathMarkers(String name, Set<String> allNames) {
+        boolean changed = false;
+        for (Waypoint waypoint : data.waypoints) {
+            if (waypoint.death && !waypoint.name.equals(name) && allNames.contains(waypoint.name.trim())) {
+                waypoint.name = name;
+                changed = true;
+            }
+        }
+        if (changed) {
+            save();
+        }
     }
 
     /** Teammates' waypoints stay: only their owners remove them. */

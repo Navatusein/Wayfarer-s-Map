@@ -38,7 +38,7 @@
 - [new] An "Enabled" switch in the waypoint's menu on the map (like "Share with team"); "Share" is now "Share in chat"
 - [new] Keys work on the open map: U opens the waypoint list, B a new waypoint at the point under the mouse
 - [change] "Fade when near" moved to the "Where to show" section
-- [fix] After a language change, the empty death group of the old language is removed once the markers move to the new one
+- [fix] On a language change the death group and the death markers are renamed into it at once (no new death needed, no empty groups left)
 - [new] Tracked ore veins and Thaumcraft nodes: their look in the world, marker or marker and beam
 
 ## Minimap
