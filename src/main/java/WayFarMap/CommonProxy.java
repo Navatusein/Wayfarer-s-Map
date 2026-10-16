@@ -45,6 +45,7 @@ public class CommonProxy {
 
     public void serverStopping(FMLServerStoppingEvent event) {
         ChunkLoadServer.INSTANCE.stop();
+        TeleportServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }

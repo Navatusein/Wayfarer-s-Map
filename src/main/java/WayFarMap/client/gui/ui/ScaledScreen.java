@@ -57,14 +57,17 @@ public abstract class ScaledScreen extends GuiScreen {
     private final ScaledScreen behind;
 
     /** The screen a new one was last opened over, and when: it closes only to stay drawn under it. */
-    private static ScaledScreen lastCovered;
+    private static java.lang.ref.WeakReference<ScaledScreen> lastCovered = new java.lang.ref.WeakReference<>(null);
     private static long lastCoveredAt;
 
     protected ScaledScreen() {
         GuiScreen open = Minecraft.getMinecraft().currentScreen;
-        behind = open instanceof ScaledScreen && open != this ? (ScaledScreen) open : null;
-        if (behind != null) {
-            lastCovered = behind;
+        boolean over = open instanceof ScaledScreen && open != this;
+        // Kept only by a screen that draws it: one filling the window (the world map) kept the whole chain of screens
+        // opened before it, map over list over map, for as long as it was open.
+        behind = over && showsScreenBehind() ? (ScaledScreen) open : null;
+        if (over) {
+            lastCovered = new java.lang.ref.WeakReference<>((ScaledScreen) open);
             lastCoveredAt = System.currentTimeMillis();
         }
     }
@@ -74,7 +77,7 @@ public abstract class ScaledScreen extends GuiScreen {
      * it drawn behind (for {@link GuiScreen#onGuiClosed}: it should not let go of what it shows).
      */
     public static boolean isBeingCovered(ScaledScreen screen) {
-        return lastCovered == screen && System.currentTimeMillis() - lastCoveredAt < 2000;
+        return lastCovered.get() == screen && System.currentTimeMillis() - lastCoveredAt < 2000;
     }
 
     /** Whether a screen of the type is drawn behind this one (directly or further back). */

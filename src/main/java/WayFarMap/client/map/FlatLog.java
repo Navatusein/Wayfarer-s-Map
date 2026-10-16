@@ -254,19 +254,29 @@ public final class FlatLog {
     /** The world was left: the summary, then the file is closed. */
     public static synchronized void close() {
         Thread writer = thread;
-        if (writer == null) {
-            return;
+        if (writer != null) {
+            summary("END");
+            LINES.add("\u0000");
+            try {
+                writer.join(5000);
+            } catch (InterruptedException e) {
+                Thread.currentThread()
+                    .interrupt();
+            }
+            thread = null;
+            file = null;
         }
-        summary("END");
-        LINES.add("\u0000");
-        try {
-            writer.join(5000);
-        } catch (InterruptedException e) {
-            Thread.currentThread()
-                .interrupt();
+        // What was noted of the world left: kept, it stayed in memory (also once the log was turned off, which
+        // stops what takes the entries out again).
+        for (List<Long> samples : SAMPLES) {
+            samples.clear();
         }
-        thread = null;
-        file = null;
+        SEEN.clear();
+        ARRIVED.clear();
+        FIRST_SEEN.clear();
+        LAST_LOOK.clear();
+        DEFERRED.clear();
+        ASKED.clear();
     }
 
     private static void writeLines(BufferedWriter out) {

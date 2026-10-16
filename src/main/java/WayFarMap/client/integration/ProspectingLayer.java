@@ -98,6 +98,24 @@ public final class ProspectingLayer {
 
     private static Tracked tracked;
     private static final int TRACKED_COLOR = 0xFFD700;
+
+    /**
+     * Forgets what was read of VisualProspecting and the tracked vein (the server left): kept, a well prospected
+     * world's veins stayed in memory for the rest of the game unless the layer was shown again.
+     */
+    public static void reset() {
+        veinCache = new IdentityHashMap<>();
+        fluidCache = new IdentityHashMap<>();
+        positions = new IdentityHashMap<>();
+        veins = Collections.emptyList();
+        fluids = Collections.emptyList();
+        hovered = null;
+        tracked = null;
+        veinDimension = Integer.MIN_VALUE;
+        fluidDimension = Integer.MIN_VALUE;
+        lastVeinRefresh = 0;
+        lastFluidRefresh = 0;
+    }
     /** The thin frame right around a vein's icon. */
     private static final int FRAME_COLOR = 0x000000;
 

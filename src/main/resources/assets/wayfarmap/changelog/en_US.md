@@ -40,6 +40,12 @@
 - [fix] Percentages: a small share shows "<1%", not 0%
 - [fix] Empty world folders no longer count in "Worlds"
 
+## Memory
+- [fix] Leaving a world or changing dimension no longer keeps the old world in memory: mob and item icons (with their textures), the 3D map's pictures, VisualProspecting's data, the area loading view and the settings' mob preview are let go
+- [fix] The 3D map no longer keeps empty regions it was scrolled over, nor leaves the block pictures file open; its learned picture caches are capped
+- [fix] The 2D map forgets far empty regions, and the log's debug data when the world is left
+- [fix] Server: /wf chunkload no longer leaves chunks loaded for good (a paused job, another dimension, the ring by a player); the team map and teleport keep no old players and worlds after death, logout or server stop
+
 ## Waypoints
 - [change] 20 death waypoints are kept by default (was 3), up to 100
 - [new] With OpenBlocks: the death waypoint goes away by itself once your grave next to it is gone (emptied or broken)

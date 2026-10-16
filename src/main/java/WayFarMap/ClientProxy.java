@@ -15,6 +15,7 @@ import WayFarMap.client.MobIconDump;
 import WayFarMap.client.PerfTicks;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
+import WayFarMap.client.WorldCleanup;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.map.ChunkLoadClient;
@@ -73,6 +74,10 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(PlayerTrail.INSTANCE);
+        // Lets go of the old world's caches once it is left.
+        FMLCommonHandler.instance()
+            .bus()
+            .register(WorldCleanup.INSTANCE);
         // Times frames and ticks for the 3D log, to tell what costs frames per second and ticks per second.
         FMLCommonHandler.instance()
             .bus()

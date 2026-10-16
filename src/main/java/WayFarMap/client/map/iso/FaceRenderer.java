@@ -242,6 +242,8 @@ final class FaceRenderer {
      */
     private static final Map<Long, Learned> BY_BLOCK = new HashMap<>();
     private static final int BLOCK_CONFIRMATIONS = 6, BLOCK_PLACES = 3;
+    /** Most pictures learned by kind or by block kept; they grew with every place seen, game after game. */
+    private static final int MAX_LEARNED = 200_000;
     /**
      * Pictures of blocks with a tile entity by what makes them look as they do: the block and its surroundings (as
      * {@link #BY_SURROUNDINGS}), its open sides, what its tile entity keeps (its NBT without where it is) and what the
@@ -510,6 +512,10 @@ final class FaceRenderer {
         cachesChanged = true;
         Learned learned = BY_KIND.get(pending.kindKey);
         if (learned == null) {
+            // Kept on disk from game to game and nearly a key per place: started over once big, like the others.
+            if (BY_KIND.size() > MAX_LEARNED) {
+                BY_KIND.clear();
+            }
             BY_KIND.put(pending.kindKey, new Learned(pending.ids.clone()));
         } else if (!learned.unreliable) {
             if (Arrays.equals(learned.ids, pending.ids)) {
@@ -529,6 +535,9 @@ final class FaceRenderer {
         if (byBlock == null) {
             byBlock = new Learned(pending.ids.clone());
             byBlock.place(pending.kindKey);
+            if (BY_BLOCK.size() > MAX_LEARNED) {
+                BY_BLOCK.clear();
+            }
             BY_BLOCK.put(pending.blockKey, byBlock);
         } else if (!byBlock.unreliable) {
             if (alike(byBlock.ids, pending.ids, pending.detached)) {
@@ -1164,6 +1173,18 @@ final class FaceRenderer {
     /** The chunk's blocks are found anew next time (what can be seen may have changed around it). */
     static void forgetSession(long chunkKey) {
         SESSIONS.remove(chunkKey);
+    }
+
+    /**
+     * Lets go of the world left: the big tile entities found in it and the pictures being made of its chunks (their
+     * tile entities, and so the whole world, stayed in memory until pictures were taken in another one). Render
+     * thread.
+     */
+    static void forgetWorld() {
+        SESSIONS.clear();
+        bigWorld = null;
+        bigTileEntities = new ArrayList<>();
+        dropFlights();
     }
 
     /** Forgets the batches being read back (their blocks get pictures another time); render thread. */

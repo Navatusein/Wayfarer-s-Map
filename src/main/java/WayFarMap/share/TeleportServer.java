@@ -29,6 +29,11 @@ public final class TeleportServer {
 
     private TeleportServer() {}
 
+    /** Forgets the requests not handled yet (server stopping): they hold their players and so their worlds. */
+    public void stop() {
+        inbox.clear();
+    }
+
     /** From the network thread. */
     void receive(EntityPlayerMP player, ShareNetwork.TeleportRequest message) {
         inbox.add(new Object[] { player, message });
@@ -41,6 +46,10 @@ public final class TeleportServer {
         }
         Object[] next;
         while ((next = inbox.poll()) != null) {
+            if (!TeamMapServer.isOnline((EntityPlayerMP) next[0])) {
+                // Left since, or asked before a restart: the old player (and its world) isn't kept.
+                continue;
+            }
             try {
                 teleport((EntityPlayerMP) next[0], (ShareNetwork.TeleportRequest) next[1]);
             } catch (RuntimeException e) {

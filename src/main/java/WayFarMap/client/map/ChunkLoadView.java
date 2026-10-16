@@ -380,6 +380,25 @@ public final class ChunkLoadView {
 
     /** States of a region's chunks for the far view, and when they were worked out. */
     private static final Map<Long, Object[]> REGION_STATES = new HashMap<>();
+
+    /**
+     * Forgets the regions' states worked out (a world left): each keeps the map it was worked out from, which kept
+     * the old world's whole surface map in memory until this view was used again.
+     */
+    public static void forgetRegionStates() {
+        REGION_STATES.clear();
+    }
+
+    /** Forgets everything known of the server's chunks and loadings (the server left): it is another one's next. */
+    public static void reset() {
+        REGION_STATES.clear();
+        SAVED_CHUNKS.clear();
+        ASKED.clear();
+        PENDING_CHUNKS.clear();
+        PENDING_SEQ.clear();
+        WITH_3D.clear();
+        WITH_CAVES.clear();
+    }
     /** How often the far view looks at a region's chunks again. */
     private static final long REGION_REFRESH_MS = 500;
     private static final int MAX_CACHED_REGIONS = 4096;
