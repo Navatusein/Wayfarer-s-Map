@@ -1,5 +1,7 @@
 package WayFarMap.client;
 
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,6 +26,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
 
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.Config;
@@ -725,7 +728,7 @@ public final class MapDrawer {
                 drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
                 String name = mobName(entity);
                 if (name != null) {
-                    drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, playerSize / 10f, alpha);
+                    drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, playerSize / 10f, alpha);
                 }
                 GL11.glPopMatrix();
             } else {
@@ -779,13 +782,76 @@ public final class MapDrawer {
         return (float) (1 - t * t * (3 - 2 * t));
     }
 
-    /** The square band between two half sizes around (sx, sy), in four pieces that don't overlap. */
-    private static void frameBand(Tessellator tessellator, double sx, double sy, double inner, double outer,
+    private static final FloatBuffer MODELVIEW = BufferUtils.createFloatBuffer(16);
+    private static final FloatBuffer PROJECTION = BufferUtils.createFloatBuffer(16);
+    private static final IntBuffer VIEWPORT = BufferUtils.createIntBuffer(16);
+
+    /**
+     * Where a point of the current drawing space lands in the window, in screen pixels: {x, y}, from the GL matrices
+     * (the GUI scale, the map screen's own scale, the minimap's turn and the icon turned upright again).
+     */
+    private static double[] toWindow(double x, double y) {
+        float[] mv = new float[16], p = new float[16];
+        MODELVIEW.get(mv).rewind();
+        PROJECTION.get(p).rewind();
+        double ex = mv[0] * x + mv[4] * y + mv[12], ey = mv[1] * x + mv[5] * y + mv[13];
+        double ez = mv[2] * x + mv[6] * y + mv[14], ew = mv[3] * x + mv[7] * y + mv[15];
+        double cx = p[0] * ex + p[4] * ey + p[8] * ez + p[12] * ew;
+        double cy = p[1] * ex + p[5] * ey + p[9] * ez + p[13] * ew;
+        double cw = p[3] * ex + p[7] * ey + p[11] * ez + p[15] * ew;
+        if (cw == 0) {
+            cw = 1;
+        }
+        return new double[] { VIEWPORT.get(0) + (cx / cw + 1) / 2 * VIEWPORT.get(2),
+            VIEWPORT.get(1) + (cy / cw + 1) / 2 * VIEWPORT.get(3) };
+    }
+
+    /**
+     * The square of {@code size} centered on (sx, sy), its edges moved to the nearest screen pixel edges, and the size
+     * of a screen pixel here: {x0, y0, x1, y1, pixel}. A frame of whole pixels around it is then as wide on every side
+     * whatever the GUI scale and wherever the mob is between pixels. Left where it is if the drawing is turned or
+     * slanted on the screen (no pixel grid to fit).
+     */
+    private static double[] pixelSquare(double sx, double sy, double size) {
+        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MODELVIEW);
+        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJECTION);
+        GL11.glGetInteger(GL11.GL_VIEWPORT, VIEWPORT);
+        double[] at = toWindow(sx, sy), right = toWindow(sx + 1, sy), down = toWindow(sx, sy + 1);
+        // Screen pixels per unit along each axis, and how much each axis leans into the other.
+        double a = right[0] - at[0], c = right[1] - at[1], b = down[0] - at[0], d = down[1] - at[1];
+        double half = size / 2;
+        double length = Math.sqrt(a * a + c * c);
+        if (length < 1e-6) {
+            return new double[] { sx - half, sy - half, sx + half, sy + half, 1.0 / ScaledScreen.currentFactor() };
+        }
+        double pixel = 1 / length;
+        if (Math.abs(c) > Math.abs(a) * 1e-3 || Math.abs(b) > Math.abs(d) * 1e-3 || Math.abs(d) < 1e-6) {
+            return new double[] { sx - half, sy - half, sx + half, sy + half, pixel };
+        }
+        // A whole number of pixels a side, the same both ways, its corner on a pixel corner.
+        long n = Math.max(1, Math.round(size * Math.abs(a)));
+        double winX0 = Math.floor(at[0] - n / 2.0 + 0.5), winY0 = Math.floor(at[1] - n / 2.0 + 0.5);
+        double xa = sx + (winX0 - at[0]) / a, xb = sx + (winX0 + n - at[0]) / a;
+        double ya = sy + (winY0 - at[1]) / d, yb = sy + (winY0 + n - at[1]) / d;
+        return new double[] { Math.min(xa, xb), Math.min(ya, yb), Math.max(xa, xb), Math.max(ya, yb), pixel };
+    }
+
+    /** How far a mob icon's frame (and its dark edge) reaches out of the tile here, in the drawing's units. */
+    private static double frameOutside(double sx, double sy) {
+        int frame = Math.max(0, Config.mobFrameWidth);
+        if (frame == 0) {
+            return 0;
+        }
+        return (frame + (frame > 1 ? 1 : 0)) * pixelSquare(sx, sy, 1)[4];
+    }
+
+    /** The band of width {@code w} just outside the rectangle, in four pieces that don't overlap. */
+    private static void frameAround(Tessellator tessellator, double x0, double y0, double x1, double y1, double w,
         int color) {
-        fillRect(tessellator, sx - outer, sy - outer, sx + outer, sy - inner, color);
-        fillRect(tessellator, sx - outer, sy + inner, sx + outer, sy + outer, color);
-        fillRect(tessellator, sx - outer, sy - inner, sx - inner, sy + inner, color);
-        fillRect(tessellator, sx + inner, sy - inner, sx + outer, sy + inner, color);
+        fillRect(tessellator, x0 - w, y0 - w, x1 + w, y0, color);
+        fillRect(tessellator, x0 - w, y1, x1 + w, y1 + w, color);
+        fillRect(tessellator, x0 - w, y0, x0, y1, color);
+        fillRect(tessellator, x1, y0, x1 + w, y1, color);
     }
 
     private static int withAlpha(int color, float alpha) {
@@ -895,7 +961,7 @@ public final class MapDrawer {
             + MathHelper.wrapAngleTo180_float(entity.rotationYawHead - entity.prevRotationYawHead) * partialTicks;
         double rad = Math.toRadians(yaw);
         float arrow = Math.max(1.6f, half * 0.45f);
-        double distance = half + Config.mobFrameWidth + arrow * 0.55;
+        double distance = half + frameOutside(sx, sy) + arrow * 0.55;
         // Yaw 0 looks south (+z, down on the map), 90 west (-x).
         double ax = sx - Math.sin(rad) * distance, ay = sy + Math.cos(rad) * distance;
         drawPlayerMarker(
@@ -925,7 +991,7 @@ public final class MapDrawer {
         drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
         String name = entity == null ? null : mobName(entity);
         if (name != null) {
-            drawSmallName(font, name, sx, sy + half + Config.mobFrameWidth + 1, textScale, alpha);
+            drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, textScale, alpha);
         }
     }
 
@@ -935,30 +1001,43 @@ public final class MapDrawer {
      */
     private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color,
         float alpha) {
-        double half = size / 2.0;
-        // 0 = no frame: the face alone on its dark tile.
+        // The tile on whole screen pixels, so the frame around it is exactly as many pixels wide on every side (it
+        // was in GUI pixels, 2 to 4 screen pixels, and between pixels it came out 1 on one side and 2 on another).
+        double[] tile = pixelSquare(sx, sy, size);
+        double x0 = tile[0], y0 = tile[1], x1 = tile[2], y1 = tile[3], pixel = tile[4];
+        // 0 = no frame: the face alone on its dark tile. In screen pixels.
         int frame = Math.max(0, Config.mobFrameWidth);
+        double frameWidth = frame * pixel;
         float frameAlpha = alpha * Config.mobFrameOpacity / 100f;
         Tessellator tessellator = Tessellator.instance;
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         if (frame > 1) {
-            // A dark line around a wide frame, so it shows on its own color.
-            frameBand(tessellator, sx, sy, half + frame, half + frame + 0.5, withAlpha(0xA0000000, frameAlpha));
+            // A dark pixel around a wide frame, so it shows on its own color.
+            frameAround(
+                tessellator,
+                x0 - frameWidth,
+                y0 - frameWidth,
+                x1 + frameWidth,
+                y1 + frameWidth,
+                pixel,
+                withAlpha(0xA0000000, frameAlpha));
         }
         if (frame > 0) {
             // A band around the tile, not a square under it: see-through, it must not darken the face.
-            frameBand(tessellator, sx, sy, half, half + frame, withAlpha(color, frameAlpha));
+            frameAround(tessellator, x0, y0, x1, y1, frameWidth, withAlpha(color, frameAlpha));
         }
-        fillRect(tessellator, sx - half, sy - half, sx + half, sy + half, withAlpha(0xFF101418, alpha));
+        fillRect(tessellator, x0, y0, x1, y1, withAlpha(0xFF101418, alpha));
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         // Exactly over the dark tile: a face a pixel smaller left half pixels of it that showed as a dark line on
         // one side.
         // Its icon drawn by the game; until it is made (or if it can't be), its face cut out of its skin.
-        if (entity == null
-            || !MobIcons.draw(entity, sx, sy, size, alpha) && !EntityIcons.drawFace(entity, sx, sy, size, alpha)) {
-            drawDot(sx, sy, 1f, withAlpha(color, alpha), alpha);
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        float shown = (float) (x1 - x0);
+        if (entity == null || !MobIcons.draw(entity, cx, cy, shown, alpha)
+            && !EntityIcons.drawFace(entity, cx, cy, shown, alpha)) {
+            drawDot(cx, cy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
     }

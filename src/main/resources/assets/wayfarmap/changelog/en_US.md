@@ -30,6 +30,7 @@
 - [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
 - [new] Map data: a button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
 
+- [fix] The frame around mob icons is now exactly 1 screen pixel ("Frame width" counts screen pixels) and even on every side: it was in GUI pixels (2 to 4 on screen), and between pixels it came out 1 on one side and 2 on another
 - [fix] Cave mode no longer always shows flowers and grass: with the map without plants, the cave layers are drawn without them too (places mapped before clear up once mapped again)
 - [fix] Area selection when claiming chunks or loading regions: dragged left or up, it no longer slides after the cursor once at its limit
 
