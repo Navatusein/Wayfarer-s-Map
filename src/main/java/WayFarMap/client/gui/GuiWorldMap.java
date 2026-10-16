@@ -1973,7 +1973,7 @@ public class GuiWorldMap extends ScaledScreen {
                         ProspectingLayer.isDepleted(vein) ? "wayfarmap.gui.vein_restore"
                             : "wayfarmap.gui.vein_deplete"),
                     true,
-                    () -> ProspectingLayer.toggleDepleted(vein)));
+                    () -> ProspectingLayer.toggleDepleted(vein)).hint("Del"));
         }
         int[] block = blockAt(mouseX, mouseY);
         final int bx = block[0];
@@ -2665,6 +2665,17 @@ public class GuiWorldMap extends ScaledScreen {
             }
             return;
         }
+        if (button == 0 && doubleClicked(mouseX, mouseY)) {
+            // Double click: on a waypoint its editor, elsewhere a new waypoint at the block under the mouse.
+            dragging = false;
+            Waypoint hovered = waypointAt(mouseX, mouseY);
+            if (hovered == null) {
+                newWaypointAtMouse(mouseX, mouseY);
+            } else if (!hovered.isForeign()) {
+                mc.displayGuiScreen(GuiEditWaypoint.edit(this, hovered));
+            }
+            return;
+        }
         if (button == 0) {
             dragging = true;
             // Grabbing the map stops a glide where it is, and following the player until centered on them again.
@@ -2673,6 +2684,24 @@ public class GuiWorldMap extends ScaledScreen {
             lastRawMouseX = Mouse.getX();
             lastRawMouseY = Mouse.getY();
         }
+    }
+
+    /** The last left click on the map: when, and where. */
+    private long lastClickAt;
+    private int lastClickX, lastClickY;
+    /** Two clicks this close in time and place are a double click. */
+    private static final long DOUBLE_CLICK_MS = 300;
+    private static final int DOUBLE_CLICK_DISTANCE = 3;
+
+    /** Whether this left click is the second of a double click (and if so, the next one starts anew). */
+    private boolean doubleClicked(int mouseX, int mouseY) {
+        long now = System.currentTimeMillis();
+        boolean twice = now - lastClickAt <= DOUBLE_CLICK_MS && Math.abs(mouseX - lastClickX) <= DOUBLE_CLICK_DISTANCE
+            && Math.abs(mouseY - lastClickY) <= DOUBLE_CLICK_DISTANCE;
+        lastClickAt = twice ? 0 : now;
+        lastClickX = mouseX;
+        lastClickY = mouseY;
+        return twice;
     }
 
     @Override
@@ -3381,6 +3410,18 @@ public class GuiWorldMap extends ScaledScreen {
             newWaypointAtMouse(
                 Mouse.getX() * width / mc.displayWidth,
                 height - Mouse.getY() * height / mc.displayHeight - 1);
+            return;
+        }
+        if (keyCode == Keyboard.KEY_DELETE && !isoShown()
+            && !chunkloadShown()
+            && Mods.isVisualProspectingLoaded()
+            && Config.showOreVeins) {
+            // Del on an ore vein marks it depleted (or not depleted again), as its menu does.
+            Object vein = ProspectingLayer.getHoveredVein();
+            if (vein != null) {
+                menu = null;
+                ProspectingLayer.toggleDepleted(vein);
+            }
             return;
         }
         if (isoShown() && (keyCode == Keyboard.KEY_Q || keyCode == Keyboard.KEY_E)) {

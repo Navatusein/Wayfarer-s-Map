@@ -46,6 +46,8 @@
 - [new] The waypoint's beam color is set in the editor on its own (right click on the sample: as the outline)
 - [new] "Distance next to the name" setting: in the world the distance is right of the name, not on its own line
 - [new] An "Enabled" switch in the waypoint's menu on the map (like "Share with team"); "Share" is now "Share in chat"
+- [new] Double left click on the map: on a waypoint opens its editor, elsewhere a new waypoint at the point under the mouse
+- [new] Del over an ore vein marks it depleted (again: not depleted)
 - [new] Ctrl+F on the map puts the cursor into the search (when it shows), its text selected, to type at once
 - [new] Keys work on the open map: U opens the waypoint list, B a new waypoint at the point under the mouse
 - [change] "Fade when near" moved to the "Where to show" section
