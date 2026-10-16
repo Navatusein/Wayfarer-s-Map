@@ -52,6 +52,7 @@
 - [new] Keys work on the open map: U opens the waypoint list, B a new waypoint at the point under the mouse
 - [change] "Fade when near" moved to the "Where to show" section
 - [fix] On a language change the death group and the death markers are renamed into it at once (no new death needed, no empty groups left)
+- [new] Ore vein icons sit on a dark plate with a one screen pixel frame, so they stand out on any map, the Nether too. The frame tells the vein's state: white normal, yellow a search hit, gray depleted or a search miss, gold tracked
 - [fix] Ore vein names on the map no longer run into each other: the name of the vein under the mouse takes its place first and the ones in its way are left out
 - [new] Like waypoint names: "Vein names" (always / on hover) and "Vein name width", under the ore veins layer setting
 - [fix] A tracked vein or node shows in the world at any distance: the waypoints' distance limit no longer hides it

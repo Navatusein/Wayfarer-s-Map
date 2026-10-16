@@ -836,6 +836,11 @@ public final class MapDrawer {
         return new double[] { Math.min(xa, xb), Math.min(ya, yb), Math.max(xa, xb), Math.max(ya, yb), pixel };
     }
 
+    /** Size of one screen pixel at (x, y) in the current drawing space (of the minimap's buffer while it draws). */
+    public static double screenPixel(double x, double y) {
+        return pixelSquare(x, y, 1)[4];
+    }
+
     /** How far a mob icon's frame (and its dark edge) reaches out of the tile here, in the drawing's units. */
     private static double frameOutside(double sx, double sy) {
         int frame = Math.max(0, Config.mobFrameWidth);

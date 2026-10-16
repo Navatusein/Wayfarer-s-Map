@@ -36,6 +36,7 @@ import com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBa
 
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.MapDrawer;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import gregtech.api.interfaces.IIconContainer;
@@ -97,6 +98,10 @@ public final class ProspectingLayer {
 
     private static Tracked tracked;
     private static final int TRACKED_COLOR = 0xFFD700;
+    /** The dark plate under a vein's icon, and its frame: white, gray when depleted or missed by the search. */
+    private static final int PLATE_COLOR = 0x101418;
+    private static final int FRAME_COLOR = 0xE8E8E8;
+    private static final int FRAME_DIM_COLOR = 0x6A6A6A;
 
     private ProspectingLayer() {}
 
@@ -461,7 +466,44 @@ public final class ProspectingLayer {
             }
         }
 
-        // Drawn in a few batches (icons, shading, depleted marks, frames) rather than several draw calls per vein:
+        boolean searching = isSearchActive();
+        // Under each icon a dark plate with a frame of one screen pixel, so the vein stands out on any map: in the
+        // Nether the ores and their stone are the colors of the ground around them. The frame tells the vein's state:
+        // gold tracked, yellow a search hit, gray depleted or a search miss, white otherwise.
+        double pixel = MapDrawer.screenPixel(x, y);
+        double pad = Math.max(pixel, Math.round(size * 0.12 / pixel) * pixel);
+        begin();
+        for (OreVeinLocation vein : visible) {
+            double sx = x + (vein.getBlockX() - left) * scale - half - pad;
+            double sy = y + (vein.getBlockZ() - top) * scale - half - pad;
+            double side = size + 2 * pad;
+            rect(sx, sy, side, side, PLATE_COLOR, 225, x, y, width, height);
+            int frame;
+            double thickness = pixel;
+            if (isTrackedLocation(vein)) {
+                frame = TRACKED_COLOR;
+                thickness = Math.max(pixel, Math.round(size / 8 / pixel) * pixel);
+            } else if (vein.isDepleted() || searching && !vein.drawSearchHighlight()) {
+                frame = FRAME_DIM_COLOR;
+            } else {
+                frame = searching ? SEARCH_COLOR : FRAME_COLOR;
+            }
+            hollowRect(
+                sx - thickness,
+                sy - thickness,
+                side + 2 * thickness,
+                side + 2 * thickness,
+                thickness,
+                frame,
+                235,
+                x,
+                y,
+                width,
+                height);
+        }
+        end();
+
+        // Drawn in a few batches (plates, icons, shading, depleted marks) rather than several draw calls per vein:
         // zoomed out over a well prospected area there can be thousands of veins on screen.
         Tessellator tessellator = Tessellator.instance;
         mc.getTextureManager()
@@ -509,31 +551,6 @@ public final class ProspectingLayer {
             tessellator.draw();
         }
 
-        // Frames: search hits, and gold for the tracked vein (like VisualProspecting's "active as waypoint").
-        boolean searching = isSearchActive();
-        begin();
-        for (OreVeinLocation vein : visible) {
-            double sx = x + (vein.getBlockX() - left) * scale - half;
-            double sy = y + (vein.getBlockZ() - top) * scale - half;
-            if (searching && vein.drawSearchHighlight() && !vein.isDepleted()) {
-                hollowRect(sx - 1, sy - 1, size + 2, size + 2, 1, SEARCH_COLOR, 255, x, y, width, height);
-            }
-            if (isTrackedLocation(vein)) {
-                hollowRect(
-                    sx - 1,
-                    sy - 1,
-                    size + 2,
-                    size + 2,
-                    Math.max(1, size / 8),
-                    TRACKED_COLOR,
-                    204,
-                    x,
-                    y,
-                    width,
-                    height);
-            }
-        }
-        end();
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
         if (minimap || zoom < Config.minZoomLevelForOreLabel) {
@@ -543,15 +560,17 @@ public final class ProspectingLayer {
         // first and is drawn last, on top; any other that would overlap a name already placed is left out (the one
         // under the mouse used to be drawn over its neighbours, its text running into theirs).
         boolean always = OreLabels.always();
+        // Clear of the plate and its frame.
+        double labelHalf = half + pad + pixel;
         List<double[]> placed = new ArrayList<>();
         List<Object[]> labels = new ArrayList<>();
         if (hovered != null && visible.contains(hovered)) {
-            placeLabel(font, hovered, x, y, left, top, scale, half, placed, labels);
+            placeLabel(font, hovered, x, y, left, top, scale, labelHalf, placed, labels);
         }
         if (always) {
             for (OreVeinLocation vein : visible) {
                 if (vein != hovered && !vein.isDepleted()) {
-                    placeLabel(font, vein, x, y, left, top, scale, half, placed, labels);
+                    placeLabel(font, vein, x, y, left, top, scale, labelHalf, placed, labels);
                 }
             }
         }
