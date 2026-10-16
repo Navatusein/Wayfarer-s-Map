@@ -3325,6 +3325,16 @@ public class GuiWorldMap extends ScaledScreen {
             pickSelection.clear();
             return;
         }
+        if (keyCode == Keyboard.KEY_F && isCtrlKeyDown()) {
+            // Ctrl+F: into the search, its text selected, to type over it at once (only where the field shows).
+            if (searchAvailable()) {
+                menu = null;
+                searchField.setFocused(true);
+                searchField.setCursorPositionEnd();
+                searchField.setSelectionPos(0);
+            }
+            return;
+        }
         if (searchAvailable() && searchField.isFocused()) {
             // Typing goes to the search; Esc clears it (or leaves the field when empty), Enter leaves the field.
             if (keyCode == Keyboard.KEY_ESCAPE && !searchField.getText()
