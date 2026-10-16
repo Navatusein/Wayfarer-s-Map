@@ -98,10 +98,8 @@ public final class ProspectingLayer {
 
     private static Tracked tracked;
     private static final int TRACKED_COLOR = 0xFFD700;
-    /** The dark plate under a vein's icon, and its frame: white, gray when depleted or missed by the search. */
-    private static final int PLATE_COLOR = 0x101418;
-    private static final int FRAME_COLOR = 0xE8E8E8;
-    private static final int FRAME_DIM_COLOR = 0x6A6A6A;
+    /** The thin frame right around a vein's icon. */
+    private static final int FRAME_COLOR = 0x000000;
 
     private ProspectingLayer() {}
 
@@ -466,36 +464,23 @@ public final class ProspectingLayer {
             }
         }
 
-        boolean searching = isSearchActive();
-        // Under each icon a dark plate with a frame of one screen pixel, so the vein stands out on any map: in the
-        // Nether the ores and their stone are the colors of the ground around them. The frame tells the vein's state:
-        // gold tracked, yellow a search hit, gray depleted or a search miss, white otherwise.
+        // Around each icon a thin black frame, right against it, so the vein stands out on any map: in the Nether the
+        // ores and their stone are the colors of the ground around them.
         double pixel = MapDrawer.screenPixel(x, y);
-        double pad = Math.max(pixel, Math.round(size * 0.12 / pixel) * pixel);
+        // About one texture pixel of the icon, on whole screen pixels.
+        double pad = Math.max(pixel, Math.round(size / 16 / pixel) * pixel);
         begin();
         for (OreVeinLocation vein : visible) {
-            double sx = x + (vein.getBlockX() - left) * scale - half - pad;
-            double sy = y + (vein.getBlockZ() - top) * scale - half - pad;
-            double side = size + 2 * pad;
-            rect(sx, sy, side, side, PLATE_COLOR, 225, x, y, width, height);
-            int frame;
-            double thickness = pixel;
-            if (isTrackedLocation(vein)) {
-                frame = TRACKED_COLOR;
-                thickness = Math.max(pixel, Math.round(size / 8 / pixel) * pixel);
-            } else if (vein.isDepleted() || searching && !vein.drawSearchHighlight()) {
-                frame = FRAME_DIM_COLOR;
-            } else {
-                frame = searching ? SEARCH_COLOR : FRAME_COLOR;
-            }
+            double sx = x + (vein.getBlockX() - left) * scale - half;
+            double sy = y + (vein.getBlockZ() - top) * scale - half;
             hollowRect(
-                sx - thickness,
-                sy - thickness,
-                side + 2 * thickness,
-                side + 2 * thickness,
-                thickness,
-                frame,
-                235,
+                sx - pad,
+                sy - pad,
+                size + 2 * pad,
+                size + 2 * pad,
+                pad,
+                FRAME_COLOR,
+                255,
                 x,
                 y,
                 width,
@@ -560,8 +545,8 @@ public final class ProspectingLayer {
         // first and is drawn last, on top; any other that would overlap a name already placed is left out (the one
         // under the mouse used to be drawn over its neighbours, its text running into theirs).
         boolean always = OreLabels.always();
-        // Clear of the plate and its frame.
-        double labelHalf = half + pad + pixel;
+        // Clear of the frame.
+        double labelHalf = half + pad;
         List<double[]> placed = new ArrayList<>();
         List<Object[]> labels = new ArrayList<>();
         if (hovered != null && visible.contains(hovered)) {
