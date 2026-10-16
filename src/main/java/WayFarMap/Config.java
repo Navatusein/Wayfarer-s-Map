@@ -209,6 +209,10 @@ public class Config {
     public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
+    /** Ore vein names on the world map: always (those that don't overlap), or only the one under the mouse. */
+    public static int oreLabels = 0;
+    /** Longest ore vein name on the world map, in pixels; longer ones end with '...'. */
+    public static int oreLabelMaxWidth = 100;
     public static boolean showUndergroundFluids = false;
     /** ServerUtilities claims layer on the world map (only used when it is installed). */
     public static boolean showClaims = false;
@@ -916,6 +920,27 @@ public class Config {
                 // Ore veins and underground fluids are shown one at a time.
                 if (v) showUndergroundFluids = false;
             });
+        parent("oreVeins");
+        choice(
+            c,
+            "oreLabels",
+            "Ore vein names on the world map: always (those that would overlap others are left out), or only for the "
+                + "vein under the mouse.",
+            0,
+            new String[] { "always", "hover" },
+            () -> oreLabels,
+            v -> oreLabels = v);
+        integer(
+            c,
+            "oreLabelMaxWidth",
+            "Maximum width of ore vein names on the world map, in pixels; longer names end with '...'.",
+            100,
+            30,
+            300,
+            10,
+            () -> oreLabelMaxWidth,
+            v -> oreLabelMaxWidth = v);
+        parent(null);
         bool(
             c,
             "undergroundFluids",

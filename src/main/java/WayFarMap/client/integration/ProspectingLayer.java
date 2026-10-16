@@ -539,23 +539,43 @@ public final class ProspectingLayer {
         if (minimap || zoom < Config.minZoomLevelForOreLabel) {
             return;
         }
-        // Names above the icons, skipping those that would overlap one already placed.
+        // Names above the icons, cut to the set width, as waypoints' names are. The one under the mouse takes its place
+        // first and is drawn last, on top; any other that would overlap a name already placed is left out (the one
+        // under the mouse used to be drawn over its neighbours, its text running into theirs).
+        boolean always = OreLabels.always();
         List<double[]> placed = new ArrayList<>();
-        for (OreVeinLocation vein : visible) {
-            if (vein.isDepleted()) {
-                continue;
-            }
-            String name = ellipsize(font, vein.getName(), 120);
-            int w = font.getStringWidth(name);
-            double lx = x + (vein.getBlockX() - left) * scale;
-            double ly = y + (vein.getBlockZ() - top) * scale - half - 11;
-            double[] box = { lx - w / 2.0 - 2, ly - 1, lx + w / 2.0 + 2, ly + 9 };
-            if (vein != hovered && overlaps(box, placed)) {
-                continue;
-            }
-            placed.add(box);
-            label(font, name, lx, ly, vein.drawSearchHighlight() ? 0xFFFFFF : 0x7F7F7F);
+        List<Object[]> labels = new ArrayList<>();
+        if (hovered != null && visible.contains(hovered)) {
+            placeLabel(font, hovered, x, y, left, top, scale, half, placed, labels);
         }
+        if (always) {
+            for (OreVeinLocation vein : visible) {
+                if (vein != hovered && !vein.isDepleted()) {
+                    placeLabel(font, vein, x, y, left, top, scale, half, placed, labels);
+                }
+            }
+        }
+        // Back to front: the hovered one, placed first, ends on top.
+        for (int i = labels.size() - 1; i >= 0; i--) {
+            Object[] l = labels.get(i);
+            label(font, (String) l[0], (Double) l[1], (Double) l[2], (Integer) l[3]);
+        }
+    }
+
+    /** Places the vein's name above its icon unless it would overlap a name already placed: {text, x, y, color}. */
+    private static void placeLabel(FontRenderer font, OreVeinLocation vein, int x, int y, double left, double top,
+        double scale, double half, List<double[]> placed, List<Object[]> labels) {
+        String name = ellipsize(font, vein.getName(), OreLabels.maxWidth());
+        int w = font.getStringWidth(name);
+        double lx = x + (vein.getBlockX() - left) * scale;
+        double ly = y + (vein.getBlockZ() - top) * scale - half - 11;
+        double[] box = { lx - w / 2.0 - 2, ly - 1, lx + w / 2.0 + 2, ly + 9 };
+        if (overlaps(box, placed)) {
+            return;
+        }
+        placed.add(box);
+        int color = vein.isDepleted() || !vein.drawSearchHighlight() ? 0x7F7F7F : 0xFFFFFF;
+        labels.add(new Object[] { name, lx, ly, color });
     }
 
     /** Tooltip lines of the vein under the mouse, or null. */
