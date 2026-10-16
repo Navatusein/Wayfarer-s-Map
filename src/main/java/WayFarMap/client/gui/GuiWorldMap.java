@@ -1950,6 +1950,12 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (powerfail != null) {
             entries.add(
+                new MenuEntry(
+                    Lang.format(
+                        PowerfailLayer.isTracked(powerfail) ? "wayfarmap.node.untrack" : "wayfarmap.node.track"),
+                    true,
+                    () -> PowerfailLayer.toggleTracked(powerfail)));
+            entries.add(
                 new MenuEntry(Lang.format("wayfarmap.powerfail.clear"), true, () -> PowerfailLayer.clear(powerfail))
                     .icon(Icons.SMALL_CHECK));
             final int[] at = PowerfailLayer.position(powerfail);

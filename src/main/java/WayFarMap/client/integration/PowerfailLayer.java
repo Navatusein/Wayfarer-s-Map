@@ -22,6 +22,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.waypoint.WaypointRenderer;
 
 /**
  * GregTech power failures ("powerfails"): machines of the player's team that ran out of power, as GregTech's own
@@ -33,6 +34,8 @@ import WayFarMap.client.Lang;
 public final class PowerfailLayer {
 
     private static final int FRAME_COLOR = 0xFF3333;
+    /** Frame of the tracked one on the maps, gold like a tracked ore vein. */
+    private static final int TRACKED_COLOR = 0xFFD700;
     private static final int SEARCH_COLOR = 0xFFD34D;
     private static final int LABEL_BACKGROUND = 0xB4000000;
     private static final long REFRESH_MS = 250;
@@ -198,6 +201,9 @@ public final class PowerfailLayer {
     public static void clear(Object handle) {
         Powerfail powerfail = (Powerfail) handle;
         try {
+            if (isTracked(powerfail)) {
+                tracked = null;
+            }
             sendToServer.invoke(networkField.get(null), clearPacket.newInstance(powerfail.source));
             for (Collection<?> container : containers()) {
                 container.remove(powerfail.source);
@@ -284,7 +290,7 @@ public final class PowerfailLayer {
         for (int i = 0; i < visible.size(); i++) {
             double[] p = positions.get(i);
             boolean dim = searching && !matches(visible.get(i));
-            int frame = searching && !dim ? SEARCH_COLOR : FRAME_COLOR;
+            int frame = isTracked(visible.get(i)) ? TRACKED_COLOR : searching && !dim ? SEARCH_COLOR : FRAME_COLOR;
             quad(
                 tessellator,
                 p[0] - half - 1,
@@ -392,6 +398,96 @@ public final class PowerfailLayer {
         return new int[] { powerfail.x, powerfail.y, powerfail.z, powerfail.dimension };
     }
 
+    // ---------------------------------------------------------------- tracking
+
+    /** The tracked power failure as {dimension, x, y, z}, shown in the world like a waypoint; null if none. */
+    private static int[] tracked;
+    private static String trackedName;
+    /** When the tracked one was last looked for among GregTech's: it goes once cleared, here or by anyone. */
+    private static long trackedCheckedAt;
+    private static final long TRACKED_CHECK_MS = 1000;
+
+    public static boolean isTracked(Object handle) {
+        Powerfail p = (Powerfail) handle;
+        int[] target = tracked;
+        return target != null && target[0] == p.dimension && target[1] == p.x && target[2] == p.y && target[3] == p.z;
+    }
+
+    /** Starts tracking the power failure, or stops if it is the tracked one. */
+    public static void toggleTracked(Object handle) {
+        Powerfail p = (Powerfail) handle;
+        if (isTracked(p)) {
+            tracked = null;
+        } else {
+            tracked = new int[] { p.dimension, p.x, p.y, p.z };
+            trackedName = p.name;
+            trackedCheckedAt = System.currentTimeMillis();
+        }
+    }
+
+    /** Whether the tracked one is still a power failure GregTech knows of. */
+    private static boolean trackedStillThere(int[] target) {
+        long now = System.currentTimeMillis();
+        if (now - trackedCheckedAt < TRACKED_CHECK_MS) {
+            return true;
+        }
+        trackedCheckedAt = now;
+        try {
+            for (Object source : allSources()) {
+                if (dimField.getInt(source) == target[0] && xField.getInt(source) == target[1]
+                    && yField.getInt(source) == target[2]
+                    && zField.getInt(source) == target[3]) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Draws the tracked power failure in the world, like a tracked ore vein: its warning sign, the machine's name and
+     * the distance, at any distance, and a beam over it if the tracked style asks for one.
+     */
+    public static void renderTrackedInWorld(Minecraft mc, int dimension, float partialTicks) {
+        int[] target = tracked;
+        if (target == null || target[0] != dimension) {
+            return;
+        }
+        if (!trackedStillThere(target)) {
+            tracked = null;
+            return;
+        }
+        if (WaypointRenderer.trackedBeams()) {
+            WaypointRenderer.renderBeam(mc, target[1], target[3], FRAME_COLOR, partialTicks, 1f);
+        }
+        final IIcon icon = icon();
+        WaypointRenderer.BillboardIcon sign = icon == null ? null : (cx, cy, size) -> {
+            mc.getTextureManager()
+                .bindTexture(TextureMap.locationBlocksTexture);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GL11.glColor4f(1f, 1f, 1f, 1f);
+            Tessellator tessellator = Tessellator.instance;
+            double s = size / 2.0;
+            tessellator.startDrawingQuads();
+            tessellator.addVertexWithUV(cx - s, cy + s, 0, icon.getMinU(), icon.getMaxV());
+            tessellator.addVertexWithUV(cx + s, cy + s, 0, icon.getMaxU(), icon.getMaxV());
+            tessellator.addVertexWithUV(cx + s, cy - s, 0, icon.getMaxU(), icon.getMinV());
+            tessellator.addVertexWithUV(cx - s, cy - s, 0, icon.getMinU(), icon.getMinV());
+            tessellator.draw();
+            return true;
+        };
+        WaypointRenderer.renderBillboard(
+            mc,
+            target[1] + 0.5,
+            target[2],
+            target[3] + 0.5,
+            Lang.format("wayfarmap.powerfail.tracked_name", trackedName),
+            FRAME_COLOR,
+            sign);
+    }
+
     /** Tooltip of the power failure under the mouse, or null. */
     public static List<String> getHoveredTooltip() {
         if (hovered == null) {
@@ -402,6 +498,9 @@ public final class PowerfailLayer {
         lines.add("§c" + Lang.format("wayfarmap.powerfail.title") + ": §f" + p.name);
         lines.add("§7" + p.x + ", " + p.y + ", " + p.z);
         lines.add("§7" + Lang.format("wayfarmap.powerfail.count", p.count));
+        if (isTracked(p)) {
+            lines.add("§6" + Lang.format("wayfarmap.node.tracked"));
+        }
         if (p.last != null) {
             String when = DateFormat.getDateTimeInstance()
                 .format(p.last);

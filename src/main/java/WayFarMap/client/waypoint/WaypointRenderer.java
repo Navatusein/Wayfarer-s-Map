@@ -34,6 +34,7 @@ import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
@@ -486,6 +487,9 @@ public class WaypointRenderer {
                 Mods.Addon.THAUMCRAFT_NODES,
                 () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension, partialTicks));
         }
+        if (Mods.isPowerfailsAvailable()) {
+            Mods.draw(Mods.Addon.POWERFAILS, () -> PowerfailLayer.renderTrackedInWorld(mc, dimension, partialTicks));
+        }
     }
 
     private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
@@ -501,7 +505,12 @@ public class WaypointRenderer {
     private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks, float alpha) {
         int color = waypoint.beamColor != null ? waypoint.beamColor
             : waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
-        renderBeam(mc, waypoint.x, waypoint.z, color, partialTicks, alpha);
+        renderBeam(mc, waypoint.x, waypoint.z, color, partialTicks, alpha, true);
+    }
+
+    /** A beam over a tracked ore vein, node or power failure: seen at any distance, whatever waypoints are limited to. */
+    public static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha) {
+        renderBeam(mc, blockX, blockZ, color, partialTicks, alpha, false);
     }
 
     /**
@@ -509,13 +518,14 @@ public class WaypointRenderer {
      * top, in the RGB color: a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
      * beacon. Hidden behind terrain like a real one.
      */
-    public static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha) {
+    private static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha,
+        boolean limited) {
         double x = blockX - RenderManager.renderPosX;
         // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
         double y = -RenderManager.renderPosY;
         double z = blockZ - RenderManager.renderPosZ;
         double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
-        if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
+        if (limited && Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
             return;
         }
         double height = Math.max(1, mc.theWorld.getHeight());
@@ -696,10 +706,18 @@ public class WaypointRenderer {
         renderBillboard(mc, x, y, z, name, outlineColor, icon, 1f);
     }
 
-    /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
+    /**
+     * Same, at the given opacity (the icon draws itself, at the opacity it was given). For what is tracked (an ore
+     * vein, a node, a power failure): shown at any distance, whatever waypoints are limited to.
+     */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon, float alpha) {
-        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false);
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false, false);
+    }
+
+    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, label, openFrame, true);
     }
 
     /**
@@ -708,16 +726,17 @@ public class WaypointRenderer {
      *
      * @param openFrame the colored frame around the icon is left open in the middle (no dark tile), for one of the
      *                  {@link Symbols}
+     * @param limited   left out beyond {@link Config#waypointMaxDistance} (waypoints); false for what is tracked
      */
     private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
-        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame, boolean limited) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         // The icon in the middle of the block, the box with the name and the distance under it.
         double dy = y + 0.5 - RenderManager.renderPosY;
         double dz = z - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
+        if (distance < 0.5 || (limited && Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
             return;
         }
         // Far markers are drawn closer (inside the view distance) and scaled to look as if they were at their real
