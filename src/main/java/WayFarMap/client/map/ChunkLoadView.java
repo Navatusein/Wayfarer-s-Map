@@ -687,10 +687,24 @@ public final class ChunkLoadView {
         return count;
     }
 
-    /** The chunks of the rectangle between two chunks (capped to {@link #MAX_SIDE} a side). */
+    /**
+     * The end of a drag from {@code start} toward {@code end}, kept at most {@code side} chunks from it (both
+     * included) in either direction: the start stays put and the far side stops at the limit, whichever way the drag
+     * goes.
+     */
+    public static int clampEnd(int start, int end, int side) {
+        return Math.max(start - (side - 1), Math.min(start + (side - 1), end));
+    }
+
+    /**
+     * The chunks of the rectangle from the chunk a drag started at ({@code x0}, {@code z0}) to the one it is at,
+     * capped to {@link #MAX_SIDE} a side from the start.
+     */
     public static List<Long> rectangle(int x0, int z0, int x1, int z1) {
-        int minX = Math.min(x0, x1), maxX = Math.min(Math.max(x0, x1), Math.min(x0, x1) + MAX_SIDE - 1);
-        int minZ = Math.min(z0, z1), maxZ = Math.min(Math.max(z0, z1), Math.min(z0, z1) + MAX_SIDE - 1);
+        x1 = clampEnd(x0, x1, MAX_SIDE);
+        z1 = clampEnd(z0, z1, MAX_SIDE);
+        int minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+        int minZ = Math.min(z0, z1), maxZ = Math.max(z0, z1);
         List<Long> chunks = new ArrayList<>();
         for (int cx = minX; cx <= maxX; cx++) {
             for (int cz = minZ; cz <= maxZ; cz++) {

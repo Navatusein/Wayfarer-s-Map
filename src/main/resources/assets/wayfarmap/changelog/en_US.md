@@ -30,6 +30,8 @@
 - [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
 - [new] Map data: a button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
 
+- [fix] Area selection when claiming chunks or loading regions: dragged left or up, it no longer slides after the cursor once at its limit
+
 ## Map data
 - [fix] "All dimensions": its 3D map shows that it includes the block pictures the dimensions share (why it is more than the dimensions added up)
 - [fix] After deleting a dimension's map it stays picked instead of jumping to "All dimensions"

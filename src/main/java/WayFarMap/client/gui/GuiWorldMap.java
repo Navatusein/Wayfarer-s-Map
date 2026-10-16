@@ -140,6 +140,8 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Chunks passed while dragging with Ctrl/Shift in the claims layer, applied on release. */
     private final Set<Long> claimSelection = new LinkedHashSet<>();
+    /** Most chunks a side of a claim drag takes. */
+    private static final int CLAIM_MAX_SIDE = 64;
     private int claimButton = -1;
     private int claimAction;
     /** Chunk where the drag started: the selection is the rectangle from it to the chunk under the mouse. */
@@ -3281,11 +3283,11 @@ public class GuiWorldMap extends ScaledScreen {
         claimEndZ = endZ;
         claimSelection.clear();
         int dimension = mc.theWorld.provider.dimensionId;
-        int minX = Math.min(claimStartX, endX), maxX = Math.max(claimStartX, endX);
-        int minZ = Math.min(claimStartZ, endZ), maxZ = Math.max(claimStartZ, endZ);
-        // Capped so a huge accidental drag can't send thousands of chunks.
-        maxX = Math.min(maxX, minX + 63);
-        maxZ = Math.min(maxZ, minZ + 63);
+        // Capped so a huge accidental drag can't send thousands of chunks: from the start, whichever way it goes.
+        int limitX = ChunkLoadView.clampEnd(claimStartX, endX, CLAIM_MAX_SIDE);
+        int limitZ = ChunkLoadView.clampEnd(claimStartZ, endZ, CLAIM_MAX_SIDE);
+        int minX = Math.min(claimStartX, limitX), maxX = Math.max(claimStartX, limitX);
+        int minZ = Math.min(claimStartZ, limitZ), maxZ = Math.max(claimStartZ, limitZ);
         for (int chunkX = minX; chunkX <= maxX; chunkX++) {
             for (int chunkZ = minZ; chunkZ <= maxZ; chunkZ++) {
                 if (ClaimsLayer.accepts(claimAction, chunkX, chunkZ, dimension)) {
