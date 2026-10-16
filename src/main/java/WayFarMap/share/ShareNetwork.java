@@ -63,6 +63,7 @@ public final class ShareNetwork {
         channel.registerMessage(LoadEndedToClient.class, LoadEnded.class, 12, Side.CLIENT);
         channel.registerMessage(WaypointsToServer.class, Waypoints.class, 13, Side.SERVER);
         channel.registerMessage(WaypointsToClient.class, Waypoints.class, 14, Side.CLIENT);
+        channel.registerMessage(TeleportToServer.class, TeleportRequest.class, 15, Side.SERVER);
     }
 
     public static void sendToServer(IMessage message) {
@@ -649,6 +650,49 @@ public final class ShareNetwork {
         @Override
         public IMessage onMessage(LoadAllowed message, MessageContext context) {
             WayFarMap.proxy.receiveChunkLoad(message);
+            return null;
+        }
+    }
+
+    /**
+     * Teleport from the world map, also into another dimension (operators only, see {@link TeleportServer}).
+     * {@code y} is 0 when the client doesn't know the height there: the server finds it.
+     */
+    public static final class TeleportRequest implements IMessage {
+
+        public int dimension, x, y, z;
+
+        public TeleportRequest() {}
+
+        public TeleportRequest(int dimension, int x, int y, int z) {
+            this.dimension = dimension;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            dimension = buf.readInt();
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(dimension);
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+        }
+    }
+
+    public static final class TeleportToServer implements IMessageHandler<TeleportRequest, IMessage> {
+
+        @Override
+        public IMessage onMessage(TeleportRequest message, MessageContext context) {
+            TeleportServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
             return null;
         }
     }

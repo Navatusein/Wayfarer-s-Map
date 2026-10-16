@@ -196,7 +196,7 @@ public final class ThaumcraftNodes {
         double top = centerZ - height / 2.0 / scale;
         double size = minimap ? 9 : Math.max(10, Math.min(18, 14 * Math.pow(scale, 0.3)));
         double half = size / 2;
-        boolean searching = !minimap && searchTokens.length > 0;
+        boolean searching = searchTokens.length > 0;
 
         List<Node> visible = new ArrayList<>();
         List<double[]> positions = new ArrayList<>();

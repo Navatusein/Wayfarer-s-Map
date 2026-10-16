@@ -104,6 +104,8 @@ public class Config {
     /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
     public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
         MARKER_CIRCLE = 4, MARKER_DOT = 5;
+    /** The player is marked on the maps at all. */
+    public static boolean playerMarkerShown = true;
     public static int playerMarkerStyle = MARKER_ARROW;
     public static int playerMarkerScale = 100;
     public static final int PLAYER_MARKER_COLOR = 0xFFFFFF;
@@ -129,6 +131,9 @@ public class Config {
     public static boolean topoContours = true;
     public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
+    /** Lines of the grid: chunk and region borders, or region borders only. */
+    public static final int GRID_DEFAULT = 0, GRID_REGIONS = 1;
+    public static int gridStyle = GRID_DEFAULT;
     /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
     public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
     public static int unexploredPattern = UNEXPLORED_NONE;
@@ -701,6 +706,14 @@ public class Config {
             () -> chunkGrid,
             v -> chunkGrid = v);
         parent("chunkGrid");
+        choice(
+            c,
+            "gridStyle",
+            "Lines of the grid: 0 = chunk and region borders, 1 = region borders (every 512 blocks) only.",
+            GRID_DEFAULT,
+            new String[] { "default", "regions" },
+            () -> gridStyle,
+            v -> gridStyle = v);
         integer(
             c,
             "gridLineWidth",
@@ -961,6 +974,14 @@ public class Config {
         c = CATEGORY_PLAYER_MARKER;
         group("look");
         parent(null);
+        bool(
+            c,
+            "shown",
+            "Show the player on the maps. Off: no marker, arrow or 3D model of the player at all.",
+            true,
+            () -> playerMarkerShown,
+            v -> playerMarkerShown = v);
+        parent("shown");
         choice(
             c,
             "style",
@@ -1593,6 +1614,10 @@ public class Config {
     }
 
     public static int lightMode(boolean minimap) {
+        if (displayMode(minimap) == DISPLAY_BIOMES) {
+            // The biome map shows the biomes' own colors: no night over them, nor dark caves or Nether.
+            return LIGHT_DAY;
+        }
         return minimap && minimapOwnView ? minimapLightMode : mapLightMode;
     }
 
@@ -1689,6 +1714,19 @@ public class Config {
     /** The grid button and key: turns the chunk borders on and off. */
     public static void toggleChunkGrid() {
         chunkGrid = !chunkGrid;
+        save();
+    }
+
+    /** The grid button on the world map: off, chunks and regions, regions only, off again. */
+    public static void cycleGrid() {
+        if (!chunkGrid) {
+            chunkGrid = true;
+            gridStyle = GRID_DEFAULT;
+        } else if (gridStyle == GRID_DEFAULT) {
+            gridStyle = GRID_REGIONS;
+        } else {
+            chunkGrid = false;
+        }
         save();
     }
 

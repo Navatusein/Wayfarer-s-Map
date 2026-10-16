@@ -61,11 +61,13 @@ public final class MapDrawer {
 
     /**
      * Whether the map is drawn from reduced region copies (one pixel per 4x4 blocks): when a block is at most half a
-     * screen pixel wide the full resolution can't be seen anyway, and it would need far more memory.
+     * screen pixel wide the full resolution can't be seen anyway, and it would need far more memory. The minimap shows
+     * only a few regions: it takes the reduced copies only once a whole pixel of them (4 blocks) fits in a screen
+     * pixel, so at 1:2 it keeps the full regions instead of coarse copies rebuilt every second around the player.
      */
     public static boolean useLod(double scale) {
         int factor = ScaledScreen.currentFactor();
-        return scale * factor <= 0.5;
+        return scale * factor <= (minimapPass ? 0.25 : 0.5);
     }
 
     /**
@@ -396,7 +398,8 @@ public final class MapDrawer {
         int height) {
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
-        boolean chunks = 16 * scale >= 6;
+        // Chunks only when they are far enough apart to tell, and not when only the regions are asked for.
+        boolean chunks = Config.gridStyle != Config.GRID_REGIONS && 16 * scale >= 6;
         int step = chunks ? 16 : MapRegion.SIZE;
 
         // Lines are placed and sized in real screen pixels: snapping to GUI pixels (2-4 screen pixels each) made them
@@ -565,6 +568,9 @@ public final class MapDrawer {
      * color of the settings; {@code size} is the marker's size at 100%.
      */
     public static void drawPlayerArrow(double sx, double sy, float yaw, float size) {
+        if (!Config.playerMarkerShown) {
+            return;
+        }
         drawPlayerMarker(
             sx,
             sy,

@@ -526,7 +526,18 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Biome at the column in the dimension shown on the world map, or null if unknown. */
     public BiomeGenBase getViewBiome(int x, int z) {
         MapDimension map = getViewBiomeMap();
-        int id = map == null ? 0 : map.peekExtra(x, z);
+        if (map == null) {
+            return null;
+        }
+        int id = map.peekExtra(x, z);
+        if (id == 0) {
+            // Not drawn (another mode than the biomes shown): its region is read in the background, and the biome
+            // shows once it is there.
+            MapRegion region = map.requestRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
+            if (region != null) {
+                id = region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+            }
+        }
         return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
     }
 

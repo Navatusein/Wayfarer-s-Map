@@ -297,8 +297,9 @@ public final class ProspectingLayer {
         Minecraft mc = Minecraft.getMinecraft();
         double pixel = 1.0 / ScaledScreen.currentFactor();
 
-        // While searching (world map only), fields of other fluids fade out like in VisualProspecting.
-        boolean searching = !minimap && isSearchActive();
+        // While searching (the world map's search, on the minimap too), fields of other fluids fade out like in
+        // VisualProspecting.
+        boolean searching = isSearchActive();
         begin();
         for (UndergroundFluidLocation location : fluids) {
             double fx = x + (Math.floor(location.getBlockX()) - left) * scale;
@@ -509,7 +510,7 @@ public final class ProspectingLayer {
         }
 
         // Frames: search hits, and gold for the tracked vein (like VisualProspecting's "active as waypoint").
-        boolean searching = !minimap && isSearchActive();
+        boolean searching = isSearchActive();
         begin();
         for (OreVeinLocation vein : visible) {
             double sx = x + (vein.getBlockX() - left) * scale - half;

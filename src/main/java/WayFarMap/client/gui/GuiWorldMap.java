@@ -20,6 +20,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.biome.BiomeGenBase;
 
@@ -88,6 +89,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
     private static final String[] CAVE_MODE_KEYS = { "auto", "off", "on" };
+    /** Lang key suffixes of {@link Config#gridStyle} values. */
+    private static final String[] GRID_STYLE_KEYS = { "default", "regions" };
     /** Lang key suffixes of {@link Config#mapLightMode} values. */
     private static final String[] LIGHT_MODE_KEYS = { "auto", "day", "night" };
 
@@ -220,6 +223,11 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     private boolean dragging;
+    /**
+     * Follow mode is on but the map was dragged away from the player: it stops following until the map is centered
+     * on the player again (Space, the follow button, reopening the map).
+     */
+    private boolean followPaused;
     private int lastRawMouseX;
     private int lastRawMouseY;
     private long lastFrameNanos;
@@ -711,6 +719,11 @@ public class GuiWorldMap extends ScaledScreen {
         modesButton.tooltip = Lang.format("wayfarmap.gui.modes") + ": "
             + Lang.format("wayfarmap.gui.modes." + MODE_KEYS[mode]);
         gridButton.active = Config.chunkGrid;
+        gridButton.badge = Config.chunkGrid && Config.gridStyle == Config.GRID_REGIONS ? Theme.ACCENT : 0;
+        String gridStyle = GRID_STYLE_KEYS[Config.gridStyle == Config.GRID_REGIONS ? 1 : 0];
+        gridButton.tooltip = Lang.format("wayfarmap.gui.grid") + ": "
+            + Lang.format(
+                Config.chunkGrid ? "wayfarmap.option.map.gridStyle." + gridStyle : "wayfarmap.option.map.caveMode.off");
         followButton.active = Config.mapFollowPlayer;
         layoutRightButtons();
         // Mobs: highlighted while some are hidden, dim when none are shown; a dot when only hostile or only
@@ -742,6 +755,7 @@ public class GuiWorldMap extends ScaledScreen {
             openAddonsMenu();
         } else if (button.id == ID_FOLLOW) {
             Config.toggleFollowPlayer();
+            followPaused = false;
             updateLightButtons();
             if (Config.mapFollowPlayer) {
                 // Turned on: show the player now, as the map will be every time it opens.
@@ -750,7 +764,7 @@ public class GuiWorldMap extends ScaledScreen {
                 zooming = false;
             }
         } else if (button.id == ID_GRID) {
-            Config.toggleChunkGrid();
+            Config.cycleGrid();
             updateLightButtons();
         } else if (button.id == ID_MODES) {
             openModesMenu();
@@ -779,7 +793,7 @@ public class GuiWorldMap extends ScaledScreen {
     }
 
     /** Moves and zooms the view once per frame, so panning is as smooth as the frame rate allows. */
-    private void updateView() {
+    private void updateView(float partialTicks) {
         long now = System.nanoTime();
         double seconds = Math.min(0.1, (now - lastFrameNanos) / 1.0e9);
         lastFrameNanos = now;
@@ -830,6 +844,23 @@ public class GuiWorldMap extends ScaledScreen {
             centerX = anchorWorldX - offset[0];
             centerZ = anchorWorldZ - offset[1];
         }
+
+        if (following() && flightStart == 0) {
+            // Follow mode: the player stays in the middle as they walk, zoomed around them too.
+            EntityPlayer player = mc.thePlayer;
+            centerOn(
+                player.prevPosX + (player.posX - player.prevPosX) * partialTicks,
+                player.lastTickPosY + (player.posY - player.lastTickPosY) * partialTicks - player.yOffset,
+                player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks);
+        }
+    }
+
+    /** The map keeps the player in the middle: follow mode, not dragged away, in the player's dimension. */
+    private boolean following() {
+        return Config.mapFollowPlayer && !followPaused
+            && !dragging
+            && mc.thePlayer != null
+            && !MapManager.INSTANCE.isViewingOtherDimension();
     }
 
     /** Switches between the flat map and the 3D view, keeping the same place in the middle. */
@@ -1116,7 +1147,7 @@ public class GuiWorldMap extends ScaledScreen {
             menu = null;
         }
 
-        updateView();
+        updateView(partialTicks);
         // The dimension shown: the player's, or another one picked from the title.
         int dimensionId = viewDimension();
         boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
@@ -1177,7 +1208,7 @@ public class GuiWorldMap extends ScaledScreen {
                 height,
                 partialTicks,
                 true,
-                playerOnScreen && Config.isoPlayerModel);
+                playerOnScreen && Config.isoPlayerModel && Config.playerMarkerShown);
         if (playerOnScreen) {
             float yaw = mc.thePlayer.prevRotationYaw
                 + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
@@ -1327,7 +1358,10 @@ public class GuiWorldMap extends ScaledScreen {
             String layer = Lang.format("wayfarmap.gui.cave_layer", caveLayer * 16, caveLayer * 16 + 15);
             parts.add(new FooterPart(Icons.SMALL_CAVE, layer, Theme.TEXT));
         }
-        if (biomeViewShown() && hoveredWaypoint == null) {
+        // The 2D map, with or without plants: the biome under the cursor next to its coordinates. The biome view
+        // shows it next to the cursor instead.
+        int mode = currentMode();
+        if ((mode == MODE_FLAT || mode == MODE_BARE) && hoveredWaypoint == null) {
             BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
             if (biome != null) {
                 parts.add(new FooterPart(Icons.SMALL_TREE, biome.biomeName, Theme.TEXT));
@@ -1428,6 +1462,13 @@ public class GuiWorldMap extends ScaledScreen {
                 }
                 if (tooltip == null && claimsShown()) {
                     tooltip = ClaimsLayer.tooltip(hoverX >> 4, hoverZ >> 4, dimensionId);
+                }
+                if (tooltip == null && biomeViewShown() && waypointAt(mouseX, mouseY) == null) {
+                    // Biome view: the biome's name by the cursor, where the eye already is.
+                    BiomeGenBase biome = MapManager.INSTANCE.getViewBiome(hoverX, hoverZ);
+                    if (biome != null) {
+                        tooltip = Collections.singletonList(biome.biomeName);
+                    }
                 }
                 if (tooltip != null) {
                     drawHoveringText(tooltip, mouseX, mouseY, fontRendererObj);
@@ -1789,6 +1830,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Centers the map on the teammate, switching to their dimension if needed. */
     private void goToTeammate(TeamMates.Mate mate) {
+        followPaused = Config.mapFollowPlayer;
         double[] position = TeamMates.INSTANCE.position(mate, 1f);
         if (mate.dimension != viewDimension()) {
             // Another dimension's map: no way to glide there from here.
@@ -1802,6 +1844,7 @@ public class GuiWorldMap extends ScaledScreen {
 
     /** Shows the waypoint in the middle of the map, switching to its dimension if it has a saved map. */
     private void centerOnWaypoint(Waypoint waypoint) {
+        followPaused = Config.mapFollowPlayer;
         if (waypoint.dimension != viewDimension()) {
             if (waypoint.dimension == mc.theWorld.provider.dimensionId) {
                 showDimension(waypoint.dimension);
@@ -1900,14 +1943,44 @@ public class GuiWorldMap extends ScaledScreen {
         // In 3D the block seen there gives the height, also in another dimension.
         final int seenY = block[1] >= 0 ? Math.min(255, block[1] + 1) : 0;
         final int safeY = here ? Teleport.findSafeY(mc.theWorld, bx, bz) : 0;
-        entries.add(new MenuEntry(Lang.format("wayfarmap.gui.teleport_here"), here && Teleport.isAllowed(), () -> {
-            if (safeY > 0) {
-                Teleport.teleport(bx, safeY, bz);
-            } else {
-                // Unexplored or unknown height: ask which Y to go to.
-                mc.displayGuiScreen(new GuiTeleportY(this, bx, bz));
+        // In 3D: where the block under the cursor is stood on: the floor of the storey looked into, under a roof the
+        // floor below it, rather than the top of the column.
+        final int[] seen = here && isoShown() && block.length > 3 ? Teleport.isoTarget(mc.theWorld, block) : null;
+        if (!here) {
+            // Another dimension: through the server's mod (it finds the ground) or CoFH's /cofh tpx.
+            final int y = seenY > 0 ? seenY : MapManager.INSTANCE.getViewSurfaceHeight(bx, bz);
+            entries.add(
+                new MenuEntry(
+                    Lang.format("wayfarmap.gui.teleport_here"),
+                    Teleport.isOtherDimensionAllowed(),
+                    () -> {
+                        mc.displayGuiScreen(null);
+                        Teleport.teleport(dimension, bx, y, bz);
+                    }).icon(Icons.SMALL_UP));
+        } else if (seen != null) {
+            entries.add(
+                new MenuEntry(
+                    Lang.format("wayfarmap.gui.teleport_here"),
+                    Teleport.isAllowed(),
+                    () -> Teleport.teleport(seen[0], seen[1], seen[2])).icon(Icons.SMALL_UP));
+            if (seen[3] != 0) {
+                // Under a roof: onto the roof itself as well.
+                entries.add(
+                    new MenuEntry(
+                        Lang.format("wayfarmap.gui.teleport_roof"),
+                        Teleport.isAllowed(),
+                        () -> Teleport.teleport(block[0], seenY, block[2])).icon(Icons.SMALL_UP));
             }
-        }).icon(Icons.SMALL_UP));
+        } else {
+            entries.add(new MenuEntry(Lang.format("wayfarmap.gui.teleport_here"), Teleport.isAllowed(), () -> {
+                if (safeY > 0) {
+                    Teleport.teleport(bx, safeY, bz);
+                } else {
+                    // Unexplored or unknown height: ask which Y to go to.
+                    mc.displayGuiScreen(new GuiTeleportY(this, bx, bz));
+                }
+            }).icon(Icons.SMALL_UP));
+        }
         entries.add(
             new MenuEntry(
                 Lang.format("wayfarmap.gui.new_waypoint"),
@@ -1959,12 +2032,12 @@ public class GuiWorldMap extends ScaledScreen {
         entries.add(
             new MenuEntry(Lang.format("wayfarmap.gui.share"), true, () -> WaypointShare.share(waypoint))
                 .icon(Icons.SMALL_CHAT));
-        // Teleporting needs /tp permission and the same dimension.
-        boolean canTeleport = Teleport.isAllowed() && mc.theWorld != null
-            && waypoint.dimension == mc.theWorld.provider.dimensionId;
+        // Teleporting needs /tp permission; into another dimension the server's mod or CoFH's /cofh tpx.
+        boolean sameDimension = mc.theWorld != null && waypoint.dimension == mc.theWorld.provider.dimensionId;
+        boolean canTeleport = sameDimension ? Teleport.isAllowed() : Teleport.isOtherDimensionAllowed();
         entries.add(new MenuEntry(Lang.format("wayfarmap.gui.teleport"), canTeleport, () -> {
             mc.displayGuiScreen(null);
-            Teleport.teleport(waypoint.x, waypoint.y, waypoint.z);
+            Teleport.teleport(waypoint.dimension, waypoint.x, waypoint.y, waypoint.z);
         }).icon(Icons.SMALL_UP));
         if (foreign) {
             entries.add(
@@ -2180,7 +2253,9 @@ public class GuiWorldMap extends ScaledScreen {
             }
         }
         Theme.unclip();
-        if (menuKind == MENU_MAP && !Teleport.isAllowed() && open >= 1) {
+        boolean teleportAllowed = MapManager.INSTANCE.isViewingOtherDimension() ? Teleport.isOtherDimensionAllowed()
+            : Teleport.isAllowed();
+        if (menuKind == MENU_MAP && !teleportAllowed && open >= 1) {
             String note = Lang.format("wayfarmap.gui.no_teleport_permission");
             Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
         }
@@ -2538,8 +2613,9 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (button == 0) {
             dragging = true;
-            // Grabbing the map stops a glide where it is.
+            // Grabbing the map stops a glide where it is, and following the player until centered on them again.
             flightStart = 0;
+            followPaused = Config.mapFollowPlayer;
             lastRawMouseX = Mouse.getX();
             lastRawMouseY = Mouse.getY();
         }
@@ -3242,6 +3318,7 @@ public class GuiWorldMap extends ScaledScreen {
             zooming = false;
             scale = Config.MAP_ZOOMS[zoomIndex];
             flyTo(mc.thePlayer.posX, mc.thePlayer.boundingBox.minY, mc.thePlayer.posZ);
+            followPaused = false;
             return;
         }
         super.keyTyped(typedChar, keyCode);
@@ -3252,16 +3329,8 @@ public class GuiWorldMap extends ScaledScreen {
         super.onGuiClosed();
         MapManager.INSTANCE.setSurfaceView(false);
         Keyboard.enableRepeatEvents(false);
-        // Veins on the minimap go back to NEI's search; the map's search comes back when it is opened again.
-        if (Mods.isVisualProspectingLoaded()) {
-            ProspectingLayer.setSearch("");
-        }
-        if (Mods.isPowerfailsAvailable()) {
-            PowerfailLayer.setSearch("");
-        }
-        if (Mods.isThaumcraftNodesAvailable()) {
-            ThaumcraftNodes.setSearch("");
-        }
+        // The map's search stays on: the minimap highlights the same biomes, veins, fluids, power failures and nodes.
+        // With the search empty, veins follow NEI's search, as VisualProspecting's own map does.
         saveView();
         if (!ScaledScreen.isBeingCovered(this)) {
             // Only when really closed: under a screen opened over it, it is still shown.
