@@ -35,6 +35,8 @@ public class Waypoint {
     public boolean enabled = true;
     /** A beacon-like beam of light rises from it in the world. */
     public boolean beam;
+    /** RGB color of the beam, or null for the outline's color. */
+    public Integer beamColor;
     /** Placed automatically where the player died; only the latest few are kept. */
     public boolean death;
     /** When the player died there (milliseconds since 1970), 0 if unknown: shown as "5 min ago". */
@@ -76,6 +78,7 @@ public class Waypoint {
         copy.group = group;
         copy.enabled = enabled;
         copy.beam = beam;
+        copy.beamColor = beamColor;
         copy.death = death;
         copy.diedAt = diedAt;
         copy.shareId = shareId;
@@ -101,6 +104,7 @@ public class Waypoint {
         group = other.group;
         enabled = other.enabled;
         beam = other.beam;
+        beamColor = other.beamColor;
         death = other.death;
         diedAt = other.diedAt;
         shareId = other.shareId;

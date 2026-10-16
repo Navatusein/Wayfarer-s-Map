@@ -475,32 +475,50 @@ public class WaypointRenderer {
                 renderInWorld(mc, waypoint);
             }
         }
+        float partialTicks = event.partialTicks;
         if (Mods.isVisualProspectingLoaded()) {
-            Mods.draw(Mods.Addon.VISUAL_PROSPECTING, () -> ProspectingLayer.renderTrackedInWorld(mc, dimension));
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer.renderTrackedInWorld(mc, dimension, partialTicks));
         }
         if (Mods.isThaumcraftNodesAvailable()) {
-            Mods.draw(Mods.Addon.THAUMCRAFT_NODES, () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension));
+            Mods.draw(
+                Mods.Addon.THAUMCRAFT_NODES,
+                () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension, partialTicks));
         }
     }
 
     private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
 
+    /** Tracked ore veins and Thaumcraft nodes get a beam over them in the world ({@link Config#trackedStyle}). */
+    public static boolean trackedBeams() {
+        return Config.trackedStyle == Config.TRACKED_BEAM;
+    }
+
     /**
-     * A beacon beam through the waypoint's column, from the bottom of the world to the top, in its outline color
-     * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
-     * beacon. Hidden behind terrain like a real one.
+     * A beacon beam through the waypoint's column in its beam color, else its outline color (white without one).
      */
     private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks, float alpha) {
-        double x = waypoint.x - RenderManager.renderPosX;
+        int color = waypoint.beamColor != null ? waypoint.beamColor
+            : waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
+        renderBeam(mc, waypoint.x, waypoint.z, color, partialTicks, alpha);
+    }
+
+    /**
+     * A beacon beam through the column of block ({@code blockX}, {@code blockZ}), from the bottom of the world to the
+     * top, in the RGB color: a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
+     * beacon. Hidden behind terrain like a real one.
+     */
+    public static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha) {
+        double x = blockX - RenderManager.renderPosX;
         // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
         double y = -RenderManager.renderPosY;
-        double z = waypoint.z - RenderManager.renderPosZ;
+        double z = blockZ - RenderManager.renderPosZ;
         double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
         if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
             return;
         }
         double height = Math.max(1, mc.theWorld.getHeight());
-        int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
         int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
         float time = mc.theWorld.getTotalWorldTime() % 100_000L + partialTicks;
         double scroll = -time * 0.2 - Math.floor(-time * 0.1);

@@ -275,7 +275,12 @@ public class Config {
     public static int waypointFadeStart = 12, waypointFadeEnd = 3;
     public static int waypointLabelMaxWidth = 100;
     public static boolean deathWaypoints = true;
-    public static int deathWaypointsKeep = 3;
+    public static int deathWaypointsKeep = 20;
+    /** With OpenBlocks: the death waypoint is removed once the player's grave there is gone (emptied or broken). */
+    public static boolean deathWaypointsGrave = true;
+    /** How a tracked ore vein or Thaumcraft node shows in the world: its marker, or the marker and a beam. */
+    public static final int TRACKED_MARKER = 0, TRACKED_BEAM = 1;
+    public static int trackedStyle = TRACKED_MARKER;
     /** Waypoints teammates share are shown as they come; a waypoint group can say otherwise for itself. */
     public static boolean teamWaypointsShown = true;
 
@@ -1319,12 +1324,30 @@ public class Config {
             c,
             "deathPointsKeep",
             "How many death waypoints to keep; older ones are removed.",
-            3,
-            1,
             20,
+            1,
+            100,
             1,
             () -> deathWaypointsKeep,
             v -> deathWaypointsKeep = v);
+        bool(
+            c,
+            "deathPointsGrave",
+            "With OpenBlocks: remove the death waypoint once your grave next to it is gone (emptied or broken).",
+            true,
+            () -> deathWaypointsGrave,
+            v -> deathWaypointsGrave = v);
+        parent(null);
+        group("tracked");
+        parent(null);
+        choice(
+            c,
+            "trackedStyle",
+            "How a tracked ore vein or Thaumcraft node shows in the world: 0 = its marker, 1 = its marker and a beam.",
+            TRACKED_MARKER,
+            new String[] { "marker", "beam" },
+            () -> trackedStyle,
+            v -> trackedStyle = v);
         parent(null);
         group("team");
         parent(null);

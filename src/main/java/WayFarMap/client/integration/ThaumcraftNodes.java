@@ -357,7 +357,7 @@ public final class ThaumcraftNodes {
      * Draws the tracked node in the world like a waypoint (as a tracked ore vein): the node icon with its strongest
      * aspect, the name and the distance, visible through blocks.
      */
-    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+    public static void renderTrackedInWorld(Minecraft mc, int dimension, float partialTicks) {
         int[] target = tracked;
         if (target == null || target[0] != dimension || TCNodeTracker.nodelist == null) {
             return;
@@ -367,6 +367,9 @@ public final class ThaumcraftNodes {
                 continue;
             }
             final Node node = new Node(source);
+            if (WaypointRenderer.trackedBeams()) {
+                WaypointRenderer.renderBeam(mc, node.x, node.z, node.color(), partialTicks, 1f);
+            }
             String aspect = node.aspects.isEmpty() ? ""
                 : node.aspects.get(0)
                     .getName();

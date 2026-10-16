@@ -624,11 +624,23 @@ public final class ProspectingLayer {
         tracked = isTracked(vein) ? null : new Tracked(handle.location, handle.position);
     }
 
-    /** Draws the tracked vein in the world: its ore icon, name and distance, like a waypoint. */
-    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+    /**
+     * Draws the tracked vein in the world: its ore icon, name and distance, like a waypoint, and a beam over it if the
+     * tracked style asks for one.
+     */
+    public static void renderTrackedInWorld(Minecraft mc, int dimension, float partialTicks) {
         final Tracked target = tracked;
         if (target == null || target.dimension != dimension) {
             return;
+        }
+        if (WaypointRenderer.trackedBeams()) {
+            WaypointRenderer.renderBeam(
+                mc,
+                (int) Math.floor(target.x),
+                (int) Math.floor(target.z),
+                TRACKED_COLOR,
+                partialTicks,
+                1f);
         }
         String name = Lang.format("wayfarmap.gui.vein_tracked_name", strip(target.location.getName()));
         WaypointRenderer.renderBillboard(mc, target.x, target.y, target.z, name, TRACKED_COLOR, (cx, cy, size) -> {

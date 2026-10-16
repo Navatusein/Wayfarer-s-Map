@@ -30,6 +30,12 @@
 - [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
 - [new] Map data: a button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
 
+## Waypoints
+- [change] 20 death waypoints are kept by default (was 3), up to 100
+- [new] With OpenBlocks: the death waypoint goes away by itself once your grave next to it is gone (emptied or broken)
+- [new] The waypoint's beam color is set in the editor on its own (right click on the sample: as the outline)
+- [new] Tracked ore veins and Thaumcraft nodes: their look in the world, marker or marker and beam
+
 ## Minimap
 - [fix] Stutter at 1:2: no coarse copies of the regions, and the map moves in whole pixels
 - [new] The world map's search highlights the same biomes, veins, fluids, power failures and nodes on the minimap
