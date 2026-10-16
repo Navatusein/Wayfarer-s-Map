@@ -64,8 +64,8 @@ public final class ChunkScanner {
         int baseZ = (cz * 16) & (MapRegion.SIZE - 1);
         MapRegion biomeRegion = biomeMap == null ? null
             : biomeMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
-        // The surface is also drawn without grass and flowers, into its own map.
-        MapDimension plantlessMap = caveLayer < 0 ? dimension.plantless() : null;
+        // The surface and the cave layers are also drawn without grass and flowers, into their own map.
+        MapDimension plantlessMap = dimension.plantless();
         MapRegion plantlessRegion = plantlessMap == null ? null
             : plantlessMap.getRegion((cx * 16) >> MapRegion.SHIFT, (cz * 16) >> MapRegion.SHIFT, true);
 
@@ -82,14 +82,18 @@ public final class ChunkScanner {
                 if (y != NO_BLOCK) {
                     int blockRgb = columnColor(world, chunk, lx, y, lz);
                     int rgb = detailedColor(world, chunk, heights, lx, y, lz, blockRgb, true);
+                    int plantlessRgb = plantlessRegion == null ? 0
+                        : detailedColor(world, chunk, heights, lx, y, lz, blockRgb, false);
                     if (caveLayer >= 0) {
                         // Deeper floors (below the layer) get darker, so drops read as depth.
                         int below = Math.max(0, caveLayer * 16 - y);
-                        rgb = BlockColors.shade(rgb, Math.max(0.4f, 1.0f - below * 0.02f));
+                        float depth = Math.max(0.4f, 1.0f - below * 0.02f);
+                        rgb = BlockColors.shade(rgb, depth);
+                        plantlessRgb = BlockColors.shade(plantlessRgb, depth);
                     }
                     argb = 0xFF000000 | rgb;
                     if (plantlessRegion != null) {
-                        plantlessArgb = 0xFF000000 | detailedColor(world, chunk, heights, lx, y, lz, blockRgb, false);
+                        plantlessArgb = 0xFF000000 | plantlessRgb;
                     }
                 }
                 int height = y == NO_BLOCK ? 0 : Math.min(255, y + 1);
@@ -102,7 +106,10 @@ public final class ChunkScanner {
                 // Torches and other lights: the map glows there at night (under glass, those lighting the floor).
                 int light = y == NO_BLOCK ? 0 : blockLight(chunk, lx, seenThroughGlass(chunk, lx, y, lz), lz);
                 region.setLight(baseX + lx, baseZ + lz, light);
-                if (plantlessRegion != null) {
+                if (plantlessRegion != null && caveLayer >= 0) {
+                    plantlessRegion.setPixel(baseX + lx, baseZ + lz, plantlessArgb);
+                    plantlessRegion.setLight(baseX + lx, baseZ + lz, light);
+                } else if (plantlessRegion != null) {
                     // The map without plants keeps the ground for the topography instead: under trees, the floor
                     // of water, and whether it is water or lava.
                     int topo = y == NO_BLOCK ? 0 : groundTopo(chunk, lx, y, lz);
