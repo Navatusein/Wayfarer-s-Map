@@ -2066,8 +2066,13 @@ public class GuiWorldMap extends ScaledScreen {
                     .icon(Icons.SMALL_PERSON));
         }
         entries.add(
-            new MenuEntry(Lang.format("wayfarmap.gui.share"), true, () -> WaypointShare.share(waypoint))
+            new MenuEntry(Lang.format("wayfarmap.gui.share_chat"), true, () -> WaypointShare.share(waypoint))
                 .icon(Icons.SMALL_CHAT));
+        // A switch like the team one: disabled, it is gone from the world and the minimap, faded on this map.
+        entries.add(new MenuEntry(Lang.format("wayfarmap.gui.waypoint_enabled"), true, () -> {
+            waypoint.enabled = !waypoint.enabled;
+            WaypointManager.INSTANCE.waypointChanged();
+        }, waypoint.enabled));
         // Teleporting needs /tp permission; into another dimension the server's mod or CoFH's /cofh tpx.
         boolean sameDimension = mc.theWorld != null && waypoint.dimension == mc.theWorld.provider.dimensionId;
         boolean canTeleport = sameDimension ? Teleport.isAllowed() : Teleport.isOtherDimensionAllowed();
@@ -2107,12 +2112,6 @@ public class GuiWorldMap extends ScaledScreen {
             new MenuEntry(Lang.format("wayfarmap.gui.copy"), true, () -> copiedWaypoint = waypoint.copy())
                 .icon(Icons.SMALL_COPY)
                 .hint("Ctrl+C"));
-        // Disabled: gone from the world and the minimap, faded on this map.
-        String toggle = Lang.format(waypoint.enabled ? "wayfarmap.gui.disable" : "wayfarmap.gui.enable");
-        entries.add(new MenuEntry(toggle, true, () -> {
-            waypoint.enabled = !waypoint.enabled;
-            WaypointManager.INSTANCE.waypointChanged();
-        }).icon(Icons.SMALL_EYE));
         if (!foreign) {
             // Removing comes last, set apart.
             entries.add(
@@ -2152,6 +2151,19 @@ public class GuiWorldMap extends ScaledScreen {
     private void copyAtMouse(int mouseX, int mouseY) {
         Waypoint hovered = waypointAt(mouseX, mouseY);
         copiedWaypoint = hovered != null ? hovered.copy() : null;
+    }
+
+    /** The new waypoint key opens the editor for a waypoint at the block under the mouse, as the menu's entry does. */
+    private void newWaypointAtMouse(int mouseX, int mouseY) {
+        if (chunkloadShown()) {
+            return;
+        }
+        int[] block = blockAt(mouseX, mouseY);
+        int bx = block[0], bz = block[2];
+        int seenY = block[1] >= 0 ? Math.min(255, block[1] + 1) : 0;
+        int safeY = MapManager.INSTANCE.isViewingOtherDimension() ? 0 : Teleport.findSafeY(mc.theWorld, bx, bz);
+        int y = safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz);
+        mc.displayGuiScreen(GuiEditWaypoint.create(this, bx, y, bz, viewDimension()));
     }
 
     /** Ctrl+V pastes the copied waypoint under the mouse, at the same height a quick waypoint would get. */
@@ -3344,6 +3356,19 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (keyCode == KeyHandler.OPEN_MAP.getKeyCode()) {
             mc.displayGuiScreen(null);
+            return;
+        }
+        // The mod's keys work on the map too: the waypoint list over it, and a new waypoint under the mouse.
+        if (keyCode != Keyboard.KEY_NONE && keyCode == KeyHandler.WAYPOINT_LIST.getKeyCode()) {
+            menu = null;
+            mc.displayGuiScreen(new GuiWaypointList(this));
+            return;
+        }
+        if (keyCode != Keyboard.KEY_NONE && keyCode == KeyHandler.NEW_WAYPOINT.getKeyCode()) {
+            menu = null;
+            newWaypointAtMouse(
+                Mouse.getX() * width / mc.displayWidth,
+                height - Mouse.getY() * height / mc.displayHeight - 1);
             return;
         }
         if (isoShown() && (keyCode == Keyboard.KEY_Q || keyCode == Keyboard.KEY_E)) {

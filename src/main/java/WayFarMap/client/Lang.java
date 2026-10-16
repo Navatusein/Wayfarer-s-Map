@@ -5,9 +5,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IllegalFormatException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
@@ -56,6 +58,18 @@ public final class Lang {
         } catch (IllegalFormatException e) {
             return "Format error: " + value;
         }
+    }
+
+    /** The key's text in every language the mod has (those that have it), trimmed. */
+    public static Set<String> allTranslations(String key) {
+        Set<String> values = new HashSet<>();
+        for (String code : CODES) {
+            String value = table(code).get(key);
+            if (value != null) {
+                values.add(value.trim());
+            }
+        }
+        return values;
     }
 
     /** Whether the mod, or else the game, has a translation for the key. */

@@ -756,10 +756,13 @@ public class WaypointRenderer {
 
         int nameWidth = font.getStringWidth(name);
         int distanceWidth = font.getStringWidth(distanceText);
-        int boxHalf = Math.max(nameWidth, distanceWidth) / 2 + 3;
+        // The distance on the name's line, right of it, or on a line of its own under it.
+        boolean inline = Config.waypointDistanceInline && !name.isEmpty();
+        int gap = inline ? font.getStringWidth(" ") : 0;
+        int boxHalf = (inline ? nameWidth + gap + distanceWidth : Math.max(nameWidth, distanceWidth)) / 2 + 3;
         // The anchor is the icon's middle: the box starts just under the icon.
         int top = 11;
-        int bottom = top + (name.isEmpty() ? 11 : 21);
+        int bottom = top + (name.isEmpty() || inline ? 11 : 21);
 
         // The font draws text with almost no alpha as opaque: below that the box is left out.
         if (labelAlpha >= 0.03f) {
@@ -767,11 +770,17 @@ public class WaypointRenderer {
             fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, labelAlpha));
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             int textY = top + 2;
-            if (!name.isEmpty()) {
-                font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
-                textY += 10;
+            if (inline) {
+                int x = -(nameWidth + gap + distanceWidth) / 2;
+                font.drawString(name, x, textY, faded(0xFFFFFFFF, labelAlpha));
+                font.drawString(distanceText, x + nameWidth + gap, textY, faded(0xFFC0C0C0, labelAlpha));
+            } else {
+                if (!name.isEmpty()) {
+                    font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
+                    textY += 10;
+                }
+                font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
             }
-            font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
         }
 
         GL11.glEnable(GL11.GL_ALPHA_TEST);

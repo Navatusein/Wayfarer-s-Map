@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -201,9 +202,10 @@ public class WaypointManager {
 
     /**
      * Adds a death marker to the death group (created again if it was deleted), moves all death markers into it and
-     * removes the oldest ones beyond {@code keep}.
+     * removes the oldest ones beyond {@code keep}. The death group of another language ({@code oldNames}: its name in
+     * every language), left empty when the markers moved to the group of the current one, is removed.
      */
-    public void addDeathWaypoint(Waypoint waypoint, String groupName, int keep) {
+    public void addDeathWaypoint(Waypoint waypoint, String groupName, Set<String> oldNames, int keep) {
         String group = groupName.trim();
         if (getGroup(group) == null) {
             data.groups.add(new WaypointGroup(group));
@@ -222,6 +224,8 @@ public class WaypointManager {
                 other.group = group;
             }
         }
+        data.groups.removeIf(
+            g -> !g.name.equals(group) && oldNames.contains(g.name.trim()) && getWaypointsInGroup(g.name).isEmpty());
         save();
     }
 

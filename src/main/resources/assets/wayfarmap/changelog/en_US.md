@@ -34,6 +34,11 @@
 - [change] 20 death waypoints are kept by default (was 3), up to 100
 - [new] With OpenBlocks: the death waypoint goes away by itself once your grave next to it is gone (emptied or broken)
 - [new] The waypoint's beam color is set in the editor on its own (right click on the sample: as the outline)
+- [new] "Distance next to the name" setting: in the world the distance is right of the name, not on its own line
+- [new] An "Enabled" switch in the waypoint's menu on the map (like "Share with team"); "Share" is now "Share in chat"
+- [new] Keys work on the open map: U opens the waypoint list, B a new waypoint at the point under the mouse
+- [change] "Fade when near" moved to the "Where to show" section
+- [fix] After a language change, the empty death group of the old language is removed once the markers move to the new one
 - [new] Tracked ore veins and Thaumcraft nodes: their look in the world, marker or marker and beam
 
 ## Minimap

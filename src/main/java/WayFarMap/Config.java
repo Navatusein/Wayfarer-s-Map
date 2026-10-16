@@ -274,6 +274,8 @@ public class Config {
     public static boolean waypointFadeNear = true;
     public static int waypointFadeStart = 12, waypointFadeEnd = 3;
     public static int waypointLabelMaxWidth = 100;
+    /** In the world, the distance is written right of the waypoint's name instead of on a line under it. */
+    public static boolean waypointDistanceInline = false;
     public static boolean deathWaypoints = true;
     public static int deathWaypointsKeep = 20;
     /** With OpenBlocks: the death waypoint is removed once the player's grave there is gone (emptied or broken). */
@@ -1202,6 +1204,35 @@ public class Config {
             100,
             () -> waypointMaxDistance,
             v -> waypointMaxDistance = v);
+        parent("showInWorld");
+        bool(
+            c,
+            "fadeNear",
+            "In-world waypoints (marker and beam) fade out smoothly as you come near them.",
+            true,
+            () -> waypointFadeNear,
+            v -> waypointFadeNear = v);
+        parent("fadeNear");
+        integer(
+            c,
+            "fadeStart",
+            "In-world waypoints start fading this many blocks away.",
+            12,
+            2,
+            64,
+            1,
+            () -> waypointFadeStart,
+            v -> waypointFadeStart = v);
+        integer(
+            c,
+            "fadeEnd",
+            "In-world waypoints are gone this many blocks away (closer than where they start fading).",
+            3,
+            0,
+            32,
+            1,
+            () -> waypointFadeEnd,
+            v -> waypointFadeEnd = v);
         parent(null);
         bool(
             c,
@@ -1264,6 +1295,13 @@ public class Config {
             () -> waypointMapLabels,
             v -> waypointMapLabels = v);
         parent("showInWorld");
+        bool(
+            c,
+            "distanceInline",
+            "In the world, write the distance right of the waypoint's name instead of on a line under it.",
+            false,
+            () -> waypointDistanceInline,
+            v -> waypointDistanceInline = v);
         choice(
             c,
             "worldLabels",
@@ -1285,36 +1323,6 @@ public class Config {
             1,
             () -> waypointLookZone,
             v -> waypointLookZone = v);
-        group("fade");
-        parent("showInWorld");
-        bool(
-            c,
-            "fadeNear",
-            "In-world waypoints (marker and beam) fade out smoothly as you come near them.",
-            true,
-            () -> waypointFadeNear,
-            v -> waypointFadeNear = v);
-        parent("fadeNear");
-        integer(
-            c,
-            "fadeStart",
-            "In-world waypoints start fading this many blocks away.",
-            12,
-            2,
-            64,
-            1,
-            () -> waypointFadeStart,
-            v -> waypointFadeStart = v);
-        integer(
-            c,
-            "fadeEnd",
-            "In-world waypoints are gone this many blocks away (closer than where they start fading).",
-            3,
-            0,
-            32,
-            1,
-            () -> waypointFadeEnd,
-            v -> waypointFadeEnd = v);
         parent(null);
         group("death");
         parent(null);
