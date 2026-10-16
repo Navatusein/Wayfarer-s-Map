@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1601,8 +1602,43 @@ public class GuiWorldMap extends ScaledScreen {
         return Config.ISO_QUALITY_MAX - (mouseY - top) / QUALITY_ROW;
     }
 
+    /** Top of the block recording switch under the quality slider. */
+    private int recordTop() {
+        return qualityTop() + (Config.ISO_QUALITY_MAX + 1) * QUALITY_ROW + 4;
+    }
+
+    /** Whether the mouse is on the block recording switch. */
+    private boolean onRecordSwitch(int mouseX, int mouseY) {
+        int x = qualityX(), top = recordTop();
+        return Theme.inside(mouseX, mouseY, x, top, x + QUALITY_WIDTH, top + QUALITY_ROW);
+    }
+
+    /**
+     * Under the quality slider: the switch of block recording ({@link Config#record3d}), red while the blocks of
+     * explored chunks are kept for the 3D map, so it can be turned on and off without the settings.
+     */
+    private void drawRecordSwitch(int mouseX, int mouseY) {
+        int x = qualityX(), top = recordTop();
+        boolean hovered = onRecordSwitch(mouseX, mouseY);
+        boolean on = Config.record3d;
+        Theme.fill(x - 1, top - 1, x + QUALITY_WIDTH + 1, top + QUALITY_ROW, on ? Theme.DANGER : Theme.BORDER);
+        int color = on ? hovered ? 0xFFB5383A : 0xFF8E2A2C : hovered ? Theme.CONTROL_HOVER : Theme.PANEL;
+        Theme.fill(x, top, x + QUALITY_WIDTH, top + QUALITY_ROW - 1, color);
+        Theme.centered(fontRendererObj, "REC", x + QUALITY_WIDTH / 2, top + 3, on ? Theme.TEXT : Theme.TEXT_MUTED);
+        if (hovered && menu == null) {
+            String text = Lang.format("wayfarmap.option.map.record3d") + ": "
+                + Lang.format(on ? "wayfarmap.iso.record_on" : "wayfarmap.iso.record_off");
+            drawHoveringText(
+                Arrays.asList(text, Lang.format("wayfarmap.iso.record_hint")),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
+    }
+
     /** Pixels per block the 3D map is drawn with at most: 64 at the top down to 8. */
     private void drawQualitySlider(int mouseX, int mouseY) {
+        drawRecordSwitch(mouseX, mouseY);
         int x = qualityX(), top = qualityTop();
         int rows = Config.ISO_QUALITY_MAX + 1;
         int hovered = qualityAt(mouseX, mouseY);
@@ -2590,6 +2626,10 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (button == 0 && isoShown() && qualityAt(mouseX, mouseY) >= 0) {
             Config.setIsoQuality(qualityAt(mouseX, mouseY));
+            return;
+        }
+        if (button == 0 && isoShown() && onRecordSwitch(mouseX, mouseY)) {
+            Config.toggleRecord3d();
             return;
         }
         if (button == 0 && onCaveSlider(mouseX, mouseY)) {

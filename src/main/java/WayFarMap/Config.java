@@ -1717,6 +1717,12 @@ public class Config {
         save();
     }
 
+    /** The block recording switch on the 3D map: keeps the blocks of explored chunks for it, or stops. */
+    public static void toggleRecord3d() {
+        record3d = !record3d;
+        save();
+    }
+
     /** The grid button on the world map: off, chunks and regions, regions only, off again. */
     public static void cycleGrid() {
         if (!chunkGrid) {

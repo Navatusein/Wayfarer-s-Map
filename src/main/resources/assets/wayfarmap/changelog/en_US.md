@@ -26,6 +26,7 @@
 - [new] Grid: Default (chunks and regions) or Regions only; the grid button goes off → default → regions only
 - [new] The player icon can be hidden completely (settings → Player icon)
 - [fix] 3D map: teleport to the floor under the cursor — at a wall onto the floor of that storey, on a roof into the building onto the floor below it (and a separate "Teleport onto the roof")
+- [new] 3D map: block recording switch REC under the quality slider, no trip to the settings
 - [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
 - [new] Map data: a button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
 
