@@ -508,7 +508,7 @@ public class WaypointRenderer {
         renderBeam(mc, waypoint.x, waypoint.z, color, partialTicks, alpha, true);
     }
 
-    /** A beam over a tracked ore vein, node or power failure: seen at any distance, whatever waypoints are limited to. */
+    /** A beam over a tracked ore vein, node or power failure: seen at any distance, unlike waypoints. */
     public static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha) {
         renderBeam(mc, blockX, blockZ, color, partialTicks, alpha, false);
     }
