@@ -899,9 +899,14 @@ public class MapManager implements IResourceManagerReloadListener {
         return cave == null || caveTracker.scanCaveForLoad(currentWorld, chunk, cave, layer);
     }
 
-    /** Cave layers worth mapping for a chunk: up to the one just above its highest blocks (higher show nothing). */
+    /**
+     * Cave layers to map for a chunk picked with its caves: every one of the world's height (16 layers of 16 blocks).
+     * Only those up to just above its highest blocks were mapped before, so the layers above (where the cave view of
+     * a mountain, a floating island or the Nether's roof is) stayed empty.
+     */
     public static int caveLayersOf(Chunk chunk) {
-        return Math.min(16, Math.max(0, chunk.getTopFilledSegment() >> 4) + 2);
+        int height = chunk.worldObj != null ? chunk.worldObj.getHeight() : 256;
+        return Math.max(1, Math.min(16, (height + 15) >> 4));
     }
 
     /** For the log: when the game loaded each chunk. */
