@@ -771,9 +771,9 @@ public class WaypointRenderer {
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             int textY = top + 2;
             if (inline) {
-                int x = -(nameWidth + gap + distanceWidth) / 2;
-                font.drawString(name, x, textY, faded(0xFFFFFFFF, labelAlpha));
-                font.drawString(distanceText, x + nameWidth + gap, textY, faded(0xFFC0C0C0, labelAlpha));
+                int textX = -(nameWidth + gap + distanceWidth) / 2;
+                font.drawString(name, textX, textY, faded(0xFFFFFFFF, labelAlpha));
+                font.drawString(distanceText, textX + nameWidth + gap, textY, faded(0xFFC0C0C0, labelAlpha));
             } else {
                 if (!name.isEmpty()) {
                     font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
