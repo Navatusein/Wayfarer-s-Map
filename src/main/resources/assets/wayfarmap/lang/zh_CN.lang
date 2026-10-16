@@ -799,6 +799,7 @@ wayfarmap.data.note=磁盘占用大小。路径点永远不会被删除；你周
 wayfarmap.data.dimensions=维度
 wayfarmap.data.kept=永不删除
 wayfarmap.data.other=其他文件
+wayfarmap.data.sprites_in=含各维度共用的方块图片 %s
 wayfarmap.data.folder=打开文件夹
 wayfarmap.data.reload=刷新地图：保存后从磁盘重新读取，并重新绘制已加载的区块
 wayfarmap.data.reloaded=地图已刷新：已重新读取，你周围的区块正在重新绘制。

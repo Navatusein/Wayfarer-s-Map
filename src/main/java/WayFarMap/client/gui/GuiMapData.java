@@ -150,8 +150,10 @@ public class GuiMapData extends ScaledScreen {
     private static volatile Data last;
     /** The count running now, if any. */
     private static volatile Thread counting;
-    /** Dimension picked, null for all of them; kept between openings. */
+    /** Dimension picked, null for all of them; kept between openings of the same world's data. */
     private static Integer picked;
+    /** The world folder {@link #picked} is of: in another world it means nothing. */
+    private static File pickedWorld;
 
     private final GuiScreen parent;
     private final File logsDirectory, cacheDirectory;
@@ -402,8 +404,12 @@ public class GuiMapData extends ScaledScreen {
                 continue;
             }
             for (File world : worlds) {
-                data.worlds++;
+                long before = data.all[0] + data.all[1] + data.all[2];
                 addWorld(world, data.all);
+                // An empty folder (a world joined and left at once, or cleared) is no world with a map.
+                if (data.all[0] + data.all[1] + data.all[2] > before) {
+                    data.worlds++;
+                }
             }
         }
         data.logs = MapCleaner.size(new File(root, "logs"));
@@ -478,6 +484,11 @@ public class GuiMapData extends ScaledScreen {
         if (here != null) {
             ids.add(here);
         }
+        // The picked one stays, also once its map was deleted: the screen must not jump to all dimensions (where the
+        // next delete would take every dimension's map).
+        if (picked != null) {
+            ids.add(picked);
+        }
         return new ArrayList<>(ids);
     }
 
@@ -522,6 +533,7 @@ public class GuiMapData extends ScaledScreen {
         Integer choice = choices.get(index);
         if (choice == null ? picked != null : !choice.equals(picked)) {
             picked = choice;
+            pickedWorld = worldDirectory();
             armed = -1;
         }
         int rowTop = index * LIST_ROW, room = listBottom() - listTop() - 2;
@@ -710,8 +722,18 @@ public class GuiMapData extends ScaledScreen {
         return String.format(Locale.US, "%.1f %s", value, units[unit]);
     }
 
+    /** Rounded, but never 0% for a part that has something nor 100% for one that isn't all of it. */
     private static String percent(long part, long whole) {
-        return whole <= 0 ? "" : Math.round(part * 100.0 / whole) + "%";
+        if (whole <= 0) {
+            return "";
+        }
+        if (part > 0 && part * 100 < whole) {
+            return "<1%";
+        }
+        if (part < whole && part * 100 > whole * 99) {
+            return ">99%";
+        }
+        return Math.round(part * 100.0 / whole) + "%";
     }
 
     // ---------------------------------------------------------------- drawing
@@ -853,7 +875,8 @@ public class GuiMapData extends ScaledScreen {
         }
         Data data = visibleData();
         boolean updating = counting != null;
-        if (picked != null && !dimensions(data).contains(picked)) {
+        File world = worldDirectory();
+        if (picked != null && (world == null || !world.equals(pickedWorld))) {
             picked = null;
         }
         long[] scope = data == null ? null : data.sizes(picked);
@@ -1100,6 +1123,10 @@ public class GuiMapData extends ScaledScreen {
                 if (sizes != null) {
                     lines.add("§9■ §7" + Lang.format("wayfarmap.stats.flat") + ": §f" + bytes(sizes[0]));
                     lines.add("§5■ §7" + Lang.format("wayfarmap.stats.iso") + ": §f" + bytes(sizes[1]));
+                    if (dimension == null && data.sprites > 0) {
+                        // All of them is the dimensions together and the block pictures they share.
+                        lines.add("§8  " + Lang.format("wayfarmap.data.sprites_in", bytes(data.sprites)));
+                    }
                 }
                 lines.add("§7" + Lang.format("wayfarmap.stats.waypoints") + ": §f" + number(sum(waypoints, dimension)));
                 if (dimension != null && dimension.equals(here)) {
@@ -1227,6 +1254,15 @@ public class GuiMapData extends ScaledScreen {
                         y + 13,
                         Theme.TEXT_MUTED);
                 }
+            }
+            if (picked == null && row == 1
+                && data != null
+                && data.sprites > 0
+                && Theme.inside(mouseX, mouseY, rowX - 6, y, buttonLeft - 2, y + ROW)) {
+                // All dimensions' 3D map: theirs and the block pictures they share (deleted with it).
+                tooltip = Arrays.asList(
+                    rowLabel(id) + ": " + bytes(size),
+                    "§7" + Lang.format("wayfarmap.data.sprites_in", bytes(data.sprites)));
             }
         }
 

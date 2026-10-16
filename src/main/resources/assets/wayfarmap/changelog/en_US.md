@@ -30,6 +30,12 @@
 - [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
 - [new] Map data: a button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
 
+## Map data
+- [fix] "All dimensions": its 3D map shows that it includes the block pictures the dimensions share (why it is more than the dimensions added up)
+- [fix] After deleting a dimension's map it stays picked instead of jumping to "All dimensions"
+- [fix] Percentages: a small share shows "<1%", not 0%
+- [fix] Empty world folders no longer count in "Worlds"
+
 ## Waypoints
 - [change] 20 death waypoints are kept by default (was 3), up to 100
 - [new] With OpenBlocks: the death waypoint goes away by itself once your grave next to it is gone (emptied or broken)

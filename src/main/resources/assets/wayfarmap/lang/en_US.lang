@@ -799,6 +799,7 @@ wayfarmap.data.note=Sizes on disk. Waypoints are never deleted; the map around y
 wayfarmap.data.dimensions=Dimensions
 wayfarmap.data.kept=Never deleted
 wayfarmap.data.other=Other files
+wayfarmap.data.sprites_in=incl. %s of block pictures shared by the dimensions
 wayfarmap.data.folder=Open folder
 wayfarmap.data.reload=Refresh the map: save it, read it again from disk and map the loaded chunks anew
 wayfarmap.data.reloaded=Map refreshed: read again, the chunks around you are mapped anew.

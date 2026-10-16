@@ -799,6 +799,7 @@ wayfarmap.data.note=Размер на диске. Метки не удаляют
 wayfarmap.data.dimensions=Измерения
 wayfarmap.data.kept=Никогда не удаляется
 wayfarmap.data.other=Прочие файлы
+wayfarmap.data.sprites_in=в т.ч. %s картинок блоков, общих для всех измерений
 wayfarmap.data.folder=Открыть папку
 wayfarmap.data.reload=Обновить карту: сохранить, заново прочитать с диска и перерисовать загруженные чанки
 wayfarmap.data.reloaded=Карта обновлена: прочитана заново, чанки вокруг вас рисуются заново.
