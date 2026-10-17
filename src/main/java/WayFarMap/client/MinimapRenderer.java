@@ -316,12 +316,26 @@ public class MinimapRenderer {
                 }
             } else if (buffer.framebufferWidth != pixels || buffer.framebufferHeight != pixels) {
                 buffer.createBindFramebuffer(pixels, pixels);
-                lastRedraw = 0;
             }
-            // The HUD's map is drawn again only as often as set, and when something changed; between, the picture
-            // drawn last is shown (drawing the whole map every frame took a third of the frame at high FPS).
-            if (preview || needsRedraw(px, pz, scale, rotation, size, dimension)) {
-                redrawBuffer(mc, buffer, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
+            buffer.framebufferClear();
+            buffer.bindFramebuffer(true);
+            GL11.glMatrixMode(GL11.GL_PROJECTION);
+            GL11.glPushMatrix();
+            GL11.glLoadIdentity();
+            GL11.glOrtho(0, size, size, 0, 1000, 3000);
+            GL11.glMatrixMode(GL11.GL_MODELVIEW);
+            GL11.glPushMatrix();
+            GL11.glLoadIdentity();
+            GL11.glTranslatef(0f, 0f, -2000f);
+            try {
+                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
+            } finally {
+                GL11.glMatrixMode(GL11.GL_PROJECTION);
+                GL11.glPopMatrix();
+                GL11.glMatrixMode(GL11.GL_MODELVIEW);
+                GL11.glPopMatrix();
+                mc.getFramebuffer()
+                    .bindFramebuffer(true);
             }
             drawBuffer(buffer, x, y, size, round);
         } else {
@@ -426,74 +440,6 @@ public class MinimapRenderer {
 
     /** Offscreen buffers the minimap is drawn into, on the HUD and in the settings' preview. */
     private static Framebuffer hudBuffer, previewBuffer;
-
-    /** When the HUD's map was last drawn into its buffer (System.nanoTime, 0 for never), and what it showed then. */
-    private static long lastRedraw;
-    private static double lastPx, lastPz, lastScale;
-    private static float lastRotation;
-    private static int lastSize;
-    /** The map shown then, by identity: no reference kept to it (it would keep a world left in memory). */
-    private static int lastDimension;
-    /** Unchanged, the map is still drawn again this often: mobs move, chunks are mapped, the light changes. */
-    private static final long IDLE_REDRAW_NANOS = 50_000_000L;
-
-    /**
-     * Whether the HUD's map is to be drawn again this frame: as often as {@link Config#minimapRedrawFps} while it
-     * moves, turns or zooms (every frame at 0), and now and then when nothing changed.
-     */
-    private static boolean needsRedraw(double px, double pz, double scale, float rotation, int size,
-        MapDimension dimension) {
-        long now = System.nanoTime();
-        if (Config.minimapRedrawFps <= 0 || lastRedraw == 0
-            || System.identityHashCode(dimension) != lastDimension
-            || size != lastSize) {
-            return true;
-        }
-        long since = now - lastRedraw;
-        if (since >= IDLE_REDRAW_NANOS) {
-            return true;
-        }
-        if (since < 1_000_000_000L / Config.minimapRedrawFps) {
-            return false;
-        }
-        // Moved by a pixel or more, turned or zoomed.
-        double moved = Math.max(Math.abs(px - lastPx), Math.abs(pz - lastPz)) * scale;
-        return moved >= 0.5 || Math.abs(rotation - lastRotation) >= 0.05f || scale != lastScale;
-    }
-
-    /** Draws the map and everything on it into the buffer (cleared first) and, for the HUD's, notes what it showed. */
-    private static void redrawBuffer(Minecraft mc, Framebuffer buffer, MapDimension dimension, double px, double pz,
-        double scale, int size, float rotation, float partialTicks, double pixelsPerUnit) {
-        if (buffer == hudBuffer) {
-            lastRedraw = System.nanoTime();
-            lastPx = px;
-            lastPz = pz;
-            lastScale = scale;
-            lastRotation = rotation;
-            lastSize = size;
-            lastDimension = System.identityHashCode(dimension);
-        }
-        buffer.framebufferClear();
-        buffer.bindFramebuffer(true);
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-        GL11.glOrtho(0, size, size, 0, 1000, 3000);
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-        GL11.glTranslatef(0f, 0f, -2000f);
-        try {
-            drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
-        } finally {
-            GL11.glMatrixMode(GL11.GL_PROJECTION);
-            GL11.glPopMatrix();
-            GL11.glMatrixMode(GL11.GL_MODELVIEW);
-            GL11.glPopMatrix();
-            mc.getFramebuffer()
-                .bindFramebuffer(true);
-        }
-    }
 
     /**
      * The map and everything on it, into the square (0, 0, size, size), turned by {@code rotation} degrees.

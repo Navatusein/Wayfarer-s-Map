@@ -18,7 +18,6 @@
 
 # 0.0.17
 
-- [change] The minimap draws its map again up to 60 times a second while moving and 20 without (setting "Map redraws per second", 0 = every frame), not every frame: at high FPS it took about a third of the frame
 - [change] The VisualProspecting ore layer is no longer rebuilt every second with nothing new, and draws only the veins near what is shown
 
 ## World map
