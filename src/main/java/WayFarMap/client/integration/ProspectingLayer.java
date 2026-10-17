@@ -464,8 +464,10 @@ public final class ProspectingLayer {
         double top = centerZ - height / 2.0 / scale;
         double zoom = zoomLevel(scale);
         double veinSpacing = VP.oreVeinSizeChunkX * VP.chunkWidth * scale;
+        // On the world map the icons keep growing when zooming in past 1:1 (up to 64 pixels), so the ores can be told
+        // apart up close instead of staying 16 pixels on blocks of 16 or more.
         double size = minimap ? Math.max(5, Math.min(10, veinSpacing * 0.6))
-            : Math.max(6, Math.min(16, veinSpacing * 0.6));
+            : Math.max(6, Math.min(Math.min(64, 16 * Math.max(1, Math.sqrt(scale))), veinSpacing * 0.6));
         double half = size / 2;
         Minecraft mc = Minecraft.getMinecraft();
         FontRenderer font = mc.fontRenderer;

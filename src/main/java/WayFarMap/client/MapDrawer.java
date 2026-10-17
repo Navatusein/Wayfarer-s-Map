@@ -660,6 +660,9 @@ public final class MapDrawer {
      */
     private static final double FADE_START = 2;
 
+    /** How many times their usual size mob icons and player heads grow to at most when zooming in. */
+    private static final float ZOOM_GROWTH = 6f;
+
     /**
      * Draws mobs (their face in a frame colored by their kind, or a dot) and other players (their face) that are
      * within the rectangle.
@@ -704,8 +707,13 @@ public final class MapDrawer {
         int firstIcon = Config.entityIcons ? Math.max(0, mobs.size() - Config.entityIconLimit) : mobs.size();
         // Icons shrink when zooming out (like waypoints) so they don't cover the map, down to half their size.
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
-        float iconSize = Math.max(4f, (playerSize + 2f) * zoomFactor * Config.mobIconScale / 100f);
-        playerSize = Math.max(4f, playerSize * zoomFactor);
+        float baseIconSize = (playerSize + 2f) * Config.mobIconScale / 100f;
+        float iconSize = Math.max(4f, baseIconSize * zoomFactor);
+        // Zoomed in, they grow to cover the block the mob stands on (up to a few times their usual size), so they
+        // aren't specks on huge blocks.
+        iconSize = Math.max(iconSize, (float) Math.min(scale * Config.mobIconScale / 100f, baseIconSize * ZOOM_GROWTH));
+        float nameScale = Math.max(4f, playerSize * zoomFactor) / 10f;
+        playerSize = Math.max(Math.max(4f, playerSize * zoomFactor), (float) Math.min(scale, playerSize * ZOOM_GROWTH));
         FontRenderer font = mc.fontRenderer;
         for (int i = 0; i < mobs.size(); i++) {
             EntityLivingBase entity = mobs.get(i);
@@ -728,7 +736,7 @@ public final class MapDrawer {
                 drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
                 String name = mobName(entity);
                 if (name != null) {
-                    drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, playerSize / 10f, alpha);
+                    drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, nameScale, alpha);
                 }
                 GL11.glPopMatrix();
             } else {
@@ -1119,7 +1127,8 @@ public final class MapDrawer {
             return;
         }
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
-        float size = Math.max(5f, (playerSize + 1f) * zoomFactor);
+        float size = Math.max(Math.max(5f, (playerSize + 1f) * zoomFactor),
+            (float) Math.min(scale, (playerSize + 1f) * ZOOM_GROWTH));
         float half = size / 2f;
         FontRenderer font = mc.fontRenderer;
         for (TeamMates.Mate mate : mates) {
