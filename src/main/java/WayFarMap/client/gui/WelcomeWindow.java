@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
@@ -21,12 +24,12 @@ import WayFarMap.client.gui.ui.Theme;
 /**
  * The window shown over the world map the first time it is opened, and again after the mod is updated. A starry top
  * with the glowing logo, the name and the version stays put (a click on the version opens what's new; after an
- * update it shows the version before and the new one); under it four pages slide sideways: what the mod can do (a
+ * update it shows the version before and the new one); under it five pages slide sideways: what the mod can do (a
  * card per feature), the first things to know (numbered steps on key caps), who made and tested it with the author's
- * pages, and
- * the choice of the mod's language. The dots, Back and Next, the arrow keys and the mouse wheel flip the pages; the
- * last page's button (What's new: the changelog opens after it) and Enter on it finish it, the cross or Esc close it,
- * and Help closes it and opens the help.
+ * pages, where the map's buttons are (a picture of each layout to pick from), and the choice of the mod's language.
+ * The dots, Back and Next, the arrow keys and the mouse wheel flip the pages; the last page's button (What's new:
+ * the changelog opens after it) and Enter on it finish it, the cross or Esc close it, and Help closes it and opens
+ * the help.
  */
 final class WelcomeWindow {
 
@@ -47,7 +50,15 @@ final class WelcomeWindow {
     private static final int CARD_HEIGHT = 30, CARD_GAP = 6, FEATURE_COLUMNS = 2;
     private static final int STEP_HEIGHT = 24, CHIP_HEIGHT = 22, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
     private static final int LANGUAGE_HEIGHT = 32, LANGUAGE_COLUMNS = 2;
-    private static final int PAGES = 4, LANGUAGE_PAGE = PAGES - 1;
+    private static final int PAGES = 5, LAYOUT_PAGE = 3, LANGUAGE_PAGE = PAGES - 1;
+    /** The map's button layouts, left to right: {setting value, picture}. Classic first, the default. */
+    private static final Object[][] LAYOUTS = {
+        { Config.MAP_LAYOUT_CLASSIC,
+            new ResourceLocation("wayfarmap", "textures/gui/layout_classic.png"), "classic" },
+        { Config.MAP_LAYOUT_MODERN, new ResourceLocation("wayfarmap", "textures/gui/layout_modern.png"),
+            "modern" } };
+    /** A layout's picture with its frame (16:9 like the screenshots at the card's width), and the name under it. */
+    private static final int LAYOUT_PICTURE_HEIGHT = 105, LAYOUT_NAME_HEIGHT = 16;
     /** How long a part takes to slide in, and how much later each part starts than the one before (ms). */
     private static final long SLIDE_MS = 280, STAGGER_MS = 60;
     /** Color of a key cap: the yellow of §e, as in the help. */
@@ -90,7 +101,7 @@ final class WelcomeWindow {
         versionRect = new int[4];
     private final int[][] makerRects = new int[GuiAbout.MAKERS.length][4];
     private final int[][] linkRects = new int[LINKS.length][4], dotRects = new int[PAGES][4],
-        languageRects = new int[Lang.CODES.length][4];
+        languageRects = new int[Lang.CODES.length][4], layoutRects = new int[LAYOUTS.length][4];
     /** How lit each thing is by the mouse, and how wide each page's dot is (the shown one is a long pill). */
     private final Smooth nextLight = new Smooth(0), backLight = new Smooth(0), helpLight = new Smooth(0),
         closeLight = new Smooth(0), backShown = new Smooth(0), versionLight = new Smooth(0);
@@ -99,7 +110,8 @@ final class WelcomeWindow {
     private final Smooth[] linkLight = smooths(LINKS.length, 0), cardLight = smooths(FEATURES.length, 0),
         dotWidth = smooths(PAGES, 6), chipLight = smooths(GuiAbout.TESTERS.length + 1, 0),
         makerLight = smooths(GuiAbout.MAKERS.length, 0), languageLight = smooths(Lang.CODES.length, 0),
-        languageChosen = smooths(Lang.CODES.length, 0);
+        languageChosen = smooths(Lang.CODES.length, 0), layoutLight = smooths(LAYOUTS.length, 0),
+        layoutChosen = smooths(LAYOUTS.length, 0);
 
     /** @param updatedFrom the version the window was last closed in if the mod was updated since, else null */
     WelcomeWindow(FontRenderer font, String updatedFrom) {
@@ -107,6 +119,26 @@ final class WelcomeWindow {
         this.updatedFrom = updatedFrom;
         dotWidth[0].set(18);
         languageChosen[language()].set(1);
+        layoutChosen[layout()].set(1);
+    }
+
+    /** Index into {@link #LAYOUTS} of the layout set now. */
+    private static int layout() {
+        for (int i = 0; i < LAYOUTS.length; i++) {
+            if ((Integer) LAYOUTS[i][0] == Config.mapButtonLayout) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    /** Chooses where the world map's buttons are (it takes them so when the map is next laid out). */
+    private static void chooseLayout(int i) {
+        int value = (Integer) LAYOUTS[i][0];
+        if (Config.mapButtonLayout != value) {
+            Config.mapButtonLayout = value;
+            Config.save();
+        }
     }
 
     /** The version the window was last closed in, null on the first run. */
@@ -185,6 +217,8 @@ final class WelcomeWindow {
                 return SECTION_TITLE + steps().length * STEP_HEIGHT;
             case 2:
                 return 30 + SECTION_TITLE + 2 * CHIP_HEIGHT + 4 + 10 + LINK_HEIGHT;
+            case LAYOUT_PAGE:
+                return SECTION_TITLE + 14 + 4 + LAYOUT_PICTURE_HEIGHT + LAYOUT_NAME_HEIGHT + 10 + 10;
             default:
                 return SECTION_TITLE + 14
                     + languageRows() * LANGUAGE_HEIGHT
@@ -251,6 +285,9 @@ final class WelcomeWindow {
                     break;
                 case 2:
                     drawCredits(x, pagesTop, start, mouseX, mouseY);
+                    break;
+                case LAYOUT_PAGE:
+                    drawLayouts(x, pagesTop, start, mouseX, mouseY);
                     break;
                 default:
                     drawLanguages(x, pagesTop, start, mouseX, mouseY);
@@ -557,6 +594,97 @@ final class WelcomeWindow {
         Theme.text(font, hint, left + PAD + Icons.width(gear) + 5, y, Theme.TEXT_MUTED);
     }
 
+    /**
+     * The page before the language: where the world map's buttons are, a picture of each layout side by side, the
+     * chosen one lit in the accent with a tick; a click chooses it. Under them, where to change it later.
+     */
+    private void drawLayouts(int left, int top, long start, int mouseX, int mouseY) {
+        sectionTitle(Lang.format("wayfarmap.welcome.layout_title"), left, top + slide(start, 0));
+        int y = top + SECTION_TITLE + slide(start, 1);
+        String text = Theme.ellipsize(font, Lang.format("wayfarmap.welcome.layout_text"), textWidth());
+        Theme.text(font, text, left + PAD, y, Theme.TEXT_MUTED);
+        int base = top + SECTION_TITLE + 14 + 4;
+        int cardWidth = (textWidth() - CARD_GAP) / 2;
+        int cardHeight = LAYOUT_PICTURE_HEIGHT + LAYOUT_NAME_HEIGHT;
+        boolean interactive = start != 0;
+        for (int i = 0; i < LAYOUTS.length; i++) {
+            int x0 = left + PAD + i * (cardWidth + CARD_GAP);
+            int y0 = base + slide(start, 2 + i);
+            layoutRects[i] = new int[] { x0, y0, x0 + cardWidth, y0 + cardHeight };
+            double lit = layoutLight[i].update(interactive && inside(mouseX, mouseY, layoutRects[i]) ? 1 : 0, 18);
+            double chosen = layoutChosen[i].update(i == layout() ? 1 : 0, 16);
+            drawLayoutCard(i, layoutRects[i], lit, chosen);
+        }
+        y = base + cardHeight + 10 + slide(start, 2 + LAYOUTS.length);
+        String[] gear = Icons.SMALL_GEAR;
+        String hint = Theme.ellipsize(
+            font,
+            Lang.format("wayfarmap.welcome.layout_hint", layoutSettingsPath()),
+            textWidth() - Icons.width(gear) - 5);
+        Icons.draw(gear, left + PAD, y, Theme.TEXT_MUTED);
+        Theme.text(font, hint, left + PAD + Icons.width(gear) + 5, y, Theme.TEXT_MUTED);
+    }
+
+    /** Where the layout is in the settings: "Settings → World map → Buttons on the map", in the mod's language. */
+    private static String layoutSettingsPath() {
+        return Lang.format("wayfarmap.gui.settings") + " → "
+            + Lang.format("wayfarmap.settings.map")
+            + " → "
+            + Lang.format("wayfarmap.settings.group.buttons");
+    }
+
+    /**
+     * A layout: its picture in a frame, dimmed while not chosen, and under it its name with a round check, filled when
+     * it is chosen.
+     */
+    private void drawLayoutCard(int i, int[] r, double lit, double chosen) {
+        int lift = (int) Math.round(lit);
+        int x0 = r[0], y0 = r[1] - lift, x1 = r[2], y1 = r[3] - lift;
+        int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+        Theme.fill(x0, y0, x1, y1, Theme.blend(background, 0xFF1E3350, chosen));
+        Theme.outline(
+            x0,
+            y0,
+            x1,
+            y1,
+            Theme.blend(Theme.blend(Theme.BORDER, Theme.TEXT_MUTED, lit), Theme.ACCENT, chosen));
+        // The picture, inside the frame.
+        int px0 = x0 + 2, py0 = y0 + 2, px1 = x1 - 2, py1 = y0 + LAYOUT_PICTURE_HEIGHT - 2;
+        Minecraft.getMinecraft()
+            .getTextureManager()
+            .bindTexture((ResourceLocation) LAYOUTS[i][1]);
+        // Smooth, not blocky: the picture is drawn at another size than it is.
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        tessellator.addVertexWithUV(px0, py1, 0, 0, 1);
+        tessellator.addVertexWithUV(px1, py1, 0, 1, 1);
+        tessellator.addVertexWithUV(px1, py0, 0, 1, 0);
+        tessellator.addVertexWithUV(px0, py0, 0, 0, 0);
+        tessellator.draw();
+        if (chosen < 1 && lit < 1) {
+            // The layout not chosen a little dimmed, as the languages.
+            int dim = (int) (0x70 * (1 - Math.max(chosen, lit))) << 24;
+            Theme.fill(px0, py0, px1, py1, dim);
+        }
+        // Its name, and the round check on the right.
+        int nameY = y0 + LAYOUT_PICTURE_HEIGHT + (LAYOUT_NAME_HEIGHT - 8) / 2 - 1;
+        String name = Lang.format("wayfarmap.option.map.buttonLayout." + LAYOUTS[i][2]);
+        int nameColor = Theme.blend(Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.6 + 0.4 * lit), Theme.TEXT, chosen);
+        Theme.text(font, Theme.ellipsize(font, name, x1 - 26 - (x0 + 6)), x0 + 6, nameY, nameColor);
+        int checkX = x1 - 11, checkY = nameY + 4;
+        int ring = Theme.blend(Theme.BORDER, Theme.ACCENT, Math.max(lit * 0.5, chosen));
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 6, ring);
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 5, Theme.blend(Theme.CONTROL, Theme.ACCENT, chosen));
+        if (chosen > 0.5) {
+            String[] tick = Icons.SMALL_CHECK;
+            Icons.draw(tick, checkX - Icons.width(tick) / 2, checkY - tick.length / 2, Theme.TEXT);
+        }
+    }
+
     /** Where the language is in the settings: "Settings → World map → Mod language", in the mod's language. */
     private static String settingsPath() {
         return Lang.format("wayfarmap.gui.settings") + " → "
@@ -828,6 +956,14 @@ final class WelcomeWindow {
                 return Click.NONE;
             }
         }
+        if (page == LAYOUT_PAGE) {
+            for (int i = 0; i < LAYOUTS.length; i++) {
+                if (inside(mouseX, mouseY, layoutRects[i])) {
+                    chooseLayout(i);
+                    return Click.NONE;
+                }
+            }
+        }
         if (page == LANGUAGE_PAGE) {
             for (int i = 0; i < Lang.CODES.length; i++) {
                 if (inside(mouseX, mouseY, languageRects[i])) {
@@ -884,10 +1020,15 @@ final class WelcomeWindow {
                 if (page == LANGUAGE_PAGE) {
                     int step = keyCode == Keyboard.KEY_UP || keyCode == Keyboard.KEY_W ? -1 : 1;
                     chooseLanguage((language() + step + Lang.CODES.length) % Lang.CODES.length);
+                } else if (page == LAYOUT_PAGE) {
+                    chooseLayout((layout() + 1) % LAYOUTS.length);
                 }
                 return Click.NONE;
             default:
                 int number = keyCode - Keyboard.KEY_1;
+                if (page == LAYOUT_PAGE && number >= 0 && number < LAYOUTS.length) {
+                    chooseLayout(number);
+                }
                 if (page == LANGUAGE_PAGE && number >= 0 && number < Lang.CODES.length) {
                     chooseLanguage(number);
                 }

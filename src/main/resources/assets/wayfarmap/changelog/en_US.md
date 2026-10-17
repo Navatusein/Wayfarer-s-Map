@@ -41,6 +41,7 @@
 - [fix] Empty world folders no longer count in "Worlds"
 
 ## World map
+- [new] The welcome window asks for the map's button layout before the language: a picture of each, classic and modern
 - [new] "Button layout" with the map buttons settings: classic (the default, as before: screens and a mod layers menu on the left, the name in the middle, view switches on the right) or modern (the new one)
 
 ## Memory
