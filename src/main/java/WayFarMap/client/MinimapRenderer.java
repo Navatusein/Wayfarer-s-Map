@@ -444,7 +444,9 @@ public class MinimapRenderer {
     private static boolean needsRedraw(double px, double pz, double scale, float rotation, int size,
         MapDimension dimension) {
         long now = System.nanoTime();
-        if (Config.minimapRedrawFps <= 0 || lastRedraw == 0 || System.identityHashCode(dimension) != lastDimension || size != lastSize) {
+        if (Config.minimapRedrawFps <= 0 || lastRedraw == 0
+            || System.identityHashCode(dimension) != lastDimension
+            || size != lastSize) {
             return true;
         }
         long since = now - lastRedraw;
