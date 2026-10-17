@@ -259,7 +259,10 @@ public final class PowerfailLayer {
         }
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
-        double size = minimap ? 8 : Math.max(10, Math.min(16, 12 * Math.pow(scale, 0.3)));
+        // On the world map zoomed in, the icon grows to cover the machine's block (up to 64 pixels), so it isn't
+        // a speck.
+        double size = minimap ? 8
+            : Math.max(Math.max(10, Math.min(16, 12 * Math.pow(scale, 0.3))), Math.min(64, scale));
         double half = size / 2;
 
         List<Powerfail> visible = new ArrayList<>();
