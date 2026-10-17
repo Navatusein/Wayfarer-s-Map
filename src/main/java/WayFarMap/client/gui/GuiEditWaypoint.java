@@ -507,9 +507,7 @@ public class GuiEditWaypoint extends ScaledScreen {
 
         if (beamHovered) {
             drawHoveringText(
-                Arrays.asList(
-                    Lang.format("wayfarmap.gui.beam_color"),
-                    Lang.format("wayfarmap.gui.beam_color_hint")),
+                Arrays.asList(Lang.format("wayfarmap.gui.beam_color"), Lang.format("wayfarmap.gui.beam_color_hint")),
                 mouseX,
                 mouseY,
                 fontRendererObj);

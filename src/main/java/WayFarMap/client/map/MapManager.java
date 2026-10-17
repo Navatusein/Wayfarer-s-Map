@@ -199,10 +199,8 @@ public class MapManager implements IResourceManagerReloadListener {
         MapDimension cave(int layer) {
             MapDimension cave = caves.get(layer);
             if (cave == null) {
-                cave = new MapDimension(
-                    id,
-                    new File(new File(directory, "caves"), String.valueOf(layer)),
-                    loadExecutor).withPlantless();
+                cave = new MapDimension(id, new File(new File(directory, "caves"), String.valueOf(layer)), loadExecutor)
+                    .withPlantless();
                 caves.put(layer, cave);
             }
             return cave;

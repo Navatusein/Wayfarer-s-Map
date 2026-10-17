@@ -792,8 +792,10 @@ public final class MapDrawer {
      */
     private static double[] toWindow(double x, double y) {
         float[] mv = new float[16], p = new float[16];
-        MODELVIEW.get(mv).rewind();
-        PROJECTION.get(p).rewind();
+        MODELVIEW.get(mv)
+            .rewind();
+        PROJECTION.get(p)
+            .rewind();
         double ex = mv[0] * x + mv[4] * y + mv[12], ey = mv[1] * x + mv[5] * y + mv[13];
         double ez = mv[2] * x + mv[6] * y + mv[14], ew = mv[3] * x + mv[7] * y + mv[15];
         double cx = p[0] * ex + p[4] * ey + p[8] * ez + p[12] * ew;
@@ -1040,8 +1042,8 @@ public final class MapDrawer {
         // Its icon drawn by the game; until it is made (or if it can't be), its face cut out of its skin.
         double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
         float shown = (float) (x1 - x0);
-        if (entity == null || !MobIcons.draw(entity, cx, cy, shown, alpha)
-            && !EntityIcons.drawFace(entity, cx, cy, shown, alpha)) {
+        if (entity == null
+            || !MobIcons.draw(entity, cx, cy, shown, alpha) && !EntityIcons.drawFace(entity, cx, cy, shown, alpha)) {
             drawDot(cx, cy, 1f, withAlpha(color, alpha), alpha);
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);

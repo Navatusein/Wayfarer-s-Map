@@ -107,11 +107,10 @@ public class DeathMarker {
         waypoint.outlineColor = COLOR;
         waypoint.iconItem = "minecraft:skull";
         waypoint.diedAt = System.currentTimeMillis();
-        WaypointManager.INSTANCE
-            .addDeathWaypoint(
-                waypoint,
-                Lang.format("wayfarmap.death.group"),
-                Lang.allTranslations("wayfarmap.death.group"),
-                Config.deathWaypointsKeep);
+        WaypointManager.INSTANCE.addDeathWaypoint(
+            waypoint,
+            Lang.format("wayfarmap.death.group"),
+            Lang.allTranslations("wayfarmap.death.group"),
+            Config.deathWaypointsKeep);
     }
 }

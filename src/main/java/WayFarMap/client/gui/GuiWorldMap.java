@@ -1994,13 +1994,10 @@ public class GuiWorldMap extends ScaledScreen {
             // Another dimension: through the server's mod (it finds the ground) or CoFH's /cofh tpx.
             final int y = seenY > 0 ? seenY : MapManager.INSTANCE.getViewSurfaceHeight(bx, bz);
             entries.add(
-                new MenuEntry(
-                    Lang.format("wayfarmap.gui.teleport_here"),
-                    Teleport.isOtherDimensionAllowed(),
-                    () -> {
-                        mc.displayGuiScreen(null);
-                        Teleport.teleport(dimension, bx, y, bz);
-                    }).icon(Icons.SMALL_UP));
+                new MenuEntry(Lang.format("wayfarmap.gui.teleport_here"), Teleport.isOtherDimensionAllowed(), () -> {
+                    mc.displayGuiScreen(null);
+                    Teleport.teleport(dimension, bx, y, bz);
+                }).icon(Icons.SMALL_UP));
         } else if (seen != null) {
             entries.add(
                 new MenuEntry(

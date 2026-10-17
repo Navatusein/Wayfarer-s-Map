@@ -399,6 +399,7 @@ public final class ChunkLoadView {
         WITH_3D.clear();
         WITH_CAVES.clear();
     }
+
     /** How often the far view looks at a region's chunks again. */
     private static final long REGION_REFRESH_MS = 500;
     private static final int MAX_CACHED_REGIONS = 4096;

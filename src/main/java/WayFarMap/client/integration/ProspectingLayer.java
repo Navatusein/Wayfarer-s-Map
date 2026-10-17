@@ -116,6 +116,7 @@ public final class ProspectingLayer {
         lastVeinRefresh = 0;
         lastFluidRefresh = 0;
     }
+
     /** The thin frame right around a vein's icon. */
     private static final int FRAME_COLOR = 0x000000;
 
@@ -491,18 +492,7 @@ public final class ProspectingLayer {
         for (OreVeinLocation vein : visible) {
             double sx = x + (vein.getBlockX() - left) * scale - half;
             double sy = y + (vein.getBlockZ() - top) * scale - half;
-            hollowRect(
-                sx - pad,
-                sy - pad,
-                size + 2 * pad,
-                size + 2 * pad,
-                pad,
-                FRAME_COLOR,
-                255,
-                x,
-                y,
-                width,
-                height);
+            hollowRect(sx - pad, sy - pad, size + 2 * pad, size + 2 * pad, pad, FRAME_COLOR, 255, x, y, width, height);
         }
         end();
 

@@ -141,7 +141,8 @@ public final class Teleport {
         Block roof = world.getBlock(x, y, z);
         Material material = roof.getMaterial();
         // Natural ground and water are stood on (a cave or a lake bed under them is not a floor to go to).
-        boolean ground = material.isLiquid() || material == Material.grass || material == Material.ground
+        boolean ground = material.isLiquid() || material == Material.grass
+            || material == Material.ground
             || material == Material.sand
             || material == Material.rock
             || material == Material.clay
