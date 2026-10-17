@@ -63,6 +63,13 @@ public class Config {
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
         "modes", "grid", "mobs", "team", "help", "about" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
+    /**
+     * Where the world map's buttons are: modern (the dimension's name on the left, view switches in the middle,
+     * screens on the right, a bar of mod layers on the left of the map) or classic (screens and a mod layers menu on
+     * the left, the name in the middle, view switches on the right).
+     */
+    public static final int MAP_LAYOUT_MODERN = 0, MAP_LAYOUT_CLASSIC = 1;
+    public static int mapButtonLayout = MAP_LAYOUT_MODERN;
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -593,6 +600,16 @@ public class Config {
             () -> mapSmoothCamera,
             v -> mapSmoothCamera = v);
         group("buttons");
+        choice(
+            c,
+            "buttonLayout",
+            "Where the world map's buttons are: 0 = modern (name on the left, view switches in the middle, mod layers "
+                + "as a bar on the left of the map), 1 = classic (screens and a mod layers menu on the left, name "
+                + "in the middle, view switches on the right).",
+            MAP_LAYOUT_MODERN,
+            new String[] { "modern", "classic" },
+            () -> mapButtonLayout,
+            v -> mapButtonLayout = v);
         for (int i = 0; i < MAP_BUTTONS.length; i++) {
             final int index = i;
             mapButtonShown[i] = true;

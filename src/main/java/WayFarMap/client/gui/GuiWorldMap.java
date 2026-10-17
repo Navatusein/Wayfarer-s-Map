@@ -84,9 +84,9 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21, ID_ABOUT = 22, ID_LAYER = 100;
+        ID_CLOSE = 21, ID_ABOUT = 22, ID_LAYER = 100, ID_ADDONS = 13;
     /** What the open menu is: the right click map menu, the mob filter, the modes or teammates. */
-    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_TEAM = 3, MENU_MODES = 5,
+    private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_MODES = 5,
         MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
     private static final int SLIDER_WIDTH = 10;
     private static final int MENU_WIDTH = 130, TEAM_MENU_WIDTH = 190, MENU_ROW = 14;
@@ -129,6 +129,8 @@ public class GuiWorldMap extends ScaledScreen {
     /** 3D (isometric) view on or off (turned with Q / E). */
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
+    /** The mod layers menu's button (classic layout); null in the modern one or without those mods. */
+    private IconButton addonsButton;
     /** Left edge of the buttons on the right of the header, and of those in its middle. */
     private int headerRightStart, headerCenterStart;
     /** Online teammates, to jump to them; shown only while there are some. */
@@ -269,8 +271,22 @@ public class GuiWorldMap extends ScaledScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
-        // Header: the dimension's name on the left, the view switches in the middle (mobs, grid, mode, caves,
-        // light, follow, teammates), the screens on the right (waypoints, data, pictures; settings, close).
+        addonsButton = null;
+        layerButtons.clear();
+        if (classic()) {
+            addClassicHeaderButtons();
+        } else {
+            addModernHeaderButtons();
+        }
+
+        addViewButtons();
+    }
+
+    /**
+     * Modern header: the dimension's name on the left, the view switches in the middle (mobs, grid, mode, caves,
+     * light, follow, teammates), the screens on the right (waypoints, data, pictures; settings, close).
+     */
+    private void addModernHeaderButtons() {
         int x = width - 24;
         // Top right corner: closes the map, like Esc.
         buttonList.add(new IconButton(ID_CLOSE, x, 4, Icons.CLOSE, Lang.format("wayfarmap.gui.close")));
@@ -304,7 +320,129 @@ public class GuiWorldMap extends ScaledScreen {
         }
         headerRightStart = x;
         addLayerButtons();
+    }
 
+    /** The zoom as "4:1" or "1:8". */
+    private String zoomText() {
+        double targetScale = Config.MAP_ZOOMS[zoomIndex];
+        return targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
+    }
+
+    /** The classic layout ({@link Config#MAP_LAYOUT_CLASSIC}). */
+    private static boolean classic() {
+        return Config.mapButtonLayout == Config.MAP_LAYOUT_CLASSIC;
+    }
+
+    /**
+     * Classic header, left: settings, waypoints, data, pictures and the mod layers menu (the view switches are on the
+     * right, the name in the middle, the zoom by the close button).
+     */
+    private void addClassicHeaderButtons() {
+        int x = 4;
+        String settingsName = Lang.format("wayfarmap.gui.settings");
+        IconButton settingsButton = new IconButton(ID_SETTINGS, x, 4, Icons.SETTINGS, settingsName);
+        settingsButton.iconColor = COLOR_SETTINGS;
+        x = addIconButton(settingsButton, x);
+        if (Config.isMapButtonShown("waypoints")) {
+            IconButton waypointsButton = new IconButton(
+                ID_WAYPOINTS,
+                x,
+                4,
+                Icons.WAYPOINTS,
+                Lang.format("wayfarmap.gui.waypoints"));
+            waypointsButton.iconColor = COLOR_WAYPOINTS;
+            x = addIconButton(waypointsButton, x);
+        }
+        if (Config.isMapButtonShown("stats")) {
+            IconButton statsButton = new IconButton(ID_STATS, x, 4, Icons.STATS, Lang.format("wayfarmap.gui.data"));
+            statsButton.iconColor = COLOR_STATS;
+            x = addIconButton(statsButton, x);
+        }
+        exportButton = new IconButton(ID_EXPORT, x, 4, Icons.CAMERA, Lang.format("wayfarmap.gui.export"));
+        exportButton.iconColor = COLOR_EXPORT;
+        if (Config.isMapButtonShown("export")) {
+            x = addIconButton(exportButton, x);
+        }
+        if (Config.isMapButtonShown("addons") && (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
+            || Mods.isPowerfailsAvailable()
+            || Mods.isThaumcraftNodesAvailable())) {
+            addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, Lang.format("wayfarmap.gui.addons"));
+            addonsButton.iconColor = COLOR_ADDONS;
+            addIconButton(addonsButton, x);
+        }
+        // Top right corner: closes the map, like Esc.
+        buttonList.add(new IconButton(ID_CLOSE, width - 24, 4, Icons.CLOSE, Lang.format("wayfarmap.gui.close")));
+        headerRightStart = width - 24;
+    }
+
+    private int addIconButton(IconButton button, int x) {
+        buttonList.add(button);
+        return x + button.getWidth() + 3;
+    }
+
+    /** Right end of the buttons on the left of the classic header. */
+    private int headerLeftEnd() {
+        int end = 0;
+        for (Object o : buttonList) {
+            GuiButton button = (GuiButton) o;
+            if (button.id == ID_WAYPOINTS || button.id == ID_SETTINGS
+                || button.id == ID_STATS
+                || button.id == ID_EXPORT
+                || button.id == ID_ADDONS) {
+                end = Math.max(end, button.xPosition + ((FlatButton) button).getWidth());
+            }
+        }
+        return end;
+    }
+
+    /** Menu under the mod layers button (classic layout): a checkbox per layer; it stays open to switch several. */
+    private void openAddonsMenu() {
+        List<MenuEntry> entries = new ArrayList<>();
+        if (Mods.isVisualProspectingLoaded()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.ores", Config.showOreVeins, Config::toggleOreVeins).icon(Icons.ORE)
+                    .iconColor(0xFF5BD6E0)
+                    .key("ores"));
+            entries.add(
+                addonToggle("wayfarmap.gui.fluids", Config.showUndergroundFluids, Config::toggleUndergroundFluids)
+                    .icon(Icons.SMALL_DROP)
+                    .iconColor(0xFF3F8FE8)
+                    .key("fluids"));
+        }
+        if (Mods.isClaimsAvailable()) {
+            entries.add(addonToggle("wayfarmap.gui.claims", Config.showClaims, () -> {
+                Config.toggleClaims();
+                if (Config.showClaims) {
+                    ClaimsLayer.onShow();
+                }
+            }).icon(Icons.CLAIM)
+                .iconColor(0xFFF2C14E)
+                .key("claims"));
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.powerfails", Config.showPowerfails, Config::togglePowerfails)
+                    .icon(Icons.POWER)
+                    .iconColor(0xFFFFD23F)
+                    .key("powerfails"));
+        }
+        if (Mods.isThaumcraftNodesAvailable()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.nodes", Config.showThaumcraftNodes, Config::toggleThaumcraftNodes)
+                    .icon(Icons.NODE)
+                    .iconColor(0xFFC08CFF)
+                    .key("nodes"));
+        }
+        menu = entries;
+        menuKind = MENU_ADDONS;
+        menuShown();
+        menuWidth = menuWidthFor(entries, MENU_WIDTH);
+        menuX = Math.max(2, Math.min(addonsButton.xPosition, width - menuWidth - 2));
+        menuY = addonsButton.yPosition + 18;
+    }
+
+    /** The view switches (placed by {@link #layoutCenterButtons}), the footer's buttons and the search. */
+    private void addViewButtons() {
         lightButton = new IconButton(ID_LIGHT, 0, 4, Icons.DAY_NIGHT, "");
         caveButton = new IconButton(ID_CAVES, 0, 4, Icons.CAVES, "");
         modesButton = new IconButton(ID_MODES, 0, 4, Icons.MAP2D, "");
@@ -378,8 +516,26 @@ public class GuiWorldMap extends ScaledScreen {
             teamButton };
     }
 
-    /** Places the middle header buttons next to each other around the middle, leaving out hidden ones. */
+    /**
+     * Places the view switches next to each other, leaving out hidden ones: around the middle of the header, or in
+     * the classic layout on its right, from the zoom leftwards (follow, light, caves, mode, grid, mobs, teammates).
+     */
     private void layoutCenterButtons() {
+        if (classic()) {
+            // Left of the zoom text, which is left of the close button.
+            int right = width - 58;
+            for (IconButton button : new IconButton[] { followButton, lightButton, caveButton, modesButton,
+                gridButton, mobsButton, teamButton }) {
+                if (!button.visible) {
+                    continue;
+                }
+                right -= button.getWidth();
+                button.xPosition = right;
+                right -= 3;
+            }
+            headerCenterStart = right;
+            return;
+        }
         int total = 0;
         for (IconButton button : centerButtons()) {
             if (button.visible) {
@@ -806,6 +962,11 @@ public class GuiWorldMap extends ScaledScreen {
         mobsButton.dim = Config.noMobsShown();
         mobsButton.badge = peaceful && !hostile ? Theme.SUCCESS : hostile && !peaceful ? Theme.DANGER : 0;
         mobsButton.tooltip = mobsButtonText();
+        if (addonsButton != null) {
+            addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
+                || powerfailsShown()
+                || nodesShown();
+        }
     }
 
     @Override
@@ -816,6 +977,8 @@ public class GuiWorldMap extends ScaledScreen {
             mc.displayGuiScreen(new GuiMapData(this));
         } else if (button.id == ID_TEAM) {
             openTeamMenu();
+        } else if (button.id == ID_ADDONS && addonsButton != null) {
+            openAddonsMenu();
         } else if (button.id >= ID_LAYER && button.id < ID_LAYER + layerButtons.size()) {
             layerButtons.get(button.id - ID_LAYER).toggle.run();
             updateLightButtons();
@@ -942,6 +1105,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** Each mode's color, on its icon in the modes menu and on the modes button. */
     private static final int[] MODE_COLORS = { 0xFF5BD6E0, 0xFFE8A040, 0xFFE87AA0, 0xFF4FC3A8, 0xFF8BD450, 0xFFC08CFF };
     /** Colors of the header's icons. */
+    private static final int COLOR_ADDONS = 0xFF5BD6E0;
     private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
         COLOR_EXPORT = 0xFFF2C14E, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
         COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F,
@@ -1380,6 +1544,16 @@ public class GuiWorldMap extends ScaledScreen {
         Theme.fill(0, 0, width, HEADER_HEIGHT, Theme.PANEL);
         Theme.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, Theme.BORDER);
         drawTitle(mouseX, mouseY, dimensionId, otherDimension);
+        if (classic()) {
+            // The zoom, left of the close button.
+            String zoomText = zoomText();
+            Theme.text(
+                fontRendererObj,
+                zoomText,
+                width - 30 - fontRendererObj.getStringWidth(zoomText),
+                8,
+                Theme.TEXT_MUTED);
+        }
 
         Theme.fill(0, height - FOOTER_HEIGHT, width, height, Theme.PANEL);
         Theme.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, Theme.BORDER);
@@ -1461,12 +1635,13 @@ public class GuiWorldMap extends ScaledScreen {
         }
         int rightEdge = helpButton.visible ? helpButton.xPosition - 8
             : aboutButton.visible ? aboutButton.xPosition - 8 : width - 6;
-        // The zoom, by the buttons in the lower right corner.
-        double targetScale = Config.MAP_ZOOMS[zoomIndex];
-        String zoomText = targetScale >= 1 ? (int) targetScale + ":1" : "1:" + (int) Math.round(1 / targetScale);
-        rightEdge -= fontRendererObj.getStringWidth(zoomText);
-        Theme.text(fontRendererObj, zoomText, rightEdge, height - 10, Theme.TEXT_MUTED);
-        rightEdge -= 12;
+        if (!classic()) {
+            // The zoom, by the buttons in the lower right corner (in the classic layout: in the header).
+            String zoomText = zoomText();
+            rightEdge -= fontRendererObj.getStringWidth(zoomText);
+            Theme.text(fontRendererObj, zoomText, rightEdge, height - 10, Theme.TEXT_MUTED);
+            rightEdge -= 12;
+        }
         int rightX = rightEdge;
         if (right != null && !right.isEmpty()) {
             // Never more than half the footer, so the left text keeps room too.
@@ -1796,11 +1971,18 @@ public class GuiWorldMap extends ScaledScreen {
     private void drawTitle(int mouseX, int mouseY, int dimensionId, boolean otherDimension) {
         String title = "[" + dimensionId + "] " + MapManager.INSTANCE.getViewedDimensionName() + " \u25BE";
         int titleWidth = fontRendererObj.getStringWidth(title);
-        int x0 = 10;
-        if (x0 + titleWidth >= headerCenterStart - 8) {
+        boolean classic = classic();
+        // Modern: on the left; classic: in the middle, between the buttons on the left and those on the right.
+        int x0 = classic ? width / 2 - titleWidth / 2 : 10;
+        boolean noRoom = classic ? x0 <= headerLeftEnd() + 8 || x0 + titleWidth >= headerCenterStart - 8
+            : x0 + titleWidth >= headerCenterStart - 8;
+        if (noRoom) {
             // No room for the name: the id alone still opens the list.
             title = "[" + dimensionId + "] \u25BE";
             titleWidth = fontRendererObj.getStringWidth(title);
+            if (classic) {
+                x0 = width / 2 - titleWidth / 2;
+            }
         }
         titleX0 = x0;
         titleX1 = titleX0 + titleWidth;
@@ -2420,6 +2602,8 @@ public class GuiWorldMap extends ScaledScreen {
                 if (entry.checked != null && menuKind == MENU_MOBS) {
                     // Toggles keep the menu open, showing the new state.
                     openMobsMenu();
+                } else if (entry.checked != null && menuKind == MENU_ADDONS && addonsButton != null) {
+                    openAddonsMenu();
                 }
             }
         }

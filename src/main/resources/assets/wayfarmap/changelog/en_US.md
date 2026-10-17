@@ -40,6 +40,9 @@
 - [fix] Percentages: a small share shows "<1%", not 0%
 - [fix] Empty world folders no longer count in "Worlds"
 
+## World map
+- [new] "Button layout" with the map buttons settings: modern (the new one) or classic (as before: screens and a mod layers menu on the left, the name in the middle, view switches on the right)
+
 ## Memory
 - [fix] Leaving a world or changing dimension no longer keeps the old world in memory: mob and item icons (with their textures), the 3D map's pictures, VisualProspecting's data, the area loading view and the settings' mob preview are let go
 - [fix] The 3D map no longer keeps empty regions it was scrolled over, nor leaves the block pictures file open; its learned picture caches are capped
