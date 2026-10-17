@@ -257,9 +257,10 @@ public final class ProspectingLayer {
     private static Map<Long, List<OreVeinLocation>> grid(List<OreVeinLocation> all) {
         Map<Long, List<OreVeinLocation>> grid = new HashMap<>();
         for (OreVeinLocation vein : all) {
-            grid.computeIfAbsent(
-                cellKey(vein.getBlockX() >> GRID_SHIFT, vein.getBlockZ() >> GRID_SHIFT),
-                k -> new ArrayList<>())
+            // Its block position is a double (the middle of the vein).
+            int cellX = (int) Math.floor(vein.getBlockX()) >> GRID_SHIFT;
+            int cellZ = (int) Math.floor(vein.getBlockZ()) >> GRID_SHIFT;
+            grid.computeIfAbsent(cellKey(cellX, cellZ), k -> new ArrayList<>())
                 .add(vein);
         }
         return grid;
