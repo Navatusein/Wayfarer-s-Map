@@ -83,8 +83,8 @@ public class GuiWorldMap extends ScaledScreen {
     private static final float MARKER_SIZE = 12f;
     private static final float MIN_MARKER_SIZE = 6f;
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
-        ID_MOBS = 11, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
-        ID_CLOSE = 21, ID_ABOUT = 22, ID_LAYER = 100, ID_ADDONS = 13;
+        ID_MOBS = 11, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20, ID_CLOSE = 21,
+        ID_ABOUT = 22, ID_LAYER = 100, ID_ADDONS = 13;
     /** What the open menu is: the right click map menu, the mob filter, the modes or teammates. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_MODES = 5,
         MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
@@ -527,8 +527,8 @@ public class GuiWorldMap extends ScaledScreen {
         if (classic()) {
             // Left of the zoom text, which is left of the close button.
             int right = width - 58;
-            for (IconButton button : new IconButton[] { followButton, lightButton, caveButton, modesButton,
-                gridButton, mobsButton, teamButton }) {
+            for (IconButton button : new IconButton[] { followButton, lightButton, caveButton, modesButton, gridButton,
+                mobsButton, teamButton }) {
                 if (!button.visible) {
                     continue;
                 }
@@ -1110,9 +1110,9 @@ public class GuiWorldMap extends ScaledScreen {
     /** Colors of the header's icons. */
     private static final int COLOR_ADDONS = 0xFF5BD6E0;
     private static final int COLOR_SETTINGS = 0xFFAAB4C3, COLOR_WAYPOINTS = 0xFFE5534B, COLOR_STATS = 0xFF3FB950,
-        COLOR_EXPORT = 0xFFF2C14E, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF,
-        COLOR_FOLLOW = 0xFFFF7B72, COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F,
-        COLOR_MOON = 0xFFB9C7FF, COLOR_HELP = 0xFF4C9AFF;
+        COLOR_EXPORT = 0xFFF2C14E, COLOR_CAVES = 0xFFC8A070, COLOR_GRID = 0xFF7FB2FF, COLOR_FOLLOW = 0xFFFF7B72,
+        COLOR_MOBS = 0xFF6CC24A, COLOR_TEAM = 0xFF4C9AFF, COLOR_SUN = 0xFFFFD23F, COLOR_MOON = 0xFFB9C7FF,
+        COLOR_HELP = 0xFF4C9AFF;
     /**
      * The area loading view: the flat map with the chunks on it, those saved in the world and those picked to be
      * loaded.
