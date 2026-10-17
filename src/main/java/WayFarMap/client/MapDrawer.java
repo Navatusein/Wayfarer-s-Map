@@ -1127,7 +1127,8 @@ public final class MapDrawer {
             return;
         }
         float zoomFactor = (float) Math.max(0.5, Math.min(1.0, Math.pow(scale, 0.4)));
-        float size = Math.max(Math.max(5f, (playerSize + 1f) * zoomFactor),
+        float size = Math.max(
+            Math.max(5f, (playerSize + 1f) * zoomFactor),
             (float) Math.min(scale, (playerSize + 1f) * ZOOM_GROWTH));
         float half = size / 2f;
         FontRenderer font = mc.fontRenderer;
