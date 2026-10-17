@@ -89,7 +89,7 @@ public final class Mods {
 
     // ---------------------------------------------------------------- failure guard
 
-    /** One of the add-on integrations, for {@link #draw}. */
+    /** One of the mod layer integrations, for {@link #draw}. */
     public enum Addon {
         VISUAL_PROSPECTING,
         CLAIMS,
@@ -100,7 +100,7 @@ public final class Mods {
     private static final Set<Addon> FAILED = new HashSet<>();
 
     /**
-     * Runs one add-on layer's drawing. If the other mod throws (an incompatible version the checks above missed,
+     * Runs one mod layer's drawing. If the other mod throws (an incompatible version the checks above missed,
      * broken data), the layer is turned off for the session instead of taking the game down: a draw that stops
      * halfway leaves the Tessellator mid-batch, and every later draw, even Minecraft's loading screen, then fails
      * with "Already tesselating!".

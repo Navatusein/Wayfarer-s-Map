@@ -84,7 +84,7 @@ public class GuiWorldMap extends ScaledScreen {
     private static final int ID_WAYPOINTS = 0, ID_LIGHT = 1, ID_SETTINGS = 3, ID_CAVES = 4, ID_GRID = 6, ID_HELP = 10,
         ID_MOBS = 11, ID_ADDONS = 13, ID_TEAM = 14, ID_EXPORT = 17, ID_FOLLOW = 18, ID_STATS = 19, ID_MODES = 20,
         ID_CLOSE = 21, ID_ABOUT = 22;
-    /** What the open menu is: the right click map menu, the mob filter, the add-on layers or teammates. */
+    /** What the open menu is: the right click map menu, the mob filter, the mod layers or teammates. */
     private static final int MENU_MAP = 0, MENU_MOBS = 1, MENU_ADDONS = 2, MENU_TEAM = 3, MENU_MODES = 5,
         MENU_CONFIRM = 6, MENU_WAYPOINT = 7;
     private static final int SLIDER_WIDTH = 10;
@@ -128,7 +128,7 @@ public class GuiWorldMap extends ScaledScreen {
     /** 3D (isometric) view on or off (turned with Q / E). */
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
-    /** Add-on layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
+    /** Mod layers (ores, fluids, claims, power failures); null when none of those mods is installed. */
     private IconButton addonsButton;
     /** Online teammates, to jump to them; shown only while there are some. */
     private IconButton teamButton;
@@ -268,7 +268,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
-        // Header: icons with tooltips. Left: settings, waypoints, add-on layers; right (before the zoom text):
+        // Header: icons with tooltips. Left: settings, waypoints, mod layers; right (before the zoom text):
         // mobs, grid, biomes, caves, day, night.
         int x = 4;
         String settingsName = Lang.format("wayfarmap.gui.settings");
@@ -546,7 +546,7 @@ public class GuiWorldMap extends ScaledScreen {
         return x + button.getWidth() + 3;
     }
 
-    /** Menu under the add-ons button: a checkbox per layer; it stays open to switch several. */
+    /** Menu under the mod layers button: a checkbox per layer; it stays open to switch several. */
     private void openAddonsMenu() {
         List<MenuEntry> entries = new ArrayList<>();
         if (Mods.isVisualProspectingLoaded()) {
@@ -1156,7 +1156,7 @@ public class GuiWorldMap extends ScaledScreen {
         boolean otherDimension = MapManager.INSTANCE.isViewingOtherDimension();
         boolean iso = isoShown();
         if (iso) {
-            // 3D: the terrain; the mobs and the player come below. The add-on layers and the grid are flat only.
+            // 3D: the terrain; the mobs and the player come below. The mod layers and the grid are flat only.
             IsoMap.INSTANCE.draw(
                 dimensionId,
                 Config.isoRotation,

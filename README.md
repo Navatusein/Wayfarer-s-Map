@@ -78,7 +78,7 @@ The camera button saves the whole explored map — 2D (1–16 px/block) or 3D (2
 
 ## 🔌 Mod integrations
 
-All integrations are **optional** — buttons appear only when the mod is installed. Turn them on from the **Add-on layers** menu on the world map.
+All integrations are **optional** — buttons appear only when the mod is installed. Turn them on from the **Mod layers** menu on the world map.
 
 | Mod | What you get |
 |---|---|

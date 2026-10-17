@@ -35,6 +35,8 @@ public class Config {
     public static final String TAB_MAP = CATEGORY_MAP, TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Tab of the mobs' options (saved under {@link #CATEGORY_ENTITIES}, where they were before). */
     public static final String TAB_MOBS = "mobs";
+    /** Tab of the options of other mods' layers, from every map (each still saved under its own category). */
+    public static final String TAB_MOD_LAYERS = "modLayers";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
         Arrays.asList(
@@ -42,6 +44,7 @@ public class Config {
             TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
+            TAB_MOD_LAYERS,
             CATEGORY_PLAYER_MARKER,
             TAB_MOBS,
             CATEGORY_WAYPOINTS,
@@ -449,6 +452,7 @@ public class Config {
             new String[] { "auto", "day", "night" },
             () -> minimapLightMode,
             v -> minimapLightMode = v);
+        tab(TAB_MOD_LAYERS);
         group("ownLayers");
         parent("enabled");
         bool(
@@ -489,6 +493,7 @@ public class Config {
             true,
             () -> minimapThaumcraftNodes,
             v -> minimapThaumcraftNodes = v);
+        tab(null);
         group("ownGrid");
         parent("enabled");
         bool(
@@ -905,8 +910,8 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
-        tab(TAB_MAP_2D);
-        group("layers");
+        tab(TAB_MOD_LAYERS);
+        group("oreVeins");
         parent(null);
         bool(
             c,
@@ -971,6 +976,7 @@ public class Config {
             true,
             () -> showThaumcraftNodes,
             v -> showThaumcraftNodes = v);
+        tab(TAB_MAP_2D);
         group("data");
         parent(null);
         integer(
@@ -1370,6 +1376,7 @@ public class Config {
             () -> deathWaypointsGrave,
             v -> deathWaypointsGrave = v);
         parent(null);
+        tab(TAB_MOD_LAYERS);
         group("tracked");
         parent(null);
         choice(
@@ -1381,6 +1388,7 @@ public class Config {
             () -> trackedStyle,
             v -> trackedStyle = v);
         parent(null);
+        tab(null);
         group("team");
         parent(null);
         bool(
