@@ -381,6 +381,11 @@ public final class ProspectingLayer {
             double labelX = fx + fieldSize / 2;
             int textColor = !isSearchActive() ? 0xFFFFFF
                 : max > 0 && fluidMatches(location.getFluid()) ? 0xFFFF00 : 0x444444;
+            if (values != null && zoom >= Config.minZoomLevelForUndergroundFluidDetails) {
+                // With the amounts in the chunks, the range goes on the name's line, clear of the first row of them.
+                label(font, ellipsize(font, title + ": " + values, maxWidth), labelX, fy + 2, textColor);
+                continue;
+            }
             label(font, ellipsize(font, title, maxWidth), labelX, fy + 3, textColor);
             if (values != null) {
                 label(font, ellipsize(font, values, maxWidth), labelX, fy + 14, textColor);
@@ -413,9 +418,7 @@ public final class ProspectingLayer {
                     hollowRect(cellX, cellY, cell, cell, Math.max(1, cell / 16), 0xFFD700, 204, x, y, width, height);
                 }
                 if (labels) {
-                    cellLabels.add(
-                        new Object[] { MessageFormat.format("{0} L/Op", formatAmount(amount >> 1)), cellX + cell / 2,
-                            cellY + cell / 2 - 4 });
+                    cellLabels.add(new Object[] { formatAmount(amount >> 1), cellX + cell / 2, cellY + cell / 2 });
                 }
             }
         }
@@ -425,7 +428,20 @@ public final class ProspectingLayer {
             for (Object[] cellLabel : cellLabels) {
                 double lx = (Double) cellLabel[1], ly = (Double) cellLabel[2];
                 if (lx > x && ly > y && lx < x + width && ly < y + height) {
-                    label(font, (String) cellLabel[0], lx, ly, 0xFFFFFF);
+                    // Shrunk to fit the chunk (with its background), so neighbours don't run into each other; when
+                    // that would make it too small to read, the amount alone.
+                    String text = MessageFormat.format("{0} L/Op", cellLabel[0]);
+                    double fit = (cell - 2) / (font.getStringWidth(text) + 4);
+                    if (fit < 0.6) {
+                        text = (String) cellLabel[0];
+                        fit = (cell - 2) / (font.getStringWidth(text) + 4);
+                    }
+                    float textScale = (float) Math.min(1, fit);
+                    GL11.glPushMatrix();
+                    GL11.glTranslated(lx, ly, 0);
+                    GL11.glScalef(textScale, textScale, 1f);
+                    label(font, text, 0, -4, 0xFFFFFF);
+                    GL11.glPopMatrix();
                 }
             }
             begin();
