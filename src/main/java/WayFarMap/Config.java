@@ -69,7 +69,7 @@ public class Config {
      * the left, the name in the middle, view switches on the right).
      */
     public static final int MAP_LAYOUT_MODERN = 0, MAP_LAYOUT_CLASSIC = 1;
-    public static int mapButtonLayout = MAP_LAYOUT_MODERN;
+    public static int mapButtonLayout = MAP_LAYOUT_CLASSIC;
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -606,7 +606,7 @@ public class Config {
             "Where the world map's buttons are: 0 = modern (name on the left, view switches in the middle, mod layers "
                 + "as a bar on the left of the map), 1 = classic (screens and a mod layers menu on the left, name "
                 + "in the middle, view switches on the right).",
-            MAP_LAYOUT_MODERN,
+            MAP_LAYOUT_CLASSIC,
             new String[] { "modern", "classic" },
             () -> mapButtonLayout,
             v -> mapButtonLayout = v);
