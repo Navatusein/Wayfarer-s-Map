@@ -108,6 +108,7 @@ public final class ProspectingLayer {
         fluidCache = new IdentityHashMap<>();
         positions = new IdentityHashMap<>();
         veins = Collections.emptyList();
+        veinGrid = new HashMap<>();
         fluids = Collections.emptyList();
         hovered = null;
         tracked = null;
@@ -179,8 +180,14 @@ public final class ProspectingLayer {
         if (dimension == veinDimension && now - lastVeinRefresh < REFRESH_MS) {
             return;
         }
+        boolean sameDimension = dimension == veinDimension;
         veinDimension = dimension;
         lastVeinRefresh = now;
+        if (sameDimension && !veinsChanged(dimension)) {
+            // Nothing new prospected: the lists stay. Making them again every second over a well prospected world
+            // (hundreds of thousands of veins) cost a hitch and a load of garbage each time.
+            return;
+        }
 
         // One bad entry (e.g. a vein type whose ore has no texture) is skipped instead of hiding everything.
         List<OreVeinLocation> newVeins = new ArrayList<>();
@@ -216,6 +223,66 @@ public final class ProspectingLayer {
         veinCache = newCache;
         veins = newVeins;
         positions = newPositions;
+        veinGrid = grid(newVeins);
+    }
+
+    /** Whether VisualProspecting has veins of the dimension not in the lists, or no longer has some of them. */
+    private static boolean veinsChanged(int dimension) {
+        int count = 0;
+        try {
+            for (OreVeinPosition vein : ClientCache.instance.getAllOreVeins()) {
+                if (vein.dimensionId != dimension) {
+                    continue;
+                }
+                if (!veinCache.containsKey(vein)) {
+                    return true;
+                }
+                count++;
+            }
+        } catch (Throwable t) {
+            return true;
+        }
+        return count != veinCache.size();
+    }
+
+    /** Cells of 512 blocks a side, for the veins near what is drawn. */
+    private static final int GRID_SHIFT = 9;
+    /** The veins by cell ({@link #cellKey}), so drawing looks only at those near the view, not at all of them. */
+    private static Map<Long, List<OreVeinLocation>> veinGrid = new HashMap<>();
+
+    private static long cellKey(int cellX, int cellZ) {
+        return ((long) cellX << 32) | (cellZ & 0xFFFFFFFFL);
+    }
+
+    private static Map<Long, List<OreVeinLocation>> grid(List<OreVeinLocation> all) {
+        Map<Long, List<OreVeinLocation>> grid = new HashMap<>();
+        for (OreVeinLocation vein : all) {
+            grid.computeIfAbsent(
+                cellKey(vein.getBlockX() >> GRID_SHIFT, vein.getBlockZ() >> GRID_SHIFT),
+                k -> new ArrayList<>())
+                .add(vein);
+        }
+        return grid;
+    }
+
+    /** The veins in the cells over blocks x0..x1, z0..z1; all of them when that is about as many cells as veins. */
+    private static List<OreVeinLocation> veinsNear(double x0, double z0, double x1, double z1) {
+        int cx0 = (int) Math.floor(x0) >> GRID_SHIFT, cx1 = (int) Math.floor(x1) >> GRID_SHIFT;
+        int cz0 = (int) Math.floor(z0) >> GRID_SHIFT, cz1 = (int) Math.floor(z1) >> GRID_SHIFT;
+        long cells = (long) (cx1 - cx0 + 1) * (cz1 - cz0 + 1);
+        if (cells >= veinGrid.size()) {
+            return veins;
+        }
+        List<OreVeinLocation> near = new ArrayList<>();
+        for (int cx = cx0; cx <= cx1; cx++) {
+            for (int cz = cz0; cz <= cz1; cz++) {
+                List<OreVeinLocation> cell = veinGrid.get(cellKey(cx, cz));
+                if (cell != null) {
+                    near.addAll(cell);
+                }
+            }
+        }
+        return near;
     }
 
     /** Rebuilds the dimension's underground fluids now and then; only new entries get a new location. */
@@ -224,8 +291,13 @@ public final class ProspectingLayer {
         if (dimension == fluidDimension && now - lastFluidRefresh < REFRESH_MS) {
             return;
         }
+        boolean sameDimension = dimension == fluidDimension;
         fluidDimension = dimension;
         lastFluidRefresh = now;
+        if (sameDimension && !fluidsChanged(dimension)) {
+            // Nothing new prospected: the list stays (made again every second, it was a load of garbage).
+            return;
+        }
 
         List<UndergroundFluidLocation> newFluids = new ArrayList<>();
         Map<UndergroundFluidPosition, UndergroundFluidLocation> newCache = new IdentityHashMap<>();
@@ -258,6 +330,25 @@ public final class ProspectingLayer {
         }
         fluidCache = newCache;
         fluids = newFluids;
+    }
+
+    /** Whether VisualProspecting has fluid fields of the dimension not in the list, or no longer has some. */
+    private static boolean fluidsChanged(int dimension) {
+        int count = 0;
+        try {
+            for (UndergroundFluidPosition fluid : ClientCache.instance.getAllUndergroundFluids()) {
+                if (fluid.dimensionId != dimension) {
+                    continue;
+                }
+                if (!fluidCache.containsKey(fluid)) {
+                    return true;
+                }
+                count++;
+            }
+        } catch (Throwable t) {
+            return true;
+        }
+        return count != fluidCache.size();
     }
 
     /**
@@ -489,7 +580,13 @@ public final class ProspectingLayer {
         FontRenderer font = mc.fontRenderer;
 
         List<OreVeinLocation> visible = new ArrayList<>();
-        for (OreVeinLocation vein : veins) {
+        // A vein a little outside still shows part of its icon: a margin of the icon's size around the view.
+        double margin = size / scale + 16;
+        for (OreVeinLocation vein : veinsNear(
+            left - margin,
+            top - margin,
+            left + width / scale + margin,
+            top + height / scale + margin)) {
             double sx = x + (vein.getBlockX() - left) * scale;
             double sy = y + (vein.getBlockZ() - top) * scale;
             if (sx - half < x || sy - half < y || sx + half > x + width || sy + half > y + height) {
