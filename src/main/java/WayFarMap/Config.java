@@ -43,7 +43,6 @@ public class Config {
             TAB_MAP_2D,
             TAB_MAP_3D,
             CATEGORY_PLAYER_MARKER,
-            CATEGORY_ENTITIES,
             TAB_MOBS,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
@@ -1465,6 +1464,34 @@ public class Config {
             true,
             () -> chunkloadHints,
             v -> chunkloadHints = v);
+
+        // Switched with the world map's own buttons and menus: kept in the file, left off the settings screen.
+        hideFromSettings(
+            CATEGORY_MAP,
+            "followPlayer",
+            "displayMode",
+            "lightMode",
+            "caveMode",
+            "showPlants",
+            "chunkGrid",
+            "gridStyle",
+            "isometric",
+            "isoRotation",
+            "record3d",
+            "oreVeins",
+            "undergroundFluids",
+            "claims",
+            "powerfails",
+            "thaumcraftNodes");
+        hideFromSettings(
+            CATEGORY_ENTITIES,
+            "showOtherPlayers",
+            "showHostileMobs",
+            "showPassiveMobs",
+            "showAmbientMobs",
+            "showOtherEntities",
+            "showPets");
+        hideFromSettings(CATEGORY_COMMANDS, "chunkload3d", "chunkloadHints");
     }
 
     private static Configuration configuration;
@@ -1514,7 +1541,7 @@ public class Config {
     public static List<Option> getOptions(String tab) {
         List<Option> result = new ArrayList<>();
         for (Option option : OPTIONS) {
-            if (option.tab.equals(tab)) {
+            if (option.inSettings && option.tab.equals(tab)) {
                 result.add(option);
             }
         }
@@ -1850,6 +1877,8 @@ public class Config {
          * color); null for always. The settings screen hides it otherwise.
          */
         public BooleanSupplier condition;
+        /** Shown on the settings screen; off for what the world map switches itself ({@link #hideFromSettings}). */
+        public boolean inSettings = true;
 
         Option(String category, String key, String comment) {
             this.category = category;
@@ -2155,6 +2184,25 @@ public class Config {
     /** When the options declared next mean anything, until the next section; null for always. */
     private static void when(BooleanSupplier condition) {
         currentCondition = condition;
+    }
+
+    /**
+     * Leaves these options of the category off the settings screen. Options under one of them go under its own switch
+     * instead, so they don't wait for one that can't be turned on there.
+     */
+    private static void hideFromSettings(String category, String... keys) {
+        for (String key : keys) {
+            for (Option option : OPTIONS) {
+                if (option.category.equals(category) && option.key.equals(key)) {
+                    option.inSettings = false;
+                }
+            }
+        }
+        for (Option option : OPTIONS) {
+            while (option.parent != null && !option.parent.inSettings) {
+                option.parent = option.parent.parent;
+            }
+        }
     }
 
     private static void parent(String key) {

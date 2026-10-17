@@ -653,7 +653,10 @@ public class GuiSettings extends ScaledScreen {
         } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
             if (button.id != ID_RESET_CANCEL) {
                 for (Config.Option option : button.id == ID_RESET_ALL ? Config.OPTIONS : options()) {
-                    option.reset();
+                    // What the world map switches itself stays as it is there.
+                    if (option.inSettings) {
+                        option.reset();
+                    }
                 }
             }
             confirmingReset = false;
