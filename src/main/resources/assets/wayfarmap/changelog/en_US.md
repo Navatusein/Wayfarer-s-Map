@@ -18,6 +18,9 @@
 
 # 0.0.17
 
+- [change] The minimap draws its map again up to 60 times a second while moving and 20 without (setting "Map redraws per second", 0 = every frame), not every frame: at high FPS it took about a third of the frame
+- [change] The VisualProspecting ore layer is no longer rebuilt every second with nothing new, and draws only the veins near what is shown
+
 ## World map
 - [fix] Follow: the map keeps the player in the middle as they walk; dragging it pauses following until `Space` or the button
 - [new] 2D map and the map without plants: the biome under the cursor next to the coordinates at the bottom

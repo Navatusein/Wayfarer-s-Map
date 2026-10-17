@@ -643,6 +643,8 @@ wayfarmap.option.minimap.shape.square=方形
 wayfarmap.option.minimap.shape.round=圆形
 wayfarmap.option.minimap.rotate=随视角旋转
 wayfarmap.option.minimap.rotate.desc=小地图会随玩家旋转：视线方向始终朝上，边缘的 N、E、S 和 W 表示罗盘方向。
+wayfarmap.option.minimap.redrawFps=地图每秒重绘次数
+wayfarmap.option.minimap.redrawFps.desc=小地图在移动或旋转时重绘地图的频率；其间显示上一幅画面，可大幅节省帧率。0 = 每帧重绘。无变化时每秒重绘 20 次；箭头、路径点和文字每帧绘制。
 wayfarmap.option.minimap.compass=罗盘方向
 wayfarmap.option.minimap.compass.desc=在小地图边缘显示 N、E、S 和 W。
 wayfarmap.option.minimap.compassScale=字母大小

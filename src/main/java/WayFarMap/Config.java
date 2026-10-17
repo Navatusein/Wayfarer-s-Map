@@ -89,6 +89,11 @@ public class Config {
     public static int minimapShape = SHAPE_SQUARE;
     /** Turn the minimap with the player, so the view direction is always up. */
     public static boolean minimapRotate = false;
+    /**
+     * How often the minimap's map is drawn again, per second, while it changes (0 = every frame); unchanged, it is
+     * drawn again 20 times a second for the mobs and new chunks. Between, the last picture is shown.
+     */
+    public static int minimapRedrawFps = 60;
     /** N, E, S and W on the edge of the minimap. */
     public static boolean minimapCompass = true;
     /** Size of the compass letters, of the text under the minimap (1 = the game's font), and its room from the map. */
@@ -343,6 +348,17 @@ public class Config {
             false,
             () -> minimapRotate,
             v -> minimapRotate = v);
+        integer(
+            c,
+            "redrawFps",
+            "How many times a second the minimap's map is drawn again while it moves or turns (0 = every frame). "
+                + "Unchanged it is drawn again 20 times a second; the player's arrow, waypoints and text every frame.",
+            60,
+            0,
+            240,
+            10,
+            () -> minimapRedrawFps,
+            v -> minimapRedrawFps = v);
         group("compass");
         parent("enabled");
         bool(
