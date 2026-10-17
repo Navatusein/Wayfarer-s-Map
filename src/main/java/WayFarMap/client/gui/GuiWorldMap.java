@@ -129,6 +129,8 @@ public class GuiWorldMap extends ScaledScreen {
     /** 3D (isometric) view on or off (turned with Q / E). */
     /** Saves the whole map (flat or 3D) as a zoomable picture. */
     private IconButton exportButton;
+    /** The button layout the header was built for ({@link Config#mapButtonLayout}). */
+    private int builtLayout = -1;
     /** The mod layers menu's button (classic layout); null in the modern one or without those mods. */
     private IconButton addonsButton;
     /** Left edge of the buttons on the right of the header, and of those in its middle. */
@@ -271,6 +273,7 @@ public class GuiWorldMap extends ScaledScreen {
         }
         lastFrameNanos = System.nanoTime();
         buttonList.clear();
+        builtLayout = Config.mapButtonLayout;
         addonsButton = null;
         layerButtons.clear();
         if (classic()) {
@@ -1332,6 +1335,10 @@ public class GuiWorldMap extends ScaledScreen {
 
     @Override
     public void drawScaled(int mouseX, int mouseY, float partialTicks) {
+        if (builtLayout != Config.mapButtonLayout) {
+            // Picked in the welcome window over the map: its buttons move at once.
+            initGui();
+        }
         long perf = Perf.start();
         try {
             drawWindow(mouseX, mouseY, partialTicks);
