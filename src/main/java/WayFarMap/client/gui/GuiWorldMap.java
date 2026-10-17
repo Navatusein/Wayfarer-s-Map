@@ -487,9 +487,14 @@ public class GuiWorldMap extends ScaledScreen {
         layerButtons.add(new LayerButton(button, shown, toggle, Lang.format(name), binding));
     }
 
-    /** Lights the switches of the layers shown; their tooltips name the layer and its key. */
+    /**
+     * Lights the switches of the layers shown; their tooltips name the layer and its key. Hidden in the 3D view and
+     * the area loading view, which draw no mod layers.
+     */
     private void updateLayerButtons() {
+        boolean visible = !isoShown() && !chunkloadShown();
         for (LayerButton layer : layerButtons) {
+            layer.button.visible = visible;
             boolean on = layer.shown.getAsBoolean();
             layer.button.active = on;
             layer.button.dim = !on;
@@ -2661,7 +2666,7 @@ public class GuiWorldMap extends ScaledScreen {
             return;
         }
         for (LayerButton layer : layerButtons) {
-            if (layer.button.isMouseOver(mouseX, mouseY)) {
+            if (layer.button.visible && layer.button.isMouseOver(mouseX, mouseY)) {
                 // The bar of mod layers on the map: its switches, not the map under them.
                 return;
             }
