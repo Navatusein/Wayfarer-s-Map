@@ -27,6 +27,7 @@ import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.Topography;
@@ -327,7 +328,7 @@ public class MinimapRenderer {
             GL11.glLoadIdentity();
             GL11.glTranslatef(0f, 0f, -2000f);
             try {
-                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks);
+                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
             } finally {
                 GL11.glMatrixMode(GL11.GL_PROJECTION);
                 GL11.glPopMatrix();
@@ -349,7 +350,7 @@ public class MinimapRenderer {
                 pixels,
                 pixels);
             try {
-                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks);
+                drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
             } finally {
                 GL11.glDisable(GL11.GL_SCISSOR_TEST);
                 GL11.glPopMatrix();
@@ -440,10 +441,18 @@ public class MinimapRenderer {
     /** Offscreen buffers the minimap is drawn into, on the HUD and in the settings' preview. */
     private static Framebuffer hudBuffer, previewBuffer;
 
-    /** The map and everything on it, into the square (0, 0, size, size), turned by {@code rotation} degrees. */
-    private static void drawLayers(Minecraft mc, MapDimension dimension, double px, double pz, double scale, int size,
-        float rotation, float partialTicks) {
+    /**
+     * The map and everything on it, into the square (0, 0, size, size), turned by {@code rotation} degrees.
+     * {@code pixelsPerUnit} is how many screen pixels a unit of the drawing is.
+     */
+    private static void drawLayers(Minecraft mc, MapDimension dimension, double playerX, double playerZ, double scale,
+        int size, float rotation, float partialTicks, double pixelsPerUnit) {
         Gui.drawRect(0, 0, size, size, 0xFF0C0E11);
+        // The map moves in whole screen pixels: at 1:2 a block is about a pixel wide, and a map shifted by a fraction
+        // of a pixel every frame while walking had its rows and columns of blocks jump back and forth.
+        double step = scale * pixelsPerUnit;
+        double px = step > 0 ? Math.round(playerX * step) / step : playerX;
+        double pz = step > 0 ? Math.round(playerZ * step) / step : playerZ;
         // A turned map needs a bigger square under it to fill the corners.
         int inner = Config.minimapRotate ? (int) Math.ceil(size * Math.sqrt(2)) + 2 : size;
         GL11.glPushMatrix();
@@ -456,6 +465,10 @@ public class MinimapRenderer {
             MapDrawer.drawMap(dimension, px, pz, scale, 0, 0, inner, inner, true);
             // Drawn with the view off too: it fades out.
             Topography.draw(dimension, px, pz, scale, 0, 0, inner, inner, true);
+            if (Config.displayMode(true) == Config.DISPLAY_BIOMES && BiomeHighlight.isActive()) {
+                // The world map's biome search: the same biomes outlined, the others grayed.
+                BiomeHighlight.draw(dimension, px, pz, scale, 0, 0, inner, inner);
+            }
             if (Config.chunkGrid(true)) {
                 MapDrawer.drawChunkGrid(px, pz, scale, 0, 0, inner, inner);
             }
@@ -492,7 +505,7 @@ public class MinimapRenderer {
                     () -> PowerfailLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
-            PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, px, pz);
+            PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, playerX, playerZ);
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, false);
             MapDrawer.drawTeammates(
                 mc,

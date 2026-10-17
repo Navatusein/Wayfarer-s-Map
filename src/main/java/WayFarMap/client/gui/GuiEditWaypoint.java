@@ -1,6 +1,7 @@
 package WayFarMap.client.gui;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +37,8 @@ public class GuiEditWaypoint extends ScaledScreen {
     private static final int DEFAULT_OUTLINE = 0xFF5555;
     /** Color sample next to the outline switch; a click opens the color picker. */
     private static final int SWATCH_X = 144, SWATCH_Y = 155, SWATCH_W = 76, SWATCH_H = 18;
+    /** Beam color sample between the beam switch and the share button; a click opens the color picker. */
+    private static final int BEAM_SWATCH_X = 104, BEAM_SWATCH_Y = 179, BEAM_SWATCH_W = 36;
     private static final int BUTTON_ROW = 229;
     /** How far above the name the panel and its header start. */
     private static final int HEADER_ABOVE = WindowHeader.HEIGHT - 8;
@@ -101,8 +104,8 @@ public class GuiEditWaypoint extends ScaledScreen {
         buttonList.add(new FlatButton(ID_NEW_GROUP, left + 174, top + 107, 46, 18, "+"));
         buttonList.add(new FlatButton(ID_ICON, left + PREVIEW + 4, top + 131, 220 - PREVIEW - 4, 18, ""));
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
-        // Beacon beam switch, and sharing the waypoint in the chat.
-        buttonList.add(new FlatButton(ID_BEAM, left, top + 179, 140, 18, ""));
+        // Beacon beam switch with its color, and sharing the waypoint in the chat.
+        buttonList.add(new FlatButton(ID_BEAM, left, top + 179, 100, 18, ""));
         buttonList.add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, Lang.format("wayfarmap.share.button")));
         // Shared with the team: teammates see it, and what is changed here.
         buttonList.add(new FlatButton(ID_TEAM, left, top + 203, 220, 18, ""));
@@ -339,6 +342,27 @@ public class GuiEditWaypoint extends ScaledScreen {
         updateButtons();
     }
 
+    /** The beam's color: its own, else the outline's (white without one). */
+    private int beamColor() {
+        return edited.beamColor != null ? edited.beamColor
+            : edited.outlineColor != null ? edited.outlineColor : 0xFFFFFF;
+    }
+
+    private void setBeamColor(int color) {
+        edited.beamColor = color & 0xFFFFFF;
+        updateButtons();
+    }
+
+    private boolean onBeamSwatch(int mouseX, int mouseY) {
+        return Theme.inside(
+            mouseX,
+            mouseY,
+            left + BEAM_SWATCH_X,
+            top + BEAM_SWATCH_Y,
+            left + BEAM_SWATCH_X + BEAM_SWATCH_W,
+            top + BEAM_SWATCH_Y + SWATCH_H);
+    }
+
     private boolean onSwatch(int mouseX, int mouseY) {
         return Theme.inside(
             mouseX,
@@ -395,6 +419,15 @@ public class GuiEditWaypoint extends ScaledScreen {
             readFields();
             mc.displayGuiScreen(new GuiColorPicker(this, outlineColor, this::setOutline));
         }
+        if (onBeamSwatch(mouseX, mouseY)) {
+            if (button == 0) {
+                readFields();
+                mc.displayGuiScreen(new GuiColorPicker(this, beamColor(), this::setBeamColor));
+            } else if (button == 1) {
+                // Back to the outline's color.
+                edited.beamColor = null;
+            }
+        }
     }
 
     @Override
@@ -450,7 +483,35 @@ public class GuiEditWaypoint extends ScaledScreen {
             sy + 5,
             !on ? Theme.TEXT_MUTED : light ? 0xFF000000 : 0xFFFFFFFF);
 
+        // Beam color sample: its own color, or the outline's marked "auto"; dimmed while the beam is off.
+        int bx = left + BEAM_SWATCH_X, by = top + BEAM_SWATCH_Y;
+        int beam = beamColor();
+        drawRect(bx, by, bx + BEAM_SWATCH_W, by + SWATCH_H, 0xFF000000 | beam);
+        if (!edited.beam) {
+            drawRect(bx, by, bx + BEAM_SWATCH_W, by + SWATCH_H, 0xB0101418);
+        }
+        boolean beamHovered = onBeamSwatch(mouseX, mouseY);
+        Theme.outline(bx, by, bx + BEAM_SWATCH_W, by + SWATCH_H, beamHovered ? Theme.ACCENT : Theme.BORDER);
+        if (edited.beamColor == null) {
+            int br = (beam >> 16) & 0xFF, bg = (beam >> 8) & 0xFF, bb = beam & 0xFF;
+            boolean beamLight = edited.beam && br * 299 + bg * 587 + bb * 114 > 150_000;
+            Theme.centered(
+                fontRendererObj,
+                Lang.format("wayfarmap.gui.beam_color_auto"),
+                bx + BEAM_SWATCH_W / 2,
+                by + 5,
+                !edited.beam ? Theme.TEXT_MUTED : beamLight ? 0xFF000000 : 0xFFFFFFFF);
+        }
+
         super.drawScaled(mouseX, mouseY, partialTicks);
+
+        if (beamHovered) {
+            drawHoveringText(
+                Arrays.asList(Lang.format("wayfarmap.gui.beam_color"), Lang.format("wayfarmap.gui.beam_color_hint")),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
 
         // Preview of the marker next to the icon button.
         Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, 0xFF0F1216);

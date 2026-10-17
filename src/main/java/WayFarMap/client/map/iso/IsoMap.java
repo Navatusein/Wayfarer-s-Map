@@ -312,7 +312,7 @@ public final class IsoMap implements BlockStore.Listener {
         hiddenChunks.clear();
         recheck.clear();
         storedHidden.clear();
-        FaceRenderer.dropFlights();
+        FaceRenderer.forgetWorld();
         refreshing.clear();
         storedSignatures.clear();
         storedQuietSignatures.clear();
@@ -323,6 +323,10 @@ public final class IsoMap implements BlockStore.Listener {
         lastCaptureDimension = Integer.MIN_VALUE;
         worldDirectory = null;
         pictureCache = null;
+        if (palette != null) {
+            // Its file was left open for reading (only a save with new pictures closed it).
+            palette.close();
+        }
         palette = null;
         IsoLog.close();
     }
@@ -1469,6 +1473,7 @@ public final class IsoMap implements BlockStore.Listener {
                 try {
                     if (old != null) {
                         old.save();
+                        old.close();
                     }
                 } finally {
                     IsoLog.saverEnd("old pictures");
@@ -1583,7 +1588,8 @@ public final class IsoMap implements BlockStore.Listener {
     }
 
     /**
-     * The block seen at a screen point: {x, y, z}, or null if nothing is drawn there yet.
+     * The block seen at a screen point: {x, y, z, side} (the side hit: 0 bottom, 1 top, 2 north, 3 south, 4 west,
+     * 5 east), or null if nothing is drawn there yet.
      *
      * @param offsetX,offsetY screen point relative to the middle of the map, in GUI pixels
      */

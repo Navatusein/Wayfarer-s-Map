@@ -59,14 +59,19 @@ public class MapDimension {
         this.directory = directory;
         this.fallbackDirectory = fallbackDirectory;
         this.loadExecutor = loadExecutor;
-        // dimN, dimN/biomes, dimN/caves/L
+        // dimN, dimN/bare, dimN/biomes, dimN/caves/L, dimN/caves/L/bare
         File parent = directory.getParentFile();
         String name = directory.getName();
-        this.cave = parent != null && parent.getName()
+        // A cave layer's map without plants is a cave layer too (drawn dark, lit by its own lights).
+        File layer = name.equals(PLANTLESS_FOLDER) ? parent : directory;
+        File layers = layer == null ? null : layer.getParentFile();
+        this.cave = layers != null && layers.getName()
             .equals("caves");
         if (cave) {
-            File dim = parent.getParentFile();
-            this.label = (dim == null ? "" : dim.getName() + "/") + "cave" + name;
+            File dim = layers.getParentFile();
+            this.label = (dim == null ? "" : dim.getName() + "/") + "cave"
+                + layer.getName()
+                + (layer == directory ? "" : "/" + name);
         } else if (parent != null && (name.equals("biomes") || name.equals(PLANTLESS_FOLDER))) {
             this.label = parent.getName() + "/" + name;
         } else {
@@ -610,6 +615,8 @@ public class MapDimension {
         }
         dropPending(loading, filter);
         dropPending(lodLoading, filter);
+        // Regions known to have no file, outside too: one for every region the map was moved over, all game long.
+        missing.removeIf(key -> !filter.keep(rx(key), rz(key)));
         cancelled -= loading.size() + lodLoading.size();
         FlatLog.retained(label, freed, keptUnsaved, textures, lodsFreed, cancelled, regions.size());
     }

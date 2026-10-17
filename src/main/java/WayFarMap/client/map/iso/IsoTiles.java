@@ -637,7 +637,7 @@ final class IsoTiles {
             double ny = side == 0 ? -1 : side == 1 ? 1 : 0;
             double nz = side == 2 ? -1 : side == 3 ? 1 : 0;
             return new int[] { (int) Math.floor(ground[0] - nx * 0.02), (int) Math.floor(y - ny * 0.02),
-                (int) Math.floor(ground[1] - nz * 0.02) };
+                (int) Math.floor(ground[1] - nz * 0.02), side };
         }
         return null;
     }

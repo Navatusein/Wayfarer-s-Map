@@ -35,6 +35,8 @@ public class Config {
     public static final String TAB_MAP = CATEGORY_MAP, TAB_MAP_2D = "map2d", TAB_MAP_3D = "map3d";
     /** Tab of the mobs' options (saved under {@link #CATEGORY_ENTITIES}, where they were before). */
     public static final String TAB_MOBS = "mobs";
+    /** Tab of the options of other mods' layers, from every map (each still saved under its own category). */
+    public static final String TAB_MOD_LAYERS = "modLayers";
     /** Categories in the order the settings screen shows them. */
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
         Arrays.asList(
@@ -42,8 +44,8 @@ public class Config {
             TAB_MAP,
             TAB_MAP_2D,
             TAB_MAP_3D,
+            TAB_MOD_LAYERS,
             CATEGORY_PLAYER_MARKER,
-            CATEGORY_ENTITIES,
             TAB_MOBS,
             CATEGORY_WAYPOINTS,
             CATEGORY_COMMANDS,
@@ -61,6 +63,13 @@ public class Config {
     public static final String[] MAP_BUTTONS = { "waypoints", "stats", "export", "addons", "follow", "light", "caves",
         "modes", "grid", "mobs", "team", "help", "about" };
     private static final boolean[] mapButtonShown = new boolean[MAP_BUTTONS.length];
+    /**
+     * Where the world map's buttons are: modern (the dimension's name on the left, view switches in the middle,
+     * screens on the right, a bar of mod layers on the left of the map) or classic (screens and a mod layers menu on
+     * the left, the name in the middle, view switches on the right).
+     */
+    public static final int MAP_LAYOUT_MODERN = 0, MAP_LAYOUT_CLASSIC = 1;
+    public static int mapButtonLayout = MAP_LAYOUT_CLASSIC;
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -104,6 +113,8 @@ public class Config {
     /** The player's marker on the world map and the minimap: its look, size (percent), color and outline. */
     public static final int MARKER_ARROW = 0, MARKER_TRIANGLE = 1, MARKER_CHEVRON = 2, MARKER_KITE = 3,
         MARKER_CIRCLE = 4, MARKER_DOT = 5;
+    /** The player is marked on the maps at all. */
+    public static boolean playerMarkerShown = true;
     public static int playerMarkerStyle = MARKER_ARROW;
     public static int playerMarkerScale = 100;
     public static final int PLAYER_MARKER_COLOR = 0xFFFFFF;
@@ -129,6 +140,9 @@ public class Config {
     public static boolean topoContours = true;
     public static int topoContourInterval = 4;
     public static boolean chunkGrid = false;
+    /** Lines of the grid: chunk and region borders, or region borders only. */
+    public static final int GRID_DEFAULT = 0, GRID_REGIONS = 1;
+    public static int gridStyle = GRID_DEFAULT;
     /** What the unexplored part of the 2D map is drawn with: nothing, diagonal lines or dots. */
     public static final int UNEXPLORED_NONE = 0, UNEXPLORED_LINES = 1, UNEXPLORED_DOTS = 2;
     public static int unexploredPattern = UNEXPLORED_NONE;
@@ -204,6 +218,10 @@ public class Config {
     public static int chunkloadClientMs = 6;
     /** VisualProspecting layers (only used when it is installed). */
     public static boolean showOreVeins = true;
+    /** Ore vein names on the world map: always (those that don't overlap), or only the one under the mouse. */
+    public static int oreLabels = 0;
+    /** Longest ore vein name on the world map, in pixels; longer ones end with '...'. */
+    public static int oreLabelMaxWidth = 100;
     public static boolean showUndergroundFluids = false;
     /** ServerUtilities claims layer on the world map (only used when it is installed). */
     public static boolean showClaims = false;
@@ -269,8 +287,15 @@ public class Config {
     public static boolean waypointFadeNear = true;
     public static int waypointFadeStart = 12, waypointFadeEnd = 3;
     public static int waypointLabelMaxWidth = 100;
+    /** In the world, the distance is written right of the waypoint's name instead of on a line under it. */
+    public static boolean waypointDistanceInline = false;
     public static boolean deathWaypoints = true;
-    public static int deathWaypointsKeep = 3;
+    public static int deathWaypointsKeep = 20;
+    /** With OpenBlocks: the death waypoint is removed once the player's grave there is gone (emptied or broken). */
+    public static boolean deathWaypointsGrave = true;
+    /** How a tracked ore vein or Thaumcraft node shows in the world: its marker, or the marker and a beam. */
+    public static final int TRACKED_MARKER = 0, TRACKED_BEAM = 1;
+    public static int trackedStyle = TRACKED_MARKER;
     /** Waypoints teammates share are shown as they come; a waypoint group can say otherwise for itself. */
     public static boolean teamWaypointsShown = true;
 
@@ -434,6 +459,7 @@ public class Config {
             new String[] { "auto", "day", "night" },
             () -> minimapLightMode,
             v -> minimapLightMode = v);
+        tab(TAB_MOD_LAYERS);
         group("ownLayers");
         parent("enabled");
         bool(
@@ -474,6 +500,7 @@ public class Config {
             true,
             () -> minimapThaumcraftNodes,
             v -> minimapThaumcraftNodes = v);
+        tab(null);
         group("ownGrid");
         parent("enabled");
         bool(
@@ -573,6 +600,16 @@ public class Config {
             () -> mapSmoothCamera,
             v -> mapSmoothCamera = v);
         group("buttons");
+        choice(
+            c,
+            "buttonLayout",
+            "Where the world map's buttons are: 0 = modern (name on the left, view switches in the middle, mod layers "
+                + "as a bar on the left of the map), 1 = classic (screens and a mod layers menu on the left, name "
+                + "in the middle, view switches on the right).",
+            MAP_LAYOUT_CLASSIC,
+            new String[] { "modern", "classic" },
+            () -> mapButtonLayout,
+            v -> mapButtonLayout = v);
         for (int i = 0; i < MAP_BUTTONS.length; i++) {
             final int index = i;
             mapButtonShown[i] = true;
@@ -701,6 +738,14 @@ public class Config {
             () -> chunkGrid,
             v -> chunkGrid = v);
         parent("chunkGrid");
+        choice(
+            c,
+            "gridStyle",
+            "Lines of the grid: 0 = chunk and region borders, 1 = region borders (every 512 blocks) only.",
+            GRID_DEFAULT,
+            new String[] { "default", "regions" },
+            () -> gridStyle,
+            v -> gridStyle = v);
         integer(
             c,
             "gridLineWidth",
@@ -882,8 +927,8 @@ public class Config {
             1,
             () -> isoCaptureMs,
             v -> isoCaptureMs = v);
-        tab(TAB_MAP_2D);
-        group("layers");
+        tab(TAB_MOD_LAYERS);
+        group("oreVeins");
         parent(null);
         bool(
             c,
@@ -896,6 +941,27 @@ public class Config {
                 // Ore veins and underground fluids are shown one at a time.
                 if (v) showUndergroundFluids = false;
             });
+        parent("oreVeins");
+        choice(
+            c,
+            "oreLabels",
+            "Ore vein names on the world map: always (those that would overlap others are left out), or only for the "
+                + "vein under the mouse.",
+            0,
+            new String[] { "always", "hover" },
+            () -> oreLabels,
+            v -> oreLabels = v);
+        integer(
+            c,
+            "oreLabelMaxWidth",
+            "Maximum width of ore vein names on the world map, in pixels; longer names end with '...'.",
+            100,
+            30,
+            300,
+            10,
+            () -> oreLabelMaxWidth,
+            v -> oreLabelMaxWidth = v);
+        parent(null);
         bool(
             c,
             "undergroundFluids",
@@ -927,6 +993,7 @@ public class Config {
             true,
             () -> showThaumcraftNodes,
             v -> showThaumcraftNodes = v);
+        tab(TAB_MAP_2D);
         group("data");
         parent(null);
         integer(
@@ -961,6 +1028,14 @@ public class Config {
         c = CATEGORY_PLAYER_MARKER;
         group("look");
         parent(null);
+        bool(
+            c,
+            "shown",
+            "Show the player on the maps. Off: no marker, arrow or 3D model of the player at all.",
+            true,
+            () -> playerMarkerShown,
+            v -> playerMarkerShown = v);
+        parent("shown");
         choice(
             c,
             "style",
@@ -1176,6 +1251,35 @@ public class Config {
             100,
             () -> waypointMaxDistance,
             v -> waypointMaxDistance = v);
+        parent("showInWorld");
+        bool(
+            c,
+            "fadeNear",
+            "In-world waypoints (marker and beam) fade out smoothly as you come near them.",
+            true,
+            () -> waypointFadeNear,
+            v -> waypointFadeNear = v);
+        parent("fadeNear");
+        integer(
+            c,
+            "fadeStart",
+            "In-world waypoints start fading this many blocks away.",
+            12,
+            2,
+            64,
+            1,
+            () -> waypointFadeStart,
+            v -> waypointFadeStart = v);
+        integer(
+            c,
+            "fadeEnd",
+            "In-world waypoints are gone this many blocks away (closer than where they start fading).",
+            3,
+            0,
+            32,
+            1,
+            () -> waypointFadeEnd,
+            v -> waypointFadeEnd = v);
         parent(null);
         bool(
             c,
@@ -1238,6 +1342,13 @@ public class Config {
             () -> waypointMapLabels,
             v -> waypointMapLabels = v);
         parent("showInWorld");
+        bool(
+            c,
+            "distanceInline",
+            "In the world, write the distance right of the waypoint's name instead of on a line under it.",
+            false,
+            () -> waypointDistanceInline,
+            v -> waypointDistanceInline = v);
         choice(
             c,
             "worldLabels",
@@ -1259,36 +1370,6 @@ public class Config {
             1,
             () -> waypointLookZone,
             v -> waypointLookZone = v);
-        group("fade");
-        parent("showInWorld");
-        bool(
-            c,
-            "fadeNear",
-            "In-world waypoints (marker and beam) fade out smoothly as you come near them.",
-            true,
-            () -> waypointFadeNear,
-            v -> waypointFadeNear = v);
-        parent("fadeNear");
-        integer(
-            c,
-            "fadeStart",
-            "In-world waypoints start fading this many blocks away.",
-            12,
-            2,
-            64,
-            1,
-            () -> waypointFadeStart,
-            v -> waypointFadeStart = v);
-        integer(
-            c,
-            "fadeEnd",
-            "In-world waypoints are gone this many blocks away (closer than where they start fading).",
-            3,
-            0,
-            32,
-            1,
-            () -> waypointFadeEnd,
-            v -> waypointFadeEnd = v);
         parent(null);
         group("death");
         parent(null);
@@ -1298,13 +1379,33 @@ public class Config {
             c,
             "deathPointsKeep",
             "How many death waypoints to keep; older ones are removed.",
-            3,
-            1,
             20,
+            1,
+            100,
             1,
             () -> deathWaypointsKeep,
             v -> deathWaypointsKeep = v);
+        bool(
+            c,
+            "deathPointsGrave",
+            "With OpenBlocks: remove the death waypoint once your grave next to it is gone (emptied or broken).",
+            true,
+            () -> deathWaypointsGrave,
+            v -> deathWaypointsGrave = v);
         parent(null);
+        tab(TAB_MOD_LAYERS);
+        group("tracked");
+        parent(null);
+        choice(
+            c,
+            "trackedStyle",
+            "How a tracked ore vein or Thaumcraft node shows in the world: 0 = its marker, 1 = its marker and a beam.",
+            TRACKED_MARKER,
+            new String[] { "marker", "beam" },
+            () -> trackedStyle,
+            v -> trackedStyle = v);
+        parent(null);
+        tab(null);
         group("team");
         parent(null);
         bool(
@@ -1388,6 +1489,34 @@ public class Config {
             true,
             () -> chunkloadHints,
             v -> chunkloadHints = v);
+
+        // Switched with the world map's own buttons and menus: kept in the file, left off the settings screen.
+        hideFromSettings(
+            CATEGORY_MAP,
+            "followPlayer",
+            "displayMode",
+            "lightMode",
+            "caveMode",
+            "showPlants",
+            "chunkGrid",
+            "gridStyle",
+            "isometric",
+            "isoRotation",
+            "record3d",
+            "oreVeins",
+            "undergroundFluids",
+            "claims",
+            "powerfails",
+            "thaumcraftNodes");
+        hideFromSettings(
+            CATEGORY_ENTITIES,
+            "showOtherPlayers",
+            "showHostileMobs",
+            "showPassiveMobs",
+            "showAmbientMobs",
+            "showOtherEntities",
+            "showPets");
+        hideFromSettings(CATEGORY_COMMANDS, "chunkload3d", "chunkloadHints");
     }
 
     private static Configuration configuration;
@@ -1437,7 +1566,7 @@ public class Config {
     public static List<Option> getOptions(String tab) {
         List<Option> result = new ArrayList<>();
         for (Option option : OPTIONS) {
-            if (option.tab.equals(tab)) {
+            if (option.inSettings && option.tab.equals(tab)) {
                 result.add(option);
             }
         }
@@ -1593,6 +1722,10 @@ public class Config {
     }
 
     public static int lightMode(boolean minimap) {
+        if (displayMode(minimap) == DISPLAY_BIOMES) {
+            // The biome map shows the biomes' own colors: no night over them, nor dark caves or Nether.
+            return LIGHT_DAY;
+        }
         return minimap && minimapOwnView ? minimapLightMode : mapLightMode;
     }
 
@@ -1692,6 +1825,25 @@ public class Config {
         save();
     }
 
+    /** The block recording switch on the 3D map: keeps the blocks of explored chunks for it, or stops. */
+    public static void toggleRecord3d() {
+        record3d = !record3d;
+        save();
+    }
+
+    /** The grid button on the world map: off, chunks and regions, regions only, off again. */
+    public static void cycleGrid() {
+        if (!chunkGrid) {
+            chunkGrid = true;
+            gridStyle = GRID_DEFAULT;
+        } else if (gridStyle == GRID_DEFAULT) {
+            gridStyle = GRID_REGIONS;
+        } else {
+            chunkGrid = false;
+        }
+        save();
+    }
+
     /** Whether the world map shows this button ({@link #MAP_BUTTONS}); unknown names are shown. */
     public static boolean isMapButtonShown(String name) {
         for (int i = 0; i < MAP_BUTTONS.length; i++) {
@@ -1750,6 +1902,8 @@ public class Config {
          * color); null for always. The settings screen hides it otherwise.
          */
         public BooleanSupplier condition;
+        /** Shown on the settings screen; off for what the world map switches itself ({@link #hideFromSettings}). */
+        public boolean inSettings = true;
 
         Option(String category, String key, String comment) {
             this.category = category;
@@ -2055,6 +2209,25 @@ public class Config {
     /** When the options declared next mean anything, until the next section; null for always. */
     private static void when(BooleanSupplier condition) {
         currentCondition = condition;
+    }
+
+    /**
+     * Leaves these options of the category off the settings screen. Options under one of them go under its own switch
+     * instead, so they don't wait for one that can't be turned on there.
+     */
+    private static void hideFromSettings(String category, String... keys) {
+        for (String key : keys) {
+            for (Option option : OPTIONS) {
+                if (option.category.equals(category) && option.key.equals(key)) {
+                    option.inSettings = false;
+                }
+            }
+        }
+        for (Option option : OPTIONS) {
+            while (option.parent != null && !option.parent.inSettings) {
+                option.parent = option.parent.parent;
+            }
+        }
     }
 
     private static void parent(String key) {

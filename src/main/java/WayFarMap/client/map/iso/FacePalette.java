@@ -489,6 +489,20 @@ final class FacePalette {
     }
 
     /** Appends the new sprites to the file (background thread). */
+    /** Closes the file kept open for reading pictures back (the palette is no longer used). */
+    void close() {
+        synchronized (file) {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException ignored) {
+                    // Closed anyway.
+                }
+                reader = null;
+            }
+        }
+    }
+
     void save() {
         List<Entry> added;
         int from;

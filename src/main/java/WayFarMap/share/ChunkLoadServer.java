@@ -778,12 +778,12 @@ public final class ChunkLoadServer {
             // Goes on when the player is back (the batch is sent again: the client lost it).
             job.waiting = false;
             job.sentTo = null;
-            unwatchAll(job);
+            pause(job);
             return;
         }
         if (player.dimension != job.dimension) {
             job.waiting = false;
-            unwatchAll(job);
+            pause(job);
             if (!job.pausedTold) {
                 job.pausedTold = true;
                 player.addChatMessage(new ChatComponentTranslation("wayfarmap.chunkload.paused", job.dimension));
@@ -821,6 +821,19 @@ public final class ChunkLoadServer {
                 return;
             }
         }
+    }
+
+    /**
+     * The job waits for its player (gone, or in another dimension): the chunks it loaded are let go meanwhile, or
+     * they stayed loaded for as long as the server ran if the player never came back. The batch is loaded again when
+     * the job goes on.
+     */
+    private void pause(Job job) {
+        release(job, job.previousOuter, null);
+        release(job, job.loading, null);
+        job.previousOuter = null;
+        job.loading = null;
+        unwatchAll(job);
     }
 
     /** Loads (more of) the batch, and sends it once loaded; false while it isn't loaded yet. */
@@ -1198,11 +1211,83 @@ public final class ChunkLoadServer {
                 }
                 // The player is in another dimension now: the game would tell its client to drop the chunk at
                 // those coordinates there (a hole near the player). Only taken off the list, the mods told.
-                if (players != null && ((java.util.List<?>) players.get(chunkWatcher)).remove(player)) {
+                java.util.List<?> watchers = players == null ? null : (java.util.List<?>) players.get(chunkWatcher);
+                if (watchers != null && watchers.remove(player)) {
                     MinecraftForge.EVENT_BUS.post(new ChunkWatchEvent.UnWatch(new ChunkCoordIntPair(x, z), player));
+                    if (watchers.isEmpty()) {
+                        dropWatcher(world, chunkWatcher, x, z);
+                    }
                 }
             } catch (ReflectiveOperationException | RuntimeException e) {
                 WayFarMap.LOG.warn("/wf chunkload could not let go of chunk " + x + ", " + z, e);
+            }
+        }
+
+        private static boolean dropLooked;
+        private static java.lang.reflect.Field instances, instanceList, withPlayers;
+        private static Method removeInstance;
+
+        /**
+         * A watcher left with no player (its last one taken off from another dimension): taken out of the game's
+         * lists and its chunk let go, as the game does when its last player leaves. Kept, the game loaded the chunk
+         * again every few minutes and never let it go.
+         */
+        private static void dropWatcher(WorldServer world, Object chunkWatcher, int x, int z) {
+            net.minecraft.server.management.PlayerManager manager = world.getPlayerManager();
+            if (!dropLooked) {
+                dropLooked = true;
+                try {
+                    Class<?> type = net.minecraft.server.management.PlayerManager.class;
+                    instances = field(type, "playerInstances", "field_72700_c");
+                    instanceList = field(type, "playerInstanceList", "field_111193_e");
+                    withPlayers = field(type, "chunkWatcherWithPlayers", "field_72697_d");
+                    removeInstance = method(
+                        net.minecraft.util.LongHashMap.class,
+                        new String[] { "remove", "func_76159_d" },
+                        long.class);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    WayFarMap.LOG.warn("/wf chunkload can't drop chunk watchers left empty: {}", e.toString());
+                    instances = null;
+                }
+            }
+            try {
+                if (instances != null) {
+                    long key = (long) x + 2147483647L | (long) z + 2147483647L << 32;
+                    removeInstance.invoke(instances.get(manager), key);
+                    ((java.util.List<?>) instanceList.get(manager)).remove(chunkWatcher);
+                    ((java.util.List<?>) withPlayers.get(manager)).remove(chunkWatcher);
+                }
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                WayFarMap.LOG.debug("Could not drop the watcher of chunk " + x + ", " + z, e);
+            }
+            world.theChunkProviderServer.unloadChunksIfNotNearSpawn(x, z);
+        }
+
+        private static java.lang.reflect.Field field(Class<?> type, String... names) throws NoSuchFieldException {
+            for (String name : names) {
+                try {
+                    java.lang.reflect.Field field = type.getDeclaredField(name);
+                    field.setAccessible(true);
+                    return field;
+                } catch (NoSuchFieldException ignored) {}
+            }
+            throw new NoSuchFieldException(type.getName() + "." + names[0]);
+        }
+
+        /** Whether any player watches the chunk in the game's watchers; null if that can't be told. */
+        static Boolean isWatched(WorldServer world, int x, int z) {
+            works();
+            if (watcher == null) {
+                return null;
+            }
+            try {
+                Object chunkWatcher = watcher.invoke(world.getPlayerManager(), x, z, false);
+                if (chunkWatcher == null) {
+                    return false;
+                }
+                return players == null || !((java.util.List<?>) players.get(chunkWatcher)).isEmpty();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return null;
             }
         }
 
@@ -1239,11 +1324,19 @@ public final class ChunkLoadServer {
                     continue;
                 }
                 unwatch(job, world, x, z);
+                // Left to the game where a player watches it (it lets go when the last one leaves); any other is
+                // let go here. A margin around players instead kept the ring just outside their view loaded for
+                // good: the game never lets go of a chunk nobody watches unless told.
+                Boolean watched = Watching.isWatched(world, x, z);
                 boolean seen = false;
-                for (int[] p : players) {
-                    if (Math.abs(p[0] - x) <= near && Math.abs(p[1] - z) <= near) {
-                        seen = true;
-                        break;
+                if (watched != null) {
+                    seen = watched;
+                } else {
+                    for (int[] p : players) {
+                        if (Math.abs(p[0] - x) <= near && Math.abs(p[1] - z) <= near) {
+                            seen = true;
+                            break;
+                        }
                     }
                 }
                 if (!seen && world.theChunkProviderServer.chunkExists(x, z)) {

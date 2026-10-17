@@ -16,6 +16,70 @@
   A line right under a point carries it on. Comments like this one are left out.
 -->
 
+# 0.0.17
+
+## World map
+- [fix] Follow: the map keeps the player in the middle as they walk; dragging it pauses following until `Space` or the button
+- [new] 2D map and the map without plants: the biome under the cursor next to the coordinates at the bottom
+- [change] Biome view: the biome's name shows by the cursor instead of at the bottom
+- [change] Biome view: no day and night, the biome colors always as by day
+- [new] Grid: Default (chunks and regions) or Regions only; the grid button goes off → default → regions only
+- [new] The player icon can be hidden completely (settings → Player icon)
+- [fix] 3D map: teleport to the floor under the cursor — at a wall onto the floor of that storey, on a roof into the building onto the floor below it (and a separate "Teleport onto the roof")
+- [new] 3D map: block recording switch REC under the quality slider, no trip to the settings
+- [new] Teleport into another dimension from the map and the waypoint menu: through the mod on the server (operators) or `/cofh tpx`
+- [new] "Button layout" with the map buttons settings: classic (the default, as before: screens and a mod layers menu on the left, the name in the middle, view switches on the right) or modern (the new one: the name on the left, view switches in the middle, screens on the right, mod layers as a bar of switches on the left of the map, the zoom in the footer)
+- [new] The welcome window asks for the map's button layout before the language: a picture of each, classic and modern
+- [change] Mob icons and player heads grow up to a block's size when zoomed in (up to 6 times their usual size) instead of stopping at 1:1
+- [fix] The frame around mob icons is now exactly 1 screen pixel ("Frame width" counts screen pixels) and even on every side: it was in GUI pixels (2 to 4 on screen), and between pixels it came out 1 on one side and 2 on another
+- [fix] Cave mode no longer always shows flowers and grass: with the map without plants, the cave layers are drawn without them too (places mapped before clear up once mapped again)
+- [fix] Area selection when claiming chunks or loading regions: dragged left or up, it no longer slides after the cursor once at its limit
+- [fix] Area loading with caves (Ctrl+Shift+LMB) maps all 16 cave layers of the world's height, not only those up to the chunk's highest blocks
+- [new] Ctrl+F on the map puts the cursor into the search (when it shows), its text selected, to type at once
+
+## Mod layers
+- [change] "Add-on layers" are now called "Mod layers", and their options are gathered in a new Mod layers settings tab: the vein names, the minimap's mod layers (was "Own mod layers") and how tracked veins and nodes look
+- [change] Ore vein, Thaumcraft node and power failure icons grow with the zoom (up to 64 pixels) instead of staying smaller than a block
+- [new] Ore vein icons get a thin black frame right around them, so they stand out on any map, the Nether too
+- [fix] Ore vein names on the map no longer run into each other: the name of the vein under the mouse takes its place first and the ones in its way are left out
+- [new] Like waypoint names: "Vein names" (always / on hover) and "Vein name width"
+- [new] Del over an ore vein marks it depleted (again: not depleted)
+- [fix] Underground fluids: zoomed in close, each chunk's amount shrinks to fit the chunk (dropping the L/Op unit when it would be too small to read) instead of running into its neighbours, and the field's range moves onto the name's line
+
+## Settings
+- [change] Switches the world map sets with its own buttons and menus (view, light, caves, grid, layers, mobs, 3D, follow, area loading) are no longer repeated in the settings window; the Entities tab is gone, and Reset all leaves them as they are
+
+## Map data
+- [new] A button that refreshes the map (read again from disk, the loaded chunks mapped anew) and one that clears all map data of this world
+- [fix] "All dimensions": its 3D map shows that it includes the block pictures the dimensions share (why it is more than the dimensions added up)
+- [fix] After deleting a dimension's map it stays picked instead of jumping to "All dimensions"
+- [fix] Percentages: a small share shows "<1%", not 0%
+- [fix] Empty world folders no longer count in "Worlds"
+
+## Memory
+- [fix] Leaving a world or changing dimension no longer keeps the old world in memory: mob and item icons (with their textures), the 3D map's pictures, VisualProspecting's data, the area loading view and the settings' mob preview are let go
+- [fix] The 3D map no longer keeps empty regions it was scrolled over, nor leaves the block pictures file open; its learned picture caches are capped
+- [fix] The 2D map forgets far empty regions, and the log's debug data when the world is left
+- [fix] Server: /wf chunkload no longer leaves chunks loaded for good (a paused job, another dimension, the ring by a player); the team map and teleport keep no old players and worlds after death, logout or server stop
+
+## Waypoints
+- [change] 20 death waypoints are kept by default (was 3), up to 100
+- [new] With OpenBlocks: the death waypoint goes away by itself once your grave next to it is gone (emptied or broken); this can be turned off in the settings
+- [new] The waypoint's beam color is set in the editor on its own (right click on the sample: as the outline)
+- [new] "Distance next to the name" setting: in the world the distance is right of the name, not on its own line
+- [new] An "Enabled" switch in the waypoint's menu on the map (like "Share with team"); "Share" is now "Share in chat"
+- [new] Double left click on the map: on a waypoint opens its editor, elsewhere a new waypoint at the point under the mouse
+- [new] Keys work on the open map: U opens the waypoint list, B a new waypoint at the point under the mouse
+- [change] "Fade when near" moved to the "Where to show" section
+- [fix] On a language change the death group and the death markers are renamed into it at once (no new death needed, no empty groups left)
+- [fix] A tracked vein or node shows in the world at any distance: the waypoints' distance limit no longer hides it
+- [new] A GregTech power failure can be tracked (right click on the map → "Track"): it shows in the world at any distance like a tracked vein, with a beam as set
+- [new] Tracked ore veins and Thaumcraft nodes: their look in the world, marker or marker and beam
+
+## Minimap
+- [fix] Stutter at 1:2: no coarse copies of the regions, and the map moves in whole pixels
+- [new] The world map's search highlights the same biomes, veins, fluids, power failures and nodes on the minimap
+
 # 0.0.16
 
 ## Waypoints

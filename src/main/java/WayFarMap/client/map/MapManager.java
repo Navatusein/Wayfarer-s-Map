@@ -199,10 +199,8 @@ public class MapManager implements IResourceManagerReloadListener {
         MapDimension cave(int layer) {
             MapDimension cave = caves.get(layer);
             if (cave == null) {
-                cave = new MapDimension(
-                    id,
-                    new File(new File(directory, "caves"), String.valueOf(layer)),
-                    loadExecutor);
+                cave = new MapDimension(id, new File(new File(directory, "caves"), String.valueOf(layer)), loadExecutor)
+                    .withPlantless();
                 caves.put(layer, cave);
             }
             return cave;
@@ -213,7 +211,7 @@ public class MapManager implements IResourceManagerReloadListener {
             maps.add(surface);
             maps.add(surface.plantless());
             maps.add(biomes);
-            maps.addAll(caves.values());
+            addWithPlantless(maps, caves.values());
             return maps;
         }
 
@@ -526,7 +524,18 @@ public class MapManager implements IResourceManagerReloadListener {
     /** Biome at the column in the dimension shown on the world map, or null if unknown. */
     public BiomeGenBase getViewBiome(int x, int z) {
         MapDimension map = getViewBiomeMap();
-        int id = map == null ? 0 : map.peekExtra(x, z);
+        if (map == null) {
+            return null;
+        }
+        int id = map.peekExtra(x, z);
+        if (id == 0) {
+            // Not drawn (another mode than the biomes shown): its region is read in the background, and the biome
+            // shows once it is there.
+            MapRegion region = map.requestRegion(x >> MapRegion.SHIFT, z >> MapRegion.SHIFT);
+            if (region != null) {
+                id = region.getExtra(x & (MapRegion.SIZE - 1), z & (MapRegion.SIZE - 1));
+            }
+        }
         return id == 0 ? null : BiomeGenBase.getBiome(id - 1);
     }
 
@@ -598,6 +607,9 @@ public class MapManager implements IResourceManagerReloadListener {
                     }
                 } else {
                     region.setPixel(baseX + lx, baseZ + lz, color);
+                    if (plantlessRegion != null && (plantlessRegion.getPixel(baseX + lx, baseZ + lz) >>> 24) == 0) {
+                        plantlessRegion.setPixel(baseX + lx, baseZ + lz, color);
+                    }
                 }
                 if (biomeRegion != null) {
                     int biomeId = record.biomes[i] & 0xFF;
@@ -644,10 +656,21 @@ public class MapManager implements IResourceManagerReloadListener {
         MapDimension cave = caveLayers.get(layer);
         if (cave == null && dimensionDirectory != null) {
             File directory = new File(new File(dimensionDirectory, "caves"), String.valueOf(layer));
-            cave = new MapDimension(surface.dimensionId, directory, loadExecutor);
+            // Like the surface, each cave layer is also kept without grass and flowers.
+            cave = new MapDimension(surface.dimensionId, directory, loadExecutor).withPlantless();
             caveLayers.put(layer, cave);
         }
         return cave;
+    }
+
+    /** Adds the maps and the map without plants each one has. */
+    private static void addWithPlantless(List<MapDimension> into, Collection<MapDimension> maps) {
+        for (MapDimension map : maps) {
+            into.add(map);
+            if (map.plantless() != null) {
+                into.add(map.plantless());
+            }
+        }
     }
 
     private List<MapDimension> allMaps() {
@@ -659,7 +682,7 @@ public class MapManager implements IResourceManagerReloadListener {
         if (biomes != null) {
             maps.add(biomes);
         }
-        maps.addAll(caveLayers.values());
+        addWithPlantless(maps, caveLayers.values());
         for (OtherDimension other : others.values()) {
             maps.addAll(other.all());
         }
@@ -874,9 +897,14 @@ public class MapManager implements IResourceManagerReloadListener {
         return cave == null || caveTracker.scanCaveForLoad(currentWorld, chunk, cave, layer);
     }
 
-    /** Cave layers worth mapping for a chunk: up to the one just above its highest blocks (higher show nothing). */
+    /**
+     * Cave layers to map for a chunk picked with its caves: every one of the world's height (16 layers of 16 blocks).
+     * Only those up to just above its highest blocks were mapped before, so the layers above (where the cave view of
+     * a mountain, a floating island or the Nether's roof is) stayed empty.
+     */
     public static int caveLayersOf(Chunk chunk) {
-        return Math.min(16, Math.max(0, chunk.getTopFilledSegment() >> 4) + 2);
+        int height = chunk.worldObj != null ? chunk.worldObj.getHeight() : 256;
+        return Math.max(1, Math.min(16, (height + 15) >> 4));
     }
 
     /** For the log: when the game loaded each chunk. */
@@ -978,7 +1006,7 @@ public class MapManager implements IResourceManagerReloadListener {
             maps.add(surface);
             maps.add(surface.plantless());
             maps.add(biomes);
-            maps.addAll(caveLayers.values());
+            addWithPlantless(maps, caveLayers.values());
         } else {
             maps.addAll(other(dimensionId).all());
         }
@@ -991,6 +1019,7 @@ public class MapManager implements IResourceManagerReloadListener {
         if (layers != null) {
             for (File layer : layers) {
                 MapRegion.deleteFiles(layer, rx, rz);
+                MapRegion.deleteFiles(new File(layer, MapDimension.PLANTLESS_FOLDER), rx, rz);
             }
         }
     }
@@ -1023,6 +1052,11 @@ public class MapManager implements IResourceManagerReloadListener {
         for (MapDimension cave : caveLayers.values()) {
             if (!maps.contains(cave)) {
                 maps.add(cave);
+            }
+        }
+        for (MapDimension cave : caveLayers.values()) {
+            if (cave.plantless() != null && !maps.contains(cave.plantless())) {
+                maps.add(cave.plantless());
             }
         }
         // By region, so each region is read once.

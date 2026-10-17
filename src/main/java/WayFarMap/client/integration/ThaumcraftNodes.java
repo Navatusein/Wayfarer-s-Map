@@ -194,9 +194,12 @@ public final class ThaumcraftNodes {
         }
         double left = centerX - width / 2.0 / scale;
         double top = centerZ - height / 2.0 / scale;
-        double size = minimap ? 9 : Math.max(10, Math.min(18, 14 * Math.pow(scale, 0.3)));
+        // On the world map zoomed in, the icon grows to cover the node's block (up to 64 pixels), so it isn't
+        // a speck.
+        double size = minimap ? 9
+            : Math.max(Math.max(10, Math.min(18, 14 * Math.pow(scale, 0.3))), Math.min(64, scale));
         double half = size / 2;
-        boolean searching = !minimap && searchTokens.length > 0;
+        boolean searching = searchTokens.length > 0;
 
         List<Node> visible = new ArrayList<>();
         List<double[]> positions = new ArrayList<>();
@@ -357,7 +360,7 @@ public final class ThaumcraftNodes {
      * Draws the tracked node in the world like a waypoint (as a tracked ore vein): the node icon with its strongest
      * aspect, the name and the distance, visible through blocks.
      */
-    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+    public static void renderTrackedInWorld(Minecraft mc, int dimension, float partialTicks) {
         int[] target = tracked;
         if (target == null || target[0] != dimension || TCNodeTracker.nodelist == null) {
             return;
@@ -367,6 +370,9 @@ public final class ThaumcraftNodes {
                 continue;
             }
             final Node node = new Node(source);
+            if (WaypointRenderer.trackedBeams()) {
+                WaypointRenderer.renderBeam(mc, node.x, node.z, node.color(), partialTicks, 1f);
+            }
             String aspect = node.aspects.isEmpty() ? ""
                 : node.aspects.get(0)
                     .getName();

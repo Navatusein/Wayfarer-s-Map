@@ -93,6 +93,19 @@ public final class MobIcons {
     private MobIcons() {}
 
     /**
+     * Forgets the icons and the world they were made in (the world left): kept, they held the old world in memory
+     * until icons were drawn in another one, and their textures until then too.
+     */
+    public static void reset() {
+        for (int old : ICONS.values()) {
+            GL11.glDeleteTextures(old);
+        }
+        ICONS.clear();
+        FAILED.clear();
+        iconWorld = null;
+    }
+
+    /**
      * Draws the mob's icon as a square of {@code size} centered on (sx, sy), at the given opacity.
      *
      * @return false if it has none (yet), so the caller can draw something else

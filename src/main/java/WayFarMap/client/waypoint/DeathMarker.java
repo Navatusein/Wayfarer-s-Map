@@ -19,7 +19,65 @@ public class DeathMarker {
     /** A marker was placed for the current death; cleared once the player is alive again. */
     private boolean marked;
 
+    /** How far (in blocks, each way) from where the player died OpenBlocks may put the grave. */
+    private static final int GRAVE_RANGE = 16;
+
+    /** The language and the waypoint load the death group's name was last checked for. */
+    private String checkedLanguage;
+    private int checkedLoad = -1;
+
     private DeathMarker() {}
+
+    /**
+     * As soon as the mod's language changes (or other waypoints are loaded), the death group and the death markers
+     * not renamed by the player take their names in it.
+     */
+    private void checkGroupName() {
+        WaypointManager manager = WaypointManager.INSTANCE;
+        String language = Lang.code();
+        if (!manager.isLoaded() || language.equals(checkedLanguage) && manager.getLoads() == checkedLoad) {
+            return;
+        }
+        checkedLanguage = language;
+        checkedLoad = manager.getLoads();
+        manager.renameDeathGroup(Lang.format("wayfarmap.death.group"), Lang.allTranslations("wayfarmap.death.group"));
+        manager.renameDeathMarkers(Lang.format("wayfarmap.death.name"), Lang.allTranslations("wayfarmap.death.name"));
+    }
+
+    /**
+     * A grave of OpenBlocks was removed from the client's world at (x, y, z): if it was the player's own, their death
+     * waypoint nearest to it (where they died, which the grave is put next to) is removed with it. Render thread.
+     */
+    public static void graveRemoved(int dimension, int x, int y, int z, String owner) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (!Config.deathWaypointsGrave || mc.thePlayer == null
+            || owner == null
+            || !owner.equals(mc.thePlayer.getCommandSenderName())
+            || !WaypointManager.INSTANCE.isLoaded()) {
+            return;
+        }
+        Waypoint nearest = null;
+        long best = Long.MAX_VALUE;
+        for (Waypoint waypoint : WaypointManager.INSTANCE.getWaypoints()) {
+            if (!waypoint.death || waypoint.isForeign() || waypoint.dimension != dimension) {
+                continue;
+            }
+            long dx = waypoint.x - x, dz = waypoint.z - z;
+            if (Math.abs(dx) > GRAVE_RANGE || Math.abs(dz) > GRAVE_RANGE) {
+                continue;
+            }
+            // Height counts less: the grave is kept out of the void and bedrock, far above a death down there.
+            long dy = waypoint.y - y;
+            long distance = dx * dx + dz * dz + Math.min(dy * dy, GRAVE_RANGE * GRAVE_RANGE);
+            if (distance < best) {
+                best = distance;
+                nearest = waypoint;
+            }
+        }
+        if (nearest != null) {
+            WaypointManager.INSTANCE.removeWaypoint(nearest);
+        }
+    }
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
@@ -31,6 +89,7 @@ public class DeathMarker {
         if (player == null || mc.theWorld == null) {
             return;
         }
+        checkGroupName();
         if (player.getHealth() > 0 && !player.isDead) {
             marked = false;
             return;
@@ -48,7 +107,10 @@ public class DeathMarker {
         waypoint.outlineColor = COLOR;
         waypoint.iconItem = "minecraft:skull";
         waypoint.diedAt = System.currentTimeMillis();
-        WaypointManager.INSTANCE
-            .addDeathWaypoint(waypoint, Lang.format("wayfarmap.death.group"), Config.deathWaypointsKeep);
+        WaypointManager.INSTANCE.addDeathWaypoint(
+            waypoint,
+            Lang.format("wayfarmap.death.group"),
+            Lang.allTranslations("wayfarmap.death.group"),
+            Config.deathWaypointsKeep);
     }
 }

@@ -28,7 +28,7 @@ import WayFarMap.WayFarMap;
  * items drawn by their own renderer have no icon at all and were invisible, and on the maps the state around could
  * cut blocks off. Render thread only.
  */
-final class ItemSprites {
+public final class ItemSprites {
 
     /**
      * Pixels per side of a picture (an inventory slot is 16 GUI pixels): four for each pixel of an item's texture,
@@ -83,6 +83,20 @@ final class ItemSprites {
     private static Object pictureWorld;
 
     private ItemSprites() {}
+
+    /**
+     * Forgets the pictures and the world they were taken in (the world left): kept, they held the old world in memory
+     * until an item icon was drawn in another one, and their textures until then too.
+     */
+    public static void reset() {
+        for (DynamicTexture old : PICTURES.values()) {
+            old.deleteGlTexture();
+        }
+        PICTURES.clear();
+        EMPTY.clear();
+        QUEUE.clear();
+        pictureWorld = null;
+    }
 
     /**
      * Draws the item's picture as a square of {@code size} centered on (cx, cy) in the current coordinates (a GUI or

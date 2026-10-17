@@ -300,6 +300,8 @@ public class GuiSettings extends ScaledScreen {
                 return Icons.MAP2D;
             case Config.TAB_MAP_3D:
                 return Icons.ISO;
+            case Config.TAB_MOD_LAYERS:
+                return Icons.ADDONS;
             case Config.CATEGORY_PLAYER_MARKER:
                 return Icons.MARKER;
             case Config.CATEGORY_ENTITIES:
@@ -326,6 +328,8 @@ public class GuiSettings extends ScaledScreen {
                 return 0xFF5BD6E0;
             case Config.TAB_MAP_3D:
                 return 0xFFE8A040;
+            case Config.TAB_MOD_LAYERS:
+                return 0xFFF2C14E;
             case Config.CATEGORY_PLAYER_MARKER:
                 return 0xFFE6EAF0;
             case Config.CATEGORY_ENTITIES:
@@ -653,7 +657,10 @@ public class GuiSettings extends ScaledScreen {
         } else if (button.id == ID_RESET_ALL || button.id == ID_RESET_TAB || button.id == ID_RESET_CANCEL) {
             if (button.id != ID_RESET_CANCEL) {
                 for (Config.Option option : button.id == ID_RESET_ALL ? Config.OPTIONS : options()) {
-                    option.reset();
+                    // What the world map switches itself stays as it is there.
+                    if (option.inSettings) {
+                        option.reset();
+                    }
                 }
             }
             confirmingReset = false;
@@ -1335,6 +1342,7 @@ public class GuiSettings extends ScaledScreen {
             case "trail":
                 return Icons.SMALL_TRAIL;
             case "layers":
+            case "oreVeins":
                 return Icons.SMALL_LAYERS;
             case "data":
             case "chunkload":

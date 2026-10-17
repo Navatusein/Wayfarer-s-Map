@@ -16,6 +16,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import WayFarMap.WayFarMap;
@@ -116,7 +117,7 @@ public final class BlockStore {
         return new File(directory, "r." + rx + "." + rz + ".wfb");
     }
 
-    /** The region's chunk list, read from its file on first use. */
+    /** The region's chunk list, read from its file on first use; kept, to be written to. */
     private Region region(int rx, int rz) {
         long key = key(rx, rz);
         Region region = regions.get(key);
@@ -124,6 +125,41 @@ public final class BlockStore {
             return region;
         }
         Region read = readHeader(rx, rz);
+        region = regions.putIfAbsent(key, read);
+        noFile.remove(key);
+        return region != null ? region : read;
+    }
+
+    /** Regions found to have no file (and none made since), so looking at them again keeps nothing. */
+    private final Set<Long> noFile = ConcurrentHashMap.newKeySet();
+    private static final int MAX_NO_FILE = 100_000;
+    /** Stands for every region without blocks when only read: never written to. */
+    private static final Region EMPTY = new Region(0, 0);
+
+    /**
+     * The region's chunk list to read: like {@link #region}, but a region without a file isn't kept. Looking over
+     * empty land (the 3D map zoomed out, the area loading view) kept a 16 KB list for every region of it for as long
+     * as the world was played.
+     */
+    private Region readRegion(int rx, int rz) {
+        long key = key(rx, rz);
+        Region region = regions.get(key);
+        if (region != null) {
+            return region;
+        }
+        if (noFile.contains(key)) {
+            return EMPTY;
+        }
+        Region read = readHeader(rx, rz);
+        if (!read.fileExists) {
+            if (noFile.size() >= MAX_NO_FILE) {
+                noFile.clear();
+            }
+            noFile.add(key);
+            // Made meanwhile by a write: that one.
+            region = regions.get(key);
+            return region != null ? region : EMPTY;
+        }
         region = regions.putIfAbsent(key, read);
         return region != null ? region : read;
     }
@@ -251,19 +287,19 @@ public final class BlockStore {
 
     /** Highest block of the chunk, or -1 if there are no blocks for it. */
     public int top(int chunkX, int chunkZ) {
-        Region region = region(chunkX >> 5, chunkZ >> 5);
+        Region region = readRegion(chunkX >> 5, chunkZ >> 5);
         return region.yMax[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
     /** Lowest height kept of the chunk (0 for a chunk kept whole), meaningless if there are no blocks for it. */
     public int bottom(int chunkX, int chunkZ) {
-        Region region = region(chunkX >> 5, chunkZ >> 5);
+        Region region = readRegion(chunkX >> 5, chunkZ >> 5);
         return region.yMin[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
     /** Whether any chunk of the region has blocks (its header is read from the file on first use). */
     public boolean anyInRegion(int rx, int rz) {
-        for (short top : region(rx, rz).yMax) {
+        for (short top : readRegion(rx, rz).yMax) {
             if (top >= 0) {
                 return true;
             }
@@ -273,7 +309,7 @@ public final class BlockStore {
 
     /** When the chunk's blocks last changed, 0 if there are none. */
     public long time(int chunkX, int chunkZ) {
-        Region region = region(chunkX >> 5, chunkZ >> 5);
+        Region region = readRegion(chunkX >> 5, chunkZ >> 5);
         return region.times[(chunkZ & 31) * CHUNKS + (chunkX & 31)];
     }
 
@@ -287,7 +323,7 @@ public final class BlockStore {
                 return cached;
             }
         }
-        Region region = region(chunkX >> 5, chunkZ >> 5);
+        Region region = readRegion(chunkX >> 5, chunkZ >> 5);
         int index = (chunkZ & 31) * CHUNKS + (chunkX & 31);
         byte[] blob;
         boolean loaded;
@@ -405,7 +441,7 @@ public final class BlockStore {
      * @return whether there were blocks of it
      */
     boolean remove(int chunkX, int chunkZ) {
-        Region region = region(chunkX >> 5, chunkZ >> 5);
+        Region region = readRegion(chunkX >> 5, chunkZ >> 5);
         int index = (chunkZ & 31) * CHUNKS + (chunkX & 31);
         int oldTop;
         boolean loaded;

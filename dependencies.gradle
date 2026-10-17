@@ -43,4 +43,7 @@ dependencies {
     // Optional TCNodeTracker integration: the Thaumcraft aura nodes it recorded, on the map.
     api("com.github.GTNewHorizons:TCNodeTracker:1.4.6:dev")
     api("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
+    // Optional OpenBlocks integration: a mixin into its grave removes the death waypoint once the grave is gone.
+    compileOnly("com.github.GTNewHorizons:OpenBlocks:1.12.22-GTNH:dev") { transitive = false }
+    compileOnly("com.github.GTNewHorizons:OpenModsLib:0.10.14:dev") { transitive = false }
 }

@@ -144,6 +144,11 @@ public final class TeamMapServer {
         Object[] entry;
         while ((entry = inbox.poll()) != null) {
             EntityPlayerMP player = (EntityPlayerMP) entry[0];
+            if (!isOnline(player)) {
+                // Came after the player left (or from the world before a restart): handled, it would add them back
+                // as online, keeping the old player and its world.
+                continue;
+            }
             try {
                 if (entry[1] instanceof ShareNetwork.Hello) {
                     onHello(player, (ShareNetwork.Hello) entry[1]);
@@ -163,8 +168,8 @@ public final class TeamMapServer {
             try {
                 sync.step();
             } catch (Exception e) {
-                WayFarMap.LOG.warn("Team map: sync failed for " + sync.player.getCommandSenderName(), e);
-                syncs.remove(sync.player.getUniqueID());
+                WayFarMap.LOG.warn("Team map: sync failed for " + sync.id, e);
+                syncs.remove(sync.id);
             }
         }
         if (now - lastSave >= SAVE_INTERVAL_MS) {
@@ -194,7 +199,7 @@ public final class TeamMapServer {
     /** Saves everything and forgets the world (server stopping). */
     public void stop() {
         for (Sync sync : new ArrayList<>(syncs.values())) {
-            finishSync(sync.player.getUniqueID());
+            finishSync(sync.id);
         }
         for (TeamStore store : teams.values()) {
             store.save(true);
@@ -212,8 +217,34 @@ public final class TeamMapServer {
         capable.clear();
         waypointCapable.clear();
         knownTeams.clear();
+        uploadBudget.clear();
+        toldAlone.clear();
         inbox.clear();
         root = null;
+    }
+
+    /** Whether this very player object is one of the server's online players now. */
+    static boolean isOnline(EntityPlayerMP player) {
+        MinecraftServer server = MinecraftServer.getServer();
+        return player != null && server != null
+            && server.getConfigurationManager() != null
+            && server.getConfigurationManager().playerEntityList.contains(player);
+    }
+
+    /** The online player with the id, null if none. */
+    private static EntityPlayerMP online(UUID id) {
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server == null || server.getConfigurationManager() == null) {
+            return null;
+        }
+        for (Object o : server.getConfigurationManager().playerEntityList) {
+            EntityPlayerMP player = (EntityPlayerMP) o;
+            if (player.getUniqueID()
+                .equals(id)) {
+                return player;
+            }
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------- messages
@@ -406,7 +437,12 @@ public final class TeamMapServer {
      */
     private final class Sync {
 
-        final EntityPlayerMP player;
+        final UUID id;
+        /**
+         * The player now: looked up again each step, since dying or changing dimension makes a new one (the old one
+         * kept its world loaded in memory as long as the player stayed). Null once caught up.
+         */
+        EntityPlayerMP player;
         final TeamStore store;
         final ArrayDeque<Integer> dimensions = new ArrayDeque<>();
         final List<Integer> completed = new ArrayList<>();
@@ -417,6 +453,7 @@ public final class TeamMapServer {
         boolean done;
 
         Sync(EntityPlayerMP player, TeamStore store) {
+            this.id = player.getUniqueID();
             this.player = player;
             this.store = store;
             dimensions.add(player.dimension);
@@ -431,6 +468,7 @@ public final class TeamMapServer {
         private void nextDimension() {
             if (dimensions.isEmpty()) {
                 done = true;
+                player = null;
                 return;
             }
             dimension = dimensions.poll();
@@ -452,8 +490,10 @@ public final class TeamMapServer {
             if (done) {
                 return;
             }
-            if (player.playerNetServerHandler == null) {
-                syncs.remove(player.getUniqueID());
+            player = online(id);
+            if (player == null || player.playerNetServerHandler == null) {
+                syncs.remove(id);
+                player = null;
                 return;
             }
             // Read the next region file when the queue runs low (one per tick, to spread the disk reads).

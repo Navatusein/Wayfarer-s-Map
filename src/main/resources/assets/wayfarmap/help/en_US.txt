@@ -39,7 +39,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
 - §bBin§r — clean up: empty the logs folder, delete the 2D or 3D map of all dimensions of this world, or the 2D, 3D or whole map of one dimension (each button asks again). Waypoints are kept
 - §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
-- §bLayers§r — the §bAdd-on layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
+- §bLayers§r — the §bMod layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
 
 §fRight:§r
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
@@ -135,12 +135,12 @@ Cave mode shows §fa layer underground§r instead of the surface.
 # {icon:view} Map view
 - §bLighting§r (sun / moon) — one button, round and round: §fauto§r (the map §ffollows the time of day§r) → §falways day§r → §falways night§r; at night places lit by torches, lamps and lava glow
 - §bGrid§r — the 16×16 chunk grid
-- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Under roofs and overhangs the real floor shows, not solid stone (how deep to look — §bSettings → 3D map → Look under roofs§r). Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, add-on layers, the grid and mobs only on the flat map
+- §b3D map§r — the world isometric like Dynmap, drawn from the blocks themselves (textures, grass and leaves in biome colors, sky and torch light, shade under trees, water as one body with the floor showing in the shallows, Chisel connected textures, tile entities (chests, signs, machines), GregTech pipes and cables, crops and beds as the game draws them; torch light at night, plants, slabs, stairs, fences). §eQ§r / §eE§r or the arrow button turn the view to the 4 sides. Blocks are recorded as you walk around; places explored before or by your team show as pillars of the flat map colors until you visit them. Tiles are drawn in the background, the far out levels are saved to disk. Under roofs and overhangs the real floor shows, not solid stone (how deep to look — §bSettings → 3D map → Look under roofs§r). Surface only; biomes and caves stay flat. Waypoints, players and the team show in 3D too, mod layers, the grid and mobs only on the flat map
 - §bMobs§r — a menu of checkboxes: neutral, friendly, pets, hostile, players. The button shows who is shown now
 - Mobs and players show as §fface icons§r; detailed filters are in the settings §b(Entities)
 
 # {icon:ores} Ores and fluids
-Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and §bFluids§r checkboxes in the §bAdd-on layers§r menu (layers icon, top left) — they are §fexclusive§r, only one is on.
+Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and §bFluids§r checkboxes in the §bMod layers§r menu (layers icon, top left) — they are §fexclusive§r, only one is on.
 
 - Hover a vein — a tooltip with its ores
 - §eRight click a vein → Track§r — a marker with distance appears in the world
@@ -150,7 +150,7 @@ Needs the §fVisualProspecting§r mod (GTNH). Turned on with the §bOres§r and 
 ! Veins show up only after prospecting (mined ores, samples, scanners).
 
 # {icon:power} Power failures (GregTech)
-When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r checkbox in the §bAdd-on layers§r menu shows them on the map and the minimap with a §cred frame§r and a lightning icon.
+When a GregTech machine runs out of energy, GregTech records a §fpower failure§r. The §bPowerfails§r checkbox in the §bMod layers§r menu shows them on the map and the minimap with a §cred frame§r and a lightning icon.
 
 - Hover — which machine, coordinates, how many times and when it last failed
 - Zoomed in, the machine and how long ago are written under the icon
@@ -161,7 +161,7 @@ When a GregTech machine runs out of energy, GregTech records a §fpower failure�
 > Your whole team sees them: the GregTech server sends them.
 
 # {icon:nodes} Thaumcraft nodes (TCNodeTracker)
-Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded with TCNodeTracker show on the map and the minimap — a node icon in the color of its §fstrongest aspect§r with that aspect inside. Turned on with the §bThaumcraft nodes§r checkbox in the §bAdd-on layers§r menu.
+Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded with TCNodeTracker show on the map and the minimap — a node icon in the color of its §fstrongest aspect§r with that aspect inside. Turned on with the §bThaumcraft nodes§r checkbox in the §bMod layers§r menu.
 
 - Hover — node type, modifier, every aspect with its amount, and the coordinates
 - Zoomed in, the main aspects are written under the icon
@@ -170,7 +170,7 @@ Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded
 - The search at the top finds aspects: §e"ignis"§r, §e"aer ordo"§r — other nodes fade
 
 # {icon:claims} Claims (ServerUtilities)
-Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bAdd-on layers§r menu.
+Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bMod layers§r menu.
 
 §fLeft drag a rectangle:§r
 - §eCtrl§r — claim chunks

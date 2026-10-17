@@ -36,6 +36,7 @@ import com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBa
 
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.MapDrawer;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import gregtech.api.interfaces.IIconContainer;
@@ -97,6 +98,27 @@ public final class ProspectingLayer {
 
     private static Tracked tracked;
     private static final int TRACKED_COLOR = 0xFFD700;
+
+    /**
+     * Forgets what was read of VisualProspecting and the tracked vein (the server left): kept, a well prospected
+     * world's veins stayed in memory for the rest of the game unless the layer was shown again.
+     */
+    public static void reset() {
+        veinCache = new IdentityHashMap<>();
+        fluidCache = new IdentityHashMap<>();
+        positions = new IdentityHashMap<>();
+        veins = Collections.emptyList();
+        fluids = Collections.emptyList();
+        hovered = null;
+        tracked = null;
+        veinDimension = Integer.MIN_VALUE;
+        fluidDimension = Integer.MIN_VALUE;
+        lastVeinRefresh = 0;
+        lastFluidRefresh = 0;
+    }
+
+    /** The thin frame right around a vein's icon. */
+    private static final int FRAME_COLOR = 0x000000;
 
     private ProspectingLayer() {}
 
@@ -297,8 +319,9 @@ public final class ProspectingLayer {
         Minecraft mc = Minecraft.getMinecraft();
         double pixel = 1.0 / ScaledScreen.currentFactor();
 
-        // While searching (world map only), fields of other fluids fade out like in VisualProspecting.
-        boolean searching = !minimap && isSearchActive();
+        // While searching (the world map's search, on the minimap too), fields of other fluids fade out like in
+        // VisualProspecting.
+        boolean searching = isSearchActive();
         begin();
         for (UndergroundFluidLocation location : fluids) {
             double fx = x + (Math.floor(location.getBlockX()) - left) * scale;
@@ -358,6 +381,11 @@ public final class ProspectingLayer {
             double labelX = fx + fieldSize / 2;
             int textColor = !isSearchActive() ? 0xFFFFFF
                 : max > 0 && fluidMatches(location.getFluid()) ? 0xFFFF00 : 0x444444;
+            if (values != null && zoom >= Config.minZoomLevelForUndergroundFluidDetails) {
+                // With the amounts in the chunks, the range goes on the name's line, clear of the first row of them.
+                label(font, ellipsize(font, title + ": " + values, maxWidth), labelX, fy + 2, textColor);
+                continue;
+            }
             label(font, ellipsize(font, title, maxWidth), labelX, fy + 3, textColor);
             if (values != null) {
                 label(font, ellipsize(font, values, maxWidth), labelX, fy + 14, textColor);
@@ -390,9 +418,7 @@ public final class ProspectingLayer {
                     hollowRect(cellX, cellY, cell, cell, Math.max(1, cell / 16), 0xFFD700, 204, x, y, width, height);
                 }
                 if (labels) {
-                    cellLabels.add(
-                        new Object[] { MessageFormat.format("{0} L/Op", formatAmount(amount >> 1)), cellX + cell / 2,
-                            cellY + cell / 2 - 4 });
+                    cellLabels.add(new Object[] { formatAmount(amount >> 1), cellX + cell / 2, cellY + cell / 2 });
                 }
             }
         }
@@ -402,7 +428,20 @@ public final class ProspectingLayer {
             for (Object[] cellLabel : cellLabels) {
                 double lx = (Double) cellLabel[1], ly = (Double) cellLabel[2];
                 if (lx > x && ly > y && lx < x + width && ly < y + height) {
-                    label(font, (String) cellLabel[0], lx, ly, 0xFFFFFF);
+                    // Shrunk to fit the chunk (with its background), so neighbours don't run into each other; when
+                    // that would make it too small to read, the amount alone.
+                    String text = MessageFormat.format("{0} L/Op", cellLabel[0]);
+                    double fit = (cell - 2) / (font.getStringWidth(text) + 4);
+                    if (fit < 0.6) {
+                        text = (String) cellLabel[0];
+                        fit = (cell - 2) / (font.getStringWidth(text) + 4);
+                    }
+                    float textScale = (float) Math.min(1, fit);
+                    GL11.glPushMatrix();
+                    GL11.glTranslated(lx, ly, 0);
+                    GL11.glScalef(textScale, textScale, 1f);
+                    label(font, text, 0, -4, 0xFFFFFF);
+                    GL11.glPopMatrix();
                 }
             }
             begin();
@@ -441,8 +480,10 @@ public final class ProspectingLayer {
         double top = centerZ - height / 2.0 / scale;
         double zoom = zoomLevel(scale);
         double veinSpacing = VP.oreVeinSizeChunkX * VP.chunkWidth * scale;
+        // On the world map the icons keep growing when zooming in past 1:1 (up to 64 pixels), so the ores can be told
+        // apart up close instead of staying 16 pixels on blocks of 16 or more.
         double size = minimap ? Math.max(5, Math.min(10, veinSpacing * 0.6))
-            : Math.max(6, Math.min(16, veinSpacing * 0.6));
+            : Math.max(6, Math.min(Math.min(64, 16 * Math.max(1, Math.sqrt(scale))), veinSpacing * 0.6));
         double half = size / 2;
         Minecraft mc = Minecraft.getMinecraft();
         FontRenderer font = mc.fontRenderer;
@@ -460,7 +501,20 @@ public final class ProspectingLayer {
             }
         }
 
-        // Drawn in a few batches (icons, shading, depleted marks, frames) rather than several draw calls per vein:
+        // Around each icon a thin black frame, right against it, so the vein stands out on any map: in the Nether the
+        // ores and their stone are the colors of the ground around them.
+        double pixel = MapDrawer.screenPixel(x, y);
+        // About one texture pixel of the icon, on whole screen pixels.
+        double pad = Math.max(pixel, Math.round(size / 16 / pixel) * pixel);
+        begin();
+        for (OreVeinLocation vein : visible) {
+            double sx = x + (vein.getBlockX() - left) * scale - half;
+            double sy = y + (vein.getBlockZ() - top) * scale - half;
+            hollowRect(sx - pad, sy - pad, size + 2 * pad, size + 2 * pad, pad, FRAME_COLOR, 255, x, y, width, height);
+        }
+        end();
+
+        // Drawn in a few batches (plates, icons, shading, depleted marks) rather than several draw calls per vein:
         // zoomed out over a well prospected area there can be thousands of veins on screen.
         Tessellator tessellator = Tessellator.instance;
         mc.getTextureManager()
@@ -508,53 +562,50 @@ public final class ProspectingLayer {
             tessellator.draw();
         }
 
-        // Frames: search hits, and gold for the tracked vein (like VisualProspecting's "active as waypoint").
-        boolean searching = !minimap && isSearchActive();
-        begin();
-        for (OreVeinLocation vein : visible) {
-            double sx = x + (vein.getBlockX() - left) * scale - half;
-            double sy = y + (vein.getBlockZ() - top) * scale - half;
-            if (searching && vein.drawSearchHighlight() && !vein.isDepleted()) {
-                hollowRect(sx - 1, sy - 1, size + 2, size + 2, 1, SEARCH_COLOR, 255, x, y, width, height);
-            }
-            if (isTrackedLocation(vein)) {
-                hollowRect(
-                    sx - 1,
-                    sy - 1,
-                    size + 2,
-                    size + 2,
-                    Math.max(1, size / 8),
-                    TRACKED_COLOR,
-                    204,
-                    x,
-                    y,
-                    width,
-                    height);
-            }
-        }
-        end();
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
         if (minimap || zoom < Config.minZoomLevelForOreLabel) {
             return;
         }
-        // Names above the icons, skipping those that would overlap one already placed.
+        // Names above the icons, cut to the set width, as waypoints' names are. The one under the mouse takes its place
+        // first and is drawn last, on top; any other that would overlap a name already placed is left out (the one
+        // under the mouse used to be drawn over its neighbours, its text running into theirs).
+        boolean always = OreLabels.always();
+        // Clear of the frame.
+        double labelHalf = half + pad;
         List<double[]> placed = new ArrayList<>();
-        for (OreVeinLocation vein : visible) {
-            if (vein.isDepleted()) {
-                continue;
-            }
-            String name = ellipsize(font, vein.getName(), 120);
-            int w = font.getStringWidth(name);
-            double lx = x + (vein.getBlockX() - left) * scale;
-            double ly = y + (vein.getBlockZ() - top) * scale - half - 11;
-            double[] box = { lx - w / 2.0 - 2, ly - 1, lx + w / 2.0 + 2, ly + 9 };
-            if (vein != hovered && overlaps(box, placed)) {
-                continue;
-            }
-            placed.add(box);
-            label(font, name, lx, ly, vein.drawSearchHighlight() ? 0xFFFFFF : 0x7F7F7F);
+        List<Object[]> labels = new ArrayList<>();
+        if (hovered != null && visible.contains(hovered)) {
+            placeLabel(font, hovered, x, y, left, top, scale, labelHalf, placed, labels);
         }
+        if (always) {
+            for (OreVeinLocation vein : visible) {
+                if (vein != hovered && !vein.isDepleted()) {
+                    placeLabel(font, vein, x, y, left, top, scale, labelHalf, placed, labels);
+                }
+            }
+        }
+        // Back to front: the hovered one, placed first, ends on top.
+        for (int i = labels.size() - 1; i >= 0; i--) {
+            Object[] l = labels.get(i);
+            label(font, (String) l[0], (Double) l[1], (Double) l[2], (Integer) l[3]);
+        }
+    }
+
+    /** Places the vein's name above its icon unless it would overlap a name already placed: {text, x, y, color}. */
+    private static void placeLabel(FontRenderer font, OreVeinLocation vein, int x, int y, double left, double top,
+        double scale, double half, List<double[]> placed, List<Object[]> labels) {
+        String name = ellipsize(font, vein.getName(), OreLabels.maxWidth());
+        int w = font.getStringWidth(name);
+        double lx = x + (vein.getBlockX() - left) * scale;
+        double ly = y + (vein.getBlockZ() - top) * scale - half - 11;
+        double[] box = { lx - w / 2.0 - 2, ly - 1, lx + w / 2.0 + 2, ly + 9 };
+        if (overlaps(box, placed)) {
+            return;
+        }
+        placed.add(box);
+        int color = vein.isDepleted() || !vein.drawSearchHighlight() ? 0x7F7F7F : 0xFFFFFF;
+        labels.add(new Object[] { name, lx, ly, color });
     }
 
     /** Tooltip lines of the vein under the mouse, or null. */
@@ -623,11 +674,23 @@ public final class ProspectingLayer {
         tracked = isTracked(vein) ? null : new Tracked(handle.location, handle.position);
     }
 
-    /** Draws the tracked vein in the world: its ore icon, name and distance, like a waypoint. */
-    public static void renderTrackedInWorld(Minecraft mc, int dimension) {
+    /**
+     * Draws the tracked vein in the world: its ore icon, name and distance, like a waypoint, and a beam over it if the
+     * tracked style asks for one.
+     */
+    public static void renderTrackedInWorld(Minecraft mc, int dimension, float partialTicks) {
         final Tracked target = tracked;
         if (target == null || target.dimension != dimension) {
             return;
+        }
+        if (WaypointRenderer.trackedBeams()) {
+            WaypointRenderer.renderBeam(
+                mc,
+                (int) Math.floor(target.x),
+                (int) Math.floor(target.z),
+                TRACKED_COLOR,
+                partialTicks,
+                1f);
         }
         String name = Lang.format("wayfarmap.gui.vein_tracked_name", strip(target.location.getName()));
         WaypointRenderer.renderBillboard(mc, target.x, target.y, target.z, name, TRACKED_COLOR, (cx, cy, size) -> {

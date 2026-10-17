@@ -34,6 +34,7 @@ import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
 import WayFarMap.client.map.MapManager;
@@ -475,32 +476,59 @@ public class WaypointRenderer {
                 renderInWorld(mc, waypoint);
             }
         }
+        float partialTicks = event.partialTicks;
         if (Mods.isVisualProspectingLoaded()) {
-            Mods.draw(Mods.Addon.VISUAL_PROSPECTING, () -> ProspectingLayer.renderTrackedInWorld(mc, dimension));
+            Mods.draw(
+                Mods.Addon.VISUAL_PROSPECTING,
+                () -> ProspectingLayer.renderTrackedInWorld(mc, dimension, partialTicks));
         }
         if (Mods.isThaumcraftNodesAvailable()) {
-            Mods.draw(Mods.Addon.THAUMCRAFT_NODES, () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension));
+            Mods.draw(
+                Mods.Addon.THAUMCRAFT_NODES,
+                () -> ThaumcraftNodes.renderTrackedInWorld(mc, dimension, partialTicks));
+        }
+        if (Mods.isPowerfailsAvailable()) {
+            Mods.draw(Mods.Addon.POWERFAILS, () -> PowerfailLayer.renderTrackedInWorld(mc, dimension, partialTicks));
         }
     }
 
     private static final ResourceLocation BEAM_TEXTURE = new ResourceLocation("textures/entity/beacon_beam.png");
 
+    /** Tracked ore veins and Thaumcraft nodes get a beam over them in the world ({@link Config#trackedStyle}). */
+    public static boolean trackedBeams() {
+        return Config.trackedStyle == Config.TRACKED_BEAM;
+    }
+
     /**
-     * A beacon beam through the waypoint's column, from the bottom of the world to the top, in its outline color
-     * (white without one): a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
-     * beacon. Hidden behind terrain like a real one.
+     * A beacon beam through the waypoint's column in its beam color, else its outline color (white without one).
      */
     private static void renderBeam(Minecraft mc, Waypoint waypoint, float partialTicks, float alpha) {
-        double x = waypoint.x - RenderManager.renderPosX;
+        int color = waypoint.beamColor != null ? waypoint.beamColor
+            : waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
+        renderBeam(mc, waypoint.x, waypoint.z, color, partialTicks, alpha, true);
+    }
+
+    /** A beam over a tracked ore vein, node or power failure: seen at any distance, unlike waypoints. */
+    public static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha) {
+        renderBeam(mc, blockX, blockZ, color, partialTicks, alpha, false);
+    }
+
+    /**
+     * A beacon beam through the column of block ({@code blockX}, {@code blockZ}), from the bottom of the world to the
+     * top, in the RGB color: a turning inner beam with a scrolling texture and a faint outer glow, like the vanilla
+     * beacon. Hidden behind terrain like a real one.
+     */
+    private static void renderBeam(Minecraft mc, int blockX, int blockZ, int color, float partialTicks, float alpha,
+        boolean limited) {
+        double x = blockX - RenderManager.renderPosX;
         // The whole height of the world, not only above the waypoint: seen from anywhere, above or below it.
         double y = -RenderManager.renderPosY;
-        double z = waypoint.z - RenderManager.renderPosZ;
+        double z = blockZ - RenderManager.renderPosZ;
         double distance = Math.sqrt((x + 0.5) * (x + 0.5) + (z + 0.5) * (z + 0.5));
-        if (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
+        if (limited && Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance) {
             return;
         }
         double height = Math.max(1, mc.theWorld.getHeight());
-        int color = waypoint.outlineColor != null ? waypoint.outlineColor : 0xFFFFFF;
         int r = (color >> 16) & 0xFF, g = (color >> 8) & 0xFF, b = color & 0xFF;
         float time = mc.theWorld.getTotalWorldTime() % 100_000L + partialTicks;
         double scroll = -time * 0.2 - Math.floor(-time * 0.1);
@@ -678,10 +706,18 @@ public class WaypointRenderer {
         renderBillboard(mc, x, y, z, name, outlineColor, icon, 1f);
     }
 
-    /** Same, at the given opacity (the icon draws itself, at the opacity it was given). */
+    /**
+     * Same, at the given opacity (the icon draws itself, at the opacity it was given). For what is tracked (an ore
+     * vein, a node, a power failure): shown at any distance, whatever waypoints are limited to.
+     */
     public static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
         BillboardIcon icon, float alpha) {
-        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false);
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, null, false, false);
+    }
+
+    private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
+        renderBillboard(mc, x, y, z, name, outlineColor, icon, alpha, label, openFrame, true);
     }
 
     /**
@@ -690,16 +726,17 @@ public class WaypointRenderer {
      *
      * @param openFrame the colored frame around the icon is left open in the middle (no dark tile), for one of the
      *                  {@link Symbols}
+     * @param limited   left out beyond {@link Config#waypointMaxDistance} (waypoints); false for what is tracked
      */
     private static void renderBillboard(Minecraft mc, double x, double y, double z, String name, Integer outlineColor,
-        BillboardIcon icon, float alpha, Smooth label, boolean openFrame) {
+        BillboardIcon icon, float alpha, Smooth label, boolean openFrame, boolean limited) {
         EntityPlayer player = mc.thePlayer;
         double dx = x - RenderManager.renderPosX;
         // The icon in the middle of the block, the box with the name and the distance under it.
         double dy = y + 0.5 - RenderManager.renderPosY;
         double dz = z - RenderManager.renderPosZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (distance < 0.5 || (Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
+        if (distance < 0.5 || (limited && Config.waypointMaxDistance > 0 && distance > Config.waypointMaxDistance)) {
             return;
         }
         // Far markers are drawn closer (inside the view distance) and scaled to look as if they were at their real
@@ -738,10 +775,13 @@ public class WaypointRenderer {
 
         int nameWidth = font.getStringWidth(name);
         int distanceWidth = font.getStringWidth(distanceText);
-        int boxHalf = Math.max(nameWidth, distanceWidth) / 2 + 3;
+        // The distance on the name's line, right of it, or on a line of its own under it.
+        boolean inline = Config.waypointDistanceInline && !name.isEmpty();
+        int gap = inline ? font.getStringWidth(" ") : 0;
+        int boxHalf = (inline ? nameWidth + gap + distanceWidth : Math.max(nameWidth, distanceWidth)) / 2 + 3;
         // The anchor is the icon's middle: the box starts just under the icon.
         int top = 11;
-        int bottom = top + (name.isEmpty() ? 11 : 21);
+        int bottom = top + (name.isEmpty() || inline ? 11 : 21);
 
         // The font draws text with almost no alpha as opaque: below that the box is left out.
         if (labelAlpha >= 0.03f) {
@@ -749,11 +789,17 @@ public class WaypointRenderer {
             fillRect(-boxHalf, top, boxHalf, bottom, faded(0xA0000000, labelAlpha));
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             int textY = top + 2;
-            if (!name.isEmpty()) {
-                font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
-                textY += 10;
+            if (inline) {
+                int textX = -(nameWidth + gap + distanceWidth) / 2;
+                font.drawString(name, textX, textY, faded(0xFFFFFFFF, labelAlpha));
+                font.drawString(distanceText, textX + nameWidth + gap, textY, faded(0xFFC0C0C0, labelAlpha));
+            } else {
+                if (!name.isEmpty()) {
+                    font.drawString(name, -nameWidth / 2, textY, faded(0xFFFFFFFF, labelAlpha));
+                    textY += 10;
+                }
+                font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
             }
-            font.drawString(distanceText, -distanceWidth / 2, textY, faded(0xFFC0C0C0, labelAlpha));
         }
 
         GL11.glEnable(GL11.GL_ALPHA_TEST);
