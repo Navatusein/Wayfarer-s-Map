@@ -158,7 +158,7 @@ public final class ChunkLoadClient {
             if (wasInWorld) {
                 // Out of the world: the next server says again whether loading from the map is allowed.
                 wasInWorld = false;
-                ChunkLoadView.setAllowed(false, false);
+                ChunkLoadView.setAllowed(false);
             }
             // That word may come while joining, before the world is there: it is kept.
             inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed) && !(m instanceof ShareNetwork.LoadEnded));
@@ -174,8 +174,7 @@ public final class ChunkLoadClient {
             } else if (message instanceof ShareNetwork.SavedChunks) {
                 ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
             } else if (message instanceof ShareNetwork.LoadAllowed) {
-                ShareNetwork.LoadAllowed allowed = (ShareNetwork.LoadAllowed) message;
-                ChunkLoadView.setAllowed(allowed.allowed, allowed.teleport);
+                ChunkLoadView.setAllowed(((ShareNetwork.LoadAllowed) message).allowed);
             } else if (message instanceof ShareNetwork.LoadEnded) {
                 ended(world, (ShareNetwork.LoadEnded) message, mc);
             }

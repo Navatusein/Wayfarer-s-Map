@@ -71,8 +71,6 @@ public final class ChunkLoadView {
     private static long lastAsk;
     /** Whether the server lets the player load chunks from the map (it says so; servers without the mod never do). */
     private static boolean allowed;
-    /** Whether the server takes teleport requests (older versions of the mod don't know them). */
-    private static boolean teleportAllowed;
 
     /** Colors of the view's legend: on the 2D, 3D or both maps, saved in the world, picked. */
     public static final int LEGEND_MAPPED = 0xFF000000 | MAPPED_FILL, LEGEND_MAPPED_3D = 0xFF000000 | MAPPED_3D_FILL,
@@ -85,13 +83,8 @@ public final class ChunkLoadView {
         return allowed;
     }
 
-    public static boolean isTeleportAllowed() {
-        return allowed && teleportAllowed;
-    }
-
-    public static void setAllowed(boolean value, boolean teleport) {
+    public static void setAllowed(boolean value) {
         allowed = value;
-        teleportAllowed = teleport;
     }
 
     /** Whether the view being drawn is the region loading one. */

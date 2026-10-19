@@ -467,29 +467,21 @@ public final class ShareNetwork {
     public static final class LoadAllowed implements IMessage {
 
         public boolean allowed;
-        /**
-         * Whether the server takes {@link TeleportRequest}s. Added later, at the end: a server of an older version
-         * sends none (read as false) and would drop the connection on such a request; an older client doesn't read it.
-         */
-        public boolean teleport;
 
         public LoadAllowed() {}
 
         public LoadAllowed(boolean allowed) {
             this.allowed = allowed;
-            this.teleport = true;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             allowed = buf.readBoolean();
-            teleport = buf.isReadable() && buf.readBoolean();
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeBoolean(allowed);
-            buf.writeBoolean(teleport);
         }
     }
 

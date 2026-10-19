@@ -71,7 +71,7 @@ public final class Teleport {
      * Core's {@code /cofh tpx} (which needs the same rights as {@code /tp}).
      */
     public static boolean isOtherDimensionAllowed() {
-        return ChunkLoadView.isTeleportAllowed() || INSTANCE.cofh && isAllowed();
+        return ChunkLoadView.isAllowed() || INSTANCE.cofh && isAllowed();
     }
 
     /**
@@ -86,7 +86,7 @@ public final class Teleport {
         }
         if (dimension == mc.theWorld.provider.dimensionId && y > 0 && isAllowed()) {
             teleport(x, y, z);
-        } else if (ChunkLoadView.isTeleportAllowed()) {
+        } else if (ChunkLoadView.isAllowed()) {
             ShareNetwork.sendToServer(new ShareNetwork.TeleportRequest(dimension, x, y, z));
         } else if (INSTANCE.cofh && isAllowed()) {
             int height = y > 0 ? y : 64;
