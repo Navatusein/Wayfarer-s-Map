@@ -38,6 +38,7 @@
 - [fix] Area selection when claiming chunks or loading regions: dragged left or up, it no longer slides after the cursor once at its limit
 - [fix] Area loading with caves (Ctrl+Shift+LMB) maps all 16 cave layers of the world's height, not only those up to the chunk's highest blocks
 - [new] Ctrl+F on the map puts the cursor into the search (when it shows), its text selected, to type at once
+- [new] Quick waypoint presets: the "Quick waypoint" entry of the right-click menu opens a list of presets (its look, name and group set once — e.g. for ores or miners); a click puts one down where you clicked, only the coordinates are new. The pencil edits a preset, "New preset" adds one; presets are the same in every world
 
 ## Mod layers
 - [change] "Add-on layers" are now called "Mod layers", and their options are gathered in a new Mod layers settings tab: the vein names, the minimap's mod layers (was "Own mod layers") and how tracked veins and nodes look

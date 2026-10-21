@@ -67,6 +67,7 @@ import WayFarMap.client.map.iso.IsoProjection;
 import WayFarMap.client.waypoint.TeamWaypoints;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.client.waypoint.WaypointPresets;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
 
@@ -185,6 +186,14 @@ public class GuiWorldMap extends ScaledScreen {
         boolean selected;
         /** Color of the icon (ARGB), 0 for the usual muted one. */
         int iconColor;
+        /** Entries opened to the side while this one is hovered (marked with an arrow), or null. */
+        List<MenuEntry> submenu;
+        /** Run by the pencil on the right of the entry, or null for none. */
+        Runnable edit;
+        /** Waypoint whose marker is drawn in place of the icon, or null. */
+        Waypoint preview;
+        /** A line above the entry, setting it apart from the ones before. */
+        boolean separated;
 
         MenuEntry(String label, boolean enabled, Runnable action) {
             this(label, enabled, action, null);
@@ -226,6 +235,26 @@ public class GuiWorldMap extends ScaledScreen {
 
         MenuEntry iconColor(int color) {
             this.iconColor = color;
+            return this;
+        }
+
+        MenuEntry submenu(List<MenuEntry> submenu) {
+            this.submenu = submenu;
+            return this;
+        }
+
+        MenuEntry edit(Runnable edit) {
+            this.edit = edit;
+            return this;
+        }
+
+        MenuEntry preview(Waypoint preview) {
+            this.preview = preview;
+            return this;
+        }
+
+        MenuEntry separated() {
+            this.separated = true;
             return this;
         }
     }
@@ -2280,7 +2309,8 @@ public class GuiWorldMap extends ScaledScreen {
                 true,
                 () -> WaypointManager.INSTANCE
                     .addWaypoint(new Waypoint(bx + ", " + markY + ", " + bz, bx, markY, bz, dimension)))
-                        .icon(Icons.SMALL_FLAG));
+                        .icon(Icons.SMALL_FLAG)
+                        .submenu(presetMenu(bx, markY, bz, dimension)));
         if (flat) {
             final int rx = bx >> MapRegion.SHIFT, rz = bz >> MapRegion.SHIFT;
             entries.add(
@@ -2418,6 +2448,27 @@ public class GuiWorldMap extends ScaledScreen {
         pasteWaypoint(bx, safeY > 0 ? safeY : seenY > 0 ? seenY : waypointY(bx, bz), bz);
     }
 
+    /**
+     * Presets of quick waypoints, opened beside the quick waypoint: each puts down its waypoint at the block (only the
+     * place is new), its pencil edits it; and a new one.
+     */
+    private List<MenuEntry> presetMenu(int x, int y, int z, int dimension) {
+        List<MenuEntry> entries = new ArrayList<>();
+        for (final Waypoint preset : WaypointPresets.INSTANCE.all()) {
+            String name = preset.name == null || preset.name.trim()
+                .isEmpty() ? Lang.format("wayfarmap.gui.preset_unnamed") : preset.name;
+            entries.add(
+                new MenuEntry(name, true, () -> WaypointPresets.place(preset, x, y, z, dimension)).preview(preset)
+                    .edit(() -> mc.displayGuiScreen(GuiEditWaypoint.editPreset(this, preset))));
+        }
+        MenuEntry create = new MenuEntry(
+            Lang.format("wayfarmap.gui.preset_new"),
+            true,
+            () -> mc.displayGuiScreen(GuiEditWaypoint.createPreset(this))).icon(Icons.SMALL_PLUS);
+        entries.add(entries.isEmpty() ? create : create.separated());
+        return entries;
+    }
+
     /** Opens a menu at the point, as wide as its longest entry. */
     private void showMenu(List<MenuEntry> entries, int kind, int x, int y) {
         int widest = menuWidthFor(entries, MENU_WIDTH);
@@ -2477,6 +2528,9 @@ public class GuiWorldMap extends ScaledScreen {
             if (entry.hint != null) {
                 w += fontRendererObj.getStringWidth(entry.hint) + 12;
             }
+            if (entry.submenu != null) {
+                w += 10;
+            }
             widest = Math.max(widest, w);
         }
         return widest;
@@ -2486,6 +2540,7 @@ public class GuiWorldMap extends ScaledScreen {
         int h = menu.size() * MENU_ROW + 4;
         if (menuLightFor != menu) {
             menuLightFor = menu;
+            submenuOf = -1;
             menuLight = new Smooth[menu.size()];
             for (int i = 0; i < menuLight.length; i++) {
                 menuLight[i] = new Smooth(0);
@@ -2539,14 +2594,147 @@ public class GuiWorldMap extends ScaledScreen {
                 int hintX = menuX + menuWidth - 6 - fontRendererObj.getStringWidth(entry.hint);
                 Theme.text(fontRendererObj, entry.hint, hintX, y + 3, Theme.TEXT_DISABLED);
             }
+            if (entry.submenu != null) {
+                drawArrow(menuX + menuWidth - 8, y + MENU_ROW / 2, hovered || submenuOf == i);
+            }
         }
         Theme.unclip();
+        if (open >= 1) {
+            updateSubmenu(mouseX, mouseY);
+            if (submenuOf >= 0) {
+                drawSubmenu(mouseX, mouseY);
+            }
+        }
         boolean teleportAllowed = MapManager.INSTANCE.isViewingOtherDimension() ? Teleport.isOtherDimensionAllowed()
             : Teleport.isAllowed();
         if (menuKind == MENU_MAP && !teleportAllowed && open >= 1) {
             String note = Lang.format("wayfarmap.gui.no_teleport_permission");
             Theme.text(fontRendererObj, note, menuX + 2, menuY + h + 3, Theme.TEXT_DISABLED);
         }
+    }
+
+    /** Entry of the open menu whose submenu is open, or -1; where that submenu is. */
+    private int submenuOf = -1;
+    private int submenuX, submenuY, submenuWidth;
+    /** Width of the pencil at the right of a submenu entry that can be edited. */
+    private static final int EDIT_WIDTH = 14;
+
+    /** Small arrow pointing right, centered on the height, its tip at the point. */
+    private static void drawArrow(int x, int cy, boolean lit) {
+        int color = lit ? Theme.ACCENT : Theme.TEXT_MUTED;
+        for (int i = 0; i < 4; i++) {
+            Theme.fill(x - 3 + i, cy - 3 + i, x - 2 + i, cy + 4 - i, color);
+        }
+    }
+
+    /**
+     * Opens the submenu of the entry under the mouse, or closes it when the mouse is on another entry; it stays open
+     * while the mouse goes over to it or leaves the menus. Placed to the right of the menu, or to the left without
+     * room.
+     */
+    private void updateSubmenu(int mouseX, int mouseY) {
+        if (submenuOf >= 0 && submenuOf < menu.size()
+            && Theme.inside(mouseX, mouseY, submenuX, submenuY, submenuX + submenuWidth, submenuY + submenuHeight())) {
+            return;
+        }
+        for (int i = 0; i < menu.size(); i++) {
+            int y = menuY + 2 + i * MENU_ROW;
+            if (Theme.inside(mouseX, mouseY, menuX, y, menuX + menuWidth, y + MENU_ROW)) {
+                MenuEntry entry = menu.get(i);
+                if (entry.submenu == null || !entry.enabled) {
+                    submenuOf = -1;
+                } else if (submenuOf != i) {
+                    submenuOf = i;
+                    List<MenuEntry> sub = entry.submenu;
+                    submenuWidth = Math.min(220, menuWidthFor(sub, 110) + 16 + EDIT_WIDTH);
+                    submenuX = menuX + menuWidth - 1;
+                    if (submenuX + submenuWidth > width - 2) {
+                        submenuX = Math.max(2, menuX - submenuWidth + 1);
+                    }
+                    submenuY = Math.max(2, Math.min(y - 2, height - sub.size() * MENU_ROW - 6));
+                }
+                return;
+            }
+        }
+        if (submenuOf >= menu.size()) {
+            submenuOf = -1;
+        }
+    }
+
+    private int submenuHeight() {
+        return submenuHeightOf(menu.get(submenuOf).submenu);
+    }
+
+    private void drawSubmenu(int mouseX, int mouseY) {
+        List<MenuEntry> sub = menu.get(submenuOf).submenu;
+        int x0 = submenuX, x1 = submenuX + submenuWidth;
+        Theme.panel(x0, submenuY, x1, submenuY + submenuHeight());
+        for (int i = 0; i < sub.size(); i++) {
+            MenuEntry entry = sub.get(i);
+            int y = submenuY + 2 + i * MENU_ROW;
+            boolean hovered = Theme.inside(mouseX, mouseY, x0, y, x1, y + MENU_ROW);
+            boolean onEdit = hovered && entry.edit != null && mouseX >= x1 - EDIT_WIDTH - 2;
+            if (entry.separated && i > 0) {
+                Theme.fill(x0 + 4, y, x1 - 4, y + 1, Theme.BORDER);
+            }
+            if (hovered) {
+                Theme.fill(x0 + 1, y, x1 - 1, y + MENU_ROW, Theme.CONTROL_HOVER);
+                Theme.fill(x0 + 1, y, x0 + 3, y + MENU_ROW, Theme.ACCENT);
+            }
+            int textX = x0 + 6;
+            if (entry.preview != null) {
+                WaypointRenderer.drawMapMarker(entry.preview, x0 + 10, y + MENU_ROW / 2, 8f, false);
+                textX = x0 + 19;
+            } else if (entry.icon != null) {
+                int color = hovered ? Theme.ACCENT : Theme.TEXT_MUTED;
+                int iconY = y + (MENU_ROW - entry.icon.length) / 2;
+                Icons.draw(entry.icon, x0 + 10 - Icons.width(entry.icon) / 2, iconY, color);
+                textX = x0 + 19;
+            }
+            int room = x1 - textX - 4 - (entry.edit != null ? EDIT_WIDTH : 0);
+            String label = entry.label;
+            if (fontRendererObj.getStringWidth(label) > room) {
+                label = fontRendererObj.trimStringToWidth(label, room - fontRendererObj.getStringWidth("...")) + "...";
+            }
+            Theme.text(fontRendererObj, label, textX, y + 3, Theme.TEXT);
+            if (entry.edit != null) {
+                if (onEdit) {
+                    Theme.fill(x1 - EDIT_WIDTH - 2, y + 1, x1 - 2, y + MENU_ROW - 1, Theme.CONTROL_HOVER);
+                }
+                String[] pencil = Icons.SMALL_PENCIL;
+                Icons.draw(
+                    pencil,
+                    x1 - 2 - (EDIT_WIDTH + Icons.width(pencil)) / 2,
+                    y + (MENU_ROW - pencil.length) / 2,
+                    onEdit ? Theme.ACCENT : Theme.TEXT_MUTED);
+            }
+        }
+    }
+
+    /** A click in the open submenu runs its entry, or the entry's pencil; @return true if it was in the submenu */
+    private boolean clickSubmenu(List<MenuEntry> entries, int mouseX, int mouseY) {
+        if (submenuOf < 0 || submenuOf >= entries.size() || entries.get(submenuOf).submenu == null) {
+            return false;
+        }
+        List<MenuEntry> sub = entries.get(submenuOf).submenu;
+        int x1 = submenuX + submenuWidth;
+        for (int i = 0; i < sub.size(); i++) {
+            int y = submenuY + 2 + i * MENU_ROW;
+            if (Theme.inside(mouseX, mouseY, submenuX, y, x1, y + MENU_ROW)) {
+                MenuEntry entry = sub.get(i);
+                if (entry.edit != null && mouseX >= x1 - EDIT_WIDTH - 2) {
+                    entry.edit.run();
+                } else if (entry.enabled) {
+                    entry.action.run();
+                }
+                return true;
+            }
+        }
+        return Theme.inside(mouseX, mouseY, submenuX, submenuY, x1, submenuY + submenuHeightOf(sub));
+    }
+
+    private static int submenuHeightOf(List<MenuEntry> sub) {
+        return sub.size() * MENU_ROW + 4;
     }
 
     /** Whether the menu is a list of choices (one of its entries is the current one), like the modes. */
@@ -2601,6 +2789,11 @@ public class GuiWorldMap extends ScaledScreen {
         menu = null;
         menuClosedKind = menuKind;
         menuClosedAt = System.currentTimeMillis();
+        boolean inSubmenu = clickSubmenu(entries, mouseX, mouseY);
+        submenuOf = -1;
+        if (inSubmenu) {
+            return true;
+        }
         for (int i = 0; i < entries.size(); i++) {
             int y = menuY + 2 + i * MENU_ROW;
             MenuEntry entry = entries.get(i);
