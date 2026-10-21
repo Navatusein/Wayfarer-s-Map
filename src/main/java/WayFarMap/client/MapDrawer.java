@@ -690,6 +690,13 @@ public final class MapDrawer {
                 continue;
             }
             if (entity.isInvisible() || entity.isDead
+                // Dying (its death animation), or a leftover whose chunk the client no longer has: the server never
+                // said it left (a lost packet), and it stayed drawn where it was.
+                || entity.getHealth() <= 0f
+                || !mc.theWorld.getChunkProvider()
+                    .chunkExists(
+                        MathHelper.floor_double(entity.posX) >> 4,
+                        MathHelper.floor_double(entity.posZ) >> 4)
                 || Math.abs(entity.posY - playerY) > Config.entityVerticalRange
                 || entityColor(entity) == 0
                 || heightAlpha(entity, playerY) <= 0f) {
