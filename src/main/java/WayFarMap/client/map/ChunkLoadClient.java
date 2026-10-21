@@ -13,6 +13,7 @@ import WayFarMap.Config;
 import WayFarMap.Perf;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.Teleport;
 import WayFarMap.client.map.iso.IsoLog;
 import WayFarMap.client.map.iso.IsoMap;
 import WayFarMap.share.ShareNetwork;
@@ -159,6 +160,7 @@ public final class ChunkLoadClient {
                 // Out of the world: the next server says again whether loading from the map is allowed.
                 wasInWorld = false;
                 ChunkLoadView.setAllowed(false);
+                Teleport.setServerAllowed(false);
             }
             // That word may come while joining, before the world is there: it is kept.
             inbox.removeIf(m -> !(m instanceof ShareNetwork.LoadAllowed) && !(m instanceof ShareNetwork.LoadEnded));
@@ -175,6 +177,7 @@ public final class ChunkLoadClient {
                 ChunkLoadView.saved((ShareNetwork.SavedChunks) message);
             } else if (message instanceof ShareNetwork.LoadAllowed) {
                 ChunkLoadView.setAllowed(((ShareNetwork.LoadAllowed) message).allowed);
+                Teleport.setServerAllowed(((ShareNetwork.LoadAllowed) message).teleport);
             } else if (message instanceof ShareNetwork.LoadEnded) {
                 ended(world, (ShareNetwork.LoadEnded) message, mc);
             }

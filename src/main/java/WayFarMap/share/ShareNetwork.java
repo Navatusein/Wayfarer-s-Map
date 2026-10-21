@@ -463,25 +463,34 @@ public final class ShareNetwork {
         }
     }
 
-    /** Whether the player may load chunks from the world map (an operator, like the commands). */
+    /**
+     * Whether the player may load chunks from the world map (an operator, like the commands), and whether they may
+     * use {@code /tp} (by a ServerUtilities rank as well as by being an operator): the client can't tell the second
+     * from tab completion, which ignores ranks.
+     */
     public static final class LoadAllowed implements IMessage {
 
         public boolean allowed;
+        /** May use /tp. Added later, at the end: an older server sends none (read as false). */
+        public boolean teleport;
 
         public LoadAllowed() {}
 
-        public LoadAllowed(boolean allowed) {
+        public LoadAllowed(boolean allowed, boolean teleport) {
             this.allowed = allowed;
+            this.teleport = teleport;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             allowed = buf.readBoolean();
+            teleport = buf.isReadable() && buf.readBoolean();
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeBoolean(allowed);
+            buf.writeBoolean(teleport);
         }
     }
 

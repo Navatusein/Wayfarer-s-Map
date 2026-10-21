@@ -592,6 +592,7 @@ public final class ChunkLoadServer {
             EntityPlayerMP player = (EntityPlayerMP) o;
             online.add(player.getUniqueID());
             boolean allowed = player.canCommandSenderUseCommand(2, "wf");
+            boolean teleport = canUseTeleport(player);
             Object[] told = toldAllowed.get(player.getUniqueID());
             if (told == null || told[0] != player) {
                 // Just joined: with nothing being loaded for it, its map forgets the chunks it still shows queued
@@ -601,13 +602,32 @@ public final class ChunkLoadServer {
                     ended(player, Integer.MAX_VALUE, false);
                 }
             }
-            if (told == null || told[0] != player || (Boolean) told[1] != allowed) {
-                toldAllowed.put(player.getUniqueID(), new Object[] { player, allowed });
-                ShareNetwork.sendTo(new ShareNetwork.LoadAllowed(allowed), player);
+            if (told == null || told[0] != player
+                || (Boolean) told[1] != allowed
+                || (Boolean) told[2] != teleport) {
+                toldAllowed.put(player.getUniqueID(), new Object[] { player, allowed, teleport });
+                ShareNetwork.sendTo(new ShareNetwork.LoadAllowed(allowed, teleport), player);
             }
         }
         toldAllowed.keySet()
             .retainAll(online);
+    }
+
+    /**
+     * Whether the player may run {@code /tp}: by being an operator or by a ServerUtilities rank. The list of the
+     * commands a player may use is the one ServerUtilities hooks into (as for {@code /help}), so it takes ranks into
+     * account; without ServerUtilities it is the vanilla check.
+     */
+    private static boolean canUseTeleport(EntityPlayerMP player) {
+        for (Object o : MinecraftServer.getServer()
+            .getCommandManager()
+            .getPossibleCommands(player)) {
+            if (o instanceof net.minecraft.command.ICommand && "tp".equals(
+                ((net.minecraft.command.ICommand) o).getCommandName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A player just joined: told on the next tick instead of within the next few seconds. */
