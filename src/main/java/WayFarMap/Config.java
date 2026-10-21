@@ -95,6 +95,8 @@ public class Config {
     public static boolean minimapCompass = true;
     /** Size of the compass letters, of the text under the minimap (1 = the game's font), and its room from the map. */
     public static double minimapCompassScale = 1.0, minimapTextScale = 1.0;
+    /** Names of other players and teammates under their heads on the minimap. */
+    public static boolean minimapPlayerNames = true;
     public static int minimapTextGap = 3;
     /** Frame around the minimap, and the color of its line (RGB). */
     public static boolean minimapFrame = true;
@@ -412,6 +414,13 @@ public class Config {
             true,
             () -> minimapShowBiome,
             v -> minimapShowBiome = v);
+        bool(
+            c,
+            "playerNames",
+            "Names of other players and teammates under their heads on the minimap.",
+            true,
+            () -> minimapPlayerNames,
+            v -> minimapPlayerNames = v);
         // Only while there is text under the minimap.
         when(() -> minimapShowCoordinates || minimapShowBiome);
         decimal(

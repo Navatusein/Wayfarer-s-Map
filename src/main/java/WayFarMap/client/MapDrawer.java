@@ -768,12 +768,7 @@ public final class MapDrawer {
             drawPlayerHead(mc, other, sx, sy, playerSize);
             GL11.glPopMatrix();
             if (showNames) {
-                String name = other.getCommandSenderName();
-                font.drawStringWithShadow(
-                    name,
-                    (int) sx - font.getStringWidth(name) / 2,
-                    (int) (sy + half) + 2,
-                    0xFFFFFF);
+                drawName(font, other.getCommandSenderName(), sx, sy, half, 0xFFFFFF);
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
@@ -1196,14 +1191,29 @@ public final class MapDrawer {
             drawHead(mc, skin, sx, sy, size, TEAMMATE_FRAME);
             GL11.glPopMatrix();
             if (showNames) {
-                font.drawStringWithShadow(
-                    mate.name,
-                    (int) sx - font.getStringWidth(mate.name) / 2,
-                    (int) (sy + half) + 2,
-                    0x9FD4FF);
+                drawName(font, mate.name, sx, sy, half, 0x9FD4FF);
             }
         }
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** How big a player's name is on the minimap, to the game's font: its heads are small. */
+    private static final float MINIMAP_NAME_SCALE = 0.5f;
+
+    /**
+     * A player's name under their head ({@code half} its half size): on the minimap smaller, and upright when the
+     * minimap turns.
+     */
+    private static void drawName(FontRenderer font, String name, double sx, double sy, float half, int color) {
+        if (!minimapPass) {
+            font.drawStringWithShadow(name, (int) sx - font.getStringWidth(name) / 2, (int) (sy + half) + 2, color);
+            return;
+        }
+        pushUpright(sx, sy);
+        GL11.glTranslated(sx, sy + half + 1.5, 0);
+        GL11.glScalef(MINIMAP_NAME_SCALE, MINIMAP_NAME_SCALE, 1f);
+        font.drawStringWithShadow(name, -font.getStringWidth(name) / 2, 0, color);
+        GL11.glPopMatrix();
     }
 
     private static void drawHead(Minecraft mc, ResourceLocation skin, double sx, double sy, float size, int frame) {
