@@ -55,10 +55,8 @@ final class WelcomeWindow {
     private static final int THEME_HEIGHT = 52, THEME_PICTURE_HEIGHT = 34, THEME_COLUMNS = 4;
     /** The map's button layouts, left to right: {setting value, picture}. Classic first, the default. */
     private static final Object[][] LAYOUTS = {
-        { Config.MAP_LAYOUT_CLASSIC,
-            new ResourceLocation("wayfarmap", "textures/gui/layout_classic.png"), "classic" },
-        { Config.MAP_LAYOUT_MODERN, new ResourceLocation("wayfarmap", "textures/gui/layout_modern.png"),
-            "modern" } };
+        { Config.MAP_LAYOUT_CLASSIC, new ResourceLocation("wayfarmap", "textures/gui/layout_classic.png"), "classic" },
+        { Config.MAP_LAYOUT_MODERN, new ResourceLocation("wayfarmap", "textures/gui/layout_modern.png"), "modern" } };
     /** A layout's picture with its frame (16:9 like the screenshots at the card's width), and the name under it. */
     private static final int LAYOUT_PICTURE_HEIGHT = 105, LAYOUT_NAME_HEIGHT = 16;
     /** How long a part takes to slide in, and how much later each part starts than the one before (ms). */

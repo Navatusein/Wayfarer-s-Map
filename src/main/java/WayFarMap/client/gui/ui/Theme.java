@@ -12,8 +12,7 @@ import WayFarMap.Config;
 public final class Theme {
 
     /** The themes, in the order of the setting ({@code wayfarmap.option.map.theme.<name>}). */
-    public static final int GRAPHITE = 0, FOREST = 1, NETHER = 2, OCEAN = 3, END = 4, DESERT = 5, SNOW = 6,
-        VANILLA = 7;
+    public static final int GRAPHITE = 0, FOREST = 1, NETHER = 2, OCEAN = 3, END = 4, DESERT = 5, SNOW = 6, VANILLA = 7;
     public static final String[] NAMES = { "graphite", "forest", "nether", "ocean", "end", "desert", "snow",
         "vanilla" };
 
@@ -54,8 +53,8 @@ public final class Theme {
     /** One theme's colors; those not given are worked out from the others. */
     public static final class Palette {
 
-        public final int screenDim, panel, panelAlt, border, control, controlHover, controlDisabled, accent,
-            accentDim, danger, success, text, textMuted, textDisabled, labelBg;
+        public final int screenDim, panel, panelAlt, border, control, controlHover, controlDisabled, accent, accentDim,
+            danger, success, text, textMuted, textDisabled, labelBg;
         public int header;
         int field, fieldText, buttonText, textBright, textSoft, accentSoft, deep, card, cardHover, cardHeader,
             cardSelected, cardSelectedHover, sidebar, chosen, dangerDim, dangerDimHover, dangerStrong,
@@ -125,36 +124,148 @@ public final class Theme {
     private static final Palette[] PALETTES = new Palette[NAMES.length];
 
     static {
-        PALETTES[GRAPHITE] = new Palette(false, 0xC0080A0D, 0xF0161A20, 0xF01C2129, 0xFF2A313B, 0xFF222831,
-            0xFF2C3440, 0xFF1A1E24, 0xFF4C9AFF, 0xFF2B5A96, 0xFFE5534B, 0xFF3FB950, 0xFFE6EAF0, 0xFF8A93A0,
-            0xFF555D68, 0xC0101418);
-        PALETTES[FOREST] = new Palette(false, 0xC0080D09, 0xF017231A, 0xF01D2C20, 0xFF36503A, 0xFF203124,
-            0xFF2A412F, 0xFF19241B, 0xFF8BCF5A, 0xFF3F6B2C, 0xFFE07050, 0xFF57C46A, 0xFFECF2E2, 0xFF9DB18F,
-            0xFF5A6C55, 0xC00F1A11).header(0xF03A2A1C)
+        PALETTES[GRAPHITE] = new Palette(
+            false,
+            0xC0080A0D,
+            0xF0161A20,
+            0xF01C2129,
+            0xFF2A313B,
+            0xFF222831,
+            0xFF2C3440,
+            0xFF1A1E24,
+            0xFF4C9AFF,
+            0xFF2B5A96,
+            0xFFE5534B,
+            0xFF3FB950,
+            0xFFE6EAF0,
+            0xFF8A93A0,
+            0xFF555D68,
+            0xC0101418);
+        PALETTES[FOREST] = new Palette(
+            false,
+            0xC0080D09,
+            0xF017231A,
+            0xF01D2C20,
+            0xFF36503A,
+            0xFF203124,
+            0xFF2A412F,
+            0xFF19241B,
+            0xFF8BCF5A,
+            0xFF3F6B2C,
+            0xFFE07050,
+            0xFF57C46A,
+            0xFFECF2E2,
+            0xFF9DB18F,
+            0xFF5A6C55,
+            0xC00F1A11).header(0xF03A2A1C)
                 .decor(3, false, 0xFF4F8A32, 0xFF6AA83D, 0xFF3D6D27, 0xFF5C9A38, 0xFF7BBF45, 0xFF447A2B);
-        PALETTES[NETHER] = new Palette(false, 0xC00D0505, 0xF01F1011, 0xF0281415, 0xFF5A2222, 0xFF2C1617,
-            0xFF3D1D1D, 0xFF221112, 0xFFFF8A2A, 0xFF8A3A12, 0xFFFF5252, 0xFF6CC24A, 0xFFF4E4D8, 0xFFB58C80,
-            0xFF6B4A44, 0xC0180A0A).header(0xF03A1416)
+        PALETTES[NETHER] = new Palette(
+            false,
+            0xC00D0505,
+            0xF01F1011,
+            0xF0281415,
+            0xFF5A2222,
+            0xFF2C1617,
+            0xFF3D1D1D,
+            0xFF221112,
+            0xFFFF8A2A,
+            0xFF8A3A12,
+            0xFFFF5252,
+            0xFF6CC24A,
+            0xFFF4E4D8,
+            0xFFB58C80,
+            0xFF6B4A44,
+            0xC0180A0A).header(0xF03A1416)
                 .decor(5, true, 0xFFFF9A2A, 0xFFFFCF4A, 0xFFE2561A, 0xFFFFB02E, 0xFFD84A12, 0xFFFF7A1A);
-        PALETTES[OCEAN] = new Palette(false, 0xC0040C10, 0xF00E1D23, 0xF0122830, 0xFF24505C, 0xFF15303A,
-            0xFF1C3D48, 0xFF10232A, 0xFF55D6C8, 0xFF1F6F6A, 0xFFFF7A6B, 0xFF4FD18B, 0xFFE2F5F3, 0xFF84AEB0,
-            0xFF466467, 0xC00A161B).header(0xF0123039)
+        PALETTES[OCEAN] = new Palette(
+            false,
+            0xC0040C10,
+            0xF00E1D23,
+            0xF0122830,
+            0xFF24505C,
+            0xFF15303A,
+            0xFF1C3D48,
+            0xFF10232A,
+            0xFF55D6C8,
+            0xFF1F6F6A,
+            0xFFFF7A6B,
+            0xFF4FD18B,
+            0xFFE2F5F3,
+            0xFF84AEB0,
+            0xFF466467,
+            0xC00A161B).header(0xF0123039)
                 .decor(4, false, 0xFF2F8F86, 0xFF5FC9B5, 0xFF24706D, 0xFF3FA79A);
-        PALETTES[END] = new Palette(false, 0xC006040C, 0xF015121E, 0xF01B1727, 0xFF3D3159, 0xFF1E1A2B,
-            0xFF2A2340, 0xFF17141F, 0xFFE4DD9A, 0xFF5B4A86, 0xFFFF6F91, 0xFF6FD39A, 0xFFEEE8F6, 0xFFA297B8,
-            0xFF5A5170, 0xC0100D18).header(0xF0221C33)
+        PALETTES[END] = new Palette(
+            false,
+            0xC006040C,
+            0xF015121E,
+            0xF01B1727,
+            0xFF3D3159,
+            0xFF1E1A2B,
+            0xFF2A2340,
+            0xFF17141F,
+            0xFFE4DD9A,
+            0xFF5B4A86,
+            0xFFFF6F91,
+            0xFF6FD39A,
+            0xFFEEE8F6,
+            0xFFA297B8,
+            0xFF5A5170,
+            0xC0100D18).header(0xF0221C33)
                 .decor(4, false, 0xFF2A1F44, 0xFF8F6FD6, 0xFFE4DD9A, 0xFF8F6FD6);
-        PALETTES[DESERT] = new Palette(false, 0xC0100B05, 0xF02A2217, 0xF0322819, 0xFF5C4A2C, 0xFF342A1C,
-            0xFF443622, 0xFF261F15, 0xFFE9B95C, 0xFF8A6526, 0xFFE06646, 0xFF8BC34A, 0xFFF4E9D2, 0xFFB6A07C,
-            0xFF6E5F47, 0xC01E170E).header(0xF03C2F1C)
+        PALETTES[DESERT] = new Palette(
+            false,
+            0xC0100B05,
+            0xF02A2217,
+            0xF0322819,
+            0xFF5C4A2C,
+            0xFF342A1C,
+            0xFF443622,
+            0xFF261F15,
+            0xFFE9B95C,
+            0xFF8A6526,
+            0xFFE06646,
+            0xFF8BC34A,
+            0xFFF4E9D2,
+            0xFFB6A07C,
+            0xFF6E5F47,
+            0xC01E170E).header(0xF03C2F1C)
                 .decor(6, false, 0xFFD8B46A, 0xFFC49A52, 0xFFE4C47C, 0xFFB08646);
-        PALETTES[SNOW] = new Palette(true, 0xA0C8D2DC, 0xF0EEF2F6, 0xF0E3E9F0, 0xFFB9C6D4, 0xFFE0E7EF,
-            0xFFD2DDE9, 0xFFE8ECF0, 0xFF2F7BD8, 0xFF9CC2F0, 0xFFC8372F, 0xFF2E9E48, 0xFF1C2430, 0xFF5B6A7C,
-            0xFF9AA6B4, 0xE0F2F5F8).header(0xF0DBE4EE)
+        PALETTES[SNOW] = new Palette(
+            true,
+            0xA0C8D2DC,
+            0xF0EEF2F6,
+            0xF0E3E9F0,
+            0xFFB9C6D4,
+            0xFFE0E7EF,
+            0xFFD2DDE9,
+            0xFFE8ECF0,
+            0xFF2F7BD8,
+            0xFF9CC2F0,
+            0xFFC8372F,
+            0xFF2E9E48,
+            0xFF1C2430,
+            0xFF5B6A7C,
+            0xFF9AA6B4,
+            0xE0F2F5F8).header(0xF0DBE4EE)
                 .decor(4, false, 0xFFFFFFFF, 0xFFDCE6F2);
-        Palette vanilla = new Palette(true, 0xC0101010, 0xFFC6C6C6, 0xFFC6C6C6, 0xFF555555, 0xFF8B8B8B,
-            0xFF7E88BF, 0xFF6E6E6E, 0xFF4A55B0, 0xFF7E88BF, 0xFFAA0000, 0xFF00AA00, 0xFF3F3F3F, 0xFF5A5A5A,
-            0xFF8A8A8A, 0xE0C6C6C6);
+        Palette vanilla = new Palette(
+            true,
+            0xC0101010,
+            0xFFC6C6C6,
+            0xFFC6C6C6,
+            0xFF555555,
+            0xFF8B8B8B,
+            0xFF7E88BF,
+            0xFF6E6E6E,
+            0xFF4A55B0,
+            0xFF7E88BF,
+            0xFFAA0000,
+            0xFF00AA00,
+            0xFF3F3F3F,
+            0xFF5A5A5A,
+            0xFF8A8A8A,
+            0xE0C6C6C6);
         vanilla.bevel = true;
         vanilla.field = 0xFF000000;
         vanilla.fieldText = 0xFFE0E0E0;

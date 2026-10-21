@@ -506,8 +506,7 @@ public class MinimapRenderer {
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
             PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, playerX, playerZ);
-            MapDrawer
-                .drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, Config.minimapPlayerNames);
+            MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, Config.minimapPlayerNames);
             MapDrawer.drawTeammates(
                 mc,
                 mc.theWorld.provider.dimensionId,
