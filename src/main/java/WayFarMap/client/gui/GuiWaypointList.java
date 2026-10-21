@@ -66,8 +66,6 @@ public class GuiWaypointList extends ScaledScreen {
     private static final int WHEEL_STEP = CARD_HEIGHT + GAP;
     private static final String UNGROUPED_KEY = "\u0000ungrouped";
 
-    private static final int CARD = 0xFF1B2028, CARD_HOVER = 0xFF232A34, CARD_SELECTED = 0xFF1E2C40;
-    private static final int TILE = 0xFF0F1216, SECTION = 0xFF161B22, SIDEBAR = 0xFF12161B;
 
     /** Colors of the groups, picked by their names, so a group keeps its color. */
     private static final int[] GROUP_COLORS = { 0xFF4C9AFF, 0xFF3FB950, 0xFFF2C14E, 0xFFE5534B, 0xFFB37FEB, 0xFF39C5CF,
@@ -1089,7 +1087,7 @@ public class GuiWaypointList extends ScaledScreen {
 
     /** The groups' pane: a title, a line per group with its count, and the mark of the one picked. */
     private void drawSidebar(int mouseX, int mouseY, String dropTarget) {
-        Theme.fill(sideLeft, sideTop - 14, sideRight, sideBottom, SIDEBAR);
+        Theme.fill(sideLeft, sideTop - 14, sideRight, sideBottom, Theme.SIDEBAR);
         Theme.outline(sideLeft - 1, sideTop - 15, sideRight + 1, sideBottom + 1, Theme.BORDER);
         String title = Lang.format("wayfarmap.gui.groups")
             .toUpperCase(Locale.ROOT);
@@ -1148,7 +1146,7 @@ public class GuiWaypointList extends ScaledScreen {
             && Theme.inside(mouseX, mouseY, sideLeft, Math.max(y, sideTop), sideRight, y + ENTRY_HEIGHT);
         boolean dropping = draggingWaypoint && entry.key != null && entry.key.equals(dropTarget);
         double lit = light(entry.key == null ? "\u0000all" : entry.key, hovered || dropping, 20);
-        int background = picked ? CARD_SELECTED : Theme.blend(SIDEBAR, CARD_HOVER, lit);
+        int background = picked ? Theme.CARD_SELECTED : Theme.blend(Theme.SIDEBAR, Theme.CARD_HOVER, lit);
         Theme.fill(sideLeft + 1, y + 1, sideRight - 1, y + ENTRY_HEIGHT - 1, background);
         if (dropping) {
             Theme.outline(sideLeft + 1, y + 1, sideRight - 1, y + ENTRY_HEIGHT - 1, Theme.ACCENT);
@@ -1163,7 +1161,7 @@ public class GuiWaypointList extends ScaledScreen {
             Icons.draw(Icons.SMALL_FLAG, x, cy - 3, picked ? Theme.ACCENT : Theme.TEXT_MUTED);
         } else {
             // The group's color, as a little gem.
-            int dot = visible ? color : Theme.blend(color, SIDEBAR, 0.6);
+            int dot = visible ? color : Theme.blend(color, Theme.SIDEBAR, 0.6);
             Theme.fill(x + 1, cy - 3, x + 6, cy + 3, dot);
             Theme.fill(x, cy - 2, x + 7, cy + 2, dot);
             Theme.fill(x + 2, cy - 2, x + 4, cy - 1, Theme.blend(dot, 0xFFFFFFFF, 0.5));
@@ -1187,7 +1185,8 @@ public class GuiWaypointList extends ScaledScreen {
             }
         }
         String name = Theme.ellipsize(fontRendererObj, groupTitle(entry.key), right - 3 - x);
-        int textColor = !visible ? Theme.TEXT_DISABLED : picked ? Theme.TEXT : Theme.blend(0xFFC0C7D0, Theme.TEXT, lit);
+        int textColor = !visible ? Theme.TEXT_DISABLED
+            : picked ? Theme.TEXT : Theme.blend(Theme.TEXT_SOFT, Theme.TEXT, lit);
         if (picked) {
             fontRendererObj.drawStringWithShadow(name, x, cy - 4, textColor);
         } else {
@@ -1275,7 +1274,7 @@ public class GuiWaypointList extends ScaledScreen {
 
     /** The waypoints' list: a section title per group and a card per waypoint, or a word when there are none. */
     private void drawList(int mouseX, int mouseY, String dropTarget) {
-        Theme.fill(listLeft - 1, listTop - 1, listRight + 1, listBottom + 1, 0xFF0D1014);
+        Theme.fill(listLeft - 1, listTop - 1, listRight + 1, listBottom + 1, Theme.DEEP);
         Theme.outline(listLeft - 2, listTop - 2, listRight + 2, listBottom + 2, Theme.BORDER);
         double shown = shownScroll.update(scroll, 16);
         boolean mouseInList = Theme.inside(mouseX, mouseY, listLeft, listTop, listRight, listBottom);
@@ -1359,12 +1358,13 @@ public class GuiWaypointList extends ScaledScreen {
         boolean visible = isGroupVisible(key);
         int color = groupColor(key);
         double lit = light("\u0000section:" + key, hovered, 20);
-        Theme.fill(x0, y, x1, y + HEADER_HEIGHT, Theme.blend(SECTION, CARD, lit));
+        Theme.fill(x0, y, x1, y + HEADER_HEIGHT, Theme.blend(Theme.SECTION, Theme.CARD, lit));
         // The group's color fades out along the bottom line.
         int lineWidth = x1 - x0;
         for (int i = 0; i < 4; i++) {
             int from = x0 + lineWidth * i / 4, to = x0 + lineWidth * (i + 1) / 4;
-            Theme.fill(from, y + HEADER_HEIGHT - 1, to, y + HEADER_HEIGHT, Theme.blend(color, SECTION, i / 4.0 + 0.1));
+            int shade = Theme.blend(color, Theme.SECTION, i / 4.0 + 0.1);
+            Theme.fill(from, y + HEADER_HEIGHT - 1, to, y + HEADER_HEIGHT, shade);
         }
         if (dropping) {
             Theme.outline(x0, y, x1, y + HEADER_HEIGHT, Theme.ACCENT);
@@ -1380,7 +1380,7 @@ public class GuiWaypointList extends ScaledScreen {
             Icons.draw(arrow, x + (5 - Icons.width(arrow)) / 2, cy - arrow.length / 2, arrowColor);
             x += 10;
         }
-        Theme.disc(x + 3, cy, 3, visible ? color : Theme.blend(color, SECTION, 0.6));
+        Theme.disc(x + 3, cy, 3, visible ? color : Theme.blend(color, Theme.SECTION, 0.6));
         x += 11;
         String title = groupTitle(key);
         fontRendererObj.drawStringWithShadow(title, x, cy - 4, visible ? Theme.TEXT : Theme.TEXT_DISABLED);
@@ -1410,8 +1410,8 @@ public class GuiWaypointList extends ScaledScreen {
             buttonsRight = bx0 - 3;
             boolean over = Theme.inside(mouseX, mouseY, bx0, by, bx1, by + 12);
             int fill = pending ? Theme.DANGER : over ? Theme.CONTROL_HOVER : Theme.CONTROL;
-            Theme.fill(bx0, by, bx1, by + 12, Theme.blend(SECTION, fill, lit));
-            int labelColor = Theme.blend(SECTION, pending ? Theme.TEXT : Theme.DANGER, lit);
+            Theme.fill(bx0, by, bx1, by + 12, Theme.blend(Theme.SECTION, fill, lit));
+            int labelColor = Theme.blend(Theme.SECTION, pending ? Theme.TEXT : Theme.DANGER, lit);
             Theme.text(fontRendererObj, label, bx0 + 5, by + 2, labelColor);
             hit(
                 bx0,
@@ -1422,7 +1422,8 @@ public class GuiWaypointList extends ScaledScreen {
                 Lang.format("wayfarmap.gui.clear_group_hint"));
         }
         if (!dropping && lit > 0.05 && row.group != null && TeamWaypoints.INSTANCE.isAvailable()) {
-            drawSharing(row.group, buttonsRight, y + 3, mouseX, mouseY, lit, Theme.blend(SECTION, CARD, lit));
+            int behind = Theme.blend(Theme.SECTION, Theme.CARD, lit);
+            drawSharing(row.group, buttonsRight, y + 3, mouseX, mouseY, lit, behind);
         }
     }
 
@@ -1487,14 +1488,14 @@ public class GuiWaypointList extends ScaledScreen {
         boolean dragged = draggingWaypoint && waypoint == pressedWaypoint;
         double lit = light(waypoint, hovered || isSelected, 18);
         int y1 = y + CARD_HEIGHT;
-        int background = isSelected ? Theme.blend(CARD_SELECTED, 0xFF24364F, hovered ? 1 : 0)
-            : Theme.blend(CARD, CARD_HOVER, lit);
+        int background = isSelected ? Theme.blend(Theme.CARD_SELECTED, Theme.CARD_SELECTED_HOVER, hovered ? 1 : 0)
+            : Theme.blend(Theme.CARD, Theme.CARD_HOVER, lit);
         Theme.fill(x0, y, x1, y1, background);
         Theme.fill(x0, y1, x1, y1 + 1, 0x60000000);
         if (isSelected) {
             Theme.outline(x0, y, x1, y1, Theme.ACCENT_DIM);
         } else if (dropping) {
-            Theme.outline(x0, y, x1, y1, 0x804C9AFF);
+            Theme.outline(x0, y, x1, y1, Theme.alpha(Theme.ACCENT, 0x80));
         }
         int color = waypointColor(waypoint);
         boolean shown = manager.isVisible(waypoint);
@@ -1515,7 +1516,7 @@ public class GuiWaypointList extends ScaledScreen {
 
         // Its icon, on a tile.
         int tx = x0 + 22, ty = y + 4;
-        Theme.fill(tx, ty, tx + 20, ty + 20, TILE);
+        Theme.fill(tx, ty, tx + 20, ty + 20, Theme.FIELD);
         Theme.outline(tx, ty, tx + 20, ty + 20, Theme.blend(Theme.BORDER, color, 0.35 + 0.4 * lit));
         WaypointRenderer.drawMapMarker(waypoint, tx + 10, ty + 10, 12f, false);
         GL11.glDisable(GL11.GL_LIGHTING);
@@ -1552,7 +1553,7 @@ public class GuiWaypointList extends ScaledScreen {
         }
         if (dragged) {
             // It is in the hand: only its ghost stays here.
-            Theme.fill(x0, y, x1, y1, 0xA00D1014);
+            Theme.fill(x0, y, x1, y1, Theme.alpha(Theme.DEEP, 0xA0));
             Theme.outline(x0, y, x1, y1, Theme.ACCENT_DIM);
         }
     }
@@ -1835,7 +1836,7 @@ public class GuiWaypointList extends ScaledScreen {
             y = mouseY + 14;
         }
         Theme.fill(x + 1, y + 1, x + w + 1, y + 13, 0x60000000);
-        Theme.fill(x, y, x + w, y + 12, 0xF0101418);
+        Theme.fill(x, y, x + w, y + 12, Theme.alpha(Theme.DEEP, 0xF0));
         Theme.outline(x, y, x + w, y + 12, Theme.BORDER);
         Theme.text(fontRendererObj, text, x + 4, y + 2, Theme.TEXT);
     }
@@ -1857,7 +1858,7 @@ public class GuiWaypointList extends ScaledScreen {
             int dimension = choices.get(index);
             int y = y0 + line * CHOICE_ROW;
             if (dimension == current) {
-                Theme.fill(x0, y, x1, y + CHOICE_ROW, 0x334C9AFF);
+                Theme.fill(x0, y, x1, y + CHOICE_ROW, Theme.alpha(Theme.ACCENT, 0x33));
                 Theme.fill(x0, y, x0 + 2, y + CHOICE_ROW, Theme.ACCENT);
             } else if (index == hovered) {
                 Theme.fill(x0, y, x1, y + CHOICE_ROW, Theme.ROW_HOVER);

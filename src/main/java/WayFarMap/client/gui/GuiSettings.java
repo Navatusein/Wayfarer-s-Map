@@ -44,7 +44,6 @@ public class GuiSettings extends ScaledScreen {
     /** Room between two sections' cards, and under a card's last option. */
     private static final int SECTION_GAP = 6, CARD_PADDING = 3;
     /** A section's card, its title's band and the room left of the scrollbar. */
-    private static final int CARD = 0xFF1A1F27, CARD_HEADER = 0xFF1F252E;
     /** How far options that depend on a switch are moved in under it. */
     private static final int INDENT = 10;
     /** A list's values side by side as buttons: at most so many, and their row at most so wide. */
@@ -1135,7 +1134,7 @@ public class GuiSettings extends ScaledScreen {
             }
             int y = listTop + row.y - drawnScroll() + slide, end = listTop + row.end - drawnScroll() + slide;
             if (end > listTop && y < contentBottom) {
-                Theme.fill(contentLeft - 4, y, cardRight(), end, CARD);
+                Theme.fill(contentLeft - 4, y, cardRight(), end, Theme.CARD);
                 Theme.outline(contentLeft - 4, y, cardRight(), end, Theme.BORDER);
             }
         }
@@ -1194,7 +1193,7 @@ public class GuiSettings extends ScaledScreen {
             if (locked) {
                 // Waiting for the switch it depends on: the control is dimmed and can't be used.
                 int lockedLeft = controlX() - controlLeftWidth(option);
-                int dim = 0xB0000000 | CARD & 0xFFFFFF;
+                int dim = 0xB0000000 | Theme.CARD & 0xFFFFFF;
                 Theme.fill(lockedLeft, y + 3, controlX() + CONTROL_WIDTH, y + ROW_HEIGHT - 3, dim);
             }
             if (changed) {
@@ -1260,7 +1259,8 @@ public class GuiSettings extends ScaledScreen {
      */
     private void drawSectionTitle(Row row, int y, int mouseX, boolean hovered, boolean pinned) {
         int x0 = contentLeft - 4, x1 = cardRight(), bottom = y + HEADER_HEIGHT;
-        Theme.fill(x0, y, x1, bottom, hovered ? Theme.blend(CARD_HEADER, 0xFFFFFFFF, 0.05) : CARD_HEADER);
+        int band = hovered ? Theme.blend(Theme.CARD_HEADER, Theme.TEXT_BRIGHT, 0.05) : Theme.CARD_HEADER;
+        Theme.fill(x0, y, x1, bottom, band);
         Theme.outline(x0, y, x1, bottom, Theme.BORDER);
         if (pinned) {
             // A soft shadow under it, over the options scrolled under it.
@@ -1297,7 +1297,7 @@ public class GuiSettings extends ScaledScreen {
         String hidden = row.hidden > 0 ? " (" + row.hidden + ")" : "";
         int hiddenWidth = fontRendererObj.getStringWidth(hidden);
         String title = Theme.ellipsize(fontRendererObj, row.title, titleRight - x - hiddenWidth);
-        Theme.text(fontRendererObj, title, x, y + 5, hovered ? 0xFFFFFFFF : Theme.TEXT);
+        Theme.text(fontRendererObj, title, x, y + 5, hovered ? Theme.TEXT_BRIGHT : Theme.TEXT);
         if (!hidden.isEmpty()) {
             Theme.text(fontRendererObj, hidden, x + fontRendererObj.getStringWidth(title), y + 5, Theme.TEXT_MUTED);
         }
@@ -1310,6 +1310,8 @@ public class GuiSettings extends ScaledScreen {
                 return Icons.SMALL_GEAR;
             case "language":
                 return Icons.SMALL_GLOBE;
+            case "theme":
+                return Icons.SMALL_PALETTE;
             case "mapView":
                 return Icons.SMALL_ZOOM;
             case "compass":
@@ -1415,7 +1417,7 @@ public class GuiSettings extends ScaledScreen {
         PlayerTrail.drawPreview(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
         Theme.text(fontRendererObj, Lang.format("wayfarmap.settings.marker_preview"), x0 + 5, y0 + 4, Theme.ACCENT);
         if (!Config.playerTrail) {
-            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC0101418);
+            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, Theme.alpha(Theme.DEEP, 0xC0));
             Theme.centered(
                 fontRendererObj,
                 Lang.format("wayfarmap.settings.trail_off"),
@@ -1477,7 +1479,7 @@ public class GuiSettings extends ScaledScreen {
         boolean closed = minimapPreviewClosed;
         int x0 = contentLeft, x1 = right - 10;
         int y1 = y0 + (closed ? PREVIEW_TITLE_HEIGHT : PREVIEW_HEIGHT - 6);
-        Theme.fill(x0, y0, x1, y1, 0xFF0F1216);
+        Theme.fill(x0, y0, x1, y1, Theme.FIELD);
         Theme.outline(x0, y0, x1, y1, Theme.BORDER);
         String[] arrow = closed ? Icons.SECTION_CLOSED : Icons.SECTION_OPEN;
         boolean hovered = overMinimapPreviewTitle(mouseX, mouseY);
@@ -1511,7 +1513,7 @@ public class GuiSettings extends ScaledScreen {
         }
 
         if (!Config.minimapEnabled) {
-            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0xC00F1216);
+            Theme.fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, Theme.alpha(Theme.FIELD, 0xC0));
             Theme.centered(
                 fontRendererObj,
                 Lang.format("wayfarmap.settings.minimap_off"),
@@ -1791,7 +1793,7 @@ public class GuiSettings extends ScaledScreen {
             needed += 3 + notes.size() * 10;
         }
         int boxTop = Math.max(top + 26, boxBottom - Math.max(DESCRIPTION_HEIGHT, needed));
-        Theme.fill(boxLeft, boxTop, boxRight, boxBottom, 0xFF12161B);
+        Theme.fill(boxLeft, boxTop, boxRight, boxBottom, Theme.SIDEBAR);
         Theme.outline(boxLeft, boxTop, boxRight, boxBottom, lit ? Theme.ACCENT_DIM : Theme.BORDER);
         int x = boxLeft + 6, y = boxTop + 5;
         if (title != null) {
@@ -2099,7 +2101,7 @@ public class GuiSettings extends ScaledScreen {
             // The value can be clicked to type it in: lit under the mouse.
             boolean valueHovered = isTypable(option) && Theme.inside(mouseX, mouseY, boxX, y + 1, x - 4, y + h - 1);
             active |= valueHovered;
-            Theme.fill(boxX, y + 1, x - 4, y + h - 1, 0xFF0F1216);
+            Theme.fill(boxX, y + 1, x - 4, y + h - 1, Theme.FIELD);
             int boxBorder = valueHovered ? Theme.ACCENT : active ? Theme.ACCENT_DIM : Theme.BORDER;
             Theme.outline(boxX, y + 1, x - 4, y + h - 1, boxBorder);
             int valueColor = active ? Theme.TEXT : Theme.TEXT_MUTED;

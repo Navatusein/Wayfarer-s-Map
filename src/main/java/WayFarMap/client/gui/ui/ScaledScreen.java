@@ -143,6 +143,7 @@ public abstract class ScaledScreen extends GuiScreen {
 
     @Override
     public final void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        Theme.sync();
         int expectedWidth = (mc.displayWidth + appliedFactor - 1) / Math.max(1, appliedFactor);
         if (factor(mc) != appliedFactor || width != expectedWidth || Config.modLanguage != appliedLanguage) {
             // The scale option changed, the window or the mod's language: lay the screen out again.

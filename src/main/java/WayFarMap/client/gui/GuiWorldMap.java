@@ -1886,7 +1886,8 @@ public class GuiWorldMap extends ScaledScreen {
         boolean hovered = onRecordSwitch(mouseX, mouseY);
         boolean on = Config.record3d;
         Theme.fill(x - 1, top - 1, x + QUALITY_WIDTH + 1, top + QUALITY_ROW, on ? Theme.DANGER : Theme.BORDER);
-        int color = on ? hovered ? 0xFFB5383A : 0xFF8E2A2C : hovered ? Theme.CONTROL_HOVER : Theme.PANEL;
+        int color = on ? hovered ? Theme.DANGER_STRONG_HOVER : Theme.DANGER_STRONG
+            : hovered ? Theme.CONTROL_HOVER : Theme.PANEL;
         Theme.fill(x, top, x + QUALITY_WIDTH, top + QUALITY_ROW - 1, color);
         Theme.centered(fontRendererObj, "REC", x + QUALITY_WIDTH / 2, top + 3, on ? Theme.TEXT : Theme.TEXT_MUTED);
         if (hovered && menu == null) {
@@ -3445,7 +3446,7 @@ public class GuiWorldMap extends ScaledScreen {
                 Theme.fill(sx + 6, y0 + 4, sx + 12, y0 + 10, i == LOAD_ALL ? ChunkLoadView.LEGEND_SAVED : Theme.DANGER);
             }
             int color = disabled ? Theme.TEXT_DISABLED
-                : i == LOAD_WIPE ? (over ? Theme.DANGER : 0xFFB0605A)
+                : i == LOAD_WIPE ? (over ? Theme.DANGER : Theme.blend(Theme.DANGER, Theme.TEXT_MUTED, 0.35))
                     : on ? LOAD_3D_COLOR : over ? Theme.TEXT : Theme.TEXT_MUTED;
             Theme.text(fontRendererObj, labels[i], sx + 17, y0 + 3, color);
         }

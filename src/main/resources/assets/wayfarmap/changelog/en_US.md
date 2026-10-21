@@ -18,6 +18,7 @@
 
 # 0.0.17
 
+- [new] Themes for all of the mod's screens: Graphite (as before, the default), Forest, Nether, Ocean, End, Desert, Snow (light) and Vanilla (like Minecraft's own windows, with raised buttons). Most have a strip of their own under the window headers: leaves, flowing lava, prismarine, sandstone. Settings → World map → Theme, and a page with a picture of each in the welcome window, after the language
 - [change] The VisualProspecting ore layer is no longer rebuilt every second with nothing new, and draws only the veins near what is shown
 
 ## World map

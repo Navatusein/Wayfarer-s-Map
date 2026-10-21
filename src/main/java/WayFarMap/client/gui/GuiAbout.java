@@ -54,7 +54,7 @@ public class GuiAbout extends ScaledScreen {
     static final int[] AVATAR_COLORS = { 0xFF3FB950, 0xFFDB61A2, 0xFFE3B341, 0xFFA371F7 };
 
     /** The mod's and the author's pages: {name, url, icon, color}. */
-    private static final Object[][] LINKS = { { "GitHub", MOD_GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
+    private static final Object[][] LINKS = { { "GitHub", MOD_GITHUB_URL, Icons.GITHUB, 0 },
         { "Boosty", BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C }, { "Telegram", TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
     /** A white circle with smooth edges, tinted for the avatars' rings and the glows. */
@@ -435,7 +435,8 @@ public class GuiAbout extends ScaledScreen {
 
     /** One of the author's pages: its logo in the site's color and its name, lit in that color under the mouse. */
     private void drawLink(int i, int[] r, double lit) {
-        int brand = (Integer) LINKS[i][3];
+        // GitHub has no color of its own: it takes the text's.
+        int brand = (Integer) LINKS[i][3] != 0 ? (Integer) LINKS[i][3] : Theme.TEXT;
         Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
         Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, brand, lit));
         // The site's color as a strip along the bottom, growing from the middle under the mouse.

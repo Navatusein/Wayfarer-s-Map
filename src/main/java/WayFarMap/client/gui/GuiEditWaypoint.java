@@ -565,7 +565,7 @@ public class GuiEditWaypoint extends ScaledScreen {
         }
 
         // Preview of the marker next to the icon button.
-        Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, 0xFF0F1216);
+        Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, Theme.FIELD);
         Theme.outline(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, Theme.BORDER);
         WaypointRenderer.drawMapMarker(edited, left + PREVIEW / 2.0, top + 131 + PREVIEW / 2.0, 12f, false);
     }

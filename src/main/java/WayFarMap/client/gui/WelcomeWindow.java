@@ -50,7 +50,9 @@ final class WelcomeWindow {
     private static final int CARD_HEIGHT = 30, CARD_GAP = 6, FEATURE_COLUMNS = 2;
     private static final int STEP_HEIGHT = 24, CHIP_HEIGHT = 22, LINK_HEIGHT = 22, BUTTON_HEIGHT = 20;
     private static final int LANGUAGE_HEIGHT = 32, LANGUAGE_COLUMNS = 2;
-    private static final int PAGES = 5, LAYOUT_PAGE = 3, LANGUAGE_PAGE = PAGES - 1;
+    private static final int PAGES = 6, LAYOUT_PAGE = 3, LANGUAGE_PAGE = 4, THEME_PAGE = PAGES - 1;
+    /** A theme's card on the last page: its picture and its name under it; four of them in a row. */
+    private static final int THEME_HEIGHT = 52, THEME_PICTURE_HEIGHT = 34, THEME_COLUMNS = 4;
     /** The map's button layouts, left to right: {setting value, picture}. Classic first, the default. */
     private static final Object[][] LAYOUTS = {
         { Config.MAP_LAYOUT_CLASSIC,
@@ -71,7 +73,7 @@ final class WelcomeWindow {
         { Icons.WAYPOINTS, "waypoints", 0xFFE5534B }, { Icons.CAVES, "caves", 0xFFA371F7 },
         { Icons.TOPO, "topo", 0xFF3FB950 }, { Icons.ORE, "mods", 0xFFE3B341 }, { Icons.TEAM, "team", 0xFFDB61A2 } };
     /** The author's pages: {name, url, icon, color}. */
-    private static final Object[][] LINKS = { { "GitHub", GuiAbout.GITHUB_URL, Icons.GITHUB, 0xFFE6EAF0 },
+    private static final Object[][] LINKS = { { "GitHub", GuiAbout.GITHUB_URL, Icons.GITHUB, 0 },
         { "Boosty", GuiAbout.BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C },
         { "Telegram", GuiAbout.TELEGRAM_URL, Icons.TELEGRAM, 0xFF2AABEE } };
 
@@ -101,7 +103,8 @@ final class WelcomeWindow {
         versionRect = new int[4];
     private final int[][] makerRects = new int[GuiAbout.MAKERS.length][4];
     private final int[][] linkRects = new int[LINKS.length][4], dotRects = new int[PAGES][4],
-        languageRects = new int[Lang.CODES.length][4], layoutRects = new int[LAYOUTS.length][4];
+        languageRects = new int[Lang.CODES.length][4], layoutRects = new int[LAYOUTS.length][4],
+        themeRects = new int[Theme.NAMES.length][4];
     /** How lit each thing is by the mouse, and how wide each page's dot is (the shown one is a long pill). */
     private final Smooth nextLight = new Smooth(0), backLight = new Smooth(0), helpLight = new Smooth(0),
         closeLight = new Smooth(0), backShown = new Smooth(0), versionLight = new Smooth(0);
@@ -111,7 +114,8 @@ final class WelcomeWindow {
         dotWidth = smooths(PAGES, 6), chipLight = smooths(GuiAbout.TESTERS.length + 1, 0),
         makerLight = smooths(GuiAbout.MAKERS.length, 0), languageLight = smooths(Lang.CODES.length, 0),
         languageChosen = smooths(Lang.CODES.length, 0), layoutLight = smooths(LAYOUTS.length, 0),
-        layoutChosen = smooths(LAYOUTS.length, 0);
+        layoutChosen = smooths(LAYOUTS.length, 0), themeLight = smooths(Theme.NAMES.length, 0),
+        themeChosen = smooths(Theme.NAMES.length, 0);
 
     /** @param updatedFrom the version the window was last closed in if the mod was updated since, else null */
     WelcomeWindow(FontRenderer font, String updatedFrom) {
@@ -120,6 +124,24 @@ final class WelcomeWindow {
         dotWidth[0].set(18);
         languageChosen[language()].set(1);
         layoutChosen[layout()].set(1);
+        themeChosen[theme()].set(1);
+    }
+
+    private static int theme() {
+        return Math.max(0, Math.min(Theme.NAMES.length - 1, Config.uiTheme));
+    }
+
+    /** Chooses the look of the mod's screens: this window too takes it at once. */
+    private static void chooseTheme(int i) {
+        if (Config.uiTheme != i) {
+            Config.uiTheme = i;
+            Config.save();
+            Theme.apply(i);
+        }
+    }
+
+    private static int themeRows() {
+        return (Theme.NAMES.length + THEME_COLUMNS - 1) / THEME_COLUMNS;
     }
 
     /** Index into {@link #LAYOUTS} of the layout set now. */
@@ -219,6 +241,8 @@ final class WelcomeWindow {
                 return 30 + SECTION_TITLE + 2 * CHIP_HEIGHT + 4 + 10 + LINK_HEIGHT;
             case LAYOUT_PAGE:
                 return SECTION_TITLE + 14 + 4 + LAYOUT_PICTURE_HEIGHT + LAYOUT_NAME_HEIGHT + 10 + 10;
+            case THEME_PAGE:
+                return SECTION_TITLE + 14 + 4 + themeRows() * THEME_HEIGHT + (themeRows() - 1) * CARD_GAP + 10 + 10;
             default:
                 return SECTION_TITLE + 14
                     + languageRows() * LANGUAGE_HEIGHT
@@ -259,7 +283,7 @@ final class WelcomeWindow {
         // A soft shadow under the window, and a faint glow of the accent around it.
         Theme.fill(left - 3, top + 3, right + 3, bottom + 5, 0x30000000);
         Theme.fill(left - 1, top + 1, right + 1, bottom + 2, 0x40000000);
-        Theme.outline(left - 1, top - 1, right + 1, bottom + 1, 0x304C9AFF);
+        Theme.outline(left - 1, top - 1, right + 1, bottom + 1, Theme.alpha(Theme.ACCENT, 0x30));
         Theme.panel(left, top, right, bottom);
         panelClip = new int[] { left + 1, top + 1, right - 1, bottom - 1 };
         restoreClip();
@@ -289,8 +313,11 @@ final class WelcomeWindow {
                 case LAYOUT_PAGE:
                     drawLayouts(x, pagesTop, start, mouseX, mouseY);
                     break;
-                default:
+                case LANGUAGE_PAGE:
                     drawLanguages(x, pagesTop, start, mouseX, mouseY);
+                    break;
+                default:
+                    drawThemes(x, pagesTop, start, mouseX, mouseY);
             }
         }
 
@@ -306,7 +333,7 @@ final class WelcomeWindow {
         int y = top + slide(openedAt, 0);
         // From the dark of the night at the top to the panel at the bottom.
         for (int band = 0; band < HERO_HEIGHT; band += 4) {
-            int color = Theme.blend(0xF00E1218, Theme.PANEL_ALT, band / (double) HERO_HEIGHT);
+            int color = Theme.blend(Theme.alpha(Theme.DEEP, 0xF0), Theme.PANEL_ALT, band / (double) HERO_HEIGHT);
             Theme.fill(left + 1, y + band, right - 1, Math.min(y + HERO_HEIGHT, y + band + 4), color);
         }
         // Two big soft glows drifting slowly in the corners.
@@ -316,7 +343,7 @@ final class WelcomeWindow {
             left + 60 + 14 * Math.sin(drift),
             y + 30 + 8 * Math.cos(drift * 1.3),
             70,
-            0x104C9AFF);
+            Theme.alpha(Theme.ACCENT, 0x10));
         GuiAbout.drawRound(
             GuiAbout.CIRCLE,
             right - 70 + 12 * Math.cos(drift * 0.8),
@@ -355,8 +382,8 @@ final class WelcomeWindow {
         for (int i = 0; i < 3; i++) {
             double a = angle + i * Math.PI * 2 / 3;
             double sx = centerX + Math.cos(a) * 30, sy = logoCenterY + Math.sin(a) * 30;
-            GuiAbout.drawRound(GuiAbout.CIRCLE, sx, sy, 3.5, 0x304C9AFF);
-            GuiAbout.drawRound(GuiAbout.CIRCLE, sx, sy, 1.5, i == 0 ? 0xFFF2C14E : 0xC0E6EAF0);
+            GuiAbout.drawRound(GuiAbout.CIRCLE, sx, sy, 3.5, Theme.alpha(Theme.ACCENT, 0x30));
+            GuiAbout.drawRound(GuiAbout.CIRCLE, sx, sy, 1.5, i == 0 ? 0xFFF2C14E : Theme.alpha(Theme.TEXT, 0xC0));
         }
         GL11.glPushMatrix();
         GL11.glTranslatef(centerX - Icons.LOGO_SIZE * 3 / 2f, logoCenterY - Icons.LOGO_SIZE * 3 / 2f, 0f);
@@ -373,7 +400,7 @@ final class WelcomeWindow {
         if (sweep < 1) {
             int shineX = titleX - 20 + (int) ((titleWidth + 40) * sweep);
             Theme.clip(Math.max(left + 1, shineX), titleY, Math.min(right - 1, shineX + 10), titleY + 18);
-            drawTitle(first, second, titleX, titleY, 0xFFFFFFFF, 0xFFB5D4FF);
+            drawTitle(first, second, titleX, titleY, Theme.TEXT_BRIGHT, Theme.ACCENT_SOFT);
             restoreClip();
         }
 
@@ -388,7 +415,7 @@ final class WelcomeWindow {
                 closeRect[1],
                 closeRect[2],
                 closeRect[3],
-                Theme.blend(0x00222831, Theme.CONTROL_HOVER, lit));
+                Theme.blend(Theme.alpha(Theme.CONTROL, 0), Theme.CONTROL_HOVER, lit));
         }
         String[] cross = Icons.CLOSE;
         Icons.draw(
@@ -412,9 +439,11 @@ final class WelcomeWindow {
         int pillLeft = centerX - pillWidth / 2;
         versionRect = new int[] { pillLeft, y, pillLeft + pillWidth, y + 12 };
         double lit = versionLight.update(inside(mouseX, mouseY, versionRect) ? 1 : 0, 22);
-        roundRect(pillLeft, y, pillLeft + pillWidth, y + 12, Theme.blend(0xC0222831, Theme.CONTROL_HOVER, lit));
+        int pill = Theme.blend(Theme.alpha(Theme.CONTROL, 0xC0), Theme.CONTROL_HOVER, lit);
+        roundRect(pillLeft, y, pillLeft + pillWidth, y + 12, pill);
         if (lit > 0) {
-            Theme.outline(pillLeft, y, pillLeft + pillWidth, y + 12, Theme.blend(0x002B5A96, Theme.ACCENT, lit));
+            int edge = Theme.blend(Theme.alpha(Theme.ACCENT_DIM, 0), Theme.ACCENT, lit);
+            Theme.outline(pillLeft, y, pillLeft + pillWidth, y + 12, edge);
         }
         int x = pillLeft + 6;
         if (before != null) {
@@ -641,7 +670,7 @@ final class WelcomeWindow {
         int lift = (int) Math.round(lit);
         int x0 = r[0], y0 = r[1] - lift, x1 = r[2], y1 = r[3] - lift;
         int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
-        Theme.fill(x0, y0, x1, y1, Theme.blend(background, 0xFF1E3350, chosen));
+        Theme.fill(x0, y0, x1, y1, Theme.blend(background, Theme.CHOSEN, chosen));
         Theme.outline(
             x0,
             y0,
@@ -685,6 +714,99 @@ final class WelcomeWindow {
         }
     }
 
+    /**
+     * The last page: the look of the mod's screens, a small picture of a window in each theme, the chosen one lit in
+     * the accent with a tick; a click switches every screen, this window too, at once. Under them, where to change it.
+     */
+    private void drawThemes(int left, int top, long start, int mouseX, int mouseY) {
+        sectionTitle(Lang.format("wayfarmap.welcome.theme_title"), left, top + slide(start, 0));
+        int y = top + SECTION_TITLE + slide(start, 1);
+        String text = Theme.ellipsize(font, Lang.format("wayfarmap.welcome.theme_text"), textWidth());
+        Theme.text(font, text, left + PAD, y, Theme.TEXT_MUTED);
+        int base = top + SECTION_TITLE + 14 + 4;
+        int cardWidth = (textWidth() - (THEME_COLUMNS - 1) * CARD_GAP) / THEME_COLUMNS;
+        boolean interactive = start != 0;
+        for (int i = 0; i < Theme.NAMES.length; i++) {
+            int column = i % THEME_COLUMNS, row = i / THEME_COLUMNS;
+            int x0 = left + PAD + column * (cardWidth + CARD_GAP);
+            int y0 = base + row * (THEME_HEIGHT + CARD_GAP) + slide(start, 2 + i);
+            themeRects[i] = new int[] { x0, y0, x0 + cardWidth, y0 + THEME_HEIGHT };
+            double lit = themeLight[i].update(interactive && inside(mouseX, mouseY, themeRects[i]) ? 1 : 0, 18);
+            double chosen = themeChosen[i].update(i == theme() ? 1 : 0, 16);
+            drawThemeCard(i, themeRects[i], lit, chosen);
+        }
+        y = base + themeRows() * (THEME_HEIGHT + CARD_GAP) - CARD_GAP + 10 + slide(start, 2 + Theme.NAMES.length);
+        String[] gear = Icons.SMALL_GEAR;
+        String hint = Theme.ellipsize(
+            font,
+            Lang.format("wayfarmap.welcome.theme_hint", themeSettingsPath()),
+            textWidth() - Icons.width(gear) - 5);
+        Icons.draw(gear, left + PAD, y, Theme.TEXT_MUTED);
+        Theme.text(font, hint, left + PAD + Icons.width(gear) + 5, y, Theme.TEXT_MUTED);
+    }
+
+    /** Where the theme is in the settings: "Settings → World map → Theme", in the mod's language. */
+    private static String themeSettingsPath() {
+        return Lang.format("wayfarmap.gui.settings") + " → "
+            + Lang.format("wayfarmap.settings.map")
+            + " → "
+            + Lang.format("wayfarmap.settings.group.theme");
+    }
+
+    /**
+     * A theme: a small window in its colors (its header with the theme's strip, a list with a lit row, two buttons),
+     * and under it its name with a round check, filled when it is chosen.
+     */
+    private void drawThemeCard(int i, int[] r, double lit, double chosen) {
+        int lift = (int) Math.round(lit);
+        int x0 = r[0], y0 = r[1] - lift, x1 = r[2], y1 = r[3] - lift;
+        int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
+        Theme.fill(x0, y0, x1, y1, Theme.blend(background, Theme.CHOSEN, chosen));
+        Theme.outline(
+            x0,
+            y0,
+            x1,
+            y1,
+            Theme.blend(Theme.blend(Theme.BORDER, Theme.TEXT_MUTED, lit), Theme.ACCENT, chosen));
+        // The picture: a window of the theme.
+        Theme.Palette p = Theme.palette(i);
+        int px0 = x0 + 3, py0 = y0 + 3, px1 = x1 - 3, py1 = y0 + THEME_PICTURE_HEIGHT;
+        Theme.fill(px0, py0, px1, py1, p.panel | 0xFF000000);
+        Theme.fill(px0, py0, px1, py0 + 7, p.header | 0xFF000000);
+        Theme.decor(p, px0, py0 + 6, px1, 1);
+        Theme.fill(px0 + 2, py0 + 2, px0 + 5, py0 + 5, p.accent);
+        Theme.fill(px0 + 7, py0 + 3, px0 + 26, py0 + 4, p.text);
+        Theme.fill(px0 + 3, py0 + 10, px1 - 16, py0 + 11, p.textMuted);
+        Theme.fill(px0 + 1, py0 + 13, px1 - 1, py0 + 18, p.controlHover);
+        Theme.fill(px0 + 1, py0 + 13, px0 + 2, py0 + 18, p.accent);
+        Theme.fill(px0 + 4, py0 + 15, px1 - 12, py0 + 16, p.text);
+        Theme.fill(px0 + 3, py0 + 20, px1 - 22, py0 + 21, p.textMuted);
+        int buttonY = py1 - 8, buttonWidth = (px1 - px0 - 8) / 2;
+        Theme.fill(px0 + 3, buttonY, px0 + 3 + buttonWidth, py1 - 3, p.accentDim);
+        Theme.outline(px0 + 3, buttonY, px0 + 3 + buttonWidth, py1 - 3, p.bevel ? 0xFF000000 : p.accent);
+        Theme.fill(px1 - 3 - buttonWidth, buttonY, px1 - 3, py1 - 3, p.control);
+        Theme.outline(px1 - 3 - buttonWidth, buttonY, px1 - 3, py1 - 3, p.bevel ? 0xFF000000 : p.border);
+        Theme.outline(px0, py0, px1, py1, p.bevel ? 0xFF000000 : p.border);
+        if (chosen < 1 && lit < 1) {
+            // The themes not chosen a little dimmed, as the languages.
+            int dim = (int) (0x50 * (1 - Math.max(chosen, lit))) << 24;
+            Theme.fill(px0, py0, px1, py1, dim);
+        }
+        // Its name, and the round check on the right.
+        int nameY = y0 + THEME_PICTURE_HEIGHT + (THEME_HEIGHT - THEME_PICTURE_HEIGHT - 8) / 2;
+        String name = Lang.format("wayfarmap.option.map.theme." + Theme.NAMES[i]);
+        int nameColor = Theme.blend(Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.6 + 0.4 * lit), Theme.TEXT, chosen);
+        Theme.text(font, Theme.ellipsize(font, name, x1 - 18 - (x0 + 4)), x0 + 4, nameY, nameColor);
+        int checkX = x1 - 9, checkY = nameY + 4;
+        int ring = Theme.blend(Theme.BORDER, Theme.ACCENT, Math.max(lit * 0.5, chosen));
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 5, ring);
+        GuiAbout.drawRound(GuiAbout.CIRCLE, checkX, checkY, 4, Theme.blend(Theme.CONTROL, Theme.ACCENT, chosen));
+        if (chosen > 0.5) {
+            String[] tick = Icons.SMALL_CHECK;
+            Icons.draw(tick, checkX - Icons.width(tick) / 2, checkY - tick.length / 2, Theme.BUTTON_TEXT);
+        }
+    }
+
     /** Where the language is in the settings: "Settings → World map → Mod language", in the mod's language. */
     private static String settingsPath() {
         return Lang.format("wayfarmap.gui.settings") + " → "
@@ -698,7 +820,7 @@ final class WelcomeWindow {
         int lift = (int) Math.round(lit);
         int x0 = r[0], y0 = r[1] - lift, x1 = r[2], y1 = r[3] - lift;
         int background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
-        Theme.fill(x0, y0, x1, y1, Theme.blend(background, 0xFF1E3350, chosen));
+        Theme.fill(x0, y0, x1, y1, Theme.blend(background, Theme.CHOSEN, chosen));
         Theme.outline(
             x0,
             y0,
@@ -773,7 +895,8 @@ final class WelcomeWindow {
 
     /** One of the author's pages: its logo in the site's color and its name, lit in that color under the mouse. */
     private void drawLink(int i, int[] r, double lit) {
-        int brand = (Integer) LINKS[i][3];
+        // GitHub has no color of its own: it takes the text's.
+        int brand = (Integer) LINKS[i][3] != 0 ? (Integer) LINKS[i][3] : Theme.TEXT;
         Theme.fill(r[0], r[1], r[2], r[3], Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
         Theme.outline(r[0], r[1], r[2], r[3], Theme.blend(Theme.BORDER, brand, lit));
         // The site's color as a strip along the bottom, growing from the middle under the mouse.
@@ -972,6 +1095,14 @@ final class WelcomeWindow {
                 }
             }
         }
+        if (page == THEME_PAGE) {
+            for (int i = 0; i < Theme.NAMES.length; i++) {
+                if (inside(mouseX, mouseY, themeRects[i])) {
+                    chooseTheme(i);
+                    return Click.NONE;
+                }
+            }
+        }
         if (page == 2) {
             for (int i = 0; i < GuiAbout.MAKERS.length; i++) {
                 if (inside(mouseX, mouseY, makerRects[i])) {
@@ -1022,6 +1153,9 @@ final class WelcomeWindow {
                     chooseLanguage((language() + step + Lang.CODES.length) % Lang.CODES.length);
                 } else if (page == LAYOUT_PAGE) {
                     chooseLayout((layout() + 1) % LAYOUTS.length);
+                } else if (page == THEME_PAGE) {
+                    int step = keyCode == Keyboard.KEY_UP || keyCode == Keyboard.KEY_W ? -THEME_COLUMNS : THEME_COLUMNS;
+                    chooseTheme(Math.floorMod(theme() + step, Theme.NAMES.length));
                 }
                 return Click.NONE;
             default:
@@ -1031,6 +1165,9 @@ final class WelcomeWindow {
                 }
                 if (page == LANGUAGE_PAGE && number >= 0 && number < Lang.CODES.length) {
                     chooseLanguage(number);
+                }
+                if (page == THEME_PAGE && number >= 0 && number < Theme.NAMES.length) {
+                    chooseTheme(number);
                 }
                 return Click.NONE;
         }
