@@ -25,6 +25,7 @@ import WayFarMap.client.waypoint.TeamWaypoints;
 import WayFarMap.client.waypoint.Waypoint;
 import WayFarMap.client.waypoint.WaypointGroup;
 import WayFarMap.client.waypoint.WaypointManager;
+import WayFarMap.client.waypoint.WaypointPresets;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
 
@@ -59,6 +60,8 @@ public class GuiEditWaypoint extends ScaledScreen {
     private String shareId;
     /** The team switch was set by hand: picking a group no longer sets it. */
     private boolean shareTouched;
+    /** Editing a preset of quick waypoints ({@link #createPreset}). */
+    private final boolean preset;
 
     private GuiTextField nameField, xField, yField, zField, newGroupField;
     private final List<GuiTextField> fields = new ArrayList<>();
@@ -72,10 +75,28 @@ public class GuiEditWaypoint extends ScaledScreen {
     }
 
     public static GuiEditWaypoint edit(GuiScreen parent, Waypoint waypoint) {
-        return new GuiEditWaypoint(parent, waypoint, waypoint.copy());
+        return new GuiEditWaypoint(parent, waypoint, waypoint.copy(), false);
+    }
+
+    /** Editor for a new preset of quick waypoints ({@link WaypointPresets}): their look, name and group. */
+    public static GuiEditWaypoint createPreset(GuiScreen parent) {
+        return new GuiEditWaypoint(parent, null, new Waypoint("", 0, 0, 0, 0), true);
+    }
+
+    public static GuiEditWaypoint editPreset(GuiScreen parent, Waypoint preset) {
+        return new GuiEditWaypoint(parent, preset, preset.copy(), true);
     }
 
     private GuiEditWaypoint(GuiScreen parent, Waypoint target, Waypoint edited) {
+        this(parent, target, edited, false);
+    }
+
+    /**
+     * @param preset a preset of quick waypoints, not a waypoint: no coordinates, nothing to teleport to or share; it
+     *               is saved with the presets
+     */
+    private GuiEditWaypoint(GuiScreen parent, Waypoint target, Waypoint edited, boolean preset) {
+        this.preset = preset;
         this.parent = parent;
         this.target = target;
         this.edited = edited;
@@ -96,6 +117,12 @@ public class GuiEditWaypoint extends ScaledScreen {
         xField = field(left, top + 58, 70, String.valueOf(edited.x), 9);
         yField = field(left + 75, top + 58, 70, String.valueOf(edited.y), 4);
         zField = field(left + 150, top + 58, 70, String.valueOf(edited.z), 9);
+        if (preset) {
+            // A preset has no place: it takes the one clicked on the map.
+            fields.remove(xField);
+            fields.remove(yField);
+            fields.remove(zField);
+        }
         newGroupField = field(left, top + 107, 170, "", 32);
         ((FlatTextField) newGroupField).setHint(Lang.format("wayfarmap.gui.new_group_hint"));
         nameField.setFocused(true);
@@ -106,9 +133,12 @@ public class GuiEditWaypoint extends ScaledScreen {
         buttonList.add(new FlatButton(ID_OUTLINE, left, top + 155, 140, 18, ""));
         // Beacon beam switch with its color, and sharing the waypoint in the chat.
         buttonList.add(new FlatButton(ID_BEAM, left, top + 179, 100, 18, ""));
-        buttonList.add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, Lang.format("wayfarmap.share.button")));
-        // Shared with the team: teammates see it, and what is changed here.
-        buttonList.add(new FlatButton(ID_TEAM, left, top + 203, 220, 18, ""));
+        if (!preset) {
+            buttonList
+                .add(new FlatButton(ID_SHARE, left + 144, top + 179, 76, 18, Lang.format("wayfarmap.share.button")));
+            // Shared with the team: teammates see it, and what is changed here.
+            buttonList.add(new FlatButton(ID_TEAM, left, top + 203, 220, 18, ""));
+        }
         // Bottom row: Save [Teleport Delete] Cancel; teleport and delete only exist for saved waypoints. Each button
         // gets its text width plus an equal share of the remaining space.
         FlatButton saveButton = new FlatButton(ID_SAVE, 0, top + BUTTON_ROW, 0, 18, Lang.format("wayfarmap.gui.save"));
@@ -118,7 +148,9 @@ public class GuiEditWaypoint extends ScaledScreen {
         FlatButton cancelButton = new FlatButton(ID_CANCEL, 0, top + BUTTON_ROW, 0, 18, Lang.format("gui.cancel"));
         List<FlatButton> row = new ArrayList<>();
         row.add(saveButton);
-        if (target != null) {
+        if (target != null && preset) {
+            row.add(deleteButton);
+        } else if (target != null) {
             FlatButton teleport = new FlatButton(
                 ID_TELEPORT,
                 0,
@@ -211,6 +243,9 @@ public class GuiEditWaypoint extends ScaledScreen {
     private boolean readFields() {
         edited.name = nameField.getText()
             .trim();
+        if (preset) {
+            return true;
+        }
         try {
             edited.x = Integer.parseInt(
                 xField.getText()
@@ -229,7 +264,7 @@ public class GuiEditWaypoint extends ScaledScreen {
 
     /** A new waypoint is shared when put into a group that shares its new ones. */
     private void groupPicked() {
-        if (target != null || shareTouched || !TeamWaypoints.INSTANCE.isAvailable()) {
+        if (preset || target != null || shareTouched || !TeamWaypoints.INSTANCE.isAvailable()) {
             return;
         }
         WaypointGroup group = WaypointManager.INSTANCE.getGroup(edited.group);
@@ -305,7 +340,11 @@ public class GuiEditWaypoint extends ScaledScreen {
                 if (!confirmDelete) {
                     confirmDelete = true;
                 } else {
-                    WaypointManager.INSTANCE.removeWaypoint(target);
+                    if (preset) {
+                        WaypointPresets.INSTANCE.remove(target);
+                    } else {
+                        WaypointManager.INSTANCE.removeWaypoint(target);
+                    }
                     mc.displayGuiScreen(parent);
                     return;
                 }
@@ -327,7 +366,13 @@ public class GuiEditWaypoint extends ScaledScreen {
         if (!readFields()) {
             return;
         }
-        if (target == null) {
+        if (preset) {
+            Waypoint saved = target != null ? target : edited;
+            if (target != null) {
+                target.copyFrom(edited);
+            }
+            WaypointPresets.INSTANCE.put(saved);
+        } else if (target == null) {
             WaypointManager.INSTANCE.addWaypoint(edited);
         } else {
             target.copyFrom(edited);
@@ -453,15 +498,21 @@ public class GuiEditWaypoint extends ScaledScreen {
             left + 230,
             left + 230 - WindowHeader.CLOSE_ROOM,
             Icons.WAYPOINTS,
-            Lang.format(target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
+            Lang.format(
+                preset ? target == null ? "wayfarmap.gui.new_preset" : "wayfarmap.gui.edit_preset"
+                    : target == null ? "wayfarmap.gui.new_waypoint" : "wayfarmap.gui.edit_waypoint"),
             Lang.format("wayfarmap.gui.edit_waypoint_hint"),
             Theme.TEXT_MUTED,
             null);
 
         Theme.text(fontRendererObj, Lang.format("wayfarmap.gui.name"), left, top + 14, Theme.TEXT_MUTED);
-        Theme.text(fontRendererObj, "X", left, top + 48, Theme.TEXT_MUTED);
-        Theme.text(fontRendererObj, "Y", left + 75, top + 48, Theme.TEXT_MUTED);
-        Theme.text(fontRendererObj, "Z", left + 150, top + 48, Theme.TEXT_MUTED);
+        if (!preset) {
+            Theme.text(fontRendererObj, "X", left, top + 48, Theme.TEXT_MUTED);
+            Theme.text(fontRendererObj, "Y", left + 75, top + 48, Theme.TEXT_MUTED);
+            Theme.text(fontRendererObj, "Z", left + 150, top + 48, Theme.TEXT_MUTED);
+        } else {
+            Theme.text(fontRendererObj, Lang.format("wayfarmap.gui.preset_place"), left, top + 52, Theme.TEXT_DISABLED);
+        }
         for (GuiTextField field : fields) {
             field.drawTextBox();
         }
@@ -514,7 +565,7 @@ public class GuiEditWaypoint extends ScaledScreen {
         }
 
         // Preview of the marker next to the icon button.
-        Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, 0xFF0F1216);
+        Theme.fill(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, Theme.FIELD);
         Theme.outline(left, top + 131, left + PREVIEW, top + 131 + PREVIEW, Theme.BORDER);
         WaypointRenderer.drawMapMarker(edited, left + PREVIEW / 2.0, top + 131 + PREVIEW / 2.0, 12f, false);
     }

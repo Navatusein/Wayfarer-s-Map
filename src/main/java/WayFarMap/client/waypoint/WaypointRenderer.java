@@ -49,6 +49,8 @@ public class WaypointRenderer {
     public static final int DEFAULT_COLOR = 0xFFFFFF;
     /** Background of a death marker's label on the map: the label's dark, tinted red. */
     private static final int DEATH_LABEL_BG = 0xC0401216;
+    /** Under a waypoint's name on the map: dark in every theme, the name is white. */
+    private static final int LABEL_BG = 0xC0101418;
     /** The age line under a death marker's name: a light red. */
     private static final int DEATH_AGE_COLOR = 0xFFE59A96;
     /** Up to this distance, in-world waypoints keep their full size on screen. */
@@ -313,10 +315,11 @@ public class WaypointRenderer {
      */
     public static void drawMapLabel(Waypoint waypoint, int[] rect, float textScale) {
         // A death marker's label is tinted red, so it is never taken for an ordinary waypoint.
-        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], waypoint.death ? DEATH_LABEL_BG : Theme.LABEL_BG);
+        Gui.drawRect(rect[0], rect[1], rect[2], rect[3], waypoint.death ? DEATH_LABEL_BG : LABEL_BG);
         FontRenderer font = Minecraft.getMinecraft().fontRenderer;
         String[] lines = labelLines(waypoint);
-        int[] colors = { Theme.TEXT, Theme.TEXT_MUTED, DEATH_AGE_COLOR };
+        // The map's own colors, not the theme's: the label is dark in every theme.
+        int[] colors = { 0xFFE6EAF0, 0xFF8A93A0, DEATH_AGE_COLOR };
         GL11.glPushMatrix();
         GL11.glTranslatef((rect[0] + rect[2]) / 2f, rect[1] + textScale, 0f);
         GL11.glScalef(textScale, textScale, 1f);
@@ -325,7 +328,7 @@ public class WaypointRenderer {
             if (lines[i].isEmpty()) {
                 continue;
             }
-            int color = waypoint.enabled ? colors[i] : Theme.TEXT_DISABLED;
+            int color = waypoint.enabled ? colors[i] : 0xFF555D68;
             font.drawString(lines[i], -font.getStringWidth(lines[i]) / 2, y, color);
             y += 9;
         }

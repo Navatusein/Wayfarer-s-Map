@@ -283,7 +283,7 @@ public class GuiItemPicker extends ScaledScreen {
         symbolsTabButton.active = symbolsTab;
         search.drawTextBox();
 
-        Theme.fill(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, 0xFF0F1216);
+        Theme.fill(gridX, gridY, gridX + columns * CELL, gridY + rows * CELL, Theme.FIELD);
         Theme.outline(gridX - 1, gridY - 1, gridX + columns * CELL + 1, gridY + rows * CELL + 1, Theme.BORDER);
         double shown = shownRow.update(scrollRow, 16);
         int hovered = stackIndexAt(mouseX, mouseY);
@@ -302,7 +302,7 @@ public class GuiItemPicker extends ScaledScreen {
                 Theme.outline(cx, cy, cx + CELL, cy + CELL, Theme.ACCENT);
             }
             if (symbolsTab) {
-                int color = index == hovered ? 0xFFFFFFFF : Theme.TEXT;
+                int color = index == hovered ? Theme.TEXT_BRIGHT : Theme.TEXT;
                 Symbols.draw(filteredSymbols.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 14, color);
             } else {
                 WaypointRenderer.drawItemDirect(filtered.get(index), cx + CELL / 2.0, cy + CELL / 2.0, 16f);

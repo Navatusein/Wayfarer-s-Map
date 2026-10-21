@@ -183,7 +183,7 @@ public class GuiMinimapPosition extends GuiScreen {
             Theme.fill(x, y, x1, y1, Theme.PANEL);
         }
         boolean hovered = dragging || Theme.inside(mouseX, mouseY, x - 2, y - 2, x1 + 2, y1);
-        Theme.fill(x - 3, y - 3, x1 + 3, y1 + 1, hovered ? 0x304C9AFF : 0x184C9AFF);
+        Theme.fill(x - 3, y - 3, x1 + 3, y1 + 1, Theme.alpha(Theme.ACCENT, hovered ? 0x30 : 0x18));
         Theme.outline(x - 3, y - 3, x1 + 3, y1 + 1, hovered ? Theme.ACCENT : Theme.ACCENT_DIM);
 
         String title = Lang.format("wayfarmap.minimap_position.title");

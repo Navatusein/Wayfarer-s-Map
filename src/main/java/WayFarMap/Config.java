@@ -70,6 +70,8 @@ public class Config {
      */
     public static final int MAP_LAYOUT_MODERN = 0, MAP_LAYOUT_CLASSIC = 1;
     public static int mapButtonLayout = MAP_LAYOUT_CLASSIC;
+    /** The look of the mod's screens: one of the themes of {@code Theme} (0 = graphite, the default). */
+    public static int uiTheme = 0;
 
     public static final int LIGHT_AUTO = 0, LIGHT_DAY = 1, LIGHT_NIGHT = 2;
     public static final int CAVES_AUTO = 0, CAVES_OFF = 1, CAVES_ON = 2;
@@ -565,6 +567,17 @@ public class Config {
             new String[] { "en_US", "ru_RU", "uk_UA", "zh_CN" },
             () -> modLanguage,
             v -> modLanguage = v);
+        group("theme");
+        parent(null);
+        choice(
+            c,
+            "theme",
+            "Look of the mod's screens: 0 = graphite, 1 = forest, 2 = nether, 3 = ocean, 4 = end, 5 = desert, "
+                + "6 = snow (light), 7 = vanilla (like Minecraft's own).",
+            0,
+            new String[] { "graphite", "forest", "nether", "ocean", "end", "desert", "snow", "vanilla" },
+            () -> uiTheme,
+            v -> uiTheme = v);
         group("general");
         parent(null);
         choice(

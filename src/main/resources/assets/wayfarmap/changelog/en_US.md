@@ -18,6 +18,9 @@
 
 # 0.0.17
 
+- [new] Themes for all of the mod's screens: Graphite (as before, the default), Forest, Nether, Ocean, End, Desert, Snow (light) and Vanilla (like Minecraft's own windows, with raised buttons). Most have a strip of their own under the window headers: leaves, flowing lava, prismarine, sandstone. Settings → World map → Theme, and a page with a picture of each in the welcome window, after the language
+- [change] The VisualProspecting ore layer is no longer rebuilt every second with nothing new, and draws only the veins near what is shown
+
 ## World map
 - [fix] Follow: the map keeps the player in the middle as they walk; dragging it pauses following until `Space` or the button
 - [new] 2D map and the map without plants: the biome under the cursor next to the coordinates at the bottom
@@ -36,6 +39,7 @@
 - [fix] Area selection when claiming chunks or loading regions: dragged left or up, it no longer slides after the cursor once at its limit
 - [fix] Area loading with caves (Ctrl+Shift+LMB) maps all 16 cave layers of the world's height, not only those up to the chunk's highest blocks
 - [new] Ctrl+F on the map puts the cursor into the search (when it shows), its text selected, to type at once
+- [new] Quick waypoint presets: the "Quick waypoint" entry of the right-click menu opens a list of presets (its look, name and group set once — e.g. for ores or miners); a click puts one down where you clicked, only the coordinates are new. The pencil edits a preset, "New preset" adds one; presets are the same in every world
 
 ## Mod layers
 - [change] "Add-on layers" are now called "Mod layers", and their options are gathered in a new Mod layers settings tab: the vein names, the minimap's mod layers (was "Own mod layers") and how tracked veins and nodes look

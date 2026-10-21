@@ -134,7 +134,7 @@ public class GuiMapData extends ScaledScreen {
                 return;
             }
             int x1 = xPosition + width, y1 = yPosition + height;
-            Theme.fill(xPosition, yPosition, x1, y1, hovered ? 0xFF5A2224 : 0xFF3D1A1C);
+            Theme.fill(xPosition, yPosition, x1, y1, hovered ? Theme.DANGER_DIM_HOVER : Theme.DANGER_DIM);
             Theme.outline(xPosition, yPosition, x1, y1, Theme.DANGER);
             double left = 1 - Math.min(1, (System.currentTimeMillis() - armedAt) / (double) CONFIRM_MS);
             Theme.fill(
@@ -980,7 +980,7 @@ public class GuiMapData extends ScaledScreen {
                 int from = Math.max(left + 1, x + i), to = Math.min(right - 1, x + i + 2);
                 if (to > from) {
                     int y = top + WindowHeader.HEIGHT - 1;
-                    Theme.fill(from, y, to, y + 1, Theme.blend(Theme.BORDER, 0xFF9CC8FF, t));
+                    Theme.fill(from, y, to, y + 1, Theme.blend(Theme.BORDER, Theme.ACCENT_SOFT, t));
                 }
             }
         }
@@ -1218,7 +1218,8 @@ public class GuiMapData extends ScaledScreen {
             int buttonLeft = deleteButtons.get(row).xPosition;
             boolean lit = row < 2 && part == (row == 0 ? PART_FLAT : PART_ISO) || armed == id;
             if (lit) {
-                Theme.fill(rowX - 6, y, x1 - 1, y + ROW, armed == id ? 0x30E5534B : Theme.ROW_HOVER);
+                int light = armed == id ? Theme.alpha(Theme.DANGER, 0x30) : Theme.ROW_HOVER;
+                Theme.fill(rowX - 6, y, x1 - 1, y + ROW, light);
             }
             if (row == 2) {
                 Theme.fill(rowX - 6, y, x1 - 1, y + 1, Theme.BORDER);
@@ -1516,7 +1517,7 @@ public class GuiMapData extends ScaledScreen {
         int bottomY = bottom - FOOTER - 4 + shift;
         int x0 = (left + right - textWidth) / 2 - 12, y0 = bottomY - 18, x1 = x0 + textWidth + 24;
         Theme.fill(x0 + 2, y0 + 2, x1 + 2, bottomY + 2, 0x60000000);
-        Theme.fill(x0, y0, x1, bottomY, 0xF8161A20);
+        Theme.fill(x0, y0, x1, bottomY, Theme.alpha(Theme.PANEL, 0xF8));
         Theme.outline(x0, y0, x1, bottomY, color);
         Theme.fill(x0, y0, x0 + 3, bottomY, color);
         Theme.text(fontRendererObj, text, x0 + 13, y0 + 5, color);

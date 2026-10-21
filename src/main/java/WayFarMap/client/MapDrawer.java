@@ -672,6 +672,8 @@ public final class MapDrawer {
      */
     public static void drawEntities(Minecraft mc, double centerX, double centerZ, double scale, int x, int y, int width,
         int height, float partialTicks, float playerSize, boolean showNames) {
+        // Once for all the mobs' icons (fitted to the screen's pixels).
+        readMatrices();
         double playerY = mc.thePlayer.posY;
         List<EntityPlayer> players = new ArrayList<>();
         List<EntityLivingBase> mobs = new ArrayList<>();
@@ -688,6 +690,13 @@ public final class MapDrawer {
                 continue;
             }
             if (entity.isInvisible() || entity.isDead
+                // Dying (its death animation), or a leftover whose chunk the client no longer has: the server never
+                // said it left (a lost packet), and it stayed drawn where it was.
+                || entity.getHealth() <= 0f
+                || !mc.theWorld.getChunkProvider()
+                    .chunkExists(
+                        MathHelper.floor_double(entity.posX) >> 4,
+                        MathHelper.floor_double(entity.posZ) >> 4)
                 || Math.abs(entity.posY - playerY) > Config.entityVerticalRange
                 || entityColor(entity) == 0
                 || heightAlpha(entity, playerY) <= 0f) {
@@ -733,7 +742,8 @@ public final class MapDrawer {
                     drawFacing(entity, sx, sy, half, color, alpha, partialTicks);
                 }
                 pushUpright(sx, sy);
-                drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
+                // Turned upright by the minimap's turn (pushUpright), from the matrices read before the mobs.
+                drawEntityIcon(entity, sx, sy, iconSize, color, alpha, iconRotation);
                 String name = mobName(entity);
                 if (name != null) {
                     drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, nameScale, alpha);
@@ -793,40 +803,71 @@ public final class MapDrawer {
     private static final FloatBuffer MODELVIEW = BufferUtils.createFloatBuffer(16);
     private static final FloatBuffer PROJECTION = BufferUtils.createFloatBuffer(16);
     private static final IntBuffer VIEWPORT = BufferUtils.createIntBuffer(16);
+    /**
+     * The GL matrices and viewport, read once for a whole batch of icons ({@link #readMatrices}): asking GL for them
+     * per icon (several times per mob, every frame on the minimap) can stall the drawing on some drivers.
+     */
+    private static final float[] MV = new float[16], PR = new float[16];
+    private static final int[] VIEW = new int[4];
+    /** Size of a screen pixel in the drawing space the matrices were read in. */
+    private static double readPixel = 1;
+
+    /** Reads the current GL matrices and viewport for {@link #pixelSquare} and {@link #frameOutside}. */
+    private static void readMatrices() {
+        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MODELVIEW);
+        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJECTION);
+        GL11.glGetInteger(GL11.GL_VIEWPORT, VIEWPORT);
+        MODELVIEW.get(MV)
+            .rewind();
+        PROJECTION.get(PR)
+            .rewind();
+        for (int i = 0; i < 4; i++) {
+            VIEW[i] = VIEWPORT.get(i);
+        }
+        double[] at = toWindow(0, 0), right = toWindow(1, 0);
+        double length = Math.hypot(right[0] - at[0], right[1] - at[1]);
+        readPixel = length < 1e-6 ? 1.0 / ScaledScreen.currentFactor() : 1 / length;
+    }
 
     /**
-     * Where a point of the current drawing space lands in the window, in screen pixels: {x, y}, from the GL matrices
-     * (the GUI scale, the map screen's own scale, the minimap's turn and the icon turned upright again).
+     * Where a point of the drawing space the matrices were read in lands in the window, in screen pixels: {x, y}
+     * (the GUI scale, the map screen's own scale, the minimap's turn).
      */
     private static double[] toWindow(double x, double y) {
-        float[] mv = new float[16], p = new float[16];
-        MODELVIEW.get(mv)
-            .rewind();
-        PROJECTION.get(p)
-            .rewind();
-        double ex = mv[0] * x + mv[4] * y + mv[12], ey = mv[1] * x + mv[5] * y + mv[13];
-        double ez = mv[2] * x + mv[6] * y + mv[14], ew = mv[3] * x + mv[7] * y + mv[15];
-        double cx = p[0] * ex + p[4] * ey + p[8] * ez + p[12] * ew;
-        double cy = p[1] * ex + p[5] * ey + p[9] * ez + p[13] * ew;
-        double cw = p[3] * ex + p[7] * ey + p[11] * ez + p[15] * ew;
+        double ex = MV[0] * x + MV[4] * y + MV[12], ey = MV[1] * x + MV[5] * y + MV[13];
+        double ez = MV[2] * x + MV[6] * y + MV[14], ew = MV[3] * x + MV[7] * y + MV[15];
+        double cx = PR[0] * ex + PR[4] * ey + PR[8] * ez + PR[12] * ew;
+        double cy = PR[1] * ex + PR[5] * ey + PR[9] * ez + PR[13] * ew;
+        double cw = PR[3] * ex + PR[7] * ey + PR[11] * ez + PR[15] * ew;
         if (cw == 0) {
             cw = 1;
         }
-        return new double[] { VIEWPORT.get(0) + (cx / cw + 1) / 2 * VIEWPORT.get(2),
-            VIEWPORT.get(1) + (cy / cw + 1) / 2 * VIEWPORT.get(3) };
+        return new double[] { VIEW[0] + (cx / cw + 1) / 2 * VIEW[2], VIEW[1] + (cy / cw + 1) / 2 * VIEW[3] };
+    }
+
+    /**
+     * Like {@link #toWindow}, for a point of an icon turned upright around (sx, sy) ({@link #pushUpright}: turned by
+     * {@code -turn} degrees there): worked out from the matrices read before, not read again for each icon.
+     */
+    private static double[] toWindow(double x, double y, double sx, double sy, float turn) {
+        if (turn == 0f) {
+            return toWindow(x, y);
+        }
+        double angle = Math.toRadians(-turn), cos = Math.cos(angle), sin = Math.sin(angle);
+        double dx = x - sx, dy = y - sy;
+        return toWindow(sx + dx * cos - dy * sin, sy + dx * sin + dy * cos);
     }
 
     /**
      * The square of {@code size} centered on (sx, sy), its edges moved to the nearest screen pixel edges, and the size
      * of a screen pixel here: {x0, y0, x1, y1, pixel}. A frame of whole pixels around it is then as wide on every side
      * whatever the GUI scale and wherever the mob is between pixels. Left where it is if the drawing is turned or
-     * slanted on the screen (no pixel grid to fit).
+     * slanted on the screen (no pixel grid to fit). From the matrices of the last {@link #readMatrices}, the icon
+     * turned upright by {@code turn} degrees around its center since.
      */
-    private static double[] pixelSquare(double sx, double sy, double size) {
-        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MODELVIEW);
-        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJECTION);
-        GL11.glGetInteger(GL11.GL_VIEWPORT, VIEWPORT);
-        double[] at = toWindow(sx, sy), right = toWindow(sx + 1, sy), down = toWindow(sx, sy + 1);
+    private static double[] pixelSquare(double sx, double sy, double size, float turn) {
+        double[] at = toWindow(sx, sy, sx, sy, turn), right = toWindow(sx + 1, sy, sx, sy, turn),
+            down = toWindow(sx, sy + 1, sx, sy, turn);
         // Screen pixels per unit along each axis, and how much each axis leans into the other.
         double a = right[0] - at[0], c = right[1] - at[1], b = down[0] - at[0], d = down[1] - at[1];
         double half = size / 2;
@@ -848,7 +889,8 @@ public final class MapDrawer {
 
     /** Size of one screen pixel at (x, y) in the current drawing space (of the minimap's buffer while it draws). */
     public static double screenPixel(double x, double y) {
-        return pixelSquare(x, y, 1)[4];
+        readMatrices();
+        return readPixel;
     }
 
     /** How far a mob icon's frame (and its dark edge) reaches out of the tile here, in the drawing's units. */
@@ -857,7 +899,7 @@ public final class MapDrawer {
         if (frame == 0) {
             return 0;
         }
-        return (frame + (frame > 1 ? 1 : 0)) * pixelSquare(sx, sy, 1)[4];
+        return (frame + (frame > 1 ? 1 : 0)) * readPixel;
     }
 
     /** The band of width {@code w} just outside the rectangle, in four pieces that don't overlap. */
@@ -999,11 +1041,12 @@ public final class MapDrawer {
             drawDot(sx, sy, 1.5f, withAlpha(color, alpha), alpha);
             return;
         }
+        readMatrices();
         float half = iconSize / 2f;
         if (Config.mobFacing && entity != null) {
             drawFacing(entity, sx, sy, half, color, alpha, 1f);
         }
-        drawEntityIcon(entity, sx, sy, iconSize, color, alpha);
+        drawEntityIcon(entity, sx, sy, iconSize, color, alpha, 0f);
         String name = entity == null ? null : mobName(entity);
         if (name != null) {
             drawSmallName(font, name, sx, sy + half + frameOutside(sx, sy) + 1, textScale, alpha);
@@ -1015,10 +1058,10 @@ public final class MapDrawer {
      * neutral). Falls back to a dot when the mob's face can't be found.
      */
     private static void drawEntityIcon(EntityLivingBase entity, double sx, double sy, float size, int color,
-        float alpha) {
+        float alpha, float turn) {
         // The tile on whole screen pixels, so the frame around it is exactly as many pixels wide on every side (it
         // was in GUI pixels, 2 to 4 screen pixels, and between pixels it came out 1 on one side and 2 on another).
-        double[] tile = pixelSquare(sx, sy, size);
+        double[] tile = pixelSquare(sx, sy, size, turn);
         double x0 = tile[0], y0 = tile[1], x1 = tile[2], y1 = tile[3], pixel = tile[4];
         // 0 = no frame: the face alone on its dark tile. In screen pixels.
         int frame = Math.max(0, Config.mobFrameWidth);

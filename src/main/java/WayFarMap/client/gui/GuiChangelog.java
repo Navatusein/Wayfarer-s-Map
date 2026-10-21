@@ -225,7 +225,7 @@ public class GuiChangelog extends ScaledScreen {
         // A soft shadow under the window, and a faint glow of the accent around it.
         Theme.fill(left - 3, top + 3, right + 3, bottom + 5, 0x30000000);
         Theme.fill(left - 1, top + 1, right + 1, bottom + 2, 0x40000000);
-        Theme.outline(left - 1, top - 1, right + 1, bottom + 1, 0x304C9AFF);
+        Theme.outline(left - 1, top - 1, right + 1, bottom + 1, Theme.alpha(Theme.ACCENT, 0x30));
         Theme.panel(left, top, right, bottom);
         Theme.clip(left + 1, top + 1, right - 1, bottom - 1);
 
@@ -242,7 +242,7 @@ public class GuiChangelog extends ScaledScreen {
     private void drawHeader(int left, int right, int top, int mouseX, int mouseY) {
         long now = System.currentTimeMillis();
         for (int band = 0; band < HEADER_HEIGHT; band += 4) {
-            int color = Theme.blend(0xF00E1218, Theme.PANEL_ALT, band / (double) HEADER_HEIGHT);
+            int color = Theme.blend(Theme.alpha(Theme.DEEP, 0xF0), Theme.PANEL_ALT, band / (double) HEADER_HEIGHT);
             Theme.fill(left + 1, top + band, right - 1, Math.min(top + HEADER_HEIGHT, top + band + 4), color);
         }
         int headerWidth = right - left - 2;
@@ -297,7 +297,7 @@ public class GuiChangelog extends ScaledScreen {
                 crossRect[1],
                 crossRect[2],
                 crossRect[3],
-                Theme.blend(0x00222831, Theme.CONTROL_HOVER, lit));
+                Theme.blend(Theme.alpha(Theme.CONTROL, 0), Theme.CONTROL_HOVER, lit));
         }
         String[] cross = Icons.CLOSE;
         Icons.draw(
@@ -382,7 +382,7 @@ public class GuiChangelog extends ScaledScreen {
     private void drawCard(Card card, int x0, int y0, int x1, boolean hovered) {
         int accent = card.fresh ? Theme.SUCCESS : Theme.ACCENT;
         int y1 = y0 + card.height;
-        Theme.fill(x0, y0, x1, y1, hovered ? 0xFF1F252D : 0xFF1B2027);
+        Theme.fill(x0, y0, x1, y1, hovered ? Theme.CARD_HOVER : Theme.CARD);
         Theme.outline(x0, y0, x1, y1, hovered || card.fresh ? Theme.blend(Theme.BORDER, accent, 0.6) : Theme.BORDER);
         // The top of the card a shade lighter, under the version.
         Theme.fill(x0 + 1, y0 + 1, x1 - 1, y0 + CARD_HEADER, 0x14FFFFFF);
@@ -436,13 +436,13 @@ public class GuiChangelog extends ScaledScreen {
                 }
                 case NOTE: {
                     int h = block.lines.size() * LINE + 2;
-                    Theme.fill(left, y, right, y + h, 0x184C9AFF);
+                    Theme.fill(left, y, right, y + h, Theme.alpha(Theme.ACCENT, 0x18));
                     Theme.fill(left, y, left + 2, y + h, Theme.ACCENT_DIM);
                     drawLines(block.lines, left + 7, y + 2, Theme.TEXT_MUTED);
                     break;
                 }
                 default:
-                    drawLines(block.lines, left, y, 0xFFC4CBD5);
+                    drawLines(block.lines, left, y, Theme.TEXT_SOFT);
             }
         }
     }

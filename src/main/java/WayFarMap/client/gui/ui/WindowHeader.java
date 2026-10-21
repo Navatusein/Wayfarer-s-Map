@@ -68,8 +68,10 @@ public final class WindowHeader {
      */
     public static void draw(FontRenderer font, int left, int top, int right, int textRight, String[] icon, String title,
         String subtitle, int subtitleColor, String pill) {
-        Theme.fill(left + 1, top + 1, right - 1, top + HEIGHT - 1, Theme.PANEL_ALT);
+        Theme.fill(left + 1, top + 1, right - 1, top + HEIGHT - 1, Theme.HEADER);
         Theme.fill(left + 1, top + HEIGHT - 1, right - 1, top + HEIGHT, Theme.BORDER);
+        // The theme's strip along the bottom of the header (leaves, lava...).
+        Theme.decor(left + 1, top + HEIGHT - 3, right - 1, 2);
 
         // The window's icon, in the accent color like the help's section icons.
         int iconX = left + 15 - Icons.width(icon) / 2, iconY = top + 15 - icon.length / 2;
@@ -87,7 +89,11 @@ public final class WindowHeader {
         int room = Math.max(0, textRight - 6 - textLeft);
         String shownTitle = Theme.ellipsize(font, title, room);
         int titleY = subtitle == null ? top + 11 : top + 6;
-        font.drawStringWithShadow(shownTitle, textLeft, titleY, Theme.TEXT);
+        if (Theme.LIGHT) {
+            font.drawString(shownTitle, textLeft, titleY, Theme.TEXT);
+        } else {
+            font.drawStringWithShadow(shownTitle, textLeft, titleY, Theme.TEXT);
+        }
         if (subtitle != null) {
             drawSubtitle(font, subtitle, textLeft, top + 17, room, subtitleColor);
         }

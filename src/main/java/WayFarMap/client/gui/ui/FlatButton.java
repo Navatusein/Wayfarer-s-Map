@@ -50,7 +50,7 @@ public class FlatButton extends GuiButton {
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
         drawBackground(hovered);
 
-        int color = !enabled ? Theme.TEXT_DISABLED : danger ? Theme.DANGER : Theme.TEXT;
+        int color = !enabled ? Theme.TEXT_DISABLED : danger ? Theme.DANGER : Theme.BUTTON_TEXT;
         if (icon != null) {
             int shade;
             if (!enabled) {
@@ -58,7 +58,7 @@ public class FlatButton extends GuiButton {
             } else if (iconColor != 0) {
                 shade = Theme.iconShade(iconColor, hovered, active, false);
             } else {
-                shade = hovered || active ? Theme.TEXT : Theme.TEXT_MUTED;
+                shade = hovered || active ? Theme.BUTTON_TEXT : Theme.BEVEL ? 0xFFE0E0E0 : Theme.TEXT_MUTED;
             }
             int iconWidth = Icons.width(icon);
             int slot = Math.max(iconSlot, iconWidth);
@@ -66,11 +66,21 @@ public class FlatButton extends GuiButton {
             int textX = xPosition + 6 + slot + 5;
             // Room left on the right for a mark the screen may put there.
             String text = Theme.ellipsize(mc.fontRenderer, displayString, xPosition + width - 10 - textX);
-            Theme.text(mc.fontRenderer, text, textX, yPosition + (height - 8) / 2, color);
+            label(mc, text, textX, yPosition + (height - 8) / 2, color);
             return;
         }
         String text = Theme.ellipsize(mc.fontRenderer, displayString, width - 6);
-        Theme.centered(mc.fontRenderer, text, xPosition + width / 2, yPosition + (height - 8) / 2, color);
+        int textX = xPosition + width / 2 - mc.fontRenderer.getStringWidth(text) / 2;
+        label(mc, text, textX, yPosition + (height - 8) / 2, color);
+    }
+
+    /** The button's text: with a shadow on raised buttons, like Minecraft's. */
+    private static void label(Minecraft mc, String text, int x, int y, int color) {
+        if (Theme.BEVEL) {
+            mc.fontRenderer.drawStringWithShadow(text, x, y, color);
+        } else {
+            Theme.text(mc.fontRenderer, text, x, y, color);
+        }
     }
 
     /** The box: lit by the mouse with a short fade, in the accent color when active. */
@@ -88,6 +98,19 @@ public class FlatButton extends GuiButton {
             border = Theme.blend(Theme.BORDER, Theme.ACCENT, lit);
         }
         Theme.fill(xPosition, yPosition, xPosition + width, yPosition + height, background);
+        if (Theme.BEVEL) {
+            // Like Minecraft's stone buttons: a black edge, lighter at the top and left, darker at the others.
+            Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, 0xFF000000);
+            Theme.bevel(
+                xPosition + 1,
+                yPosition + 1,
+                xPosition + width - 1,
+                yPosition + height - 1,
+                0x70FFFFFF,
+                0x60000000,
+                1);
+            return;
+        }
         Theme.outline(xPosition, yPosition, xPosition + width, yPosition + height, border);
     }
 }

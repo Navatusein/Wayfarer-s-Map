@@ -1663,10 +1663,22 @@ public class GuiMapPictures extends ScaledScreen {
         // Fades at the edges of the grid when there is more past them.
         int maxScroll = maxScroll();
         if (shownScroll > 1) {
-            gradient(galleryLeft - 2, gridTop, x1 + 2, gridTop + 8, 0xF0161A20, 0x00161A20);
+            gradient(
+                galleryLeft - 2,
+                gridTop,
+                x1 + 2,
+                gridTop + 8,
+                Theme.alpha(Theme.PANEL, 0xF0),
+                Theme.alpha(Theme.PANEL, 0));
         }
         if (shownScroll < maxScroll - 1) {
-            gradient(galleryLeft - 2, contentBottom - 8, x1 + 2, contentBottom, 0x00161A20, 0xF0161A20);
+            gradient(
+                galleryLeft - 2,
+                contentBottom - 8,
+                x1 + 2,
+                contentBottom,
+                Theme.alpha(Theme.PANEL, 0),
+                Theme.alpha(Theme.PANEL, 0xF0));
         }
         if (maxScroll > 0) {
             int visible = contentBottom - gridTop;
@@ -1706,7 +1718,7 @@ public class GuiMapPictures extends ScaledScreen {
                 number,
                 chips[i][1] - 6 - fontRendererObj.getStringWidth(number),
                 y0 + 3,
-                on ? 0xFFBFD9FF : Theme.TEXT_DISABLED);
+                on ? Theme.ACCENT_SOFT : Theme.TEXT_DISABLED);
         }
     }
 
@@ -1773,7 +1785,7 @@ public class GuiMapPictures extends ScaledScreen {
                 int x0 = quickX(cx, q);
                 boolean armedHere = q == 2 && armed == ID_CARD_DELETE + i;
                 int background = armedHere ? Theme.DANGER
-                    : q == quick ? (q == 2 ? 0xF0602020 : Theme.ACCENT_DIM) : BADGE;
+                    : q == quick ? (q == 2 ? Theme.DANGER_STRONG : Theme.ACCENT_DIM) : BADGE;
                 Theme.fill(x0, y0, x0 + QUICK, y0 + QUICK, Theme.blend(0, background, lit));
                 if (q == quick || armedHere) {
                     Theme.outline(x0, y0, x0 + QUICK, y0 + QUICK, q == 2 ? Theme.DANGER : Theme.ACCENT);
@@ -1914,7 +1926,8 @@ public class GuiMapPictures extends ScaledScreen {
         double open = viewOpen.update(1, 14);
         MapPictures.Picture picture = pictures.get(viewing);
         Kind kind = kind(picture);
-        Theme.fill(0, 0, width, height, Theme.blend(0x00080A0D, 0xF4080A0D, open));
+        int dim = Theme.blend(Theme.alpha(Theme.SCREEN_DIM, 0), Theme.alpha(Theme.SCREEN_DIM, 0xF4), open);
+        Theme.fill(0, 0, width, height, dim);
         int areaTop = VIEW_BAR, areaBottom = viewAreaBottom();
         if (viewImage != null && viewImage.ready()) {
             double fit = Math
@@ -2005,7 +2018,7 @@ public class GuiMapPictures extends ScaledScreen {
         }
         // Fades at both ends.
         for (int x = 0; x < 24; x++) {
-            int color = Theme.blend(0xF01C2129, 0x001C2129, x / 24.0);
+            int color = Theme.blend(Theme.alpha(Theme.PANEL_ALT, 0xF0), Theme.alpha(Theme.PANEL_ALT, 0), x / 24.0);
             Theme.fill(x, y0 + 1, x + 1, height, color);
             Theme.fill(width - 1 - x, y0 + 1, width - x, height, color);
         }
@@ -2024,7 +2037,7 @@ public class GuiMapPictures extends ScaledScreen {
         int x0 = (width - textWidth) / 2 - 10, y0 = bottomY - 16 + shift;
         int x1 = x0 + textWidth + 20;
         Theme.fill(x0 + 2, y0 + 2, x1 + 2, bottomY + shift + 2, 0x60000000);
-        Theme.fill(x0, y0, x1, bottomY + shift, 0xF0161A20);
+        Theme.fill(x0, y0, x1, bottomY + shift, Theme.alpha(Theme.PANEL, 0xF0));
         Theme.outline(x0, y0, x1, bottomY + shift, toastColor);
         Theme.fill(x0, y0, x0 + 3, bottomY + shift, toastColor);
         Theme.text(fontRendererObj, text, x0 + 10, y0 + 4, toastColor);

@@ -546,7 +546,8 @@ public class GuiHelp extends ScaledScreen {
                 continue;
             }
             if (lit > 0.02) {
-                Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
+                int light = Theme.blend(Theme.ROW_HOVER & 0xFFFFFF, Theme.ROW_HOVER, lit);
+                Theme.fill(x0, y, x1, y + ITEM_HEIGHT - 1, light);
             }
             Section section = sections.get(i);
             // The open section's icon in its color, the others a darker shade of theirs, lit up under the mouse.

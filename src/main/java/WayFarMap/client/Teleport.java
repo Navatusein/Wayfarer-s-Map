@@ -42,6 +42,8 @@ public final class Teleport {
     private static final long PROBE_GAP_MS = 1_000;
 
     private volatile boolean allowed;
+    /** The server (with this mod) says the player may use /tp: it knows ServerUtilities ranks, tab completion doesn't. */
+    private volatile boolean serverAllowed;
     /** CoFH Core's command is there for the player. */
     private volatile boolean cofh;
     private volatile long probeSentAt;
@@ -55,7 +57,12 @@ public final class Teleport {
 
     /** Whether the player may use /tp (as last reported by the server). */
     public static boolean isAllowed() {
-        return INSTANCE.allowed;
+        return INSTANCE.allowed || INSTANCE.serverAllowed;
+    }
+
+    /** The server's word on /tp, rank or operator: from this mod on the server. */
+    public static void setServerAllowed(boolean value) {
+        INSTANCE.serverAllowed = value;
     }
 
     /** Teleports the player within the current dimension. */
@@ -188,6 +195,7 @@ public final class Teleport {
     @SubscribeEvent
     public void onConnect(FMLNetworkEvent.ClientConnectedToServerEvent event) {
         allowed = false;
+        serverAllowed = false;
         cofh = false;
         probe = PROBE_COFH;
         awaitingProbe = false;
@@ -209,6 +217,7 @@ public final class Teleport {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null || mc.theWorld == null) {
             allowed = false;
+            serverAllowed = false;
             cofh = false;
             return;
         }
