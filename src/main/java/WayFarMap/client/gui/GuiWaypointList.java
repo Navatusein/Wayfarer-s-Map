@@ -66,7 +66,6 @@ public class GuiWaypointList extends ScaledScreen {
     private static final int WHEEL_STEP = CARD_HEIGHT + GAP;
     private static final String UNGROUPED_KEY = "\u0000ungrouped";
 
-
     /** Colors of the groups, picked by their names, so a group keeps its color. */
     private static final int[] GROUP_COLORS = { 0xFF4C9AFF, 0xFF3FB950, 0xFFF2C14E, 0xFFE5534B, 0xFFB37FEB, 0xFF39C5CF,
         0xFFFF8C42, 0xFFE67AB8, 0xFF8BD450, 0xFF6C8CFF };

@@ -42,7 +42,9 @@ public final class Teleport {
     private static final long PROBE_GAP_MS = 1_000;
 
     private volatile boolean allowed;
-    /** The server (with this mod) says the player may use /tp: it knows ServerUtilities ranks, tab completion doesn't. */
+    /**
+     * The server (with this mod) says the player may use /tp: it knows ServerUtilities ranks, tab completion doesn't.
+     */
     private volatile boolean serverAllowed;
     /** CoFH Core's command is there for the player. */
     private volatile boolean cofh;

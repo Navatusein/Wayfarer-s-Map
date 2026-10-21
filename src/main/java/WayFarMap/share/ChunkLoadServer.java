@@ -602,9 +602,7 @@ public final class ChunkLoadServer {
                     ended(player, Integer.MAX_VALUE, false);
                 }
             }
-            if (told == null || told[0] != player
-                || (Boolean) told[1] != allowed
-                || (Boolean) told[2] != teleport) {
+            if (told == null || told[0] != player || (Boolean) told[1] != allowed || (Boolean) told[2] != teleport) {
                 toldAllowed.put(player.getUniqueID(), new Object[] { player, allowed, teleport });
                 ShareNetwork.sendTo(new ShareNetwork.LoadAllowed(allowed, teleport), player);
             }
@@ -622,8 +620,8 @@ public final class ChunkLoadServer {
         for (Object o : MinecraftServer.getServer()
             .getCommandManager()
             .getPossibleCommands(player)) {
-            if (o instanceof net.minecraft.command.ICommand && "tp".equals(
-                ((net.minecraft.command.ICommand) o).getCommandName())) {
+            if (o instanceof net.minecraft.command.ICommand
+                && "tp".equals(((net.minecraft.command.ICommand) o).getCommandName())) {
                 return true;
             }
         }
