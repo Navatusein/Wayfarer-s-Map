@@ -37,7 +37,7 @@ public final class ChargerServer {
 
     private final Queue<EntityPlayerMP> inbox = new ConcurrentLinkedQueue<>();
     private final Set<UUID> capable = new HashSet<>();
-    private final Map<UUID, List<ChargerPoint>> sent = new HashMap<>();
+    private final Map<UUID, List<MachinePoint>> sent = new HashMap<>();
     private boolean broken;
     private int tick;
 
@@ -61,9 +61,9 @@ public final class ChargerServer {
 
         final TileEntity tile;
         final Object gtCharger;
-        final ChargerPoint point;
+        final MachinePoint point;
 
-        Found(TileEntity tile, Object gtCharger, ChargerPoint point) {
+        Found(TileEntity tile, Object gtCharger, MachinePoint point) {
             this.tile = tile;
             this.gtCharger = gtCharger;
             this.point = point;
@@ -128,7 +128,7 @@ public final class ChargerServer {
                         new Found(
                             tile,
                             gt,
-                            new ChargerPoint(
+                            new MachinePoint(
                                 Chargers.KIND_GT,
                                 dimension,
                                 tile.xCoord,
@@ -143,7 +143,7 @@ public final class ChargerServer {
                         new Found(
                             tile,
                             null,
-                            new ChargerPoint(
+                            new MachinePoint(
                                 Chargers.KIND_ENDERIO,
                                 dimension,
                                 tile.xCoord,
@@ -160,13 +160,13 @@ public final class ChargerServer {
     }
 
     private void update(EntityPlayerMP player, List<Found> found) {
-        List<ChargerPoint> points = new ArrayList<>();
+        List<MachinePoint> points = new ArrayList<>();
         for (Found f : found) {
             if (f.gtCharger == null || Chargers.gtChargesPlayer(f.tile, f.gtCharger, player)) {
                 points.add(f.point);
             }
         }
-        List<ChargerPoint> last = sent.get(player.getUniqueID());
+        List<MachinePoint> last = sent.get(player.getUniqueID());
         if (points.equals(last)) {
             return;
         }

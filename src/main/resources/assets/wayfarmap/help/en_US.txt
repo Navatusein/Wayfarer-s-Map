@@ -22,7 +22,7 @@ All keys of the mod are set in Minecraft's §bOptions → Controls§r (category 
 - §e{key:mode_topo}§r — topography, §e{key:mode_biomes}§r — biomes
 - §e{key:light}§r — lighting (auto / day / night), §e{key:chunk_grid}§r — chunk grid
 - §e{key:ores}§r — ore veins, §e{key:fluids}§r — underground fluids, §e{key:claims}§r — claims
-- §e{key:powerfails}§r — power failures, §e{key:nodes}§r — Thaumcraft nodes, §e{key:wireless}§r — AE2 wireless coverage, §e{key:chargers}§r — wireless chargers
+- §e{key:powerfails}§r — power failures, §e{key:nodes}§r — Thaumcraft nodes, §e{key:wireless}§r — AE2 wireless coverage, §e{key:chargers}§r — wireless chargers, §e{key:drones}§r — drone centres
 - §e{key:hostile_mobs}§r — hostile mobs, §e{key:passive_mobs}§r — neutral mobs, §e{key:friendly_mobs}§r — friendly mobs
 - §e{key:pets}§r — pets, §e{key:players}§r — players
 
@@ -39,7 +39,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
 - §bBin§r — clean up: empty the logs folder, delete the 2D or 3D map of all dimensions of this world, or the 2D, 3D or whole map of one dimension (each button asks again). Waypoints are kept
 - §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
-- §bLayers§r — the §bMod layers§r menu: checkboxes for ores, fluids, claims, power failures, Thaumcraft nodes, AE2 wireless coverage and wireless chargers (only for installed mods); it stays open to switch several
+- §bLayers§r — the §bMod layers§r menu: checkboxes for ores, fluids, claims, power failures, Thaumcraft nodes, AE2 wireless coverage, wireless chargers and drone centres (only for installed mods); it stays open to switch several
 
 §fRight:§r
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
@@ -176,16 +176,29 @@ Needs §fApplied Energistics 2§r. Turned on with the §bAE2 wireless coverage§
 - §bBlue§r — working, §cred§r — no power or no channel
 - With the mod on the server: the access points of the networks your wireless terminals are linked to, with their exact range (boosters counted)
 - Without it: the access points seen nearby, of any network; the game doesn't tell the boosters, so the range is learned when you §fopen the access point§r once (until then a §7gray§r circle of the range without boosters)
-- Hover the dot in the middle — coordinates, range, the range at your height and the state
+- In the middle — an antenna icon (a §cred warning triangle§r by it when the access point doesn't work)
+- Hover a circle — it is outlined in a lighter shade of its color, with whose it is by the cursor; hover the icon in the middle — coordinates, range, the range at your height and the state
+- The thin ring can be turned off: settings → §bMod layers§r → §bAE2 wireless§r → §bFull range ring§r
 
 # {icon:chargers} Wireless chargers (GregTech, EnderIO)
-Turned on with the §bWireless chargers§r checkbox in the §bMod layers§r menu: a circle around each wireless charger where it charges your items, drawn like the AE2 coverage (filled at your height, a thin ring at the full range): §6amber§r with a diamond in the middle for GregTech, §dviolet§r with a dot for EnderIO.
+Turned on with the §bWireless chargers§r checkbox in the §bMod layers§r menu: a circle around each wireless charger where it charges your items, drawn like the AE2 coverage (filled at your height, a thin ring at the full range): §6amber§r for GregTech, §dviolet§r for EnderIO, with a lightning icon in the middle (a §cred warning triangle§r by it when the charger doesn't work).
 
 - Amber or violet — working, §cred§r — switched off or without energy (EnderIO: also a redstone signal), §7gray§r — only the smallest range is known
 - §fEnderIO§r: one range for all, from the EnderIO config (32 blocks in GT New Horizons)
 - §fGregTech§r: the range depends on the tier and the mode (long range, local, mixed). The mode is known only to the server: without the mod there the circle is the range reached in §fevery§r mode (tier × 10), until you §eright click§r the charger — its answer in the chat tells the mode. A screwdriver mode change is followed too
 - A long range of thousands of blocks covers most of the dimension: such a charger gets no circle, only its mark and the range on hover
 - With the mod on the server: exactly the chargers that charge you (a locked one only charges its owner), with their real range
+- Hover a circle — it is outlined in a lighter shade of its color, with whose it is by the cursor; hover the icon in the middle — coordinates, range, the range at your height and the state
+- The thin ring can be turned off: settings → §bMod layers§r → §bWireless chargers§r → §bFull range ring§r
+
+# {icon:drones} Drone centres (GregTech)
+Turned on with the §bDrone centres§r checkbox in the §bMod layers§r menu: a circle around each Drone Centre where it reaches the drone downlink modules (T1 128, T2 512, T3 and T4 4096 blocks), drawn like the AE2 coverage, with a drone icon in the middle (a §cred warning triangle§r by it when the centre doesn't work).
+
+- §3Teal§r — working, §cred§r — no drone, no power or not built
+- A T4 drone with a key reaches any distance and dimension: noted on hover
+- The client learns the drone level from GregTech 5.09.52.615 on. On older GregTech without the mod on the server the range is unknown: only a §7gray§r icon, no circle
+- Hover a circle — it is outlined in a lighter shade of its color, with whose it is by the cursor; hover the icon in the middle — coordinates, range, the range at your height and the state
+- The thin ring can be turned off: settings → §bMod layers§r → §bDrone centres§r → §bFull range ring§r
 
 # {icon:claims} Claims (ServerUtilities)
 Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bMod layers§r menu.

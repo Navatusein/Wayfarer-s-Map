@@ -3,17 +3,18 @@ package WayFarMap.share;
 import io.netty.buffer.ByteBuf;
 
 /**
- * A wireless charger for the map: {@link Chargers#KIND_GT} or {@link Chargers#KIND_ENDERIO}, where it is, its GregTech
- * tier and mode ({@link Chargers#MODE_UNKNOWN} when not known, always for EnderIO), its range in blocks and whether it
- * works.
+ * A machine with a coverage, for the map: a wireless charger ({@link Chargers#KIND_GT}, {@link Chargers#KIND_ENDERIO})
+ * or a drone centre ({@link DroneCentres#KIND}). Where it is, its tier (a GregTech charger's voltage tier, a drone
+ * centre's drone level), a GregTech charger's mode ({@link Chargers#MODE_UNKNOWN} when not known), its range in
+ * blocks and whether it works.
  */
-public final class ChargerPoint {
+public final class MachinePoint {
 
     public final int kind, dimension, x, y, z, tier, mode;
     public final float range;
     public final boolean active;
 
-    public ChargerPoint(int kind, int dimension, int x, int y, int z, int tier, int mode, float range, boolean active) {
+    public MachinePoint(int kind, int dimension, int x, int y, int z, int tier, int mode, float range, boolean active) {
         this.kind = kind;
         this.dimension = dimension;
         this.x = x;
@@ -25,8 +26,8 @@ public final class ChargerPoint {
         this.active = active;
     }
 
-    static ChargerPoint read(ByteBuf buf) {
-        return new ChargerPoint(
+    static MachinePoint read(ByteBuf buf) {
+        return new MachinePoint(
             buf.readByte(),
             buf.readInt(),
             buf.readInt(),
@@ -52,10 +53,10 @@ public final class ChargerPoint {
 
     @Override
     public boolean equals(Object o) {
-        if (!(o instanceof ChargerPoint)) {
+        if (!(o instanceof MachinePoint)) {
             return false;
         }
-        ChargerPoint p = (ChargerPoint) o;
+        MachinePoint p = (MachinePoint) o;
         return kind == p.kind && dimension == p.dimension
             && x == p.x
             && y == p.y

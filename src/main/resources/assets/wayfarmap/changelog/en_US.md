@@ -18,8 +18,14 @@
 
 # 0.0.20
 
-- [new] AE2 wireless coverage on the map and the minimap (the mod layers button): a circle around each wireless access point where the wireless terminal reaches it, filled at your height and ringed at the full range (the ring can be turned off: settings → Mod layers → AE2 wireless), overlapping circles merged into one, blue when working and red without power or a channel. With the mod on the server: the access points of your terminals' networks with their exact range. Without it: those seen nearby, with the range learned when you open one
-- [new] Wireless chargers of GregTech and EnderIO on the map and the minimap (the mod layers button): where each charges your items, drawn like the AE2 coverage: GregTech amber with a diamond, EnderIO violet with a dot, red when switched off or empty. EnderIO's range comes from its config; a GregTech charger's mode is known to the server only, so without the mod there the circle is the range of every mode until you right click the charger (its answer in the chat tells the mode). With the mod on the server: exactly the chargers that charge you, with their real range
+## Coverage zones
+- [new] Three mod layers on the map and the minimap (the mod layers button) show where machines reach: a circle around each, filled at your height (the distance is counted in 3D) and with a thin ring at the full range; circles of one color merge where they overlap
+  - The thin ring can be turned off for each layer: settings → Mod layers → AE2 wireless, Wireless chargers or Drone centres → Full range ring
+- [new] AE2 wireless coverage: where a wireless terminal reaches each wireless access point; blue — working, red — no power or no channel. With the mod on the server: the access points of your terminals' networks with their exact range; without it: those seen nearby, the range learned when you open one
+- [new] Wireless chargers (GregTech, EnderIO): where each charges your items; GregTech amber, EnderIO violet, red — switched off or empty. EnderIO's range comes from its config. A GregTech charger's mode is known only to the server: without the mod there the circle is the range of every mode until you right click the charger. With the mod on the server: exactly the chargers that charge you
+- [new] Drone centres (GregTech): where each reaches the drone downlink modules, by its drone's level; teal — working, red — no drone or not running. The client learns the drone level from GregTech 5.09.52.615 on; on older versions the range comes with the mod on the server
+- [new] Each machine is marked by its layer's icon, with a red warning triangle when it doesn't work. On the world map the circle under the cursor is outlined in a lighter shade of its color, with whose it is by the cursor
+- [new] Welcome window: a "Coverage zones" card among what the mod can do
 
 # 0.0.17
 

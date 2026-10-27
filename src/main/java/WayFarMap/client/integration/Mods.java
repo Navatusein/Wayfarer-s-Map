@@ -11,6 +11,7 @@ import org.lwjgl.opengl.GL11;
 
 import WayFarMap.WayFarMap;
 import WayFarMap.share.Chargers;
+import WayFarMap.share.DroneCentres;
 import cpw.mods.fml.common.Loader;
 
 /**
@@ -26,7 +27,7 @@ public final class Mods {
     private static Boolean claims;
     private static Boolean thaumcraftNodes;
     private static Boolean ae2;
-    private static boolean chargersBroken;
+    private static boolean chargersBroken, dronesBroken;
     /** Set when drawing GregTech power failures failed: the layer is off for the rest of the session. */
     private static boolean powerfailsBroken;
 
@@ -81,6 +82,11 @@ public final class Mods {
         return !chargersBroken && (Chargers.isGtAvailable() || Chargers.isEnderIoAvailable());
     }
 
+    /** GregTech's Drone Centre; see {@link DronesLayer}. */
+    public static boolean isDronesAvailable() {
+        return !dronesBroken && DroneCentres.isAvailable();
+    }
+
     private static Boolean nodeLayerDelete;
 
     /**
@@ -120,7 +126,8 @@ public final class Mods {
         THAUMCRAFT_NODES,
         POWERFAILS,
         AE2_WIRELESS,
-        CHARGERS
+        CHARGERS,
+        DRONES
     }
 
     private static final Set<Addon> FAILED = new HashSet<>();
@@ -162,6 +169,9 @@ public final class Mods {
                 break;
             case CHARGERS:
                 chargersBroken = true;
+                break;
+            case DRONES:
+                dronesBroken = true;
                 break;
         }
         if (FAILED.add(addon)) {

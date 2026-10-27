@@ -33,12 +33,14 @@ import io.netty.buffer.ByteBufOutputStream;
 public final class ShareNetwork {
 
     /** 3: team waypoints ({@link Waypoints}), sent only when both sides say at least that. */
-    public static final int PROTOCOL = 5;
+    public static final int PROTOCOL = 6;
     public static final int WAYPOINTS_PROTOCOL = 3;
     /** 4: AE2 wireless access points ({@link Wireless}), sent only to clients that say at least that. */
     public static final int WIRELESS_PROTOCOL = 4;
     /** 5: wireless chargers ({@link ChargerList}), sent only to clients that say at least that. */
     public static final int CHARGERS_PROTOCOL = 5;
+    /** 6: GregTech drone centres ({@link DroneList}), sent only to clients that say at least that. */
+    public static final int DRONES_PROTOCOL = 6;
     /** Records per message from the server: at most ~50 KB even uncompressed. */
     public static final int MAX_RECORDS = 32;
     /**
@@ -70,6 +72,7 @@ public final class ShareNetwork {
         channel.registerMessage(TeleportToServer.class, TeleportRequest.class, 15, Side.SERVER);
         channel.registerMessage(WirelessToClient.class, Wireless.class, 16, Side.CLIENT);
         channel.registerMessage(ChargersToClient.class, ChargerList.class, 17, Side.CLIENT);
+        channel.registerMessage(DronesToClient.class, DroneList.class, 18, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {
@@ -748,11 +751,11 @@ public final class ShareNetwork {
 
         private static final int MAX = 4096;
 
-        public final List<ChargerPoint> points = new ArrayList<>();
+        public final List<MachinePoint> points = new ArrayList<>();
 
         public ChargerList() {}
 
-        public ChargerList(List<ChargerPoint> points) {
+        public ChargerList(List<MachinePoint> points) {
             this.points.addAll(points);
         }
 
@@ -760,7 +763,7 @@ public final class ShareNetwork {
         public void fromBytes(ByteBuf buf) {
             int count = Math.min(MAX, buf.readInt());
             for (int i = 0; i < count; i++) {
-                points.add(ChargerPoint.read(buf));
+                points.add(MachinePoint.read(buf));
             }
         }
 
@@ -772,6 +775,47 @@ public final class ShareNetwork {
                 points.get(i)
                     .write(buf);
             }
+        }
+    }
+
+    /** The drone centres in loaded chunks, all of them each time (sent again when one changes). */
+    public static final class DroneList implements IMessage {
+
+        private static final int MAX = 4096;
+
+        public final List<MachinePoint> points = new ArrayList<>();
+
+        public DroneList() {}
+
+        public DroneList(List<MachinePoint> points) {
+            this.points.addAll(points);
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            int count = Math.min(MAX, buf.readInt());
+            for (int i = 0; i < count; i++) {
+                points.add(MachinePoint.read(buf));
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            int count = Math.min(MAX, points.size());
+            buf.writeInt(count);
+            for (int i = 0; i < count; i++) {
+                points.get(i)
+                    .write(buf);
+            }
+        }
+    }
+
+    public static final class DronesToClient implements IMessageHandler<DroneList, IMessage> {
+
+        @Override
+        public IMessage onMessage(DroneList message, MessageContext context) {
+            WayFarMap.proxy.receiveDrones(message);
+            return null;
         }
     }
 
@@ -809,6 +853,7 @@ public final class ShareNetwork {
             TeamMapServer.receive(context.getServerHandler().playerEntity, message);
             WirelessServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
             ChargerServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            DroneServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
             return null;
         }
     }

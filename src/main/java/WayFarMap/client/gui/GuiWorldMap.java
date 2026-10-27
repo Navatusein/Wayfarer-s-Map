@@ -50,6 +50,9 @@ import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
 import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.CoverageDrawer;
+import WayFarMap.client.integration.CoverageHover;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -401,7 +404,8 @@ public class GuiWorldMap extends ScaledScreen {
             || Mods.isPowerfailsAvailable()
             || Mods.isThaumcraftNodesAvailable()
             || Mods.isAe2Loaded()
-            || Mods.isChargersAvailable())) {
+            || Mods.isChargersAvailable()
+            || Mods.isDronesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, Lang.format("wayfarmap.gui.addons"));
             addonsButton.iconColor = COLOR_ADDONS;
             addIconButton(addonsButton, x);
@@ -480,6 +484,12 @@ public class GuiWorldMap extends ScaledScreen {
                 addonToggle("wayfarmap.gui.chargers", Config.showChargers, Config::toggleChargers).icon(Icons.CHARGER)
                     .iconColor(0xFFFFB300)
                     .key("chargers"));
+        }
+        if (Mods.isDronesAvailable()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.drones", Config.showDrones, Config::toggleDrones).icon(Icons.DRONE)
+                    .iconColor(0xFF1DE9B6)
+                    .key("drones"));
         }
         menu = entries;
         menuKind = MENU_ADDONS;
@@ -692,6 +702,15 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> Config.showChargers,
                 Config::toggleChargers);
         }
+        if (Mods.isDronesAvailable()) {
+            addLayer(
+                Icons.DRONE,
+                0xFF1DE9B6,
+                "wayfarmap.gui.drones",
+                "drones",
+                () -> Config.showDrones,
+                Config::toggleDrones);
+        }
         int step = 19;
         int y = (HEADER_HEIGHT + height - FOOTER_HEIGHT) / 2 - (layerButtons.size() * step - 3) / 2;
         for (LayerButton layer : layerButtons) {
@@ -839,6 +858,10 @@ public class GuiWorldMap extends ScaledScreen {
 
     private static boolean nodesShown() {
         return Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable();
+    }
+
+    private static boolean dronesShown() {
+        return Config.showDrones && Mods.isDronesAvailable();
     }
 
     private static boolean chargersShown() {
@@ -1041,7 +1064,8 @@ public class GuiWorldMap extends ScaledScreen {
                 || powerfailsShown()
                 || nodesShown()
                 || wirelessShown()
-                || chargersShown();
+                || chargersShown()
+                || dronesShown();
         }
     }
 
@@ -1427,17 +1451,22 @@ public class GuiWorldMap extends ScaledScreen {
             boolean surface = MapManager.INSTANCE.isSurfaceView();
             updateSurfaceView();
             try {
-                drawMap(mouseX, mouseY, partialTicks);
+                // The mouse is on the screen over it: nothing on the map is under it, and no tooltip shows.
+                drawMap(NO_MOUSE, NO_MOUSE, partialTicks);
             } finally {
                 MapManager.INSTANCE.setSurfaceView(surface);
             }
             return;
         }
-        drawMap(mouseX, mouseY, partialTicks);
+        // Under the welcome window likewise: map tooltips are drawn high and would show through it.
+        drawMap(welcome ? NO_MOUSE : mouseX, welcome ? NO_MOUSE : mouseY, partialTicks);
         if (welcome) {
             drawWelcome(mouseX, mouseY);
         }
     }
+
+    /** A mouse position off the screen, for drawing the map with nothing on it hovered. */
+    private static final int NO_MOUSE = -10000;
 
     private void drawMap(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
@@ -1602,6 +1631,12 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> ThaumcraftNodes
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
+        if (dronesShown()) {
+            Mods.draw(
+                Mods.Addon.DRONES,
+                () -> DronesLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
+        }
         if (chargersShown()) {
             Mods.draw(
                 Mods.Addon.CHARGERS,
@@ -1620,6 +1655,9 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> PowerfailLayer
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
+        // The coverage circle under the mouse, of the circles the layers offered.
+        CoverageDrawer.flush();
+        CoverageHover.endFrame();
         if (!otherDimension) {
             double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
             double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
@@ -1796,6 +1834,9 @@ public class GuiWorldMap extends ScaledScreen {
                 }
                 if (tooltip == null && chargersShown()) {
                     tooltip = ChargersLayer.getHoveredTooltip();
+                }
+                if (tooltip == null && dronesShown()) {
+                    tooltip = DronesLayer.getHoveredTooltip();
                 }
                 if (tooltip == null && prospecting && Config.showOreVeins) {
                     tooltip = ProspectingLayer.getHoveredTooltip();

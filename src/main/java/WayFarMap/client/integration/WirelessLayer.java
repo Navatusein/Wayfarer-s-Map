@@ -21,13 +21,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.EmptyChunk;
-
-import org.lwjgl.opengl.GL11;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -35,6 +32,7 @@ import com.google.gson.GsonBuilder;
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.WirelessPoint;
@@ -350,6 +348,9 @@ public final class WirelessLayer {
     // ---------------------------------------------------------------- drawing
 
     private static Shown hovered;
+    /** The machine whose circle the mouse is in (the smallest one, across the layers), and that circle. */
+    private static Shown areaHovered;
+    private static double[] areaCircle;
     private static int hoveredDimension;
 
     /**
@@ -360,6 +361,8 @@ public final class WirelessLayer {
         int height, boolean minimap, int mouseX, int mouseY) {
         if (!minimap) {
             hovered = null;
+            areaHovered = null;
+            areaCircle = null;
         }
         List<Shown> points = INSTANCE.shown(dimension);
         if (points.isEmpty()) {
@@ -383,7 +386,17 @@ public final class WirelessLayer {
             double slice = here ? Math.sqrt(Math.max(0, p.range * p.range - sq(p.y - feet))) * scale : full;
             visible.add(p);
             circles.add(new double[] { sx, sy, full, slice });
-            if (!minimap && Math.abs(mouseX - sx) <= 4 && Math.abs(mouseY - sy) <= 4) {
+            if (!minimap && CoverageHover.track(
+                "ae2:" + dimension + ":" + p.x + ":" + p.y + ":" + p.z,
+                sx,
+                sy,
+                Config.wirelessFullRange ? full : slice,
+                mouseX,
+                mouseY)) {
+                areaHovered = p;
+                areaCircle = new double[] { sx, sy, full, slice };
+            }
+            if (!minimap && Math.abs(mouseX - sx) <= 6 && Math.abs(mouseY - sy) <= 6) {
                 hovered = p;
                 hoveredDimension = dimension;
             }
@@ -403,39 +416,37 @@ public final class WirelessLayer {
                     c[2],
                     c[3],
                     color(p),
-                    !p.known ? 32 : p.active ? 48 : 60,
+                    !p.known ? 32 : p.active ? 48 : 40,
                     !p.known ? 0 : p.active ? 2 : 1));
         }
         CoverageDrawer.draw(coverage, minimap, Config.wirelessFullRange);
+        if (areaCircle != null) {
+            CoverageDrawer.highlight(
+                areaCircle[0],
+                areaCircle[1],
+                areaCircle[2],
+                areaCircle[3],
+                color(areaHovered),
+                Config.wirelessFullRange,
+                minimap);
+        }
 
-        Tessellator tessellator = Tessellator.instance;
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        tessellator.startDrawingQuads();
-        double half = minimap ? 1.5 : 2.5;
         for (int i = 0; i < visible.size(); i++) {
             double[] c = circles.get(i);
             Shown p = visible.get(i);
-            int frame = !minimap && p == hovered ? 0xFFFFFF : 0x000000;
-            quad(tessellator, c[0] - half - 1, c[1] - half - 1, c[0] + half + 1, c[1] + half + 1, frame, 220);
-            quad(tessellator, c[0] - half, c[1] - half, c[0] + half, c[1] + half, color(p), 255);
+            CoverageDrawer.mark(
+                c[0],
+                c[1],
+                Icons.WIRELESS,
+                p.known ? ACTIVE_COLOR : UNKNOWN_COLOR,
+                !p.active,
+                !minimap && (p == hovered || p == areaHovered),
+                minimap);
         }
-        tessellator.draw();
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static int color(Shown p) {
         return !p.known ? UNKNOWN_COLOR : p.active ? ACTIVE_COLOR : INACTIVE_COLOR;
-    }
-
-    private static void quad(Tessellator tessellator, double x0, double y0, double x1, double y1, int rgb, int alpha) {
-        tessellator.setColorRGBA_I(rgb, alpha);
-        tessellator.addVertex(x0, y1, 0);
-        tessellator.addVertex(x1, y1, 0);
-        tessellator.addVertex(x1, y0, 0);
-        tessellator.addVertex(x0, y0, 0);
     }
 
     private static double sq(double v) {
@@ -448,7 +459,9 @@ public final class WirelessLayer {
     public static List<String> getHoveredTooltip() {
         Shown p = hovered;
         if (p == null) {
-            return null;
+            p = areaHovered;
+            // In its circle, not on its mark: only what it is.
+            return p == null ? null : Collections.singletonList("§b" + Lang.format("wayfarmap.wireless.title"));
         }
         List<String> lines = new ArrayList<>();
         lines.add("§b" + Lang.format("wayfarmap.wireless.title"));

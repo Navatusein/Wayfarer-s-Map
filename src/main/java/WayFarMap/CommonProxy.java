@@ -2,6 +2,7 @@ package WayFarMap;
 
 import WayFarMap.share.ChargerServer;
 import WayFarMap.share.ChunkLoadServer;
+import WayFarMap.share.DroneServer;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.TeamMapServer;
 import WayFarMap.share.TeleportServer;
@@ -50,6 +51,11 @@ public class CommonProxy {
                 .bus()
                 .register(ChargerServer.INSTANCE);
         }
+        if (DroneServer.isActive()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(DroneServer.INSTANCE);
+        }
     }
 
     public void serverStarting(FMLServerStartingEvent event) {
@@ -62,6 +68,7 @@ public class CommonProxy {
         TeleportServer.INSTANCE.stop();
         WirelessServer.INSTANCE.stop();
         ChargerServer.INSTANCE.stop();
+        DroneServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }
@@ -78,4 +85,7 @@ public class CommonProxy {
 
     /** Wireless chargers for the client; only the client proxy handles them. */
     public void receiveChargers(IMessage message) {}
+
+    /** Drone centres for the client; only the client proxy handles them. */
+    public void receiveDrones(IMessage message) {}
 }

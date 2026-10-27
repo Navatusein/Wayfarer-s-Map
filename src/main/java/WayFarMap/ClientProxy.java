@@ -18,6 +18,7 @@ import WayFarMap.client.Teleport;
 import WayFarMap.client.WorldCleanup;
 import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.ChunkLoadClient;
@@ -77,6 +78,11 @@ public class ClientProxy extends CommonProxy {
             // Right clicks and the chat: a GregTech charger's answer tells its mode.
             MinecraftForge.EVENT_BUS.register(ChargersLayer.INSTANCE);
         }
+        if (Mods.isDronesAvailable()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(DronesLayer.INSTANCE);
+        }
 
         FMLCommonHandler.instance()
             .bus()
@@ -121,6 +127,11 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void receiveChunkLoad(IMessage message) {
         ChunkLoadClient.INSTANCE.receive(message);
+    }
+
+    @Override
+    public void receiveDrones(IMessage message) {
+        DronesLayer.INSTANCE.receive((ShareNetwork.DroneList) message);
     }
 
     @Override

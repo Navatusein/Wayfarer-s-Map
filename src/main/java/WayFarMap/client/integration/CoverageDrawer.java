@@ -22,7 +22,7 @@ import org.lwjgl.opengl.GL11;
  * the window often has none. The depth of the filled pixels is reset to the far value before and after, so what is
  * drawn around the layer isn't affected.
  */
-final class CoverageDrawer {
+public final class CoverageDrawer {
 
     /** One circle, in screen pixels. */
     static final class Circle {
@@ -88,6 +88,160 @@ final class CoverageDrawer {
                 arcs(tessellator, c.x, c.y, c.slice, sliceArcs.get(i), rgb, backing ? 120 : 235);
             }
         }
+    }
+
+    // ---------------------------------------------------------------- drawn over all the layers
+
+    private static final List<Runnable> HIGHLIGHTS = new ArrayList<>(), MARKS = new ArrayList<>();
+
+    /**
+     * The circle under the mouse: its slice (and its full range ring) outlined in a lighter shade of its color. Drawn
+     * by {@link #flush}, over
+     * all the layers: a later layer's fill (a big red circle) would tint it otherwise.
+     */
+    static void highlight(double x, double y, double full, double slice, int rgb, boolean fullRange, boolean minimap) {
+        HIGHLIGHTS.add(() -> drawHighlight(x, y, full, slice, lighter(rgb), fullRange, minimap));
+    }
+
+    /**
+     * A circle's mark (see {@link #drawMark(double, double, String[], int, boolean, boolean, boolean)}), drawn by
+     * {@link #flush}.
+     */
+    static void mark(double cx, double cy, String[] icon, int rgb, boolean broken, boolean hovered, boolean minimap) {
+        MARKS.add(() -> drawMark(cx, cy, icon, rgb, broken, hovered, minimap));
+    }
+
+    /** After all the coverage layers of the map or the minimap: their highlight, then their marks, on top. */
+    public static void flush() {
+        try {
+            for (Runnable r : HIGHLIGHTS) {
+                r.run();
+            }
+            for (Runnable r : MARKS) {
+                r.run();
+            }
+        } finally {
+            HIGHLIGHTS.clear();
+            MARKS.clear();
+        }
+    }
+
+    private static void drawHighlight(double x, double y, double full, double slice, int light, boolean fullRange,
+        boolean minimap) {
+        Tessellator tessellator = Tessellator.instance;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        List<double[]> whole = Collections.singletonList(new double[] { 0, Math.PI * 2 });
+        float width = minimap ? 2f : 2.5f;
+        for (int pass = 0; pass < 2; pass++) {
+            boolean backing = pass == 0;
+            GL11.glLineWidth(backing ? width + 2 : width);
+            int rgb = backing ? 0x000000 : light;
+            if (fullRange && full - slice > 1) {
+                arcs(tessellator, x, y, full, whole, rgb, backing ? 90 : 160);
+            }
+            if (slice > 0.5) {
+                arcs(tessellator, x, y, slice, whole, rgb, backing ? 140 : 255);
+            }
+        }
+        GL11.glLineWidth(1f);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /** The color halfway to white. */
+    static int lighter(int rgb) {
+        int r = (rgb >> 16 & 0xFF) + 0xFF >> 1, g = (rgb >> 8 & 0xFF) + 0xFF >> 1, b = (rgb & 0xFF) + 0xFF >> 1;
+        return r << 16 | g << 8 | b;
+    }
+
+    // ---------------------------------------------------------------- marks
+
+    /**
+     * The mark in the middle of a circle: the layer's pixel icon on a dark plate framed in the icon's color (white
+     * when hovered), with a red warning triangle at the corner when the machine doesn't work. Returns the half size,
+     * for telling whether the mouse is over it.
+     */
+    private static double drawMark(double cx, double cy, String[] icon, int rgb, boolean broken, boolean hovered,
+        boolean minimap) {
+        double pixel = minimap ? 0.75 : 1;
+        int columns = 0;
+        for (String row : icon) {
+            columns = Math.max(columns, row.length());
+        }
+        double w = columns * pixel, h = icon.length * pixel;
+        double half = Math.max(w, h) / 2 + 1.5;
+        Tessellator tessellator = Tessellator.instance;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        tessellator.startDrawingQuads();
+        quad(
+            tessellator,
+            cx - half - 1,
+            cy - half - 1,
+            cx + half + 1,
+            cy + half + 1,
+            hovered ? lighter(rgb) : rgb,
+            230);
+        quad(tessellator, cx - half, cy - half, cx + half, cy + half, 0x101418, 220);
+        double left = cx - w / 2, top = cy - h / 2;
+        for (int row = 0; row < icon.length; row++) {
+            String line = icon[row];
+            int start = -1;
+            for (int col = 0; col <= line.length(); col++) {
+                boolean filled = col < line.length() && line.charAt(col) == '#';
+                if (filled && start < 0) {
+                    start = col;
+                } else if (!filled && start >= 0) {
+                    quad(
+                        tessellator,
+                        left + start * pixel,
+                        top + row * pixel,
+                        left + col * pixel,
+                        top + (row + 1) * pixel,
+                        rgb,
+                        255);
+                    start = -1;
+                }
+            }
+        }
+        tessellator.draw();
+        if (broken) {
+            warning(tessellator, cx + half, cy - half, minimap ? 3.5 : 4.5);
+        }
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        return half + 1;
+    }
+
+    /** A red warning triangle with a "!" centered on (cx, cy), {@code r} from the middle to a corner. */
+    private static void warning(Tessellator tessellator, double cx, double cy, double r) {
+        tessellator.startDrawing(GL11.GL_TRIANGLES);
+        triangle(tessellator, cx, cy, r + 1, 0x000000, 230);
+        triangle(tessellator, cx, cy, r, 0xFF3030, 255);
+        tessellator.draw();
+        double s = r / 4.5;
+        tessellator.startDrawingQuads();
+        quad(tessellator, cx - 0.5 * s, cy - 2 * s, cx + 0.5 * s, cy + 0.8 * s, 0xFFFFFF, 255);
+        quad(tessellator, cx - 0.5 * s, cy + 1.6 * s, cx + 0.5 * s, cy + 2.6 * s, 0xFFFFFF, 255);
+        tessellator.draw();
+    }
+
+    private static void triangle(Tessellator tessellator, double cx, double cy, double r, int rgb, int alpha) {
+        tessellator.setColorRGBA_I(rgb, alpha);
+        tessellator.addVertex(cx, cy - r, 0);
+        tessellator.addVertex(cx - r, cy + r * 0.75, 0);
+        tessellator.addVertex(cx + r, cy + r * 0.75, 0);
+    }
+
+    private static void quad(Tessellator tessellator, double x0, double y0, double x1, double y1, int rgb, int alpha) {
+        tessellator.setColorRGBA_I(rgb, alpha);
+        tessellator.addVertex(x0, y1, 0);
+        tessellator.addVertex(x1, y1, 0);
+        tessellator.addVertex(x1, y0, 0);
+        tessellator.addVertex(x0, y0, 0);
     }
 
     // ---------------------------------------------------------------- fills

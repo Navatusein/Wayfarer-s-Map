@@ -24,6 +24,8 @@ import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.CoverageDrawer;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
@@ -508,6 +510,12 @@ public class MinimapRenderer {
                     () -> ThaumcraftNodes
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            if (Config.drones(true) && Mods.isDronesAvailable()) {
+                Mods.draw(
+                    Mods.Addon.DRONES,
+                    () -> DronesLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
+            }
             if (Config.chargers(true) && Mods.isChargersAvailable()) {
                 Mods.draw(
                     Mods.Addon.CHARGERS,
@@ -526,6 +534,8 @@ public class MinimapRenderer {
                     () -> PowerfailLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            // The coverage layers' marks, over all of their circles.
+            CoverageDrawer.flush();
             PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, playerX, playerZ);
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, Config.minimapPlayerNames);
             MapDrawer.drawTeammates(

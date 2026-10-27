@@ -110,7 +110,7 @@ public class Config {
         MINIMAP_VIEW_BIOMES = 3;
     public static int minimapView = MINIMAP_VIEW_FLAT, minimapLightMode = LIGHT_AUTO;
     public static boolean minimapOreVeins = true, minimapUndergroundFluids, minimapClaims, minimapPowerfails = true,
-        minimapThaumcraftNodes = true, minimapWireless = true, minimapChargers = true;
+        minimapThaumcraftNodes = true, minimapWireless = true, minimapChargers = true, minimapDrones = true;
     public static boolean minimapChunkGrid;
     public static boolean minimapPlayers = true, minimapHostileMobs = true, minimapPassiveMobs = true,
         minimapAmbientMobs = true, minimapOtherEntities = true, minimapPets = true;
@@ -237,6 +237,8 @@ public class Config {
     public static boolean wirelessFullRange = true;
     /** GregTech and EnderIO wireless chargers (only used when either is installed), and their full range ring. */
     public static boolean showChargers = true, chargersFullRange = true;
+    /** GregTech's drone centres (only used when GregTech has them), and their full range ring. */
+    public static boolean showDrones = true, dronesFullRange = true;
     /** Share the explored map with the ServerUtilities team (where the server has the mod). */
     public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
@@ -531,6 +533,13 @@ public class Config {
             true,
             () -> minimapChargers,
             v -> minimapChargers = v);
+        bool(
+            c,
+            "layerDrones",
+            "GregTech drone centres on the minimap.",
+            true,
+            () -> minimapDrones,
+            v -> minimapDrones = v);
         tab(null);
         group("ownGrid");
         parent("enabled");
@@ -1071,6 +1080,24 @@ public class Config {
             true,
             () -> chargersFullRange,
             v -> chargersFullRange = v);
+        group("drones");
+        parent(null);
+        bool(
+            c,
+            "drones",
+            "Show where GregTech drone centres reach the drone downlink modules, on the maps (if GregTech has them).",
+            true,
+            () -> showDrones,
+            v -> showDrones = v);
+        parent("drones");
+        bool(
+            c,
+            "dronesFullRange",
+            "A thin ring of the full range around the drone centres' circles, besides the filled slice at the "
+                + "player's height.",
+            true,
+            () -> dronesFullRange,
+            v -> dronesFullRange = v);
         parent(null);
         tab(TAB_MAP_2D);
         group("data");
@@ -1588,7 +1615,8 @@ public class Config {
             "powerfails",
             "thaumcraftNodes",
             "wireless",
-            "chargers");
+            "chargers",
+            "drones");
         hideFromSettings(
             CATEGORY_ENTITIES,
             "showOtherPlayers",
@@ -1689,6 +1717,11 @@ public class Config {
 
     public static void toggleThaumcraftNodes() {
         showThaumcraftNodes = !showThaumcraftNodes;
+        save();
+    }
+
+    public static void toggleDrones() {
+        showDrones = !showDrones;
         save();
     }
 
@@ -1844,6 +1877,10 @@ public class Config {
         return minimap && minimapOwnLayers ? minimapThaumcraftNodes : showThaumcraftNodes;
     }
 
+    public static boolean drones(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapDrones : showDrones;
+    }
+
     public static boolean chargers(boolean minimap) {
         return minimap && minimapOwnLayers ? minimapChargers : showChargers;
     }
@@ -1897,6 +1934,7 @@ public class Config {
             minimapThaumcraftNodes = showThaumcraftNodes;
             minimapWireless = showWireless;
             minimapChargers = showChargers;
+            minimapDrones = showDrones;
             minimapOwnLayers = true;
         }
     }

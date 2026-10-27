@@ -23,7 +23,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
@@ -32,17 +31,16 @@ import net.minecraft.world.chunk.EmptyChunk;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
-import org.lwjgl.opengl.GL11;
-
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import WayFarMap.Config;
 import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
+import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.map.MapManager;
-import WayFarMap.share.ChargerPoint;
 import WayFarMap.share.Chargers;
+import WayFarMap.share.MachinePoint;
 import WayFarMap.share.ShareNetwork;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -124,7 +122,7 @@ public final class ChargersLayer {
 
     private final Queue<ShareNetwork.ChargerList> inbox = new ConcurrentLinkedQueue<>();
     /** From the server; null while it sent none. */
-    private List<ChargerPoint> fromServer;
+    private List<MachinePoint> fromServer;
     private final Map<Integer, Map<Long, Seen>> seen = new HashMap<>();
     private Click click;
     private File worldDirectory;
@@ -453,7 +451,7 @@ public final class ChargersLayer {
     private List<Shown> shown(int dimension) {
         List<Shown> result = new ArrayList<>();
         if (fromServer != null) {
-            for (ChargerPoint p : fromServer) {
+            for (MachinePoint p : fromServer) {
                 if (p.dimension == dimension) {
                     boolean known = p.kind == Chargers.KIND_ENDERIO || p.mode != Chargers.MODE_UNKNOWN;
                     result.add(new Shown(p.kind, p.x, p.y, p.z, p.tier, p.mode, p.range, known, p.active));
@@ -480,6 +478,9 @@ public final class ChargersLayer {
     // ---------------------------------------------------------------- drawing
 
     private static Shown hovered;
+    /** The machine whose circle the mouse is in (the smallest one, across the layers), and that circle. */
+    private static Shown areaHovered;
+    private static double[] areaCircle;
     private static int hoveredDimension;
 
     /**
@@ -490,6 +491,8 @@ public final class ChargersLayer {
         int height, boolean minimap, int mouseX, int mouseY) {
         if (!minimap) {
             hovered = null;
+            areaHovered = null;
+            areaCircle = null;
         }
         List<Shown> points = INSTANCE.shown(dimension);
         if (points.isEmpty()) {
@@ -521,13 +524,23 @@ public final class ChargersLayer {
                         full,
                         slice,
                         color(p),
-                        !p.known ? 32 : p.active ? 48 : 60,
+                        !p.known ? 32 : p.active ? 48 : 40,
                         // One layer per color: working ones over broken ones, whichever mod.
                         (!p.known ? 0 : p.active ? 2 : 1) * 2 + p.kind));
+                if (!minimap && CoverageHover.track(
+                    "charger:" + dimension + ":" + p.x + ":" + p.y + ":" + p.z,
+                    sx,
+                    sy,
+                    Config.chargersFullRange ? full : slice,
+                    mouseX,
+                    mouseY)) {
+                    areaHovered = p;
+                    areaCircle = new double[] { sx, sy, full, slice };
+                }
             }
             marked.add(p);
             marks.add(new double[] { sx, sy });
-            if (!minimap && Math.abs(mouseX - sx) <= 4 && Math.abs(mouseY - sy) <= 4) {
+            if (!minimap && Math.abs(mouseX - sx) <= 6 && Math.abs(mouseY - sy) <= 6) {
                 hovered = p;
                 hoveredDimension = dimension;
             }
@@ -536,54 +549,35 @@ public final class ChargersLayer {
             return;
         }
         CoverageDrawer.draw(coverage, minimap, Config.chargersFullRange);
+        if (areaCircle != null) {
+            CoverageDrawer.highlight(
+                areaCircle[0],
+                areaCircle[1],
+                areaCircle[2],
+                areaCircle[3],
+                color(areaHovered),
+                Config.chargersFullRange,
+                minimap);
+        }
 
-        Tessellator tessellator = Tessellator.instance;
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        // The mark tells the mod by its shape too: a diamond for GregTech, a dot for EnderIO (an access point's is a
-        // square).
-        double half = minimap ? 1.5 : 2.5;
         for (int i = 0; i < marked.size(); i++) {
             double[] c = marks.get(i);
             Shown p = marked.get(i);
-            int frame = !minimap && p == hovered ? 0xFFFFFF : 0x000000;
-            if (p.kind == Chargers.KIND_ENDERIO) {
-                dot(tessellator, c[0], c[1], half + 1, frame, 220);
-                dot(tessellator, c[0], c[1], half, color(p), 255);
-            } else {
-                tessellator.startDrawingQuads();
-                diamond(tessellator, c[0], c[1], half + 1.5, frame, 220);
-                diamond(tessellator, c[0], c[1], half, color(p), 255);
-                tessellator.draw();
-            }
+            int rgb = !p.known ? UNKNOWN_COLOR : p.kind == Chargers.KIND_ENDERIO ? ENDERIO_COLOR : GT_COLOR;
+            CoverageDrawer.mark(
+                c[0],
+                c[1],
+                Icons.CHARGER,
+                rgb,
+                !p.active,
+                !minimap && (p == hovered || p == areaHovered),
+                minimap);
         }
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static int color(Shown p) {
         return !p.known ? UNKNOWN_COLOR
             : !p.active ? INACTIVE_COLOR : p.kind == Chargers.KIND_ENDERIO ? ENDERIO_COLOR : GT_COLOR;
-    }
-
-    private static void dot(Tessellator tessellator, double cx, double cy, double r, int rgb, int alpha) {
-        tessellator.startDrawing(GL11.GL_TRIANGLE_FAN);
-        tessellator.setColorRGBA_I(rgb, alpha);
-        tessellator.addVertex(cx, cy, 0);
-        for (int i = 12; i >= 0; i--) {
-            double a = Math.PI * 2 * i / 12;
-            tessellator.addVertex(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0);
-        }
-        tessellator.draw();
-    }
-
-    private static void diamond(Tessellator tessellator, double cx, double cy, double r, int rgb, int alpha) {
-        tessellator.setColorRGBA_I(rgb, alpha);
-        tessellator.addVertex(cx, cy + r, 0);
-        tessellator.addVertex(cx + r, cy, 0);
-        tessellator.addVertex(cx, cy - r, 0);
-        tessellator.addVertex(cx - r, cy, 0);
     }
 
     private static double sq(double v) {
@@ -596,7 +590,12 @@ public final class ChargersLayer {
     public static List<String> getHoveredTooltip() {
         Shown p = hovered;
         if (p == null) {
-            return null;
+            p = areaHovered;
+            // In its circle, not on its mark: only what it is.
+            return p == null ? null
+                : Collections.singletonList(
+                    p.kind == Chargers.KIND_ENDERIO ? "§d" + Lang.format("wayfarmap.chargers.enderio")
+                        : "§6" + Lang.format("wayfarmap.chargers.gregtech", tierName(p.tier)));
         }
         List<String> lines = new ArrayList<>();
         if (p.kind == Chargers.KIND_ENDERIO) {
