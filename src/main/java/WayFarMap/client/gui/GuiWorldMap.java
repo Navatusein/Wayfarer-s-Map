@@ -48,11 +48,16 @@ import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.gui.ui.ScaledScreen;
 import WayFarMap.client.gui.ui.Smooth;
 import WayFarMap.client.gui.ui.Theme;
+import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.CoverageDrawer;
+import WayFarMap.client.integration.CoverageHover;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
@@ -397,7 +402,10 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Config.isMapButtonShown("addons") && (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
             || Mods.isPowerfailsAvailable()
-            || Mods.isThaumcraftNodesAvailable())) {
+            || Mods.isThaumcraftNodesAvailable()
+            || Mods.isAe2Loaded()
+            || Mods.isChargersAvailable()
+            || Mods.isDronesAvailable())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, Lang.format("wayfarmap.gui.addons"));
             addonsButton.iconColor = COLOR_ADDONS;
             addIconButton(addonsButton, x);
@@ -464,6 +472,24 @@ public class GuiWorldMap extends ScaledScreen {
                     .icon(Icons.NODE)
                     .iconColor(0xFFC08CFF)
                     .key("nodes"));
+        }
+        if (Mods.isAe2Loaded()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.wireless", Config.showWireless, Config::toggleWireless).icon(Icons.WIRELESS)
+                    .iconColor(0xFF4FC3F7)
+                    .key("wireless"));
+        }
+        if (Mods.isChargersAvailable()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.chargers", Config.showChargers, Config::toggleChargers).icon(Icons.CHARGER)
+                    .iconColor(0xFFFFB300)
+                    .key("chargers"));
+        }
+        if (Mods.isDronesAvailable()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.drones", Config.showDrones, Config::toggleDrones).icon(Icons.DRONE)
+                    .iconColor(0xFF1DE9B6)
+                    .key("drones"));
         }
         menu = entries;
         menuKind = MENU_ADDONS;
@@ -658,6 +684,33 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> Config.showThaumcraftNodes,
                 Config::toggleThaumcraftNodes);
         }
+        if (Mods.isAe2Loaded()) {
+            addLayer(
+                Icons.WIRELESS,
+                0xFF4FC3F7,
+                "wayfarmap.gui.wireless",
+                "wireless",
+                () -> Config.showWireless,
+                Config::toggleWireless);
+        }
+        if (Mods.isChargersAvailable()) {
+            addLayer(
+                Icons.CHARGER,
+                0xFFFFB300,
+                "wayfarmap.gui.chargers",
+                "chargers",
+                () -> Config.showChargers,
+                Config::toggleChargers);
+        }
+        if (Mods.isDronesAvailable()) {
+            addLayer(
+                Icons.DRONE,
+                0xFF1DE9B6,
+                "wayfarmap.gui.drones",
+                "drones",
+                () -> Config.showDrones,
+                Config::toggleDrones);
+        }
         int step = 19;
         int y = (HEADER_HEIGHT + height - FOOTER_HEIGHT) / 2 - (layerButtons.size() * step - 3) / 2;
         for (LayerButton layer : layerButtons) {
@@ -805,6 +858,18 @@ public class GuiWorldMap extends ScaledScreen {
 
     private static boolean nodesShown() {
         return Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable();
+    }
+
+    private static boolean dronesShown() {
+        return Config.showDrones && Mods.isDronesAvailable();
+    }
+
+    private static boolean chargersShown() {
+        return Config.showChargers && Mods.isChargersAvailable();
+    }
+
+    private static boolean wirelessShown() {
+        return Config.showWireless && Mods.isAe2Loaded();
     }
 
     private static boolean powerfailsShown() {
@@ -997,7 +1062,10 @@ public class GuiWorldMap extends ScaledScreen {
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
                 || powerfailsShown()
-                || nodesShown();
+                || nodesShown()
+                || wirelessShown()
+                || chargersShown()
+                || dronesShown();
         }
     }
 
@@ -1383,17 +1451,22 @@ public class GuiWorldMap extends ScaledScreen {
             boolean surface = MapManager.INSTANCE.isSurfaceView();
             updateSurfaceView();
             try {
-                drawMap(mouseX, mouseY, partialTicks);
+                // The mouse is on the screen over it: nothing on the map is under it, and no tooltip shows.
+                drawMap(NO_MOUSE, NO_MOUSE, partialTicks);
             } finally {
                 MapManager.INSTANCE.setSurfaceView(surface);
             }
             return;
         }
-        drawMap(mouseX, mouseY, partialTicks);
+        // Under the welcome window likewise: map tooltips are drawn high and would show through it.
+        drawMap(welcome ? NO_MOUSE : mouseX, welcome ? NO_MOUSE : mouseY, partialTicks);
         if (welcome) {
             drawWelcome(mouseX, mouseY);
         }
     }
+
+    /** A mouse position off the screen, for drawing the map with nothing on it hovered. */
+    private static final int NO_MOUSE = -10000;
 
     private void drawMap(int mouseX, int mouseY, float partialTicks) {
         drawRect(0, 0, width, height, 0xFF0C0E11);
@@ -1558,12 +1631,33 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> ThaumcraftNodes
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
+        if (dronesShown()) {
+            Mods.draw(
+                Mods.Addon.DRONES,
+                () -> DronesLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
+        }
+        if (chargersShown()) {
+            Mods.draw(
+                Mods.Addon.CHARGERS,
+                () -> ChargersLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
+        }
+        if (wirelessShown()) {
+            Mods.draw(
+                Mods.Addon.AE2_WIRELESS,
+                () -> WirelessLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
+        }
         if (powerfailsShown()) {
             Mods.draw(
                 Mods.Addon.POWERFAILS,
                 () -> PowerfailLayer
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
+        // The coverage circle under the mouse, of the circles the layers offered.
+        CoverageDrawer.flush();
+        CoverageHover.endFrame();
         if (!otherDimension) {
             double px = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
             double pz = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
@@ -1734,6 +1828,18 @@ public class GuiWorldMap extends ScaledScreen {
                 List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
                 if (tooltip == null && nodesShown()) {
                     tooltip = ThaumcraftNodes.getHoveredTooltip();
+                }
+                // Marks of every coverage layer first: a circle of one layer must not hide a mark of another.
+                for (boolean area : new boolean[] { false, true }) {
+                    if (tooltip == null && wirelessShown()) {
+                        tooltip = WirelessLayer.getHoveredTooltip(area);
+                    }
+                    if (tooltip == null && chargersShown()) {
+                        tooltip = ChargersLayer.getHoveredTooltip(area);
+                    }
+                    if (tooltip == null && dronesShown()) {
+                        tooltip = DronesLayer.getHoveredTooltip(area);
+                    }
                 }
                 if (tooltip == null && prospecting && Config.showOreVeins) {
                     tooltip = ProspectingLayer.getHoveredTooltip();

@@ -16,14 +16,18 @@ import WayFarMap.client.PerfTicks;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.WorldCleanup;
+import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.DeathMarker;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
+import WayFarMap.share.ShareNetwork;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -60,6 +64,24 @@ public class ClientProxy extends CommonProxy {
 
         if (Mods.isClaimsAvailable()) {
             ClaimsLayer.register();
+        }
+
+        if (Mods.isAe2Loaded()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(WirelessLayer.INSTANCE);
+        }
+        if (Mods.isChargersAvailable()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(ChargersLayer.INSTANCE);
+            // Right clicks and the chat: a GregTech charger's answer tells its mode.
+            MinecraftForge.EVENT_BUS.register(ChargersLayer.INSTANCE);
+        }
+        if (Mods.isDronesAvailable()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(DronesLayer.INSTANCE);
         }
 
         FMLCommonHandler.instance()
@@ -105,5 +127,22 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void receiveChunkLoad(IMessage message) {
         ChunkLoadClient.INSTANCE.receive(message);
+    }
+
+    @Override
+    public void receiveMachines(IMessage message) {
+        ShareNetwork.MachineList list = (ShareNetwork.MachineList) message;
+        if (list.layer == ShareNetwork.MachineList.CHARGERS && Mods.isChargersAvailable()) {
+            ChargersLayer.INSTANCE.receive(list);
+        } else if (list.layer == ShareNetwork.MachineList.DRONES && Mods.isDronesAvailable()) {
+            DronesLayer.INSTANCE.receive(list);
+        }
+    }
+
+    @Override
+    public void receiveWireless(IMessage message) {
+        if (Mods.isAe2Loaded()) {
+            WirelessLayer.INSTANCE.receive((ShareNetwork.Wireless) message);
+        }
     }
 }

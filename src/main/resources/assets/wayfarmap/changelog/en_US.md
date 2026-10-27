@@ -16,6 +16,17 @@
   A line right under a point carries it on. Comments like this one are left out.
 -->
 
+# 0.0.20
+
+## Coverage zones
+- [new] Three mod layers on the map and the minimap (the mod layers button) show where machines reach: a circle around each, filled at your height (the distance is counted in 3D) and with a thin ring at the full range; circles of one color merge where they overlap
+  - The thin ring can be turned off for each layer: settings → Mod layers → AE2 wireless, Wireless chargers or Drone centres → Full range ring
+- [new] AE2 wireless coverage: where a wireless terminal reaches each wireless access point; blue — working, red — no power or no channel. With the mod on the server: the access points of your terminals' networks with their exact range; without it: those seen nearby, the range learned when you open one
+- [new] Wireless chargers (GregTech, EnderIO): where each charges your items; GregTech amber, EnderIO violet, red — switched off or empty. EnderIO's range comes from its config. A GregTech charger's mode is known only to the server: without the mod there the circle is the range of every mode until you right click the charger. Only the chargers you have seen are shown; with the mod on the server it tells their real mode, hides others' locked ones and keeps the state of those in loaded chunks current even from afar
+- [new] Drone centres (GregTech): where each reaches the drone downlink modules, by its drone's level; teal — working, red — no drone or not running. The client learns the drone level from GregTech 5.09.52.615 on; on older versions the range comes with the mod on the server. Only the centres you have seen are shown
+- [new] Each machine is marked by its layer's icon, with a red warning triangle when it doesn't work. On the world map the circle under the cursor is outlined in a lighter shade of its color, with whose it is by the cursor
+- [new] Welcome window: a "Coverage zones" card among what the mod can do
+
 # 0.0.17
 
 - [new] Minimap: names of other players and teammates under their heads (settings → Minimap → Player names, on by default)

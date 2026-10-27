@@ -33,8 +33,15 @@ import io.netty.buffer.ByteBufOutputStream;
 public final class ShareNetwork {
 
     /** 3: team waypoints ({@link Waypoints}), sent only when both sides say at least that. */
-    public static final int PROTOCOL = 3;
+    public static final int PROTOCOL = 5;
     public static final int WAYPOINTS_PROTOCOL = 3;
+    /** 4: AE2 wireless access points ({@link Wireless}), sent only to clients that say at least that. */
+    public static final int WIRELESS_PROTOCOL = 4;
+    /**
+     * 5: wireless chargers and drone centres the client has seen ({@link MachineAsk}, {@link MachineList}), only with
+     * clients that say at least that.
+     */
+    public static final int MACHINES_PROTOCOL = 5;
     /** Records per message from the server: at most ~50 KB even uncompressed. */
     public static final int MAX_RECORDS = 32;
     /**
@@ -64,6 +71,9 @@ public final class ShareNetwork {
         channel.registerMessage(WaypointsToServer.class, Waypoints.class, 13, Side.SERVER);
         channel.registerMessage(WaypointsToClient.class, Waypoints.class, 14, Side.CLIENT);
         channel.registerMessage(TeleportToServer.class, TeleportRequest.class, 15, Side.SERVER);
+        channel.registerMessage(WirelessToClient.class, Wireless.class, 16, Side.CLIENT);
+        channel.registerMessage(MachinesToClient.class, MachineList.class, 17, Side.CLIENT);
+        channel.registerMessage(MachineAskToServer.class, MachineAsk.class, 18, Side.SERVER);
     }
 
     public static void sendToServer(IMessage message) {
@@ -697,6 +707,176 @@ public final class ShareNetwork {
         }
     }
 
+    /**
+     * The AE2 wireless access points of the networks the player's wireless terminals are linked to, all of them each
+     * time (sent again when one changes). {@link #infinite}: one of those terminals has an Infinity Booster Card, so
+     * the range doesn't matter.
+     */
+    public static final class Wireless implements IMessage {
+
+        private static final int MAX = 4096;
+
+        public boolean infinite;
+        public final List<WirelessPoint> points = new ArrayList<>();
+
+        public Wireless() {}
+
+        public Wireless(boolean infinite, List<WirelessPoint> points) {
+            this.infinite = infinite;
+            this.points.addAll(points);
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            infinite = buf.readBoolean();
+            int count = Math.min(MAX, buf.readInt());
+            for (int i = 0; i < count; i++) {
+                points.add(WirelessPoint.read(buf));
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(infinite);
+            int count = Math.min(MAX, points.size());
+            buf.writeInt(count);
+            for (int i = 0; i < count; i++) {
+                points.get(i)
+                    .write(buf);
+            }
+        }
+    }
+
+    /**
+     * The server's answer about the machines of one layer the client asked about ({@link MachineAsk}), those of them
+     * in loaded chunks; all of them each time, sent again when one changes. An empty one after the hello tells the
+     * client the server answers. {@code foreign}: GregTech chargers there that don't charge this player.
+     */
+    public static final class MachineList implements IMessage {
+
+        public static final int CHARGERS = 0, DRONES = 1, LAYERS = 2;
+
+        public int layer;
+        public final List<MachinePoint> points = new ArrayList<>(), foreign = new ArrayList<>();
+
+        public MachineList() {}
+
+        public MachineList(int layer) {
+            this.layer = layer;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            layer = buf.readByte();
+            read(buf, points);
+            read(buf, foreign);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(layer);
+            write(buf, points);
+            write(buf, foreign);
+        }
+
+        private static void read(ByteBuf buf, List<MachinePoint> into) {
+            int count = Math.min(MachineAsk.MAX, buf.readInt());
+            for (int i = 0; i < count; i++) {
+                into.add(MachinePoint.read(buf));
+            }
+        }
+
+        private static void write(ByteBuf buf, List<MachinePoint> from) {
+            int count = Math.min(MachineAsk.MAX, from.size());
+            buf.writeInt(count);
+            for (int i = 0; i < count; i++) {
+                from.get(i)
+                    .write(buf);
+            }
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof MachineList && layer == ((MachineList) o).layer
+                && points.equals(((MachineList) o).points)
+                && foreign.equals(((MachineList) o).foreign);
+        }
+
+        @Override
+        public int hashCode() {
+            return points.hashCode() * 31 + foreign.hashCode();
+        }
+    }
+
+    /** The machines of one layer the client has seen: {dimension, x, y, z} each, at most {@link #MAX}. */
+    public static final class MachineAsk implements IMessage {
+
+        public static final int MAX = 256;
+
+        public int layer;
+        public final List<int[]> positions = new ArrayList<>();
+
+        public MachineAsk() {}
+
+        public MachineAsk(int layer, List<int[]> positions) {
+            this.layer = layer;
+            this.positions.addAll(positions.subList(0, Math.min(MAX, positions.size())));
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            layer = buf.readByte();
+            int count = buf.readInt();
+            if (layer < 0 || layer >= MachineList.LAYERS || count < 0 || count > MAX) {
+                layer = -1;
+                return;
+            }
+            for (int i = 0; i < count; i++) {
+                positions.add(new int[] { buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt() });
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeByte(layer);
+            buf.writeInt(positions.size());
+            for (int[] p : positions) {
+                for (int v : p) {
+                    buf.writeInt(v);
+                }
+            }
+        }
+    }
+
+    public static final class MachinesToClient implements IMessageHandler<MachineList, IMessage> {
+
+        @Override
+        public IMessage onMessage(MachineList message, MessageContext context) {
+            WayFarMap.proxy.receiveMachines(message);
+            return null;
+        }
+    }
+
+    public static final class MachineAskToServer implements IMessageHandler<MachineAsk, IMessage> {
+
+        @Override
+        public IMessage onMessage(MachineAsk message, MessageContext context) {
+            if (message.layer >= 0) {
+                MachineServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            }
+            return null;
+        }
+    }
+
+    public static final class WirelessToClient implements IMessageHandler<Wireless, IMessage> {
+
+        @Override
+        public IMessage onMessage(Wireless message, MessageContext context) {
+            WayFarMap.proxy.receiveWireless(message);
+            return null;
+        }
+    }
+
     public static final class TeleportToServer implements IMessageHandler<TeleportRequest, IMessage> {
 
         @Override
@@ -711,6 +891,8 @@ public final class ShareNetwork {
         @Override
         public IMessage onMessage(Hello message, MessageContext context) {
             TeamMapServer.receive(context.getServerHandler().playerEntity, message);
+            WirelessServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
+            MachineServer.INSTANCE.receive(context.getServerHandler().playerEntity, message);
             return null;
         }
     }

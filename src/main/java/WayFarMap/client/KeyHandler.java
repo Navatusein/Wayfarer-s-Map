@@ -61,6 +61,9 @@ public class KeyHandler {
     public static final KeyBinding CLAIMS = unbound("claims");
     public static final KeyBinding POWERFAILS = unbound("powerfails");
     public static final KeyBinding NODES = unbound("nodes");
+    public static final KeyBinding WIRELESS = unbound("wireless");
+    public static final KeyBinding CHARGERS = unbound("chargers");
+    public static final KeyBinding DRONES = unbound("drones");
     public static final KeyBinding CHUNK_GRID = unbound("chunk_grid");
     public static final KeyBinding HOSTILE_MOBS = unbound("hostile_mobs");
     public static final KeyBinding PASSIVE_MOBS = unbound("passive_mobs");
@@ -80,6 +83,9 @@ public class KeyHandler {
     public static final KeyBinding MINIMAP_CLAIMS = unbound("minimap_claims", CATEGORY_MINIMAP);
     public static final KeyBinding MINIMAP_POWERFAILS = unbound("minimap_powerfails", CATEGORY_MINIMAP);
     public static final KeyBinding MINIMAP_NODES = unbound("minimap_nodes", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_WIRELESS = unbound("minimap_wireless", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_CHARGERS = unbound("minimap_chargers", CATEGORY_MINIMAP);
+    public static final KeyBinding MINIMAP_DRONES = unbound("minimap_drones", CATEGORY_MINIMAP);
     public static final KeyBinding MINIMAP_CHUNK_GRID = unbound("minimap_chunk_grid", CATEGORY_MINIMAP);
     public static final KeyBinding MINIMAP_HOSTILE_MOBS = unbound("minimap_hostile_mobs", CATEGORY_MINIMAP);
     public static final KeyBinding MINIMAP_PASSIVE_MOBS = unbound("minimap_passive_mobs", CATEGORY_MINIMAP);
@@ -90,9 +96,10 @@ public class KeyHandler {
     public static final KeyBinding MINIMAP_LIGHT = unbound("minimap_light", CATEGORY_MINIMAP);
 
     private static final KeyBinding[] UNBOUND = { MODE_BLOCKS, MODE_PLANTLESS, MODE_TOPO, MODE_BIOMES, ORES, FLUIDS,
-        CLAIMS, POWERFAILS, NODES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS, FRIENDLY_MOBS, PETS, PLAYERS,
-        LIGHT, MINIMAP_MODE_BLOCKS, MINIMAP_MODE_PLANTLESS, MINIMAP_MODE_TOPO, MINIMAP_MODE_BIOMES, MINIMAP_ORES,
-        MINIMAP_FLUIDS, MINIMAP_CLAIMS, MINIMAP_POWERFAILS, MINIMAP_NODES, MINIMAP_CHUNK_GRID, MINIMAP_HOSTILE_MOBS,
+        CLAIMS, POWERFAILS, NODES, WIRELESS, CHARGERS, DRONES, CHUNK_GRID, HOSTILE_MOBS, PASSIVE_MOBS, AMBIENT_MOBS,
+        FRIENDLY_MOBS, PETS, PLAYERS, LIGHT, MINIMAP_MODE_BLOCKS, MINIMAP_MODE_PLANTLESS, MINIMAP_MODE_TOPO,
+        MINIMAP_MODE_BIOMES, MINIMAP_ORES, MINIMAP_FLUIDS, MINIMAP_CLAIMS, MINIMAP_POWERFAILS, MINIMAP_NODES,
+        MINIMAP_WIRELESS, MINIMAP_CHARGERS, MINIMAP_DRONES, MINIMAP_CHUNK_GRID, MINIMAP_HOSTILE_MOBS,
         MINIMAP_PASSIVE_MOBS, MINIMAP_AMBIENT_MOBS, MINIMAP_FRIENDLY_MOBS, MINIMAP_PETS, MINIMAP_PLAYERS,
         MINIMAP_LIGHT };
 
@@ -224,6 +231,18 @@ public class KeyHandler {
             Config.toggleThaumcraftNodes();
             tell(mc, NODES, Config.showThaumcraftNodes);
         }
+        if (WIRELESS.isPressed() && installed(mc, WIRELESS, Mods.isAe2Loaded())) {
+            Config.toggleWireless();
+            tell(mc, WIRELESS, Config.showWireless);
+        }
+        if (CHARGERS.isPressed() && installed(mc, CHARGERS, Mods.isChargersAvailable())) {
+            Config.toggleChargers();
+            tell(mc, CHARGERS, Config.showChargers);
+        }
+        if (DRONES.isPressed() && installed(mc, DRONES, Mods.isDronesAvailable())) {
+            Config.toggleDrones();
+            tell(mc, DRONES, Config.showDrones);
+        }
         if (CHUNK_GRID.isPressed()) {
             Config.toggleChunkGrid();
             tell(mc, CHUNK_GRID, Config.chunkGrid);
@@ -314,6 +333,25 @@ public class KeyHandler {
                 layers,
                 () -> Config.minimapThaumcraftNodes,
                 on -> Config.minimapThaumcraftNodes = on);
+        }
+        if (MINIMAP_WIRELESS.isPressed() && installed(mc, MINIMAP_WIRELESS, Mods.isAe2Loaded())) {
+            minimapToggle(
+                mc,
+                MINIMAP_WIRELESS,
+                layers,
+                () -> Config.minimapWireless,
+                on -> Config.minimapWireless = on);
+        }
+        if (MINIMAP_CHARGERS.isPressed() && installed(mc, MINIMAP_CHARGERS, Mods.isChargersAvailable())) {
+            minimapToggle(
+                mc,
+                MINIMAP_CHARGERS,
+                layers,
+                () -> Config.minimapChargers,
+                on -> Config.minimapChargers = on);
+        }
+        if (MINIMAP_DRONES.isPressed() && installed(mc, MINIMAP_DRONES, Mods.isDronesAvailable())) {
+            minimapToggle(mc, MINIMAP_DRONES, layers, () -> Config.minimapDrones, on -> Config.minimapDrones = on);
         }
         if (MINIMAP_CHUNK_GRID.isPressed()) {
             minimapToggle(

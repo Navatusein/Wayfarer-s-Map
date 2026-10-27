@@ -110,7 +110,7 @@ public class Config {
         MINIMAP_VIEW_BIOMES = 3;
     public static int minimapView = MINIMAP_VIEW_FLAT, minimapLightMode = LIGHT_AUTO;
     public static boolean minimapOreVeins = true, minimapUndergroundFluids, minimapClaims, minimapPowerfails = true,
-        minimapThaumcraftNodes = true;
+        minimapThaumcraftNodes = true, minimapWireless = true, minimapChargers = true, minimapDrones = true;
     public static boolean minimapChunkGrid;
     public static boolean minimapPlayers = true, minimapHostileMobs = true, minimapPassiveMobs = true,
         minimapAmbientMobs = true, minimapOtherEntities = true, minimapPets = true;
@@ -231,6 +231,14 @@ public class Config {
     public static boolean showClaims = false;
     public static boolean showPowerfails = true;
     public static boolean showThaumcraftNodes = true;
+    /** AE2 wireless access point coverage (only used when AE2 is installed). */
+    public static boolean showWireless = true;
+    /** The thin ring of the full range around the coverage circles, besides the slice at the player's height. */
+    public static boolean wirelessFullRange = true;
+    /** GregTech and EnderIO wireless chargers (only used when either is installed), and their full range ring. */
+    public static boolean showChargers = true, chargersFullRange = true;
+    /** GregTech's drone centres (only used when GregTech has them), and their full range ring. */
+    public static boolean showDrones = true, dronesFullRange = true;
     /** Share the explored map with the ServerUtilities team (where the server has the mod). */
     public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
@@ -511,6 +519,27 @@ public class Config {
             true,
             () -> minimapThaumcraftNodes,
             v -> minimapThaumcraftNodes = v);
+        bool(
+            c,
+            "layerWireless",
+            "AE2 wireless access point coverage on the minimap.",
+            true,
+            () -> minimapWireless,
+            v -> minimapWireless = v);
+        bool(
+            c,
+            "layerChargers",
+            "GregTech and EnderIO wireless chargers on the minimap.",
+            true,
+            () -> minimapChargers,
+            v -> minimapChargers = v);
+        bool(
+            c,
+            "layerDrones",
+            "GregTech drone centres on the minimap.",
+            true,
+            () -> minimapDrones,
+            v -> minimapDrones = v);
         tab(null);
         group("ownGrid");
         parent("enabled");
@@ -1015,6 +1044,61 @@ public class Config {
             true,
             () -> showThaumcraftNodes,
             v -> showThaumcraftNodes = v);
+        group("wireless");
+        parent(null);
+        bool(
+            c,
+            "wireless",
+            "Show the coverage of AE2 wireless access points on the maps (if installed).",
+            true,
+            () -> showWireless,
+            v -> showWireless = v);
+        parent("wireless");
+        bool(
+            c,
+            "wirelessFullRange",
+            "A thin ring of the full range around the coverage circles, besides the filled slice at the player's "
+                + "height.",
+            true,
+            () -> wirelessFullRange,
+            v -> wirelessFullRange = v);
+        group("chargers");
+        parent(null);
+        bool(
+            c,
+            "chargers",
+            "Show where GregTech and EnderIO wireless chargers charge your items, on the maps (if installed).",
+            true,
+            () -> showChargers,
+            v -> showChargers = v);
+        parent("chargers");
+        bool(
+            c,
+            "chargersFullRange",
+            "A thin ring of the full range around the chargers' circles, besides the filled slice at the player's "
+                + "height.",
+            true,
+            () -> chargersFullRange,
+            v -> chargersFullRange = v);
+        group("drones");
+        parent(null);
+        bool(
+            c,
+            "drones",
+            "Show where GregTech drone centres reach the drone downlink modules, on the maps (if GregTech has them).",
+            true,
+            () -> showDrones,
+            v -> showDrones = v);
+        parent("drones");
+        bool(
+            c,
+            "dronesFullRange",
+            "A thin ring of the full range around the drone centres' circles, besides the filled slice at the "
+                + "player's height.",
+            true,
+            () -> dronesFullRange,
+            v -> dronesFullRange = v);
+        parent(null);
         tab(TAB_MAP_2D);
         group("data");
         parent(null);
@@ -1529,7 +1613,10 @@ public class Config {
             "undergroundFluids",
             "claims",
             "powerfails",
-            "thaumcraftNodes");
+            "thaumcraftNodes",
+            "wireless",
+            "chargers",
+            "drones");
         hideFromSettings(
             CATEGORY_ENTITIES,
             "showOtherPlayers",
@@ -1630,6 +1717,21 @@ public class Config {
 
     public static void toggleThaumcraftNodes() {
         showThaumcraftNodes = !showThaumcraftNodes;
+        save();
+    }
+
+    public static void toggleDrones() {
+        showDrones = !showDrones;
+        save();
+    }
+
+    public static void toggleChargers() {
+        showChargers = !showChargers;
+        save();
+    }
+
+    public static void toggleWireless() {
+        showWireless = !showWireless;
         save();
     }
 
@@ -1775,6 +1877,18 @@ public class Config {
         return minimap && minimapOwnLayers ? minimapThaumcraftNodes : showThaumcraftNodes;
     }
 
+    public static boolean drones(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapDrones : showDrones;
+    }
+
+    public static boolean chargers(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapChargers : showChargers;
+    }
+
+    public static boolean wireless(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapWireless : showWireless;
+    }
+
     public static boolean otherPlayers(boolean minimap) {
         return minimap && minimapOwnMobs ? minimapPlayers : showOtherPlayers;
     }
@@ -1818,6 +1932,9 @@ public class Config {
             minimapClaims = showClaims;
             minimapPowerfails = showPowerfails;
             minimapThaumcraftNodes = showThaumcraftNodes;
+            minimapWireless = showWireless;
+            minimapChargers = showChargers;
+            minimapDrones = showDrones;
             minimapOwnLayers = true;
         }
     }

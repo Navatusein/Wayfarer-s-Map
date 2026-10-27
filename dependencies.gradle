@@ -46,4 +46,6 @@ dependencies {
     // Optional OpenBlocks integration: a mixin into its grave removes the death waypoint once the grave is gone.
     compileOnly("com.github.GTNewHorizons:OpenBlocks:1.12.22-GTNH:dev") { transitive = false }
     compileOnly("com.github.GTNewHorizons:OpenModsLib:0.10.14:dev") { transitive = false }
+    // Optional AE2 integration: the coverage of the player's wireless access points on the maps.
+    compileOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-1040-GTNH:dev") { transitive = false }
 }

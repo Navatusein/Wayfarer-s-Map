@@ -69,7 +69,8 @@ final class WelcomeWindow {
     /** What the mod can do: {icon, translation key, color}. */
     private static final Object[][] FEATURES = { { Icons.ISO, "map", 0xFF4C9AFF },
         { Icons.WAYPOINTS, "waypoints", 0xFFE5534B }, { Icons.CAVES, "caves", 0xFFA371F7 },
-        { Icons.TOPO, "topo", 0xFF3FB950 }, { Icons.ORE, "mods", 0xFFE3B341 }, { Icons.TEAM, "team", 0xFFDB61A2 } };
+        { Icons.TOPO, "topo", 0xFF3FB950 }, { Icons.ORE, "mods", 0xFFE3B341 }, { Icons.TEAM, "team", 0xFFDB61A2 },
+        { Icons.WIRELESS, "coverage", 0xFF1DE9B6 } };
     /** The author's pages: {name, url, icon, color}. */
     private static final Object[][] LINKS = { { "GitHub", GuiAbout.GITHUB_URL, Icons.GITHUB, 0 },
         { "Boosty", GuiAbout.BOOSTY_URL, Icons.BOOSTY, 0xFFF15F2C },
@@ -481,7 +482,9 @@ final class WelcomeWindow {
             int column = i % FEATURE_COLUMNS, row = i / FEATURE_COLUMNS;
             int x0 = left + PAD + column * (cardWidth + CARD_GAP);
             int y0 = base + row * (CARD_HEIGHT + CARD_GAP) + slide(start, 2 + i);
-            int[] r = { x0, y0, x0 + cardWidth, y0 + CARD_HEIGHT };
+            // The last card alone on its row takes the whole row.
+            boolean alone = i == FEATURES.length - 1 && column == 0;
+            int[] r = { x0, y0, alone ? left + PAD + textWidth() : x0 + cardWidth, y0 + CARD_HEIGHT };
             double lit = cardLight[i].update(start != 0 && inside(mouseX, mouseY, r) ? 1 : 0, 18);
             drawFeatureCard(i, r, lit);
         }

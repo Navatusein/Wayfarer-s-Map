@@ -22,11 +22,15 @@ import WayFarMap.Perf;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
+import WayFarMap.client.integration.CoverageDrawer;
+import WayFarMap.client.integration.DronesLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.MapDimension;
 import WayFarMap.client.map.MapManager;
@@ -302,12 +306,13 @@ public class MinimapRenderer {
 
         // The map is drawn into an offscreen buffer the size of the minimap, which cuts it exactly to the square
         // (a turned map sticks out otherwise), and the buffer is then put on screen as a square or a circle.
+        // With a depth buffer: overlapping coverage circles are filled once through it (see CoverageDrawer).
         if (OpenGlHelper.isFramebufferEnabled()) {
             int pixels = Math.max(1, (int) Math.ceil(size * pixelsPerUnit - 1e-6));
             // The preview has its own, so neither is made again at the other's size every frame.
             Framebuffer buffer = preview ? previewBuffer : hudBuffer;
             if (buffer == null) {
-                buffer = new Framebuffer(pixels, pixels, false);
+                buffer = new Framebuffer(pixels, pixels, true);
                 buffer.setFramebufferColor(0f, 0f, 0f, 0f);
                 if (preview) {
                     previewBuffer = buffer;
@@ -327,9 +332,15 @@ public class MinimapRenderer {
             GL11.glPushMatrix();
             GL11.glLoadIdentity();
             GL11.glTranslatef(0f, 0f, -2000f);
+            // The layers draw as they did without a depth buffer; the coverage circles turn the test on for themselves.
+            boolean depthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
             try {
                 drawLayers(mc, dimension, px, pz, scale, size, rotation, partialTicks, pixelsPerUnit);
             } finally {
+                if (depthTest) {
+                    GL11.glEnable(GL11.GL_DEPTH_TEST);
+                }
                 GL11.glMatrixMode(GL11.GL_PROJECTION);
                 GL11.glPopMatrix();
                 GL11.glMatrixMode(GL11.GL_MODELVIEW);
@@ -499,12 +510,32 @@ public class MinimapRenderer {
                     () -> ThaumcraftNodes
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            if (Config.drones(true) && Mods.isDronesAvailable()) {
+                Mods.draw(
+                    Mods.Addon.DRONES,
+                    () -> DronesLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
+            }
+            if (Config.chargers(true) && Mods.isChargersAvailable()) {
+                Mods.draw(
+                    Mods.Addon.CHARGERS,
+                    () -> ChargersLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
+            }
+            if (Config.wireless(true) && Mods.isAe2Loaded()) {
+                Mods.draw(
+                    Mods.Addon.AE2_WIRELESS,
+                    () -> WirelessLayer
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
+            }
             if (Config.powerfails(true) && Mods.isPowerfailsAvailable()) {
                 Mods.draw(
                     Mods.Addon.POWERFAILS,
                     () -> PowerfailLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
+            // The coverage layers' marks, over all of their circles.
+            CoverageDrawer.flush();
             PlayerTrail.draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, playerX, playerZ);
             MapDrawer.drawEntities(mc, px, pz, scale, 0, 0, inner, inner, partialTicks, 6f, Config.minimapPlayerNames);
             MapDrawer.drawTeammates(
