@@ -19,6 +19,7 @@
 # 0.0.20
 
 - [new] AE2 wireless coverage on the map and the minimap (the mod layers button): a circle around each wireless access point where the wireless terminal reaches it, filled at your height and ringed at the full range (the ring can be turned off: settings → Mod layers → AE2 wireless), overlapping circles merged into one, blue when working and red without power or a channel. With the mod on the server: the access points of your terminals' networks with their exact range. Without it: those seen nearby, with the range learned when you open one
+- [new] Wireless chargers of GregTech and EnderIO on the map and the minimap (the mod layers button): where each charges your items, drawn like the AE2 coverage: GregTech amber with a diamond, EnderIO violet with a dot, red when switched off or empty. EnderIO's range comes from its config; a GregTech charger's mode is known to the server only, so without the mod there the circle is the range of every mode until you right click the charger (its answer in the chat tells the mode). With the mod on the server: exactly the chargers that charge you, with their real range
 
 # 0.0.17
 

@@ -16,6 +16,7 @@ import WayFarMap.client.PerfTicks;
 import WayFarMap.client.PlayerTrail;
 import WayFarMap.client.Teleport;
 import WayFarMap.client.WorldCleanup;
+import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.WirelessLayer;
@@ -69,6 +70,13 @@ public class ClientProxy extends CommonProxy {
                 .bus()
                 .register(WirelessLayer.INSTANCE);
         }
+        if (Mods.isChargersAvailable()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(ChargersLayer.INSTANCE);
+            // Right clicks and the chat: a GregTech charger's answer tells its mode.
+            MinecraftForge.EVENT_BUS.register(ChargersLayer.INSTANCE);
+        }
 
         FMLCommonHandler.instance()
             .bus()
@@ -113,6 +121,11 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void receiveChunkLoad(IMessage message) {
         ChunkLoadClient.INSTANCE.receive(message);
+    }
+
+    @Override
+    public void receiveChargers(IMessage message) {
+        ChargersLayer.INSTANCE.receive((ShareNetwork.ChargerList) message);
     }
 
     @Override

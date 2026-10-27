@@ -331,6 +331,8 @@ public class GuiHelp extends ScaledScreen {
                 return 0xFFC08CFF;
             case "wireless":
                 return 0xFF4FC3F7;
+            case "chargers":
+                return 0xFFFFB300;
             case "claims":
                 return 0xFFF2C14E;
             case "team":
@@ -375,6 +377,8 @@ public class GuiHelp extends ScaledScreen {
                 return Icons.NODE;
             case "wireless":
                 return Icons.WIRELESS;
+            case "chargers":
+                return Icons.CHARGER;
             case "claims":
                 return Icons.CLAIM;
             case "team":

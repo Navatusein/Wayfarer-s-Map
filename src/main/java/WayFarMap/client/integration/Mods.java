@@ -10,6 +10,7 @@ import net.minecraft.client.renderer.Tessellator;
 import org.lwjgl.opengl.GL11;
 
 import WayFarMap.WayFarMap;
+import WayFarMap.share.Chargers;
 import cpw.mods.fml.common.Loader;
 
 /**
@@ -25,6 +26,7 @@ public final class Mods {
     private static Boolean claims;
     private static Boolean thaumcraftNodes;
     private static Boolean ae2;
+    private static boolean chargersBroken;
     /** Set when drawing GregTech power failures failed: the layer is off for the rest of the session. */
     private static boolean powerfailsBroken;
 
@@ -74,6 +76,11 @@ public final class Mods {
         return ae2;
     }
 
+    /** GregTech or EnderIO wireless chargers; see {@link ChargersLayer}. */
+    public static boolean isChargersAvailable() {
+        return !chargersBroken && (Chargers.isGtAvailable() || Chargers.isEnderIoAvailable());
+    }
+
     private static Boolean nodeLayerDelete;
 
     /**
@@ -112,7 +119,8 @@ public final class Mods {
         CLAIMS,
         THAUMCRAFT_NODES,
         POWERFAILS,
-        AE2_WIRELESS
+        AE2_WIRELESS,
+        CHARGERS
     }
 
     private static final Set<Addon> FAILED = new HashSet<>();
@@ -151,6 +159,9 @@ public final class Mods {
                 break;
             case AE2_WIRELESS:
                 ae2 = false;
+                break;
+            case CHARGERS:
+                chargersBroken = true;
                 break;
         }
         if (FAILED.add(addon)) {

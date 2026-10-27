@@ -1,5 +1,6 @@
 package WayFarMap;
 
+import WayFarMap.share.ChargerServer;
 import WayFarMap.share.ChunkLoadServer;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.TeamMapServer;
@@ -42,7 +43,14 @@ public class CommonProxy {
         }
     }
 
-    public void postInit(FMLPostInitializationEvent event) {}
+    public void postInit(FMLPostInitializationEvent event) {
+        // After init: the chargers' classes are looked up, and the other mods are set up by now.
+        if (ChargerServer.isActive()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(ChargerServer.INSTANCE);
+        }
+    }
 
     public void serverStarting(FMLServerStartingEvent event) {
         event.registerServerCommand(new ChunkLoadServer.Command());
@@ -53,6 +61,7 @@ public class CommonProxy {
         ChunkLoadServer.INSTANCE.stop();
         TeleportServer.INSTANCE.stop();
         WirelessServer.INSTANCE.stop();
+        ChargerServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }
@@ -66,4 +75,7 @@ public class CommonProxy {
 
     /** AE2 wireless access points for the client; only the client proxy handles them. */
     public void receiveWireless(IMessage message) {}
+
+    /** Wireless chargers for the client; only the client proxy handles them. */
+    public void receiveChargers(IMessage message) {}
 }

@@ -22,6 +22,7 @@ import WayFarMap.Perf;
 import WayFarMap.client.gui.GuiMinimapPosition;
 import WayFarMap.client.gui.GuiWorldMap;
 import WayFarMap.client.gui.ui.ScaledScreen;
+import WayFarMap.client.integration.ChargersLayer;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
@@ -505,6 +506,12 @@ public class MinimapRenderer {
                 Mods.draw(
                     Mods.Addon.THAUMCRAFT_NODES,
                     () -> ThaumcraftNodes
+                        .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
+            }
+            if (Config.chargers(true) && Mods.isChargersAvailable()) {
+                Mods.draw(
+                    Mods.Addon.CHARGERS,
+                    () -> ChargersLayer
                         .draw(mc.theWorld.provider.dimensionId, px, pz, scale, 0, 0, inner, inner, true, 0, 0));
             }
             if (Config.wireless(true) && Mods.isAe2Loaded()) {

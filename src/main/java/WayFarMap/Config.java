@@ -110,7 +110,7 @@ public class Config {
         MINIMAP_VIEW_BIOMES = 3;
     public static int minimapView = MINIMAP_VIEW_FLAT, minimapLightMode = LIGHT_AUTO;
     public static boolean minimapOreVeins = true, minimapUndergroundFluids, minimapClaims, minimapPowerfails = true,
-        minimapThaumcraftNodes = true, minimapWireless = true;
+        minimapThaumcraftNodes = true, minimapWireless = true, minimapChargers = true;
     public static boolean minimapChunkGrid;
     public static boolean minimapPlayers = true, minimapHostileMobs = true, minimapPassiveMobs = true,
         minimapAmbientMobs = true, minimapOtherEntities = true, minimapPets = true;
@@ -235,6 +235,8 @@ public class Config {
     public static boolean showWireless = true;
     /** The thin ring of the full range around the coverage circles, besides the slice at the player's height. */
     public static boolean wirelessFullRange = true;
+    /** GregTech and EnderIO wireless chargers (only used when either is installed), and their full range ring. */
+    public static boolean showChargers = true, chargersFullRange = true;
     /** Share the explored map with the ServerUtilities team (where the server has the mod). */
     public static boolean shareMapWithTeam = true;
     public static boolean useTextureColors = true;
@@ -522,6 +524,13 @@ public class Config {
             true,
             () -> minimapWireless,
             v -> minimapWireless = v);
+        bool(
+            c,
+            "layerChargers",
+            "GregTech and EnderIO wireless chargers on the minimap.",
+            true,
+            () -> minimapChargers,
+            v -> minimapChargers = v);
         tab(null);
         group("ownGrid");
         parent("enabled");
@@ -1044,6 +1053,24 @@ public class Config {
             true,
             () -> wirelessFullRange,
             v -> wirelessFullRange = v);
+        group("chargers");
+        parent(null);
+        bool(
+            c,
+            "chargers",
+            "Show where GregTech and EnderIO wireless chargers charge your items, on the maps (if installed).",
+            true,
+            () -> showChargers,
+            v -> showChargers = v);
+        parent("chargers");
+        bool(
+            c,
+            "chargersFullRange",
+            "A thin ring of the full range around the chargers' circles, besides the filled slice at the player's "
+                + "height.",
+            true,
+            () -> chargersFullRange,
+            v -> chargersFullRange = v);
         parent(null);
         tab(TAB_MAP_2D);
         group("data");
@@ -1560,7 +1587,8 @@ public class Config {
             "claims",
             "powerfails",
             "thaumcraftNodes",
-            "wireless");
+            "wireless",
+            "chargers");
         hideFromSettings(
             CATEGORY_ENTITIES,
             "showOtherPlayers",
@@ -1661,6 +1689,11 @@ public class Config {
 
     public static void toggleThaumcraftNodes() {
         showThaumcraftNodes = !showThaumcraftNodes;
+        save();
+    }
+
+    public static void toggleChargers() {
+        showChargers = !showChargers;
         save();
     }
 
@@ -1811,6 +1844,10 @@ public class Config {
         return minimap && minimapOwnLayers ? minimapThaumcraftNodes : showThaumcraftNodes;
     }
 
+    public static boolean chargers(boolean minimap) {
+        return minimap && minimapOwnLayers ? minimapChargers : showChargers;
+    }
+
     public static boolean wireless(boolean minimap) {
         return minimap && minimapOwnLayers ? minimapWireless : showWireless;
     }
@@ -1859,6 +1896,7 @@ public class Config {
             minimapPowerfails = showPowerfails;
             minimapThaumcraftNodes = showThaumcraftNodes;
             minimapWireless = showWireless;
+            minimapChargers = showChargers;
             minimapOwnLayers = true;
         }
     }
