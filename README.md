@@ -160,8 +160,8 @@ Every option is available in game from the **gear button** on the world map, gro
 .minecraft/wayfarmap/<singleplayer|multiplayer>/<world or server>/player-<UUID>/
 ├── waypoints.json
 ├── ae2_wireless.json      # AE2 wireless access points seen without the mod on the server
-├── chargers.json          # wireless chargers seen without the mod on the server
-├── drones.json            # drone centres seen without the mod on the server
+├── chargers.json          # wireless chargers you have seen
+├── drones.json            # drone centres you have seen
 └── dim<id>/
     ├── r.X.Z.png          # 2D map regions, 512×512 blocks each
     ├── caves/<layer>/     # cave layers

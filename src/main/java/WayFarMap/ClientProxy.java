@@ -130,13 +130,13 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void receiveDrones(IMessage message) {
-        DronesLayer.INSTANCE.receive((ShareNetwork.DroneList) message);
-    }
-
-    @Override
-    public void receiveChargers(IMessage message) {
-        ChargersLayer.INSTANCE.receive((ShareNetwork.ChargerList) message);
+    public void receiveMachines(IMessage message) {
+        ShareNetwork.MachineList list = (ShareNetwork.MachineList) message;
+        if (list.layer == ShareNetwork.MachineList.CHARGERS && Mods.isChargersAvailable()) {
+            ChargersLayer.INSTANCE.receive(list);
+        } else if (list.layer == ShareNetwork.MachineList.DRONES && Mods.isDronesAvailable()) {
+            DronesLayer.INSTANCE.receive(list);
+        }
     }
 
     @Override

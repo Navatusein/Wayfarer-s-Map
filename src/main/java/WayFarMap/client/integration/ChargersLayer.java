@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
@@ -30,6 +31,7 @@ import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.EmptyChunk;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.oredict.OreDictionary;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -49,13 +51,17 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Wireless chargers of GregTech and EnderIO: a circle around each where it charges the player's items, drawn like the
  * AE2 coverage ({@link CoverageDrawer}): the slice at the player's height and a ring of the full range.
  * <p>
- * A server with this mod sends the chargers that would charge the player, with the range of their real mode
- * ({@code share.ChargerServer}). Without it the client finds the chargers in loaded chunks itself. EnderIO's range is
- * then the client's own config value; a GregTech charger's mode is known to the server only, so the circle is the
- * range reached in every mode ({@code tier * 10}), grayed, until the player right clicks the charger: its answer in
+ * The client finds the chargers in loaded chunks itself; only those it has seen are shown. EnderIO's range is the
+ * client's own config value; a GregTech charger's mode is known to the server only, so the circle is the range reached
+ * in every mode ({@code tier * 10}), grayed, until the player right clicks the charger: its answer in
  * the chat holds its range, and the numbers (not the words, which are in the server's language) tell the mode. A
- * screwdriver click turns a known mode to the next one, in the order GregTech does. Those are kept in
+ * click with a screwdriver in hand turns a known mode to the next one, in the order GregTech does. Those are kept in
  * {@code chargers.json} of the world's map folder.
+ * <p>
+ * A server with this mod is asked about the chargers seen ({@code share.MachineServer}) and tells, for those in its
+ * loaded chunks, the real mode, the energy, and which locked ones don't charge this player (they are hidden then).
+ * Its word is kept over the client's own look for a few seconds, as the two differ (the client doesn't know the
+ * energy).
  * <p>
  * A GregTech long range of thousands of blocks covers most of the dimension: such a charger gets no circle, only its
  * mark and the range in its tooltip.
@@ -74,6 +80,8 @@ public final class ChargersLayer {
     private static final long SAVE_DELAY_MS = 5000;
     /** How long after a right click the charger's chat answer is waited for. */
     private static final long ANSWER_MS = 2000;
+    /** How long the server's word about a charger stands over what the client sees. */
+    private static final long SERVER_FRESH_MS = 5000;
     private static final String FILE_NAME = "chargers.json";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
         .create();
@@ -92,7 +100,9 @@ public final class ChargersLayer {
 
         final int kind, x, y, z;
         int tier, mode = Chargers.MODE_UNKNOWN;
-        boolean active;
+        boolean active, foreign;
+        /** When the server last told about it. */
+        long serverAt;
 
         Seen(int kind, int x, int y, int z) {
             this.kind = kind;
@@ -106,23 +116,25 @@ public final class ChargersLayer {
     private static final class Click {
 
         final int dimension, x, y, z;
-        final boolean sneaking;
+        final boolean sneaking, screwdriver;
         final long at = System.currentTimeMillis();
         boolean answered;
         int messages;
 
-        Click(int dimension, int x, int y, int z, boolean sneaking) {
+        Click(int dimension, int x, int y, int z, boolean sneaking, boolean screwdriver) {
             this.dimension = dimension;
             this.x = x;
             this.y = y;
             this.z = z;
             this.sneaking = sneaking;
+            this.screwdriver = screwdriver;
         }
     }
 
-    private final Queue<ShareNetwork.ChargerList> inbox = new ConcurrentLinkedQueue<>();
-    /** From the server; null while it sent none. */
-    private List<MachinePoint> fromServer;
+    private final Queue<ShareNetwork.MachineList> inbox = new ConcurrentLinkedQueue<>();
+    /** The server has the mod and answers; what it was last asked. */
+    private boolean serverAnswers;
+    private String asked;
     private final Map<Integer, Map<Long, Seen>> seen = new HashMap<>();
     private Click click;
     private File worldDirectory;
@@ -131,7 +143,7 @@ public final class ChargersLayer {
     private int tick;
 
     /** From the network thread. */
-    public void receive(ShareNetwork.ChargerList message) {
+    public void receive(ShareNetwork.MachineList message) {
         inbox.add(message);
     }
 
@@ -148,7 +160,8 @@ public final class ChargersLayer {
                 inWorld = false;
                 saveNow();
                 seen.clear();
-                fromServer = null;
+                serverAnswers = false;
+                asked = null;
                 worldDirectory = null;
                 click = null;
                 inbox.clear();
@@ -162,15 +175,16 @@ public final class ChargersLayer {
             worldDirectory = directory;
             load();
         }
-        ShareNetwork.ChargerList message;
-        while ((message = inbox.poll()) != null) {
-            fromServer = message.points;
-        }
         try {
+            ShareNetwork.MachineList message;
+            while ((message = inbox.poll()) != null) {
+                apply(message);
+            }
             finishClick();
             if (++tick >= SCAN_TICKS) {
                 tick = 0;
                 scan(mc, mc.theWorld.provider.dimensionId);
+                ask(mc);
             }
         } catch (Throwable t) {
             Mods.fail(Mods.Addon.CHARGERS, t);
@@ -212,7 +226,8 @@ public final class ChargersLayer {
             if (present.contains(entry.getKey()) || !isLoaded(world, point.x, point.z)) {
                 continue;
             }
-            if (kindAt(world.getTileEntity(point.x, point.y, point.z)) != point.kind) {
+            TileEntity tile = world.getTileEntity(point.x, point.y, point.z);
+            if (kindAt(tile) != point.kind && !(point.kind == Chargers.KIND_GT && Chargers.isGtMachinePending(tile))) {
                 it.remove();
                 markDirty();
             }
@@ -227,6 +242,9 @@ public final class ChargersLayer {
             return false;
         }
         Seen point = seenAt(dimension, kind, tile.xCoord, tile.yCoord, tile.zCoord);
+        if (System.currentTimeMillis() - point.serverAt < SERVER_FRESH_MS) {
+            return true;
+        }
         int tier = gt != null ? Chargers.gtTier(gt) : 0;
         boolean active = gt != null ? Chargers.gtAllowedToWork(tile) : Chargers.enderIoActive(tile);
         if (point.tier != tier || point.active != active) {
@@ -266,6 +284,74 @@ public final class ChargersLayer {
         return ((long) x & 0x3FFFFFF) << 38 | ((long) z & 0x3FFFFFF) << 12 | y & 0xFFF;
     }
 
+    // ---------------------------------------------------------------- the server
+
+    /** What the server says about the chargers seen; it is told only about those. */
+    private void apply(ShareNetwork.MachineList message) {
+        boolean first = !serverAnswers;
+        serverAnswers = true;
+        long now = System.currentTimeMillis();
+        for (MachinePoint p : message.points) {
+            Seen point = seenAt(p.dimension, p.kind, p.x, p.y, p.z);
+            int mode = p.kind == Chargers.KIND_GT && p.mode != Chargers.MODE_UNKNOWN ? p.mode : point.mode;
+            if (point.tier != p.tier || point.mode != mode || point.active != p.active || point.foreign) {
+                point.tier = p.tier;
+                point.mode = mode;
+                point.active = p.active;
+                point.foreign = false;
+                markDirty();
+            }
+            point.serverAt = now;
+        }
+        for (MachinePoint p : message.foreign) {
+            Seen point = seenAt(p.dimension, p.kind, p.x, p.y, p.z);
+            if (!point.foreign) {
+                point.foreign = true;
+                markDirty();
+            }
+            point.serverAt = now;
+        }
+        if (first) {
+            ask(Minecraft.getMinecraft());
+        }
+    }
+
+    /** Tells the server where the chargers seen are, the current dimension's first, when that changed. */
+    private void ask(Minecraft mc) {
+        if (!serverAnswers || mc.theWorld == null) {
+            return;
+        }
+        int current = mc.theWorld.provider.dimensionId;
+        List<int[]> positions = new ArrayList<>();
+        StringBuilder key = new StringBuilder();
+        for (boolean here : new boolean[] { true, false }) {
+            for (Map.Entry<Integer, Map<Long, Seen>> dimension : seen.entrySet()) {
+                if ((dimension.getKey() == current) != here) {
+                    continue;
+                }
+                for (Seen p : dimension.getValue()
+                    .values()) {
+                    if (positions.size() < ShareNetwork.MachineAsk.MAX) {
+                        positions.add(new int[] { dimension.getKey(), p.x, p.y, p.z });
+                        key.append(dimension.getKey())
+                            .append(',')
+                            .append(p.x)
+                            .append(',')
+                            .append(p.y)
+                            .append(',')
+                            .append(p.z)
+                            .append(';');
+                    }
+                }
+            }
+        }
+        if (!key.toString()
+            .equals(asked)) {
+            asked = key.toString();
+            ShareNetwork.sendToServer(new ShareNetwork.MachineAsk(ShareNetwork.MachineList.CHARGERS, positions));
+        }
+    }
+
     // ---------------------------------------------------------------- learning a GregTech charger's mode
 
     @SubscribeEvent
@@ -278,7 +364,13 @@ public final class ChargersLayer {
         }
         World world = event.entityPlayer.worldObj;
         if (Chargers.gtCharger(world.getTileEntity(event.x, event.y, event.z)) != null) {
-            click = new Click(world.provider.dimensionId, event.x, event.y, event.z, event.entityPlayer.isSneaking());
+            click = new Click(
+                world.provider.dimensionId,
+                event.x,
+                event.y,
+                event.z,
+                event.entityPlayer.isSneaking(),
+                isScrewdriver(event.entityPlayer.getHeldItem()));
         }
     }
 
@@ -315,9 +407,22 @@ public final class ChargersLayer {
         }
     }
 
+    /** GregTech registers every screwdriver under this ore name. */
+    private static boolean isScrewdriver(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return false;
+        }
+        for (int id : OreDictionary.getOreIDs(stack)) {
+            if ("craftingToolScrewdriver".equals(OreDictionary.getOreName(id))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * Once the answer time is over: chat messages without the range after a click without sneaking were a
-     * screwdriver's mode change (sneaking with one locks or unlocks it instead), so a known mode moves on.
+     * Once the answer time is over: chat messages without the range after a screwdriver click without sneaking were
+     * its mode change (sneaking with one locks or unlocks it instead), so a known mode moves on.
      */
     private void finishClick() {
         Click current = click;
@@ -325,7 +430,7 @@ public final class ChargersLayer {
             return;
         }
         click = null;
-        if (current.answered || current.sneaking || current.messages == 0) {
+        if (current.answered || current.sneaking || !current.screwdriver || current.messages == 0) {
             return;
         }
         Seen point = seenPoint(current);
@@ -350,7 +455,10 @@ public final class ChargersLayer {
         }
     }
 
-    /** The file: {@code {"chargers": [{kind, dimension, x, y, z, tier, mode, active}, ...]}}, mode -1 unknown. */
+    /**
+     * The file: {@code {"chargers": [{kind, dimension, x, y, z, tier, mode, active, foreign}, ...]}}, mode -1 unknown,
+     * foreign: locked by another player, as the server said.
+     */
     private static final class Saved {
 
         List<Entry> chargers = new ArrayList<>();
@@ -360,7 +468,7 @@ public final class ChargersLayer {
             String kind;
             int dimension, x, y, z, tier;
             int mode = Chargers.MODE_UNKNOWN;
-            boolean active;
+            boolean active, foreign;
         }
     }
 
@@ -380,6 +488,7 @@ public final class ChargersLayer {
                         point.tier = e.tier;
                         point.mode = e.mode >= 0 && e.mode <= 2 ? e.mode : Chargers.MODE_UNKNOWN;
                         point.active = e.active;
+                        point.foreign = e.foreign;
                     }
                 }
             } catch (IOException | RuntimeException e) {
@@ -407,6 +516,7 @@ public final class ChargersLayer {
                 e.tier = p.tier;
                 e.mode = p.mode;
                 e.active = p.active;
+                e.foreign = p.foreign;
                 saved.chargers.add(e);
             }
         }
@@ -450,20 +560,14 @@ public final class ChargersLayer {
 
     private List<Shown> shown(int dimension) {
         List<Shown> result = new ArrayList<>();
-        if (fromServer != null) {
-            for (MachinePoint p : fromServer) {
-                if (p.dimension == dimension) {
-                    boolean known = p.kind == Chargers.KIND_ENDERIO || p.mode != Chargers.MODE_UNKNOWN;
-                    result.add(new Shown(p.kind, p.x, p.y, p.z, p.tier, p.mode, p.range, known, p.active));
-                }
-            }
-            return result;
-        }
         Map<Long, Seen> points = seen.get(dimension);
         if (points == null) {
             return Collections.emptyList();
         }
         for (Seen p : points.values()) {
+            if (p.foreign) {
+                continue;
+            }
             if (p.kind == Chargers.KIND_ENDERIO) {
                 result.add(new Shown(p.kind, p.x, p.y, p.z, 0, p.mode, Chargers.enderIoRange(), true, p.active));
             } else {
@@ -549,7 +653,7 @@ public final class ChargersLayer {
             return;
         }
         CoverageDrawer.draw(coverage, minimap, Config.chargersFullRange);
-        if (areaCircle != null) {
+        if (!minimap && areaCircle != null) {
             CoverageDrawer.highlight(
                 areaCircle[0],
                 areaCircle[1],
@@ -586,11 +690,13 @@ public final class ChargersLayer {
 
     // ---------------------------------------------------------------- tooltip
 
-    /** Tooltip of the charger under the mouse on the world map, or null. */
-    public static List<String> getHoveredTooltip() {
-        Shown p = hovered;
-        if (p == null) {
-            p = areaHovered;
+    /**
+     * Tooltip of the charger under the mouse on the world map, or null: of its mark, or with {@code area} of its circle
+     * (only what it is).
+     */
+    public static List<String> getHoveredTooltip(boolean area) {
+        Shown p = area ? areaHovered : hovered;
+        if (area || p == null) {
             // In its circle, not on its mark: only what it is.
             return p == null ? null
                 : Collections.singletonList(
@@ -633,7 +739,7 @@ public final class ChargersLayer {
                 : "§c" + Lang.format(
                     p.kind == Chargers.KIND_ENDERIO ? "wayfarmap.chargers.inactive_enderio"
                         : "wayfarmap.chargers.inactive_gregtech"));
-        if (INSTANCE.fromServer == null) {
+        if (!INSTANCE.serverAnswers) {
             if (p.kind == Chargers.KIND_GT && !p.known) {
                 lines.add("§8" + Lang.format("wayfarmap.chargers.learn_mode"));
             }

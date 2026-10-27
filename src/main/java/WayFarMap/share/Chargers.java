@@ -91,6 +91,23 @@ public final class Chargers {
         }
     }
 
+    /**
+     * A GregTech machine block whose machine the client has not been told yet (it comes in a later packet than the
+     * block): not a sign that a machine seen there is gone.
+     */
+    public static boolean isGtMachinePending(TileEntity tile) {
+        if (tile == null) {
+            return false;
+        }
+        try {
+            Optional<Method> getter = META_GETTERS.computeIfAbsent(tile.getClass(), Chargers::metaGetter);
+            return getter.isPresent() && getter.get()
+                .invoke(tile) == null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private static Optional<Method> metaGetter(Class<?> type) {
         try {
             return Optional.of(type.getMethod("getMetaTileEntity"));

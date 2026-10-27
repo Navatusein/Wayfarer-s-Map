@@ -420,7 +420,7 @@ public final class WirelessLayer {
                     !p.known ? 0 : p.active ? 2 : 1));
         }
         CoverageDrawer.draw(coverage, minimap, Config.wirelessFullRange);
-        if (areaCircle != null) {
+        if (!minimap && areaCircle != null) {
             CoverageDrawer.highlight(
                 areaCircle[0],
                 areaCircle[1],
@@ -455,11 +455,13 @@ public final class WirelessLayer {
 
     // ---------------------------------------------------------------- tooltip
 
-    /** Tooltip of the access point under the mouse on the world map, or null. */
-    public static List<String> getHoveredTooltip() {
-        Shown p = hovered;
-        if (p == null) {
-            p = areaHovered;
+    /**
+     * Tooltip of the access point under the mouse on the world map, or null: of its mark, or with {@code area} of its
+     * circle (only what it is).
+     */
+    public static List<String> getHoveredTooltip(boolean area) {
+        Shown p = area ? areaHovered : hovered;
+        if (area || p == null) {
             // In its circle, not on its mark: only what it is.
             return p == null ? null : Collections.singletonList("§b" + Lang.format("wayfarmap.wireless.title"));
         }

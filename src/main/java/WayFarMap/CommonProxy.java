@@ -1,8 +1,7 @@
 package WayFarMap;
 
-import WayFarMap.share.ChargerServer;
 import WayFarMap.share.ChunkLoadServer;
-import WayFarMap.share.DroneServer;
+import WayFarMap.share.MachineServer;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.TeamMapServer;
 import WayFarMap.share.TeleportServer;
@@ -46,15 +45,10 @@ public class CommonProxy {
 
     public void postInit(FMLPostInitializationEvent event) {
         // After init: the chargers' classes are looked up, and the other mods are set up by now.
-        if (ChargerServer.isActive()) {
+        if (MachineServer.isActive()) {
             FMLCommonHandler.instance()
                 .bus()
-                .register(ChargerServer.INSTANCE);
-        }
-        if (DroneServer.isActive()) {
-            FMLCommonHandler.instance()
-                .bus()
-                .register(DroneServer.INSTANCE);
+                .register(MachineServer.INSTANCE);
         }
     }
 
@@ -67,8 +61,7 @@ public class CommonProxy {
         ChunkLoadServer.INSTANCE.stop();
         TeleportServer.INSTANCE.stop();
         WirelessServer.INSTANCE.stop();
-        ChargerServer.INSTANCE.stop();
-        DroneServer.INSTANCE.stop();
+        MachineServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }
@@ -83,9 +76,6 @@ public class CommonProxy {
     /** AE2 wireless access points for the client; only the client proxy handles them. */
     public void receiveWireless(IMessage message) {}
 
-    /** Wireless chargers for the client; only the client proxy handles them. */
-    public void receiveChargers(IMessage message) {}
-
-    /** Drone centres for the client; only the client proxy handles them. */
-    public void receiveDrones(IMessage message) {}
+    /** Wireless chargers or drone centres for the client; only the client proxy handles them. */
+    public void receiveMachines(IMessage message) {}
 }

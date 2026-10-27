@@ -1829,14 +1829,17 @@ public class GuiWorldMap extends ScaledScreen {
                 if (tooltip == null && nodesShown()) {
                     tooltip = ThaumcraftNodes.getHoveredTooltip();
                 }
-                if (tooltip == null && wirelessShown()) {
-                    tooltip = WirelessLayer.getHoveredTooltip();
-                }
-                if (tooltip == null && chargersShown()) {
-                    tooltip = ChargersLayer.getHoveredTooltip();
-                }
-                if (tooltip == null && dronesShown()) {
-                    tooltip = DronesLayer.getHoveredTooltip();
+                // Marks of every coverage layer first: a circle of one layer must not hide a mark of another.
+                for (boolean area : new boolean[] { false, true }) {
+                    if (tooltip == null && wirelessShown()) {
+                        tooltip = WirelessLayer.getHoveredTooltip(area);
+                    }
+                    if (tooltip == null && chargersShown()) {
+                        tooltip = ChargersLayer.getHoveredTooltip(area);
+                    }
+                    if (tooltip == null && dronesShown()) {
+                        tooltip = DronesLayer.getHoveredTooltip(area);
+                    }
                 }
                 if (tooltip == null && prospecting && Config.showOreVeins) {
                     tooltip = ProspectingLayer.getHoveredTooltip();

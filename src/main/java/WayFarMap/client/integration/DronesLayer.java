@@ -35,6 +35,7 @@ import WayFarMap.WayFarMap;
 import WayFarMap.client.Lang;
 import WayFarMap.client.gui.ui.Icons;
 import WayFarMap.client.map.MapManager;
+import WayFarMap.share.Chargers;
 import WayFarMap.share.DroneCentres;
 import WayFarMap.share.MachinePoint;
 import WayFarMap.share.ShareNetwork;
@@ -45,10 +46,12 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * GregTech's Drone Centre: a circle around each, where a drone downlink module connects to it, drawn like the AE2
  * coverage ({@link CoverageDrawer}).
  * <p>
- * The range follows from the drone level. A server with this mod sends the centres with it
- * ({@code share.DroneServer}); without it the client reads the level itself where GregTech tells it (5.09.52.615 on,
+ * The range follows from the drone level, which the client reads itself where GregTech tells it (5.09.52.615 on,
  * see {@link DroneCentres}). On older GregTech the client can't know it: such a centre gets only its mark, no circle.
- * Centres seen by the client are kept in {@code drones.json} of the world's map folder.
+ * Only centres the client has seen are shown; they are kept in {@code drones.json} of the world's map folder.
+ * <p>
+ * A server with this mod is asked about the centres seen ({@code share.MachineServer}) and tells the level and the
+ * state of those in its loaded chunks; its word stands over the client's own look for a few seconds.
  */
 public final class DronesLayer {
 
@@ -59,6 +62,8 @@ public final class DronesLayer {
     private static final int UNKNOWN_COLOR = 0xB0BEC5;
     private static final int SCAN_TICKS = 20;
     private static final long SAVE_DELAY_MS = 5000;
+    /** How long the server's word about a centre stands over what the client sees. */
+    private static final long SERVER_FRESH_MS = 5000;
     private static final String FILE_NAME = "drones.json";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
         .create();
@@ -77,6 +82,8 @@ public final class DronesLayer {
         final int x, y, z;
         int level, range;
         boolean known, active;
+        /** When the server last told about it. */
+        long serverAt;
 
         Seen(int x, int y, int z) {
             this.x = x;
@@ -85,9 +92,10 @@ public final class DronesLayer {
         }
     }
 
-    private final Queue<ShareNetwork.DroneList> inbox = new ConcurrentLinkedQueue<>();
-    /** From the server; null while it sent none. */
-    private List<MachinePoint> fromServer;
+    private final Queue<ShareNetwork.MachineList> inbox = new ConcurrentLinkedQueue<>();
+    /** The server has the mod and answers; what it was last asked. */
+    private boolean serverAnswers;
+    private String asked;
     private final Map<Integer, Map<Long, Seen>> seen = new HashMap<>();
     private File worldDirectory;
     private boolean inWorld, dirty;
@@ -95,7 +103,7 @@ public final class DronesLayer {
     private int tick;
 
     /** From the network thread. */
-    public void receive(ShareNetwork.DroneList message) {
+    public void receive(ShareNetwork.MachineList message) {
         inbox.add(message);
     }
 
@@ -112,7 +120,8 @@ public final class DronesLayer {
                 inWorld = false;
                 saveNow();
                 seen.clear();
-                fromServer = null;
+                serverAnswers = false;
+                asked = null;
                 worldDirectory = null;
                 inbox.clear();
             }
@@ -125,14 +134,15 @@ public final class DronesLayer {
             worldDirectory = directory;
             load();
         }
-        ShareNetwork.DroneList message;
-        while ((message = inbox.poll()) != null) {
-            fromServer = message.points;
-        }
         try {
+            ShareNetwork.MachineList message;
+            while ((message = inbox.poll()) != null) {
+                apply(message);
+            }
             if (++tick >= SCAN_TICKS) {
                 tick = 0;
                 scan(mc, mc.theWorld.provider.dimensionId);
+                ask(mc);
             }
         } catch (Throwable t) {
             Mods.fail(Mods.Addon.DRONES, t);
@@ -164,6 +174,9 @@ public final class DronesLayer {
                     }
                     present.add(pack(tile.xCoord, tile.yCoord, tile.zCoord));
                     Seen point = seenAt(dimension, tile.xCoord, tile.yCoord, tile.zCoord);
+                    if (System.currentTimeMillis() - point.serverAt < SERVER_FRESH_MS) {
+                        continue;
+                    }
                     int level = known ? DroneCentres.level(centre) : 0;
                     int range = known ? DroneCentres.range(centre) : 0;
                     boolean active = DroneCentres.isActive(tile);
@@ -190,7 +203,8 @@ public final class DronesLayer {
             if (present.contains(entry.getKey()) || !isLoaded(world, point.x, point.z)) {
                 continue;
             }
-            if (DroneCentres.centre(world.getTileEntity(point.x, point.y, point.z)) == null) {
+            TileEntity tile = world.getTileEntity(point.x, point.y, point.z);
+            if (DroneCentres.centre(tile) == null && !Chargers.isGtMachinePending(tile)) {
                 it.remove();
                 markDirty();
             }
@@ -216,6 +230,66 @@ public final class DronesLayer {
 
     private static long pack(int x, int y, int z) {
         return ((long) x & 0x3FFFFFF) << 38 | ((long) z & 0x3FFFFFF) << 12 | y & 0xFFF;
+    }
+
+    // ---------------------------------------------------------------- the server
+
+    /** What the server says about the centres seen; it is told only about those. */
+    private void apply(ShareNetwork.MachineList message) {
+        boolean first = !serverAnswers;
+        serverAnswers = true;
+        long now = System.currentTimeMillis();
+        for (MachinePoint p : message.points) {
+            Seen point = seenAt(p.dimension, p.x, p.y, p.z);
+            int range = (int) p.range;
+            if (point.level != p.tier || point.range != range || !point.known || point.active != p.active) {
+                point.level = p.tier;
+                point.range = range;
+                point.known = true;
+                point.active = p.active;
+                markDirty();
+            }
+            point.serverAt = now;
+        }
+        if (first) {
+            ask(Minecraft.getMinecraft());
+        }
+    }
+
+    /** Tells the server where the centres seen are, the current dimension's first, when that changed. */
+    private void ask(Minecraft mc) {
+        if (!serverAnswers || mc.theWorld == null) {
+            return;
+        }
+        int current = mc.theWorld.provider.dimensionId;
+        List<int[]> positions = new ArrayList<>();
+        StringBuilder key = new StringBuilder();
+        for (boolean here : new boolean[] { true, false }) {
+            for (Map.Entry<Integer, Map<Long, Seen>> dimension : seen.entrySet()) {
+                if ((dimension.getKey() == current) != here) {
+                    continue;
+                }
+                for (Seen p : dimension.getValue()
+                    .values()) {
+                    if (positions.size() < ShareNetwork.MachineAsk.MAX) {
+                        positions.add(new int[] { dimension.getKey(), p.x, p.y, p.z });
+                        key.append(dimension.getKey())
+                            .append(',')
+                            .append(p.x)
+                            .append(',')
+                            .append(p.y)
+                            .append(',')
+                            .append(p.z)
+                            .append(';');
+                    }
+                }
+            }
+        }
+        if (!key.toString()
+            .equals(asked)) {
+            asked = key.toString();
+            ShareNetwork.sendToServer(new ShareNetwork.MachineAsk(ShareNetwork.MachineList.DRONES, positions));
+        }
     }
 
     // ---------------------------------------------------------------- storage
@@ -323,14 +397,6 @@ public final class DronesLayer {
 
     private List<Shown> shown(int dimension) {
         List<Shown> result = new ArrayList<>();
-        if (fromServer != null) {
-            for (MachinePoint p : fromServer) {
-                if (p.dimension == dimension) {
-                    result.add(new Shown(p.x, p.y, p.z, p.tier, p.range, true, p.active));
-                }
-            }
-            return result;
-        }
         Map<Long, Seen> points = seen.get(dimension);
         if (points == null) {
             return Collections.emptyList();
@@ -406,7 +472,7 @@ public final class DronesLayer {
             return;
         }
         CoverageDrawer.draw(coverage, minimap, Config.dronesFullRange);
-        if (areaCircle != null) {
+        if (!minimap && areaCircle != null) {
             CoverageDrawer.highlight(
                 areaCircle[0],
                 areaCircle[1],
@@ -442,11 +508,13 @@ public final class DronesLayer {
 
     // ---------------------------------------------------------------- tooltip
 
-    /** Tooltip of the centre under the mouse on the world map, or null. */
-    public static List<String> getHoveredTooltip() {
-        Shown p = hovered;
-        if (p == null) {
-            p = areaHovered;
+    /**
+     * Tooltip of the centre under the mouse on the world map, or null: of its mark, or with {@code area} of its circle
+     * (only what it is).
+     */
+    public static List<String> getHoveredTooltip(boolean area) {
+        Shown p = area ? areaHovered : hovered;
+        if (area || p == null) {
             // In its circle, not on its mark: only what it is.
             return p == null ? null : Collections.singletonList("§3" + Lang.format("wayfarmap.drones.title"));
         }
@@ -475,7 +543,7 @@ public final class DronesLayer {
         lines.add(
             p.active ? "§a" + Lang.format("wayfarmap.wireless.active")
                 : "§c" + Lang.format("wayfarmap.drones.inactive"));
-        if (INSTANCE.fromServer == null) {
+        if (!INSTANCE.serverAnswers) {
             lines.add("§8" + Lang.format("wayfarmap.drones.local"));
         }
         return lines;
