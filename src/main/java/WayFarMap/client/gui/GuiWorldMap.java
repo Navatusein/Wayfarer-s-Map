@@ -53,6 +53,7 @@ import WayFarMap.client.integration.Mods;
 import WayFarMap.client.integration.PowerfailLayer;
 import WayFarMap.client.integration.ProspectingLayer;
 import WayFarMap.client.integration.ThaumcraftNodes;
+import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.BiomeHighlight;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.ChunkLoadView;
@@ -397,7 +398,8 @@ public class GuiWorldMap extends ScaledScreen {
         }
         if (Config.isMapButtonShown("addons") && (Mods.isVisualProspectingLoaded() || Mods.isClaimsAvailable()
             || Mods.isPowerfailsAvailable()
-            || Mods.isThaumcraftNodesAvailable())) {
+            || Mods.isThaumcraftNodesAvailable()
+            || Mods.isAe2Loaded())) {
             addonsButton = new IconButton(ID_ADDONS, x, 4, Icons.ADDONS, Lang.format("wayfarmap.gui.addons"));
             addonsButton.iconColor = COLOR_ADDONS;
             addIconButton(addonsButton, x);
@@ -464,6 +466,12 @@ public class GuiWorldMap extends ScaledScreen {
                     .icon(Icons.NODE)
                     .iconColor(0xFFC08CFF)
                     .key("nodes"));
+        }
+        if (Mods.isAe2Loaded()) {
+            entries.add(
+                addonToggle("wayfarmap.gui.wireless", Config.showWireless, Config::toggleWireless).icon(Icons.WIRELESS)
+                    .iconColor(0xFF4FC3F7)
+                    .key("wireless"));
         }
         menu = entries;
         menuKind = MENU_ADDONS;
@@ -658,6 +666,15 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> Config.showThaumcraftNodes,
                 Config::toggleThaumcraftNodes);
         }
+        if (Mods.isAe2Loaded()) {
+            addLayer(
+                Icons.WIRELESS,
+                0xFF4FC3F7,
+                "wayfarmap.gui.wireless",
+                "wireless",
+                () -> Config.showWireless,
+                Config::toggleWireless);
+        }
         int step = 19;
         int y = (HEADER_HEIGHT + height - FOOTER_HEIGHT) / 2 - (layerButtons.size() * step - 3) / 2;
         for (LayerButton layer : layerButtons) {
@@ -805,6 +822,10 @@ public class GuiWorldMap extends ScaledScreen {
 
     private static boolean nodesShown() {
         return Config.showThaumcraftNodes && Mods.isThaumcraftNodesAvailable();
+    }
+
+    private static boolean wirelessShown() {
+        return Config.showWireless && Mods.isAe2Loaded();
     }
 
     private static boolean powerfailsShown() {
@@ -997,7 +1018,8 @@ public class GuiWorldMap extends ScaledScreen {
         if (addonsButton != null) {
             addonsButton.active = prospectingLayerShown() || Config.showClaims && Mods.isClaimsAvailable()
                 || powerfailsShown()
-                || nodesShown();
+                || nodesShown()
+                || wirelessShown();
         }
     }
 
@@ -1558,6 +1580,12 @@ public class GuiWorldMap extends ScaledScreen {
                 () -> ThaumcraftNodes
                     .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
         }
+        if (wirelessShown()) {
+            Mods.draw(
+                Mods.Addon.AE2_WIRELESS,
+                () -> WirelessLayer
+                    .draw(dimensionId, centerX, centerZ, scale, 0, 0, width, height, false, mouseX, mouseY));
+        }
         if (powerfailsShown()) {
             Mods.draw(
                 Mods.Addon.POWERFAILS,
@@ -1734,6 +1762,9 @@ public class GuiWorldMap extends ScaledScreen {
                 List<String> tooltip = powerfailsShown() ? PowerfailLayer.getHoveredTooltip() : null;
                 if (tooltip == null && nodesShown()) {
                     tooltip = ThaumcraftNodes.getHoveredTooltip();
+                }
+                if (tooltip == null && wirelessShown()) {
+                    tooltip = WirelessLayer.getHoveredTooltip();
                 }
                 if (tooltip == null && prospecting && Config.showOreVeins) {
                     tooltip = ProspectingLayer.getHoveredTooltip();

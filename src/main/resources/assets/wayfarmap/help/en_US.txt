@@ -22,7 +22,7 @@ All keys of the mod are set in Minecraft's §bOptions → Controls§r (category 
 - §e{key:mode_topo}§r — topography, §e{key:mode_biomes}§r — biomes
 - §e{key:light}§r — lighting (auto / day / night), §e{key:chunk_grid}§r — chunk grid
 - §e{key:ores}§r — ore veins, §e{key:fluids}§r — underground fluids, §e{key:claims}§r — claims
-- §e{key:powerfails}§r — power failures, §e{key:nodes}§r — Thaumcraft nodes
+- §e{key:powerfails}§r — power failures, §e{key:nodes}§r — Thaumcraft nodes, §e{key:wireless}§r — AE2 wireless coverage
 - §e{key:hostile_mobs}§r — hostile mobs, §e{key:passive_mobs}§r — neutral mobs, §e{key:friendly_mobs}§r — friendly mobs
 - §e{key:pets}§r — pets, §e{key:players}§r — players
 
@@ -39,7 +39,7 @@ The top of the map has §ficons§r; hover one to see its name.
 - §bBar chart§r (§fStats§r) — disk space of the maps of §fall worlds§r, and for §fthis world§r (all dimensions or one, picked from a drop-down list): the 2D and 3D map, waypoints, GregTech ore veins, underground fluids and Thaumcraft nodes (with those mods); sizes are counted again each time it opens
 - §bBin§r — clean up: empty the logs folder, delete the 2D or 3D map of all dimensions of this world, or the 2D, 3D or whole map of one dimension (each button asks again). Waypoints are kept
 - §bCamera§r — a picture of the whole map (2D or 3D, as shown). Saved to §fscreenshots/wayfarmap§r, it opens in a browser and zooms down to single blocks. Pick the size: 3D from 2 to 64 px per block (and day or night), 2D from 1 to 16. §foverview.png§r is the whole map as one picture at the chosen full detail
-- §bLayers§r — the §bMod layers§r menu: checkboxes for ores, fluids, claims, power failures and Thaumcraft nodes (only for installed mods); it stays open to switch several
+- §bLayers§r — the §bMod layers§r menu: checkboxes for ores, fluids, claims, power failures, Thaumcraft nodes and AE2 wireless coverage (only for installed mods); it stays open to switch several
 
 §fRight:§r
 - §bCrosshair§r — follow the player: on, the map always opens at you; off, where you closed it
@@ -168,6 +168,15 @@ Needs §fThaumcraft§r and §fTCNodeTracker§r. The nodes you found and recorded
 - §eRight click a node → Track§r — a node marker with the distance appears in the world, like a tracked vein (seen through blocks)
 - §eRight click a node → Remove node§r — removes it from TCNodeTracker's list
 - The search at the top finds aspects: §e"ignis"§r, §e"aer ordo"§r — other nodes fade
+
+# {icon:wireless} AE2 wireless coverage
+Needs §fApplied Energistics 2§r. Turned on with the §bAE2 wireless coverage§r checkbox in the §bMod layers§r menu: a circle around each §fwireless access point§r shows where a wireless terminal reaches it.
+
+- AE2 measures the distance in 3D, so the coverage is a ball: the §ffilled circle§r is its slice at your height (where the terminal works right now), the §fthin ring§r is the full range
+- §bBlue§r — working, §cred§r — no power or no channel
+- With the mod on the server: the access points of the networks your wireless terminals are linked to, with their exact range (boosters counted)
+- Without it: the access points seen nearby, of any network; the game doesn't tell the boosters, so the range is learned when you §fopen the access point§r once (until then a §7gray§r circle of the range without boosters)
+- Hover the dot in the middle — coordinates, range, the range at your height and the state
 
 # {icon:claims} Claims (ServerUtilities)
 Needs §fServerUtilities§r and §fNavigator§r on the server. Turn on the §bClaims§r checkbox in the §bMod layers§r menu.

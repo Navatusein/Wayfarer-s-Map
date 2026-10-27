@@ -16,6 +16,10 @@
   A line right under a point carries it on. Comments like this one are left out.
 -->
 
+# 0.0.20
+
+- [new] AE2 wireless coverage on the map and the minimap (the mod layers button): a circle around each wireless access point where the wireless terminal reaches it, filled at your height and ringed at the full range (the ring can be turned off: settings → Mod layers → AE2 wireless), overlapping circles merged into one, blue when working and red without power or a channel. With the mod on the server: the access points of your terminals' networks with their exact range. Without it: those seen nearby, with the range learned when you open one
+
 # 0.0.17
 
 - [new] Minimap: names of other players and teammates under their heads (settings → Minimap → Player names, on by default)

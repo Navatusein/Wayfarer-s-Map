@@ -4,6 +4,7 @@ import WayFarMap.share.ChunkLoadServer;
 import WayFarMap.share.ShareNetwork;
 import WayFarMap.share.TeamMapServer;
 import WayFarMap.share.TeleportServer;
+import WayFarMap.share.WirelessServer;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
@@ -34,6 +35,11 @@ public class CommonProxy {
                 .bus()
                 .register(TeamMapServer.INSTANCE);
         }
+        if (WirelessServer.isActive()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(WirelessServer.INSTANCE);
+        }
     }
 
     public void postInit(FMLPostInitializationEvent event) {}
@@ -46,6 +52,7 @@ public class CommonProxy {
     public void serverStopping(FMLServerStoppingEvent event) {
         ChunkLoadServer.INSTANCE.stop();
         TeleportServer.INSTANCE.stop();
+        WirelessServer.INSTANCE.stop();
         if (TeamMapServer.isActive()) {
             TeamMapServer.INSTANCE.stop();
         }
@@ -56,4 +63,7 @@ public class CommonProxy {
 
     /** A batch of {@code /wf chunkload} for the client; only the client proxy handles it. */
     public void receiveChunkLoad(IMessage message) {}
+
+    /** AE2 wireless access points for the client; only the client proxy handles them. */
+    public void receiveWireless(IMessage message) {}
 }

@@ -24,6 +24,7 @@ public final class Mods {
     private static Boolean visualProspecting;
     private static Boolean claims;
     private static Boolean thaumcraftNodes;
+    private static Boolean ae2;
     /** Set when drawing GregTech power failures failed: the layer is off for the rest of the session. */
     private static boolean powerfailsBroken;
 
@@ -55,6 +56,22 @@ public final class Mods {
             thaumcraftNodes = Loader.isModLoaded("tcnodetracker") && Loader.isModLoaded("Thaumcraft");
         }
         return thaumcraftNodes;
+    }
+
+    /**
+     * AE2 wireless access points; see {@link WirelessLayer}. The GTNH fork's {@code ContainerWireless} with its synced
+     * range and {@code AEBaseContainer.getTileEntity} are what the client reads.
+     */
+    public static boolean isAe2Loaded() {
+        if (ae2 == null) {
+            ae2 = Loader.isModLoaded("appliedenergistics2") && supported(
+                "Applied Energistics 2",
+                "rv3",
+                hasMethod("appeng.container.implementations.ContainerWireless", "getRange")
+                    && hasMethod("appeng.container.AEBaseContainer", "getTileEntity")
+                    && hasMethod("appeng.tile.networking.TileWireless", "isActive"));
+        }
+        return ae2;
     }
 
     private static Boolean nodeLayerDelete;
@@ -94,7 +111,8 @@ public final class Mods {
         VISUAL_PROSPECTING,
         CLAIMS,
         THAUMCRAFT_NODES,
-        POWERFAILS
+        POWERFAILS,
+        AE2_WIRELESS
     }
 
     private static final Set<Addon> FAILED = new HashSet<>();
@@ -112,23 +130,31 @@ public final class Mods {
             finishTessellator();
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             GL11.glColor4f(1f, 1f, 1f, 1f);
-            switch (addon) {
-                case VISUAL_PROSPECTING:
-                    visualProspecting = false;
-                    break;
-                case CLAIMS:
-                    claims = false;
-                    break;
-                case THAUMCRAFT_NODES:
-                    thaumcraftNodes = false;
-                    break;
-                case POWERFAILS:
-                    powerfailsBroken = true;
-                    break;
-            }
-            if (FAILED.add(addon)) {
-                WayFarMap.LOG.error("The " + addon + " map layer failed and is turned off until restart", t);
-            }
+            fail(addon, t);
+        }
+    }
+
+    /** Turns the layer off for the session after the other mod threw, outside of drawing too. */
+    public static void fail(Addon addon, Throwable t) {
+        switch (addon) {
+            case VISUAL_PROSPECTING:
+                visualProspecting = false;
+                break;
+            case CLAIMS:
+                claims = false;
+                break;
+            case THAUMCRAFT_NODES:
+                thaumcraftNodes = false;
+                break;
+            case POWERFAILS:
+                powerfailsBroken = true;
+                break;
+            case AE2_WIRELESS:
+                ae2 = false;
+                break;
+        }
+        if (FAILED.add(addon)) {
+            WayFarMap.LOG.error("The " + addon + " map layer failed and is turned off until restart", t);
         }
     }
 

@@ -18,12 +18,14 @@ import WayFarMap.client.Teleport;
 import WayFarMap.client.WorldCleanup;
 import WayFarMap.client.integration.ClaimsLayer;
 import WayFarMap.client.integration.Mods;
+import WayFarMap.client.integration.WirelessLayer;
 import WayFarMap.client.map.ChunkLoadClient;
 import WayFarMap.client.map.MapManager;
 import WayFarMap.client.map.TeamMapClient;
 import WayFarMap.client.waypoint.DeathMarker;
 import WayFarMap.client.waypoint.WaypointRenderer;
 import WayFarMap.client.waypoint.WaypointShare;
+import WayFarMap.share.ShareNetwork;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -60,6 +62,12 @@ public class ClientProxy extends CommonProxy {
 
         if (Mods.isClaimsAvailable()) {
             ClaimsLayer.register();
+        }
+
+        if (Mods.isAe2Loaded()) {
+            FMLCommonHandler.instance()
+                .bus()
+                .register(WirelessLayer.INSTANCE);
         }
 
         FMLCommonHandler.instance()
@@ -105,5 +113,12 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void receiveChunkLoad(IMessage message) {
         ChunkLoadClient.INSTANCE.receive(message);
+    }
+
+    @Override
+    public void receiveWireless(IMessage message) {
+        if (Mods.isAe2Loaded()) {
+            WirelessLayer.INSTANCE.receive((ShareNetwork.Wireless) message);
+        }
     }
 }
